@@ -47,7 +47,8 @@ def test_header_override_headerless_file(tmp_path: Path):
         f,
         delimiter="\t",
         encoding_priority=["utf-8"],
-        header_override=["id", "name"]
+        header_override=["id", "name"],
+        has_header=False
     )
     # third row is a consecutive duplicate of the second, so we only keep 2
     assert len(rs) == 2

@@ -37,45 +37,60 @@ def _dedupe(names):
     return out
 
 
+def _looks_like_header(tokens: list[str]) -> bool:
+    return all(not any(ch.isdigit() for ch in t) for t in tokens)
+
+
 class CSVInput(BaseInput):
     def iter_rows(self) -> Iterable[Dict[str, Any]]:
         delimiter = self.opts.get("delimiter") or ","
         enc_priority: List[str] = self.opts.get("encoding_priority") or ["utf-8-sig", "utf-8", "latin-1"]
         header_override: Optional[List[str]] = self.opts.get("header_override")
+        has_header: bool = self.opts.get("has_header", True)
 
         fh = open_text_auto(self.source, enc_priority)
         try:
-            if header_override:
-                raw = header_override
-            else:
-                # skip prologue
-                while True:
-                    pos = fh.tell()
-                    line = fh.readline()
-                    if not line:
-                        return
-                    s = line.strip()
-                    if not s or s.startswith(_PROLOGUE_PREFIXES):
-                        continue
-                    fh.seek(pos)
-                    break
-                reader = csv.reader(fh, delimiter=delimiter, skipinitialspace=True)
+            # Skip prologue lines (#, blank)
+            while True:
+                pos = fh.tell()
+                line = fh.readline()
+                if not line:
+                    return
+                s = line.strip()
+                if not s or s.startswith(_PROLOGUE_PREFIXES):
+                    continue
+                fh.seek(pos)
+                break
+
+            reader = csv.reader(fh, delimiter=delimiter, skipinitialspace=True)
+
+            raw_header: List[str]
+            if has_header:
                 try:
-                    header = next(reader)
+                    file_hdr = next(reader)
                 except StopIteration:
                     return
-                header = [h.strip() for h in header]
-                raw = header
+                file_hdr = [h.strip() for h in file_hdr]
+                raw_header = header_override if header_override else file_hdr
+            else:
+                # Headerless file: do NOT consume a line. Require header_override.
+                if not header_override:
+                    raise ValueError("header_override required when has_header=False")
+                raw_header = header_override
 
-            # normalize + dedupe headers to PG-safe names
-            norm = [_pgsafe(h) for h in raw]
+            # Normalize + dedupe headers to PG-safe names
+            norm = [_pgsafe(h) for h in raw_header]
             fieldnames = _dedupe(norm)
+
+            # DictReader reads from the current position (after header line if has_header=True)
             dict_reader = csv.DictReader(
-                fh,
+                fh if has_header else fh,  # same handle; position differs
                 fieldnames=fieldnames,
                 delimiter=delimiter,
                 skipinitialspace=True,
             )
+            # IMPORTANT: never skip a row here. We already consumed the header when has_header=True,
+            # and for has_header=False we intentionally did not consume anything.
 
             prev_tuple = None
             fns = fieldnames

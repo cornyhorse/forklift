@@ -6,7 +6,7 @@
   "properties": {
     "id":    { "type": "integer", "minimum": 1 },
     "name":  { "type": "string",  "minLength": 1 },
-    "amt":   { "type": "string",  "pattern": "^-?\\d+(\\.\\d{1,2})?$" },  // parse to decimal downstream
+    "amt":   { "type": "string",  "pattern": "^-?\\d+(\\.\\d{1,2})?$" },
     "event_date": { "type": "string", "format": "date" }
   },
   "required": ["id", "name"],

@@ -1,0 +1,25 @@
+id,name,email,signup_date,active,amount_usd,country,status,discount_pct,notes
+1,Amy Adams,amy.adams@example.com,2024-01-05,true,19.99,US,active,0,First purchase
+2,Ben Baker,ben.baker@example.com,2024-01-06,true,49.00,US,active,10,Loyalty promo
+3,Chad Chen,chad.chen@example.com,2024-01-07,false,0.00,CA,inactive,0,Churned
+4,Dara Diaz,dara.diaz@example.com,2024-01-08,true,120.50,MX,active,5,High value
+5,Eli Evans,eli.evans@example.com,2024-01-09,true,9.99,US,prospect,0,Trial
+6,Fay Fang,fay.fang@example.co.uk,2024-02-01,true,39.95,GB,active,0,—
+7,Gus Green,gus.green@example.com,2024-02-02,true,18.75,US,active,0,Cross-sell
+8,Hui Huang,hui.huang@example.cn,2024-02-03,true,77.10,CN,active,15,Holiday sale
+9,Ian Irwin,ian.irwin@example.ie,2024-02-04,false,0.00,IE,inactive,0,Refunded
+10,Jia Jin,jia.jin@example.sg,2024-02-05,true,55.55,SG,active,0,APAC
+11,Kai Kim,kai.kim@example.kr,2024-03-01,true,12.00,KR,active,0,Addon
+12,Liz Lee,liz.lee@example.com,2024-03-02,true,25.00,US,active,0,Email opt-in
+13,Max Ma,max.ma@example.com,2024-03-03,true,30.00,US,active,20,Coupon
+14,Nia Nash,nia.nash@example.com,2024-03-04,true,60.00,US,active,0,Upsell
+15,Ola O'Neil,ola.oneil@example.ie,2024-03-05,true,15.49,IE,active,0,Name with apostrophe
+16,Pia Park,pia.park@example.com,2024-03-06,true,99.99,US,active,0,Big basket
+17,Qin Qi,qin.qi@example.cn,2024-03-07,true,8.00,CN,active,0,—
+18,Raj Rao,raj.rao@example.in,2024-03-08,true,22.25,IN,active,0,India launch
+19,Sue Sun,sue.sun@example.com,2024-03-09,true,11.11,US,active,0,Round trip
+20,Ted Tran,ted.tran@example.com,2024-03-10,true,200.00,US,active,0,Whale
+21,Amy Adams,amy.adams@example.com,2024-01-05,true,19.99,US,active,0,First purchase
+22,Ted Tran,ted.tran@example.com,2024-03-10,true,200.00,US,active,0,Whale
+23,Amy Adams,amy.adams@example.com,2024-01-05,true,19.99,US,active,0,First purchase
+24,Amy Adams,amy.adams@example.com,2024-01-05,true,19.99,US,active,0,First purchase

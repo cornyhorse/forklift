@@ -1,0 +1,5 @@
+Characteristics:
+	•	UTF-8, single header row, commas, no BOM, no prologue/footer.
+	•	ISO YYYY-MM-DD dates, true/false booleans, decimal amounts.
+	•	Headers already PG-safe to match your normalization (amount_usd, etc.).
+

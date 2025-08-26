@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-good_customers.json",
+  "title": "Good Customers CSV Row",
+  "type": "object",
+  "properties": {
+    "id":          { "type": "integer", "minimum": 1 },
+    "name":        { "type": "string",  "minLength": 1 },
+    "email":       { "type": "string",  "format": "email" },
+    "signup_date": { "type": "string",  "format": "date" },
+    "active":      { "type": "boolean" },
+    "amount_usd":  { "type": "number",  "minimum": 0 },
+    "country":     { "type": "string",  "minLength": 2, "maxLength": 2 },
+    "status":      { "type": "string",  "enum": ["active", "inactive", "prospect"] },
+    "discount_pct":{ "type": "number",  "minimum": 0, "maximum": 100 },
+    "notes":       { "type": "string" }
+  },
+  "required": ["id", "name", "email", "signup_date", "active", "amount_usd", "country", "status"],
+  "additionalProperties": false,
+
+  "x-csv": {
+    "delimiter": ",",
+    "quotechar": "\"",
+    "escapechar": "\\\\",
+    "multiline": false,
+    "header": { "mode": "stability_scan" },
+    "nulls": { "global": [""] },
+    "booleans": { "true": ["true", "1"], "false": ["false", "0"] },
+    "numberLocales": { "thousands": [","], "decimal": ["."], "negParens": false, "currency": [] },
+    "standardizeNames": "postgres",
+    "dedupeNames": "suffix"
+  }
+}

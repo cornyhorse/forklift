@@ -2,7 +2,7 @@
 pyarrow>=15,<18
 charset-normalizer>=3.3
 jsonschema>=4.22
-
+J
 # input types
 openpyxl>=3.1        # Excel xlsx
 xlrd>=2.0            # legacy .xls (no bundled xlrd<2)

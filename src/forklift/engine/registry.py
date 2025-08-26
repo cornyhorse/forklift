@@ -1,39 +1,63 @@
 from __future__ import annotations
-from typing import Type, Dict, List, Optional
+from typing import Type, Dict, Any
 from ..inputs.base import BaseInput
 from ..outputs.base import BaseOutput
-from ..preprocessors.base import Preprocessor
-from ..inputs.csv_input import CSVInput
-from ..inputs.fwf_input import FWFInput
-from ..inputs.excel_input import ExcelInput
-from ..outputs.parquet_output import PQOutput
-from ..preprocessors.type_coercion import TypeCoercion
-from ..preprocessors.footer_filter import FooterFilter
-
-_INPUTS: Dict[str, Type[BaseInput]] = {
-    "csv": CSVInput,
-    "fwf": FWFInput,
-    "excel": ExcelInput,
-}
-_OUTPUTS: Dict[str, Type[BaseOutput]] = {
-    "parquet": PQOutput,
-}
-_PREPROCS: Dict[str, Type[Preprocessor]] = {
-    "type_coercion": TypeCoercion,
-    "footer_filter": FooterFilter,
-    # …
-}
-
 
 def get_input_cls(kind: str) -> Type[BaseInput]:
-    return _INPUTS[kind]
-
+    if kind == "csv":
+        from ..inputs.csv_input import CSVInput
+        return CSVInput
+    raise KeyError(f"Unknown input kind: {kind}")
 
 def get_output_cls(kind: str) -> Type[BaseOutput]:
-    return _OUTPUTS[kind]
+    if kind == "parquet":
+        from ..outputs.parquet_output import PQOutput
+        return PQOutput
+    raise KeyError(f"Unknown output kind: {kind}")
 
+def _extract_types_and_nulls(schema: Dict[str, Any] | None):
+    if not schema:
+        return {}, {}
+    props = schema.get("properties", {})
+    types: Dict[str, str] = {}
+    for k, spec in props.items():
+        t = spec.get("type")
+        if t in ("number", "integer"):
+            types[k] = "number"
+        elif t == "string" and spec.get("format") == "date":
+            types[k] = "date"
+    nulls: Dict[str, list[str]] = {}
+    xcsv = (schema.get("x-csv") or {})
+    null_cfg = (xcsv.get("nulls") or {})
+    percol = (null_cfg.get("perColumn") or {})
+    for k, vals in percol.items():
+        nulls[k] = list(vals)
+    global_nulls = list(null_cfg.get("global") or [])
+    for k in types:
+        nulls.setdefault(k, [])
+        nulls[k].extend(global_nulls)
+    return types, nulls
 
-def get_preprocessors(names: Optional[List[str]]) -> List[Preprocessor]:
+def get_preprocessors(names, schema: Dict[str, Any] | None = None):
     if not names:
         return []
-    return [_PREPROCS[n]() for n in names]
+    mapping = {}
+    try:
+        from ..preprocessors.type_coercion import TypeCoercion
+        mapping["type_coercion"] = TypeCoercion
+    except Exception:
+        pass
+    try:
+        from ..preprocessors.footer_filter import FooterFilter
+        mapping["footer_filter"] = FooterFilter
+    except Exception:
+        pass
+
+    types, nulls = _extract_types_and_nulls(schema)
+    out = []
+    for n in names:
+        if n == "type_coercion" and "type_coercion" in mapping:
+            out.append(mapping[n](types=types, nulls=nulls))
+        elif n in mapping:
+            out.append(mapping[n]())
+    return out

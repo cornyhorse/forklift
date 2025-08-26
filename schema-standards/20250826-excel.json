@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-excel.json",
+  "title": "Forklift Excel Row",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer" },
+    "name": { "type": "string" },
+    "event_date": { "type": "string", "format": "date" },
+    "amount": { "type": "number" }
+  },
+  "required": ["id", "name"],
+  "additionalProperties": false,
+
+  "x-excel": {
+    "sheet": { "name": "Sheet1" },       // or { "index": 0 } or { "regex": "^Data_\\d{4}$" }
+    "valuesOnly": true,                   // read computed values, not formulas
+    "dateSystem": "1900",                 // "1900" or "1904"
+    "header": { "mode": "stability_scan" },
+    "nulls": { "global": ["", "NA", "N/A"] }
+  }
+}

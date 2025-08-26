@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forklift"
+version = "0.1.0"
+description = "Standardized ingestion & cleanup of messy tabular files (CSV/Excel/FWF) into Parquet."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Matthew Kingsbury" }]
+keywords = ["csv", "excel", "fixed-width", "parquet", "ingestion", "etl", "data-engineering"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Utilities"
+]
+dependencies = [
+    # keep core minimal; you’ll likely add more as you implement
+    "pyarrow>=15",
+    "charset-normalizer>=3.3",
+    "typing-extensions>=4.8; python_version<'3.11'",
+]
+
+[project.optional-dependencies]
+excel = ["openpyxl>=3.1", "xlrd>=2.0"]
+s3 = ["boto3>=1.34", "smart-open>=7.0"]
+validate = ["jsonschema>=4.22", "frictionless>=5.16", "pandera>=0.20"]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.10", "build>=1.2", "twine>=5.1"]
+
+[project.urls]
+Homepage = "https://github.com/cornyhorse/forklift"
+Repository = "https://github.com/cornyhorse/forklift"
+Issues = "https://github.com/cornyhorse/forklift/issues"
+
+[project.scripts]
+forklift = "forklift.cli:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E203"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]

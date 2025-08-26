@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-csv.json",
+  "title": "Forklift CSV Row",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "dob": { "type": "string", "format": "date" },
+    "email": { "type": "string", "format": "email", "x-private": true },
+    "amount": { "type": "number", "minimum": 0 }
+  },
+  "required": ["id", "name", "amount"],
+  "additionalProperties": false,
+
+  "x-csv": {
+    "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
+    "delimiter": "auto",
+    "quotechar": "\"",
+    "escapechar": "\\\\",
+    "multiline": true,
+    "header": { "mode": "stability_scan", "keywords": ["id", "name", "amount"] },
+    "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" },
+    "nulls": {
+      "global": ["", "NA", "N/A", "-"],
+      "perColumn": { "amount": ["", "NA"] }
+    },
+    "case": { "standardizeNames": "postgres", "dedupeNames": "suffix" }
+  }
+}

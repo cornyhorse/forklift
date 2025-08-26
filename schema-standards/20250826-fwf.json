@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-fwf.json",
+  "title": "Forklift FWF Row",
+  "type": "object",
+  "properties": {
+    "id":    { "type": "integer", "minimum": 1 },
+    "name":  { "type": "string",  "minLength": 1 },
+    "amt":   { "type": "string",  "pattern": "^-?\\d+(\\.\\d{1,2})?$" },  // parse to decimal downstream
+    "event_date": { "type": "string", "format": "date" }
+  },
+  "required": ["id", "name"],
+  "additionalProperties": false,
+
+  "x-fwf": {
+    "encoding": "utf-8",
+    "trim": { "lstrip": false, "rstrip": true },
+    "fields": [
+      { "name": "id",   "start": 1,  "length": 10, "align": "right", "pad": " " },
+      { "name": "name", "start": 11, "length": 30, "align": "left",  "pad": " " },
+      { "name": "amt",  "start": 41, "length": 12, "align": "right", "pad": " " },
+      { "name": "event_date", "start": 53, "length": 10, "align": "left", "pad": " " }
+    ],
+    "nulls": { "perColumn": { "amt": ["", "          "] } },
+    "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
+  }
+}

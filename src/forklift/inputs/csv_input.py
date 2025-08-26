@@ -59,7 +59,7 @@ class CSVInput(BaseInput):
                         continue
                     fh.seek(pos)
                     break
-                reader = csv.reader(fh, delimiter=delimiter)
+                reader = csv.reader(fh, delimiter=delimiter, skipinitialspace=True)
                 try:
                     header = next(reader)
                 except StopIteration:
@@ -70,7 +70,12 @@ class CSVInput(BaseInput):
             # normalize + dedupe headers to PG-safe names
             norm = [_pgsafe(h) for h in raw]
             fieldnames = _dedupe(norm)
-            dict_reader = csv.DictReader(fh, fieldnames=fieldnames, delimiter=delimiter)
+            dict_reader = csv.DictReader(
+                fh,
+                fieldnames=fieldnames,
+                delimiter=delimiter,
+                skipinitialspace=True,
+            )
 
             prev_tuple = None
             fns = fieldnames

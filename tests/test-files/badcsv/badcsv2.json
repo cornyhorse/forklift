@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-utf8sig_extra_cols.json",
+  "title": "Forklift CSV Row (utf8sig_extra_cols)",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer" },
+    "name": { "type": "string" },
+    "name_2": { "type": "string" },
+    "amount_usd": { "type": "number", "minimum": 0 },
+    "active": { "type": "boolean" }
+  },
+  "required": ["id","amount_usd"],
+  "additionalProperties": false,
+
+  "x-csv": {
+    "encodingPriority": ["utf-8-sig","utf-8","latin-1"],
+    "delimiter": ",",
+    "header": { "mode": "stability_scan" },
+    "footer": { "mode": "regex", "pattern": "^TOTAL\\b" },
+    "dedupeNames": "suffix",
+    "rename": { "Amount USD": "amount_usd", "Active": "active", "Name": "name" },
+    "order": ["id","name","name_2","amount_usd","active"],
+    "extraColumns": "drop",
+    "nulls": { "global": ["", " "] },
+    "booleans": { "true": ["TRUE","yes","1"], "false": ["FALSE","no","0"] }
+  }
+}

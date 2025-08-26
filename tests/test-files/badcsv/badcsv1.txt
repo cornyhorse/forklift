@@ -1,0 +1,75 @@
+# Vendor Export v3.7
+# File: customers_a.csv
+# Generated: 2025-08-20 10:22:11
+# Notes: First 4 lines are metadata; header starts below.
+id,name,email,signup_date,active,amount,country,status,discount_pct,notes
+1,Jane Doe,jane@example.com,2024-01-15,Yes,125.50,US,active,0,"Normal row"
+2,John Smith,john@example.org,2023/07/01,TRUE,"1,230.75",US,active,5,"Thousands sep"
+3,Ana María,ana@example.mx,15/08/2024,1,300,MX,active,,"UTF-8 name; null discount"
+4,Bob Lee,,2024-03-12,0,0,CA,inactive,0,"Missing email -> PII null ok"
+5,"O'Reilly, Tim",tim@example.com,2024-04-01,False,75.00,US,prospect,0,"Quoted name with comma"
+6,Mary ""M"",mary@example.co.uk,2024-05-05,TRUE,88.90,GB,active,10,"Embedded ""quote"""
+7,Wei Zhang,wei@example.cn,2024-06-30,true,(123.45),CN,active,0,"Negative in parens"
+8,François Dupont,francois@example.fr,2024-02-29,yes,€19,FR,active,0,"Currency symbol euro"
+9,Giulia Rossi,giulia@example.it,2024-07-10,No,19,IT,inactive,0,"Boolean variants"
+10,Carlos Nunez,carlos@example.es,2024-08-01,,12.34,ES,active,, "Blank active -> null"
+11,Sara\nConnor,sara@example.com,2024-04-20,yes,44.10,US,active,0,"Name with embedded newline"
+12,Invalid Amount,ia@example.com,2024-04-20,yes,abc,US,active,0,"Bad amount -> reject"
+13,Too Few Columns,tf@example.com,2024-05-01,yes,55.5,US,active,          ,    # fewer columns (trim/NULL)
+14,Extra Cols Row,extra@example.com,2024-05-02,yes,66.6,US,active,0,"extra1",EXTRANEOUS
+15,Null Tokens,nulls@example.com,2024-05-03,yes,NA,US,active,NA,"NA should be NULL"
+16,Weird Space,space@example.com,2024-05-04,yes,  77.70 ,US,active,  , "NBSP/trim"
+17,Email PII,masked@secret.com,2024-05-05,yes,10.00,US,active,0,"Should be masked if PII=mask"
+18,Footer Totals,footer@example.com,2024-05-06,yes,10.00,US,active,0,"Last real row"
+TOTAL, count=18, amount=2072.34
+SUMMARY: end of report
+
+
+  , , ,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

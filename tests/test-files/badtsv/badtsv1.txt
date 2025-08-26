@@ -1,0 +1,17 @@
+1001	Jane Doe	2024-01-01	Region-1	19.99	Yes
+1002	John Smith	2024-01-02	Region-2	-5.00	Yes
+1003	Mary M	2024/01/03	Region-1	12,345.67	TRUE
+1004	Bad Money	2024-01-04	Region-3	abc	No
+1005	EmptyRegion	2024-01-05		10.00	No
+1006	BadDate	baddate	Region-1	9.99	Yes
+1007	ExtraCols	2024-01-07	Region-1	7.77	Yes	EXTRA
+1008	DupeName	2024-01-08	Region-1	1.23	No
+1009	DupeName	2024-01-08	Region-1	1.23	No
+1010	Spaces   	2024-01-10	Region-2	  4.56  	Yes
+1011	NBSP	2024-01-11	Region-2	 8.90	No
+1012	NullAmt	2024-01-12	Region-3	NA	Yes
+1013	NullBool	2024-01-13	Region-3	10.00
+1014	YesLower	2024-01-14	Region-2	11.00	yes
+1015	NoUpper	2024-01-15	Region-1	12.00	NO
+1016	Footer	2024-01-16	Region-1	0.00	Yes
+TOTAL rows=16 amount=???

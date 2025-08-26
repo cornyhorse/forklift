@@ -1,0 +1,9 @@
+id,Name,Name,Amount USD,Active
+1,Amy,,10.00,TRUE
+2,Ben,Ben B,20.00,yes
+3,Cat,Cat C,abc,yes
+4,Дмитрий,,30,No
+5,Zoë,Zoë Z,40.50,1
+6,空白,, ,0
+7,ExtraCol,,12.34,TRUE,EXTRA
+TOTAL 7 rows

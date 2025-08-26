@@ -1,0 +1,9 @@
+Expected outcomes (baseline policy: extra columns → merge_last)
+	•	Rows kept: 1–11, 13–18 → 17 kept (12 rejected).
+	•	Reject row 12 (amount=abc) → type coercion failure.
+	•	Footer lines dropped (not counted).
+	•	Row 14 has an extra column → merged into notes (or dropped if you choose drop).
+	•	NA tokens → NULL.
+	•	Locale/paren/currency normalized into numeric amount.
+	•	Email masked if pii.onDetect=mask.
+	•	Embedded newline in row 11 preserved within name.

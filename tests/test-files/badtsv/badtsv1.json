@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-sales_tab_noheader.json",
+  "title": "Forklift TSV Row (sales_tab_noheader)",
+  "type": "object",
+  "properties": {
+    "order_id": { "type": "integer" },
+    "customer": { "type": "string" },
+    "order_date": { "type": "string", "format": "date" },
+    "region": { "type": "string" },
+    "amount": { "type": "number" },
+    "fulfilled": { "type": "boolean" }
+  },
+  "required": ["order_id","order_date","amount"],
+  "additionalProperties": false,
+
+  "x-csv": {
+    "delimiter": "\\t",
+    "header": { "mode": "provided", "columns": ["order_id","customer","order_date","region","amount","fulfilled"] },
+    "footer": { "mode": "regex", "pattern": "^TOTAL\\b" },
+    "nulls": { "global": ["", "NA"] },
+    "booleans": { "true": ["Yes","TRUE","yes","1"], "false": ["No","FALSE","no","0"] },
+    "numberLocales": { "thousands": [","], "decimal": ["."] },
+    "dedupe": { "keys": ["order_id","order_date"], "tieBreak": "first" },
+    "extraColumns": "drop",
+    "standardizeNames": "postgres",
+    "rename": { "customer": "customer_name" },
+    "order": ["order_id","order_date","customer_name","region","amount","fulfilled"]
+  }
+}

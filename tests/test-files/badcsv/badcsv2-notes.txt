@@ -1,0 +1,7 @@
+Notes this file triggers
+	•	BOM at start (must prefer utf-8-sig).
+	•	Duplicate column name Name → policy dedupeNames: suffix → name, name_2.
+	•	Amount USD should be renamed to amount_usd and standardized to PG-safe.
+	•	Numeric coercion with blanks and abc (row 3 reject).
+	•	Extra column in row 7.
+	•	Footer detection.

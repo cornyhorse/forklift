@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-customers_a.json",
+  "title": "Forklift CSV Row (customers_a)",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "email": { "type": "string", "format": "email", "x-private": true },
+    "signup_date": { "type": "string", "format": "date" },
+    "active": { "type": "boolean" },
+    "amount": { "type": "number", "minimum": 0 },
+    "country": { "type": "string", "enum": ["US","CA","MX","GB","CN","FR","IT","ES"] },
+    "status": { "type": "string", "enum": ["active","inactive","prospect"] },
+    "discount_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+    "notes": { "type": "string" }
+  },
+  "required": ["id","name","amount","country","status"],
+  "additionalProperties": false,
+
+  "x-csv": {
+    "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
+    "delimiter": ",",
+    "quotechar": "\"",
+    "escapechar": "\\\\",
+    "multiline": true,
+    "header": { "mode": "stability_scan", "keywords": ["id","email","amount"] },
+    "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" },
+    "nulls": { "global": ["", "NA", "N/A", "-"] },
+    "booleans": { "true": ["Y","YES","TRUE","1","true","Yes"], "false": ["N","NO","FALSE","0","false","No"] },
+    "numberLocales": { "thousands": [","], "decimal": [".", ","], "negParens": true, "currency": ["$", "€"] },
+    "case": { "standardizeNames": "postgres", "dedupeNames": "suffix" },
+    "pii": { "detect": ["email"], "onDetect": "mask" },
+    "rowRules": [
+      { "expr": "amount >= 0", "onFail": "reject" }
+    ]
+  }
+}

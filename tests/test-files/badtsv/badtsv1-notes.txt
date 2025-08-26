@@ -1,0 +1,13 @@
+Assumed target headers (provided by CLI or schema):
+order_id,customer,order_date,region,amount,fulfilled
+
+Expected outcomes
+	•	Keep: all rows except:
+	•	1002 has negative amount → if you enforce amount >= 0, reject; else keep.
+	•	1004 reject (amount=abc).
+	•	1006 reject (order_date=baddate).
+	•	Deduplicate 1008/1009 by order_id+order_date → keep first, drop second.
+	•	Row 1007 has extra col → drop extra.
+	•	Trim/normalize whitespace (row 1010/1011).
+	•	NA → NULL; blank fulfilled → NULL.
+	•	Footer line dropped.

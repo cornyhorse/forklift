@@ -1,0 +1,1 @@
+pip install -e . && pytest --cache-clear &&  pytest -q --cov=forklift --cov-report=html

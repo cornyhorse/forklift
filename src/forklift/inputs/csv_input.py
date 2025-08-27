@@ -31,22 +31,30 @@ def _dedupe_column_names(names: list[str]) -> list[str]:
     """
     seen_counts: dict[str, int] = {}
     deduped: list[str] = []
+    used_names: set[str] = set()
 
     for name in names:
         base_name = name
         count = seen_counts.get(base_name, 0)
 
-        if count == 0:
+        if count == 0 and base_name not in used_names:
             deduped.append(base_name)
             seen_counts[base_name] = 1
+            used_names.add(base_name)
         else:
-            # Generate a new unique name with incremental suffix
-            new_name = f"{base_name}_{count}"
-            while new_name in seen_counts:
-                count += 1
-                new_name = f"{base_name}_{count}"
+            new_name = f"{base_name}_1"  # Start at _1 for first duplicate
+            while new_name in used_names:
+                # Find the last numeric suffix and increment it
+                match = re.match(r"(.+?)(_\d+)+$", new_name)
+                if match:
+                    prefix = match.group(1)
+                    suffixes = re.findall(r"_\d+", new_name)
+                    last_num = int(suffixes[-1][1:]) + 1
+                    new_name = f"{prefix}{''.join(suffixes[:-1])}_{last_num}"
+
             deduped.append(new_name)
             seen_counts[base_name] = count + 1
+            used_names.add(new_name)
 
     return deduped
 
@@ -55,7 +63,8 @@ def _looks_like_header(tokens: list[str]) -> bool:
     return all(not any(ch.isdigit() for ch in t) for t in tokens)
 
 
-def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None, max_scan_rows: Optional[int] = 100) -> None:
+def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
+                         max_scan_rows: Optional[int] = 100) -> None:
     """
     Advance the file_handle past any prologue lines, which are lines that are either blank,
     start with any of the prefixes defined in _PROLOGUE_PREFIXES, or (if header_row is provided)
@@ -164,7 +173,8 @@ class CSVInput(BaseInput):
         elif header_mode == "absent":
             has_header = False
         else:
-            has_header = self.opts.get("has_header", True)  # fallback for legacy
+            has_header = self.opts.get("has_header", True)
+
         header_override: Optional[List[str]] = self.opts.get("header_override")
         header_scan_limit = self.opts.get("header_scan_limit", 100)
         delimiter = self.opts.get("delimiter") or ","
@@ -180,8 +190,6 @@ class CSVInput(BaseInput):
                 if header_row_for_detection:
                     file_handle.seek(0)  # Reset to start and skip prologue lines without header detection
                     _skip_prologue_lines(file_handle, None, header_scan_limit)
-                else:
-                    raise
             csv_reader = get_csv_reader(file_handle, delimiter)
             raw_header: List[str] = self._get_raw_header(csv_reader, has_header, header_override)
 
@@ -207,8 +215,16 @@ class CSVInput(BaseInput):
                 first_value = (row.get(first_fieldname) or "").strip() if first_fieldname else ""
                 if any(first_value.startswith(prefix) for prefix in _FOOTER_PREFIXES):
                     continue
+
                 # Skip empty rows
-                if not any((value or "").strip() for value in row.values()):
+                def is_empty(val):
+                    if val is None:
+                        return True
+                    if isinstance(val, list):
+                        return all(is_empty(v) for v in val)
+                    return (str(val).strip() == "")
+
+                if not any(not is_empty(value) for value in row.values()):
                     continue
                 # Simple consecutive dedupe
                 row_tuple = tuple((key, row.get(key, "")) for key in fieldnames)
@@ -219,7 +235,8 @@ class CSVInput(BaseInput):
         finally:
             file_handle.close()
 
-    def _get_raw_header(self, csv_reader: Iterator[List[str]], has_header: bool, header_override: Optional[List[str]]) -> List[str]:
+    def _get_raw_header(self, csv_reader: Iterator[List[str]], has_header: bool,
+                        header_override: Optional[List[str]]) -> List[str]:
         """
         Determine the raw header row for the CSV file.
 

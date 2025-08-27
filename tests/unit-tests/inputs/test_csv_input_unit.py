@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from forklift.inputs.csv_input import CSVInput, _dedupe_column_names, _looks_like_header, _skip_prologue_lines, \
+from forklift.inputs.csv_input import CSVInput, _dedupe_column_names, _skip_prologue_lines, \
     get_csv_reader
 
 
@@ -202,20 +202,6 @@ def test_dedupe_column_names_suffix_collision():
     # e.g., x, x, x_1, x should produce x, x_1, x_1_1, x_2
     result = _dedupe_column_names(["x", "x", "x_1", "x"])
     assert result == ["x", "x_1", "x_1_1", "x_2"]
-
-
-def test_looks_like_header_some_digits():
-    """
-    Tests _looks_like_header with some tokens containing digits, expecting False.
-    """
-    assert _looks_like_header(["id", "name", "2024"]) is False
-
-
-def test_looks_like_header_empty():
-    """
-    Tests _looks_like_header with an empty list, expecting True.
-    """
-    assert _looks_like_header([]) is True
 
 
 def test_skip_prologue_lines_skips_comments_and_blanks():

@@ -1,4 +1,4 @@
-from forklift.inputs.csv_input import _dedupe_column_names, _looks_like_header, _skip_prologue_lines, get_csv_reader
+from forklift.inputs.csv_input import _dedupe_column_names, _skip_prologue_lines, get_csv_reader
 import io
 import pytest
 
@@ -46,11 +46,6 @@ def test_dedupe_column_names_fallback_non_numeric_suffix():
         "foo_abc", "foo_abc_1", "foo_abc_abc", "foo_abc_abc_1", "foo_abc_abc_abc", "foo_abc_abc_abc_1"
     ]
 
-def test_looks_like_header_with_digits():
-    tokens = ["id", "name1", "amount2"]
-    assert not _looks_like_header(tokens)
-    tokens2 = ["id", "name", "amount"]
-    assert _looks_like_header(tokens2)
 
 def test_skip_prologue_lines_header_not_found_scan_limit():
     fh = io.StringIO("# comment\n# another\nnot_header\n")

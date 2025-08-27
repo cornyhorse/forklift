@@ -78,30 +78,30 @@ def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
     Raises:
         ValueError: If header_row is provided but not found in the file within scan limit.
     """
-    scanned = 0
+    line_count = 0
     while True:
-        if max_scan_rows is not None and scanned >= max_scan_rows:
+        if max_scan_rows is not None and line_count >= max_scan_rows:
             if header_row:
                 raise ValueError(f"Provided header_row not found in first {max_scan_rows} rows.")
             return
-        position = file_handle.tell()
-        line = file_handle.readline()
-        if not line:
+        header_candidate_position = file_handle.tell()
+        current_line = file_handle.readline()
+        if not current_line:
             if header_row:
                 raise ValueError("Provided header_row not found in file.")
             return
-        scanned += 1
-        line_stripped = line.strip()
-        if not line_stripped or line_stripped.startswith(_PROLOGUE_PREFIXES):
+        line_count += 1
+        current_line_stripped = current_line.strip()
+        if not current_line_stripped or current_line_stripped.startswith(_PROLOGUE_PREFIXES):
             continue
         if header_row:
-            tokens = [cell.strip() for cell in line.split(",")]
-            if tokens == header_row:
-                file_handle.seek(position)
+            candidate_tokens = [cell.strip() for cell in current_line.split(",")]
+            if candidate_tokens == header_row:
+                file_handle.seek(header_candidate_position)
                 break
             else:
                 continue
-        file_handle.seek(position)
+        file_handle.seek(header_candidate_position)
         break
 
 
@@ -203,25 +203,25 @@ class CSVInput(BaseInput):
         file_handle = open_text_auto(self.source, encoding_priority)
         try:
             dict_reader, fieldnames = self._prepare_csv_reader_and_fieldnames(file_handle)
-            previous_row_tuple = None
-            first_fieldname = fieldnames[0] if fieldnames else None
-            for row in dict_reader:
-                first_value = (row.get(first_fieldname) or "").strip() if first_fieldname else ""
-                if any(first_value.startswith(prefix) for prefix in _FOOTER_PREFIXES):
+            previous_row_as_tuple = None
+            first_column_name = fieldnames[0] if fieldnames else None
+            for row_dict in dict_reader:
+                first_column_value = (row_dict.get(first_column_name) or "").strip() if first_column_name else ""
+                if any(first_column_value.startswith(footer_prefix) for footer_prefix in _FOOTER_PREFIXES):
                     continue
-                def is_empty(val):
-                    if val is None:
+                def is_empty(value):
+                    if value is None:
                         return True
-                    if isinstance(val, list):
-                        return all(is_empty(v) for v in val)
-                    return (str(val).strip() == "")
-                if not any(not is_empty(value) for value in row.values()):
+                    if isinstance(value, list):
+                        return all(is_empty(v) for v in value)
+                    return str(value).strip() == ""
+                if not any(not is_empty(cell_value) for cell_value in row_dict.values()):
                     continue
-                row_tuple = tuple((key, row.get(key, "")) for key in fieldnames)
-                if previous_row_tuple is not None and row_tuple == previous_row_tuple:
+                current_row_as_tuple = tuple((column_name, row_dict.get(column_name, "")) for column_name in fieldnames)
+                if previous_row_as_tuple is not None and current_row_as_tuple == previous_row_as_tuple:
                     continue
-                previous_row_tuple = row_tuple
-                yield row
+                previous_row_as_tuple = current_row_as_tuple
+                yield row_dict
         finally:
             file_handle.close()
 

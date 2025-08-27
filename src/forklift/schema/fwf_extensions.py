@@ -42,11 +42,9 @@ class FWFRowParser:
             field_length (int): Number of characters to extract.
 
         Returns:
-            str: The extracted field value, truncated to field_length if necessary.
+            str: The extracted field value.
         """
         field_value = decoded_text[start:start + field_length]
-        if len(field_value) > field_length:
-            field_value = field_value[:field_length]
         return field_value
 
     @staticmethod

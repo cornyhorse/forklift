@@ -3,20 +3,26 @@
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-excel.json",
   "title": "Forklift Excel Row",
   "type": "object",
+
   "properties": {
-    "id": { "type": "integer" },
-    "name": { "type": "string" },
-    "event_date": { "type": "string", "format": "date" },
-    "amount": { "type": "number" }
+    "id":        { "type": "integer" },
+    "name":      { "type": "string" },
+    "event_date":{ "type": "string", "format": "date" },
+    "amount":    { "type": "number" }
   },
   "required": ["id", "name"],
   "additionalProperties": false,
 
   "x-excel": {
-    "sheet": { "name": "Sheet1" },       // or { "index": 0 } or { "regex": "^Data_\\d{4}$" }
-    "valuesOnly": true,                   // read computed values, not formulas
-    "dateSystem": "1900",                 // "1900" or "1904"
-    "header": { "mode": "stability_scan" },
-    "nulls": { "global": ["", "NA", "N/A"] }
+    "valuesOnly": true,          // read computed values, not formulas
+    "dateSystem": "1900",        // default; per-sheet override allowed
+    "nulls": { "global": ["", "NA", "N/A"] },
+
+    "sheets": [
+      {
+        "select": { "name": "Sheet1" }   // OR { "index": 0 } OR { "regex": "^Data_\\d{4}$" }
+      }
+      // ... add more sheet blocks as needed
+    ]
   }
 }

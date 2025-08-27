@@ -147,6 +147,43 @@ def get_csv_reader(file_handle: Any, delimiter: str) -> Iterator[List[str]]:
 
 
 class CSVInput(BaseInput):
+    def _prepare_csv_reader_and_fieldnames(self, file_handle):
+        header_mode = self.opts.get("header_mode", "auto")  # "auto", "present", "absent"
+        if header_mode == "present":
+            has_header = True
+        elif header_mode == "absent":
+            has_header = False
+        else:
+            has_header = self.opts.get("has_header", True)
+
+        header_override: Optional[List[str]] = self.opts.get("header_override")
+        header_scan_limit = self.opts.get("header_scan_limit", 100)
+        delimiter = self.opts.get("delimiter") or ","
+        # Clarify header detection and override logic
+        header_row_for_detection = header_override if has_header and header_override else None
+
+        try:
+            try:
+                _skip_prologue_lines(file_handle, header_row_for_detection, header_scan_limit)
+            except ValueError:
+                if header_mode == "auto" and header_row_for_detection:
+                    file_handle.seek(0)
+                    _skip_prologue_lines(file_handle, None, header_scan_limit)
+            csv_reader = get_csv_reader(file_handle, delimiter)
+            raw_header: List[str] = self._get_raw_header(csv_reader, has_header, header_override)
+            normalized_headers = [_pgsafe(header) for header in raw_header]
+            fieldnames = _dedupe_column_names(normalized_headers)
+            dict_reader = csv.DictReader(
+                file_handle if has_header else file_handle,
+                fieldnames=fieldnames,
+                delimiter=delimiter,
+                skipinitialspace=True,
+            )
+            return dict_reader, fieldnames
+        except Exception as e:
+            file_handle.close()
+            raise e
+
     def iter_rows(self) -> Iterable[Dict[str, Any]]:
         """
         Iterate over rows from the CSV source, skipping prologue lines, deduplicating consecutive identical rows,
@@ -166,67 +203,24 @@ class CSVInput(BaseInput):
 
         :return: An iterator of dictionaries mapping field names to values for each valid row.
         """
-        header_mode = self.opts.get("header_mode", "auto")  # "auto", "present", "absent"
-        # Determine header handling based on mode
-        if header_mode == "present":
-            has_header = True
-        elif header_mode == "absent":
-            has_header = False
-        else:
-            has_header = self.opts.get("has_header", True)
-
-        header_override: Optional[List[str]] = self.opts.get("header_override")
-        header_scan_limit = self.opts.get("header_scan_limit", 100)
-        delimiter = self.opts.get("delimiter") or ","
         encoding_priority: List[str] = self.opts.get("encoding_priority") or ["utf-8-sig", "utf-8", "cp1252", "latin-1"]
-        # Clarify header detection and override logic
-        header_row_for_detection = header_override if has_header and header_override else None
         file_handle = open_text_auto(self.source, encoding_priority)
         try:
-            try:
-                _skip_prologue_lines(file_handle, header_row_for_detection, header_scan_limit)
-            except ValueError:
-                # If header_override is provided but not found, proceed and use override for field naming
-                if header_row_for_detection:
-                    file_handle.seek(0)  # Reset to start and skip prologue lines without header detection
-                    _skip_prologue_lines(file_handle, None, header_scan_limit)
-            csv_reader = get_csv_reader(file_handle, delimiter)
-            raw_header: List[str] = self._get_raw_header(csv_reader, has_header, header_override)
-
-            # Normalize + dedupe headers to PG-safe names
-            normalized_headers = [_pgsafe(header) for header in raw_header]
-            fieldnames = _dedupe_column_names(normalized_headers)
-
-            # DictReader reads from the current position (after header line if has_header=True)
-            dict_reader = csv.DictReader(
-                file_handle if has_header else file_handle,  # same handle; position differs
-                fieldnames=fieldnames,
-                delimiter=delimiter,
-                skipinitialspace=True,
-            )
-            # IMPORTANT: never skip a row here. We already consumed the header when has_header=True,
-            # and for has_header=False we intentionally did not consume anything.
-
+            dict_reader, fieldnames = self._prepare_csv_reader_and_fieldnames(file_handle)
             previous_row_tuple = None
             first_fieldname = fieldnames[0] if fieldnames else None
-
             for row in dict_reader:
-                # Skip footer rows
                 first_value = (row.get(first_fieldname) or "").strip() if first_fieldname else ""
                 if any(first_value.startswith(prefix) for prefix in _FOOTER_PREFIXES):
                     continue
-
-                # Skip empty rows
                 def is_empty(val):
                     if val is None:
                         return True
                     if isinstance(val, list):
                         return all(is_empty(v) for v in val)
                     return (str(val).strip() == "")
-
                 if not any(not is_empty(value) for value in row.values()):
                     continue
-                # Simple consecutive dedupe
                 row_tuple = tuple((key, row.get(key, "")) for key in fieldnames)
                 if previous_row_tuple is not None and row_tuple == previous_row_tuple:
                     continue

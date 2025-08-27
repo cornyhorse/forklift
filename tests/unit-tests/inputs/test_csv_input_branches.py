@@ -67,3 +67,16 @@ def test_skip_empty_rows(tmp_path: Path):
     rows = list(inp.iter_rows())
     # Only the two data rows should be present
     assert rows == [{"a": "1", "b": "2"}, {"a": "3", "b": "4"}]
+
+
+def test_header_mode_absent_no_override_raises(tmp_path: Path):
+    """
+    Ensure ValueError is raised when header_mode='absent' and no header_override is provided.
+    This covers the exception branch in _prepare_csv_reader_and_fieldnames.
+    """
+    f = tmp_path / "noheader.csv"
+    _write(f, "1,2\n3,4\n")
+    inp = CSVInput(source=str(f), delimiter=",", encoding_priority=["utf-8"], header_mode="absent")
+    import pytest
+    with pytest.raises(ValueError):
+        list(inp.iter_rows())

@@ -6,6 +6,7 @@ jsonschema>=4.22
 # input types
 openpyxl>=3.1        # Excel xlsx
 xlrd>=2.0            # legacy .xls (no bundled xlrd<2)
+pandas
 
 # optional S3 I/O
 boto3>=1.34

@@ -9,7 +9,7 @@ is performed at the output stage, not during parsing.
 :method iter_rows: Yields parsed rows as dictionaries using the provided fwf_spec.
 """
 from .base import BaseInput
-from ..schema.fwf_extensions import parse_fwf_row
+from ..schema.fwf_schema_importer import parse_fwf_row
 
 
 class FWFInput(BaseInput):

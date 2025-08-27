@@ -1,6 +1,6 @@
 import pytest
 import json
-from forklift.schema.fwf_extensions import parse_fwf_row, FWFRowParser
+from forklift.schema.fwf_schema_importer import parse_fwf_row, FWFRowParser
 
 # Helper to load schema and rows
 def load_fwf_schema_and_rows(schema_path, data_path):

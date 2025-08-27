@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-excel-by-name.json",
+  "title": "Excel (by sheet name) rows",
+  "type": "object",
+
+  "properties": {
+    "id":            { "type": "integer" },
+    "name":          { "type": "string" },
+    "email":         { "type": "string", "format": "email" },
+    "signup_date":   { "type": "string", "format": "date" },
+    "active":        { "type": "boolean" },
+    "amount_usd":    { "type": "number" },
+    "country":       { "type": "string", "maxLength": 2 },
+    "status":        { "type": "string" },
+    "discount_pct":  { "type": "integer" },
+    "notes":         { "type": "string" },
+
+    "product":       { "type": "string" },
+    "qty":           { "type": "integer" },
+    "unit_price":    { "type": "number" },
+    "total":         { "type": "number" },
+    "price_formula": { "type": "number" },
+
+    "label":         { "type": "string" },
+    "serial":        { "type": "integer" },
+
+    "amount":        { "type": "number" }
+  },
+
+  "required": ["id", "name"],
+  "additionalProperties": false,
+
+  "x-excel": {
+    "workbook": "excel_all_sheets_1900.xlsx",
+    "valuesOnly": true,
+    "dateSystem": "1900",
+    "nulls": { "global": ["", "—", "–", "NA", "N/A"] },
+    "standardizeNames": "postgres",
+    "dedupeNames": "suffix",
+
+    "sheets": [
+      {
+        "select": { "name": "Sheet1" },
+        "hasHeader": true,
+        "skiprows": 3,
+        "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" },
+        "coerce": {
+          "booleans": { "true": ["TRUE","Y","Yes","1"], "false": ["FALSE","N","No","0"] },
+          "dates":    { "formats": ["%Y/%m/%d","%Y-%m-%d","%m/%d/%Y"] }
+        }
+      },
+      {
+        "select": { "name": "Sheet2" },
+        "hasHeader": true,
+        "coerce": {
+          "booleans": { "true": ["TRUE","Y","Yes","1"], "false": ["FALSE","N","No","0"] },
+          "dates":    { "formats": ["%Y-%m-%d"] }
+        }
+      },
+      {
+        "select": { "name": "Sheet3" },
+        "hasHeader": true,
+        "coerce": {
+          "booleans": { "true": ["TRUE","Y","1"], "false": ["FALSE","N","0"] },
+          "dates":    { "formats": ["%m/%d/%Y","%Y-%m-%d"] }
+        }
+      },
+      {
+        "select": { "name": "1904 dates" },
+        "hasHeader": true
+      },
+      {
+        "select": { "name": "headerless" },
+        "hasHeader": false,
+        "headerOverride": ["id","name","amount"],
+        "dedupeRows": "consecutive"
+      },
+      {
+        "select": { "name": "dupliate rows" },
+        "hasHeader": true,
+        "dedupeRows": "consecutive"
+      }
+    ]
+  }
+}

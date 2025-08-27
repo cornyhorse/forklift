@@ -3,6 +3,7 @@ import csv
 from typing import Iterable, Dict, Any, List, Optional, Iterator
 from .base import BaseInput
 from ..utils.encoding import open_text_auto
+from ..utils.dedupe import dedupe_column_names
 
 _PROLOGUE_PREFIXES = ("#",)
 _FOOTER_PREFIXES = ("TOTAL", "SUMMARY")
@@ -15,48 +16,6 @@ def _pgsafe(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s[:63]
-
-
-def _dedupe_column_names(names: list[str]) -> list[str]:
-    """
-    Ensure all names in the given list are unique by appending numeric suffixes
-    (e.g., "col", "col_1", "col_2", …) when duplicates appear.
-
-    Example:
-        Input:  ["id", "name", "name", "amount", "name"]
-        Output: ["id", "name", "name_1", "amount", "name_2"]
-
-    :param names: List of original names (possibly with duplicates).
-    :return: List of deduplicated names with suffixes applied where needed.
-    """
-    seen_counts: dict[str, int] = {}
-    deduped: list[str] = []
-    used_names: set[str] = set()
-
-    for name in names:
-        base_name = name
-        count = seen_counts.get(base_name, 0)
-
-        if count == 0 and base_name not in used_names:
-            deduped.append(base_name)
-            seen_counts[base_name] = 1
-            used_names.add(base_name)
-        else:
-            new_name = f"{base_name}_1"  # Start at _1 for first duplicate
-            while new_name in used_names:
-                # Find the last numeric suffix and increment it
-                match = re.match(r"(.+?)(_\d+)+$", new_name)
-                if match:
-                    prefix = match.group(1)
-                    suffixes = re.findall(r"_\d+", new_name)
-                    last_num = int(suffixes[-1][1:]) + 1
-                    new_name = f"{prefix}{''.join(suffixes[:-1])}_{last_num}"
-
-            deduped.append(new_name)
-            seen_counts[base_name] = count + 1
-            used_names.add(new_name)
-
-    return deduped
 
 
 def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
@@ -168,7 +127,7 @@ class CSVInput(BaseInput):
             csv_reader = get_csv_reader(file_handle, delimiter)
             raw_header: List[str] = self._get_raw_header(csv_reader, has_header, header_override)
             normalized_headers = [_pgsafe(header) for header in raw_header]
-            fieldnames = _dedupe_column_names(normalized_headers)
+            fieldnames = dedupe_column_names(normalized_headers)
             dict_reader = csv.DictReader(
                 file_handle if has_header else file_handle,
                 fieldnames=fieldnames,

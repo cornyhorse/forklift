@@ -5,8 +5,8 @@ import os
 
 import pytest
 
-from forklift.inputs.csv_input import CSVInput, _dedupe_column_names, _skip_prologue_lines, \
-    get_csv_reader
+from forklift.utils.dedupe import dedupe_column_names
+from forklift.inputs.csv_input import CSVInput, _skip_prologue_lines, get_csv_reader
 
 
 def write(p: Path, text: str, encoding: str = "utf-8") -> None:
@@ -167,21 +167,21 @@ def test_dedupe_column_names_unique():
     """
     Tests that _dedupe_column_names returns the same list when all names are unique.
     """
-    assert _dedupe_column_names(["a", "b", "c"]) == ["a", "b", "c"]
+    assert dedupe_column_names(["a", "b", "c"]) == ["a", "b", "c"]
 
 
 def test_dedupe_column_names_duplicates():
     """
     Tests that _dedupe_column_names correctly dedupes duplicate column names by appending numeric suffixes.
     """
-    assert _dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]
+    assert dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]
 
 
 def test_dedupe_column_names_mixed():
     """
     Tests _dedupe_column_names with a mix of unique and duplicate column names, verifying correct suffixing and order.
     """
-    assert _dedupe_column_names(["id", "name", "name", "amount", "name"]) == ["id", "name", "name_1", "amount",
+    assert dedupe_column_names(["id", "name", "name", "amount", "name"]) == ["id", "name", "name_1", "amount",
                                                                               "name_2"]
 
 
@@ -189,7 +189,7 @@ def test_dedupe_column_names_empty():
     """
     Tests that _dedupe_column_names returns an empty list when given an empty input list.
     """
-    assert _dedupe_column_names([]) == []
+    assert dedupe_column_names([]) == []
 
 
 def test_dedupe_column_names_suffix_collision():
@@ -199,7 +199,7 @@ def test_dedupe_column_names_suffix_collision():
     """
     # This triggers the while new_name in seen_counts loop
     # e.g., x, x, x_1, x should produce x, x_1, x_1_1, x_2
-    result = _dedupe_column_names(["x", "x", "x_1", "x"])
+    result = dedupe_column_names(["x", "x", "x_1", "x"])
     assert result == ["x", "x_1", "x_1_1", "x_2"]
 
 

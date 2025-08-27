@@ -1,59 +1,60 @@
-from forklift.inputs.csv_input import _dedupe_column_names, _skip_prologue_lines, get_csv_reader
+from forklift.utils.dedupe import dedupe_column_names
+from forklift.inputs.csv_input import _skip_prologue_lines, get_csv_reader
 import io
 import pytest
 
 def test_dedupe_column_names_multiple_duplicates():
     """
-    Test _dedupe_column_names with multiple duplicate column names.
+    Test dedupe_column_names with multiple duplicate column names.
     Verifies that each duplicate is suffixed with an incrementing number and the output order is correct.
     """
     names = ["a", "a", "a", "b", "b", "a"]
-    result = _dedupe_column_names(names)
+    result = dedupe_column_names(names)
     assert result == ["a", "a_1", "a_2", "b", "b_1", "a_3"]
 
 def test_dedupe_column_names_fallback_branch():
     """
-    Test _dedupe_column_names fallback branch when regex does not match numeric suffixes.
+    Test dedupe_column_names fallback branch when regex does not match numeric suffixes.
     Verifies that non-numeric suffixes are handled and suffixed correctly.
     """
     names = ["foo", "foo", "foo_abc", "foo_abc"]
-    result = _dedupe_column_names(names)
+    result = dedupe_column_names(names)
     assert result == ["foo", "foo_1", "foo_abc", "foo_abc_1"]
 
 def test_dedupe_column_names_fallback_deep():
     """
-    Test _dedupe_column_names fallback branch with repeated non-numeric suffixes.
+    Test dedupe_column_names fallback branch with repeated non-numeric suffixes.
     Verifies that each duplicate is suffixed with an incrementing number.
     """
     names = ["foo_abc", "foo_abc", "foo_abc", "foo_abc"]
-    result = _dedupe_column_names(names)
+    result = dedupe_column_names(names)
     assert result == ["foo_abc", "foo_abc_1", "foo_abc_2", "foo_abc_3"]
 
 def test_dedupe_column_names_fallback_multiple():
     """
-    Test _dedupe_column_names fallback branch with repeated numeric and non-numeric suffixes.
+    Test dedupe_column_names fallback branch with repeated numeric and non-numeric suffixes.
     Verifies that suffixes are incremented correctly for each duplicate.
     """
     names = ["foo_abc", "foo_abc", "foo_abc_1", "foo_abc_1"]
-    result = _dedupe_column_names(names)
+    result = dedupe_column_names(names)
     assert result == ["foo_abc", "foo_abc_1", "foo_abc_1_1", "foo_abc_1_2"]
 
 def test_dedupe_column_names_fallback_deepest():
     """
-    Test _dedupe_column_names fallback branch with deeply nested numeric suffixes.
+    Test dedupe_column_names fallback branch with deeply nested numeric suffixes.
     Verifies that suffixes are incremented correctly for each duplicate.
     """
     names = ["foo", "foo", "foo_1", "foo_1", "foo_1_1", "foo_1_1"]
-    result = _dedupe_column_names(names)
+    result = dedupe_column_names(names)
     assert result == ["foo", "foo_1", "foo_1_1", "foo_1_2", "foo_1_1_1", "foo_1_1_2"]
 
 def test_dedupe_column_names_fallback_non_numeric_suffix():
     """
-    Test _dedupe_column_names fallback branch for non-numeric suffixes.
+    Test dedupe_column_names fallback branch for non-numeric suffixes.
     Verifies that non-numeric suffixes are handled and suffixed correctly for each duplicate.
     """
     names = ["foo_abc", "foo_abc", "foo_abc_abc", "foo_abc_abc", "foo_abc_abc_abc", "foo_abc_abc_abc"]
-    result = _dedupe_column_names(names)
+    result = dedupe_column_names(names)
     assert result == [
         "foo_abc", "foo_abc_1", "foo_abc_abc", "foo_abc_abc_1", "foo_abc_abc_abc", "foo_abc_abc_abc_1"
     ]

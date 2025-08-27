@@ -39,12 +39,11 @@ def rows_from(path: Path, **opts):
 
 def test_prologue_header_detection_footer_and_normalization(tmp_path: Path):
     """
-    Tests reading a CSV file with prologue comments, a header row, data rows, and a footer row.
-    Verifies that:
-    - Prologue lines (comments) are skipped
-    - Footer row ("TOTAL") is skipped
-    - Header normalization and deduplication to PG-safe names
-    - Data rows are parsed correctly
+    Test reading a CSV file with prologue comments, a header row, data rows, and a footer row.
+    - Ensures prologue lines (comments) are skipped
+    - Ensures footer row ("TOTAL") is skipped
+    - Ensures header normalization and deduplication to PG-safe names
+    - Ensures data rows are parsed correctly and mapped to normalized headers
     """
     f = tmp_path / "customers.csv"
     write(

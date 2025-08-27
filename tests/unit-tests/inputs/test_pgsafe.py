@@ -19,16 +19,30 @@ from forklift.inputs.csv_input import _pgsafe
     ],
 )
 def test_pgsafe_core_cases(raw, expected):
+    """
+    Test _pgsafe for a variety of input cases, including:
+    - Trimming, lowercasing, and replacing spaces with underscores
+    - Collapsing multiple separators
+    - Removing non-ASCII characters
+    - Handling empty and all-invalid strings
+    Verifies that the output matches the expected PG-safe identifier.
+    """
     assert _pgsafe(raw) == expected
 
 
 def test_pgsafe_em_dash_and_punctuation():
-    # em dashes and punctuation become underscores then collapse
+    """
+    Test _pgsafe for input containing em dashes and punctuation.
+    Verifies that these are converted to underscores and collapsed.
+    """
     assert _pgsafe("weird—dash—chars!!!") == "weird_dash_chars"
 
 
 def test_pgsafe_max_length_cap():
-    # Postgres identifier cap (we enforce 63)
+    """
+    Test _pgsafe for input exceeding the Postgres identifier length cap (63 chars).
+    Verifies that the output is truncated to 63 characters and lowercased.
+    """
     raw = "A" * 70
     out = _pgsafe(raw)
     assert out == "a" * 63

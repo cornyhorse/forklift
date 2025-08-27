@@ -4,6 +4,13 @@ from forklift.engine.engine import Engine
 
 
 def test_reader_good_csv(tmp_path: Path, data_dir: Path):
+    """
+    Test reading a well-formed CSV file using Engine.
+    Verifies that:
+    - All rows are read and kept
+    - No rows are rejected
+    - Manifest output matches expected counts
+    """
     data = data_dir / "goodcsv" / "good_csv1.txt"
     schema = json.loads((data_dir / "goodcsv" / "good_csv1.json").read_text())
     out = tmp_path / "out"
@@ -26,6 +33,13 @@ def test_reader_good_csv(tmp_path: Path, data_dir: Path):
 
 
 def test_reader_dupe_csv(tmp_path: Path, data_dir: Path):
+    """
+    Test reading a CSV file with duplicate rows using Engine.
+    Verifies that:
+    - All rows are read and kept (deduplication not applied yet)
+    - No rows are rejected
+    - Manifest output matches expected counts
+    """
     data = data_dir / "dupecsv" / "dupe_csv1.txt"
     schema = json.loads((data_dir / "dupecsv" / "dupe_csv1.json").read_text())
     out = tmp_path / "out"

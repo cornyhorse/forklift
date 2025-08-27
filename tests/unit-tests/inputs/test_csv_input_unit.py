@@ -5,7 +5,8 @@ import os
 
 import pytest
 
-from forklift.inputs.csv_input import CSVInput, _dedupe_column_names, _looks_like_header, _skip_prologue_lines, get_csv_reader
+from forklift.inputs.csv_input import CSVInput, _dedupe_column_names, _looks_like_header, _skip_prologue_lines, \
+    get_csv_reader
 
 
 def write(p: Path, text: str, encoding: str = "utf-8") -> None:
@@ -181,7 +182,8 @@ def test_dedupe_column_names_mixed():
     """
     Tests _dedupe_column_names with a mix of unique and duplicate column names, verifying correct suffixing and order.
     """
-    assert _dedupe_column_names(["id", "name", "name", "amount", "name"]) == ["id", "name", "name_1", "amount", "name_2"]
+    assert _dedupe_column_names(["id", "name", "name", "amount", "name"]) == ["id", "name", "name_1", "amount",
+                                                                              "name_2"]
 
 
 def test_dedupe_column_names_empty():
@@ -200,13 +202,6 @@ def test_dedupe_column_names_suffix_collision():
     # e.g., x, x, x_1, x should produce x, x_1, x_1_1, x_2
     result = _dedupe_column_names(["x", "x", "x_1", "x"])
     assert result == ["x", "x_1", "x_1_1", "x_2"]
-
-
-def test_looks_like_header_all_non_digit():
-    """
-    Tests _looks_like_header with all non-digit tokens, expecting True.
-    """
-    assert _looks_like_header(["id", "name", "amount"]) is True
 
 
 def test_looks_like_header_some_digits():

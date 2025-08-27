@@ -59,10 +59,6 @@ def _dedupe_column_names(names: list[str]) -> list[str]:
     return deduped
 
 
-def _looks_like_header(tokens: list[str]) -> bool:
-    return all(not any(ch.isdigit() for ch in t) for t in tokens)
-
-
 def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
                          max_scan_rows: Optional[int] = 100) -> None:
     """

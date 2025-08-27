@@ -16,6 +16,10 @@ class PQOutput(BaseOutput):
     - Quarantine file path: <dest>/_quarantine.jsonl
     """
 
+    def __init__(self, dest: str, schema: dict | None = None, **kwargs):
+        super().__init__(dest, schema, **kwargs)
+        self.schema = schema
+
     def open(self) -> None:
         self._dest = Path(self.dest)
         self._dest.mkdir(parents=True, exist_ok=True)
@@ -27,14 +31,47 @@ class PQOutput(BaseOutput):
         # Basic counters for manifest
         self._counts = {"read": 0, "kept": 0, "rejected": 0}
 
+    def validate_row(self, row: Row) -> None:
+        """
+        Validate a row against the schema. Raises ValueError if validation fails.
+        Supports type validation for 'integer', 'date', and 'boolean'.
+        """
+        if not self.schema or "fields" not in self.schema:
+            return  # No schema, nothing to validate
+        from forklift.utils.date_parser import parse_date
+        for field in self.schema["fields"]:
+            name = field["name"]
+            field_type = field.get("type")
+            fmt = field.get("format")
+            value = row.get(name)
+            if field_type == "integer":
+                if value is not None and value != "":
+                    try:
+                        int(value)
+                    except Exception:
+                        raise ValueError(f"Field '{name}' expected integer, got '{value}'")
+            elif field_type == "date":
+                if value is not None and value != "":
+                    if not parse_date(value, fmt):
+                        raise ValueError(f"Field '{name}' expected date{f' {fmt}' if fmt else ''}, got '{value}'")
+            elif field_type == "boolean":
+                true_vals = field.get("true", ["Y", "1", "T", "True"])
+                false_vals = field.get("false", ["N", "0", "F", "False"])
+                if value not in true_vals and value not in false_vals:
+                    raise ValueError(f"Field '{name}' expected boolean, got '{value}'")
+
     def write(self, row: Row) -> None:
         # Skip rows explicitly marked by preprocessors
         if row.get("__forklift_skip__"):
             self._counts["read"] += 1
             return
         self._counts["read"] += 1
-        self._counts["kept"] += 1
-        # Intentionally no parquet writing yet (unit-test stub)
+        try:
+            self.validate_row(row)
+            self._counts["kept"] += 1
+            # Intentionally no parquet writing yet (unit-test stub)
+        except Exception as e:
+            self.quarantine(RowResult(row=row, error=e))
 
     def quarantine(self, rr: RowResult) -> None:
         self._counts["read"] += 1

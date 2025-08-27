@@ -97,7 +97,7 @@ class FWFRowParser:
 def parse_fwf_row(raw_bytes: bytes, fwf_spec: dict) -> dict:
     """
     Parse a single fixed-width formatted (FWF) row into a dictionary of field values.
-    Performs basic type validation for integer, date, and boolean fields.
+    Only parses and cleans field values; type validation is performed at output.
 
     Args:
         raw_bytes (bytes): The raw bytes representing a single FWF row.
@@ -123,6 +123,5 @@ def parse_fwf_row(raw_bytes: bytes, fwf_spec: dict) -> dict:
         field_length = FWFRowParser.calculate_field_length(field)
         field_value = FWFRowParser.extract_field_value(decoded_text, start, field_length)
         field_value = FWFRowParser.handle_whitespace(field_value, field)
-        FWFRowParser.validate_type(field_value, field)
         parsed_fields[name] = field_value
     return parsed_fields

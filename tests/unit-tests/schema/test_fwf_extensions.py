@@ -55,14 +55,12 @@ def test_badfwf_misaligned():
         'tests/test-files/badfwf/bad_fwf1_misaligned.json',
         'tests/test-files/badfwf/bad_fwf1_misaligned.txt'
     )
-    # Expect some rows to raise errors due to misalignment or bad values
-    error_count = 0
+    # Type validation is now performed at output, not during parsing.
+    # This test now only checks that parsing does not raise errors.
     for row in rows:
-        try:
-            parse_fwf_row(row, schema)
-        except Exception:
-            error_count += 1
-    assert error_count > 0
+        result = parse_fwf_row(row, schema)
+        assert isinstance(result, dict)
+        assert set(result.keys()) == {f['name'] for f in schema['fields']}
 
 def test_parse_with_length():
     spec = {

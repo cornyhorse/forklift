@@ -4,18 +4,12 @@ from typing import Iterable, Dict, Any, List, Optional, Iterator
 from .base import BaseInput
 from ..utils.encoding import open_text_auto
 from ..utils.dedupe import dedupe_column_names
+from ..utils.standardize import standardize_postgres_column_name
 
 _PROLOGUE_PREFIXES = ("#",)
 _FOOTER_PREFIXES = ("TOTAL", "SUMMARY")
 
 import re
-
-
-def _pgsafe(name: str) -> str:
-    s = name.strip().lower()
-    s = re.sub(r"[^a-z0-9]+", "_", s)
-    s = re.sub(r"_+", "_", s).strip("_")
-    return s[:63]
 
 
 def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
@@ -126,7 +120,7 @@ class CSVInput(BaseInput):
                     _skip_prologue_lines(file_handle, None, header_scan_limit)
             csv_reader = get_csv_reader(file_handle, delimiter)
             raw_header: List[str] = self._get_raw_header(csv_reader, has_header, header_override)
-            normalized_headers = [_pgsafe(header) for header in raw_header]
+            normalized_headers = [standardize_postgres_column_name(header) for header in raw_header]
             fieldnames = dedupe_column_names(normalized_headers)
             dict_reader = csv.DictReader(
                 file_handle if has_header else file_handle,

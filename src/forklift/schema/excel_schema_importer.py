@@ -3,6 +3,7 @@ import json
 import jsonschema
 import re
 from ..utils.dedupe import dedupe_column_names
+from ..utils.standardize import standardize_postgres_column_name
 
 class ExcelSchemaImporter:
     def __init__(self, schema_path: str):
@@ -64,10 +65,7 @@ class ExcelSchemaImporter:
         :returns: Standardized column name string.
         """
         if self.standardize_names == "postgres":
-            s = name.strip().lower()
-            s = re.sub(r"[^a-z0-9]+", "_", s)
-            s = re.sub(r"_+", "_", s).strip("_")
-            return s[:63]
+            return standardize_postgres_column_name(name)
         return name
 
     def build_column_field_mapping(self, columns: List[str]) -> Dict[str, str]:

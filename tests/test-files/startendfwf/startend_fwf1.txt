@@ -1,0 +1,3 @@
+000001Amy Adams           20240105Y000001999USactive 000First purchase
+000002Ben Baker           20240106Y000004900USactive 010Loyalty promo
+000003Chad Chen           20240107N000000000CAinactive000Churned

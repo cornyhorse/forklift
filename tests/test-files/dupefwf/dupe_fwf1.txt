@@ -1,0 +1,6 @@
+000011Liz Lee             20240302Y000002500USactive 000Email opt-in
+000012Max Ma              20240303Y000003000USactive 020Coupon
+000012Max Ma              20240303Y000003000USactive 020Coupon
+000013Nia Nash            20240304Y000006000USactive 000Upsell
+000013Nia Nash            20240304Y000006000USactive 000Upsell
+

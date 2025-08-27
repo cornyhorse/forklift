@@ -1,0 +1,7 @@
+# vendor: acme
+# exported: 2025-08-01
+000001Amy Adams           20240105Y000001999USactive 000First purchase
+000002Ben Baker           20240106Y000004900USactive 010Loyalty promo
+000003Chad Chen           20240107N000000000CAinactive000Churned
+000004Dara Diaz           20240108Y000012050MXactive 005High value
+000005Eli Evans           20240109Y000000999USprospect000Trial

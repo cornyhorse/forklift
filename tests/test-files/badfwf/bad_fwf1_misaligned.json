@@ -1,0 +1,16 @@
+{
+  "name": "bad_fwf1_misaligned",
+  "encoding_priority": ["utf-8-sig", "utf-8", "cp1252", "latin-1"],
+  "fields": [
+    {"name": "id",           "start": 1,   "length": 6,  "type": "integer"},
+    {"name": "name",         "start": 7,   "length": 20, "type": "string", "rstrip": true},
+    {"name": "signup_date",  "start": 27,  "length": 8,  "type": "date",   "format": "YYYYMMDD"},
+    {"name": "active",       "start": 35,  "length": 1,  "type": "boolean", "true": ["Y"], "false": ["N"]},
+    {"name": "amount_cents", "start": 36,  "length": 10, "type": "integer"},
+    {"name": "country",      "start": 46,  "length": 2,  "type": "string"},
+    {"name": "status",       "start": 48,  "length": 8,  "type": "string", "rstrip": true},
+    {"name": "discount_pct", "start": 56,  "length": 3,  "type": "integer"},
+    {"name": "notes",        "start": 59,  "length": 20, "type": "string", "rstrip": true}
+  ],
+  "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
+}

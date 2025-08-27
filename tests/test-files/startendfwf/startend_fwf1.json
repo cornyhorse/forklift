@@ -1,0 +1,16 @@
+{
+  "name": "startend_fwf1",
+  "encoding_priority": ["utf-8-sig", "utf-8", "cp1252", "latin-1"],
+  "fields": [
+    {"name": "id",           "start": 1,  "end": 6,  "type": "integer"},
+    {"name": "name",         "start": 7,  "end": 26, "type": "string", "rstrip": true},
+    {"name": "signup_date",  "start": 27, "end": 34, "type": "date",   "format": "YYYYMMDD"},
+    {"name": "active",       "start": 35, "end": 35, "type": "boolean", "true": ["Y"], "false": ["N"]},
+    {"name": "amount_cents", "start": 36, "end": 44, "type": "integer"},
+    {"name": "country",      "start": 45, "end": 46, "type": "string"},
+    {"name": "status",       "start": 47, "end": 54, "type": "string", "rstrip": true},
+    {"name": "discount_pct", "start": 55, "end": 56, "type": "integer"},
+    {"name": "notes",        "start": 57, "end": 76, "type": "string", "rstrip": true}
+  ],
+  "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
+}

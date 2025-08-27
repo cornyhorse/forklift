@@ -1,0 +1,8 @@
+# strange header line
+  # some junk
+000001Amy Adams           20240105Y000001999USactive 000First purchase
+000002Ben Baker           2024-01-06Y000004900USactive 010Loyalty promo    <-- bad date format (dash)
+000003Chad Chen           20240107X000000000CAinactive000Churned           <-- bad boolean (X)
+000004Dara Diaz           20240108Y00001205 MXactive 005High value        <-- extra space (width drift)
+000005Eli Evans           20240109Y000000999USprospect000                  <-- short row (missing notes)
+TOTAL 5 rows

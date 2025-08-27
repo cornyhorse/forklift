@@ -1,0 +1,5 @@
+"000006Fay Fang            20240201Y000003995GBactive 000— em dash cp1252  
+000007Gus Green           20240202Y(000001875)USactive 000Parens negative  
+000008Hui Huang           20240203Y000007710CNactive 015Smart quotes “ok”  
+000009Ian Irwin           20240204N000000000IEinactive000Refunded          
+000010Jia Jin             20240205Y000005555SGactive 000APAC plus EXTRA   MORE <-- too long"

@@ -1,0 +1,17 @@
+{
+  "name": "overlap_fwf1",
+  "encoding_priority": ["utf-8-sig", "utf-8", "cp1252", "latin-1"],
+  "fields": [
+    {"name": "id",      "start": 1, "length": 6, "type": "integer"},
+    {"name": "sub_id",  "start": 4, "length": 3, "type": "integer"},
+    {"name": "name",    "start": 7, "length": 20, "type": "string", "rstrip": true},
+    {"name": "signup_date","start": 27, "length": 8, "type": "date", "format": "YYYYMMDD"},
+    {"name": "active",  "start": 35, "length": 1, "type": "boolean"},
+    {"name": "amount_cents","start": 36, "length": 9, "type": "integer"},
+    {"name": "country", "start": 45, "length": 2, "type": "string"},
+    {"name": "status",  "start": 47, "length": 8, "type": "string", "rstrip": true},
+    {"name": "discount_pct","start": 55, "length": 2, "type": "integer"},
+    {"name": "notes",   "start": 57, "length": 20, "type": "string", "rstrip": true}
+  ],
+  "notes": "This layout intentionally overlaps fields: sub_id (4-6) is a slice of id (1-6)."
+}

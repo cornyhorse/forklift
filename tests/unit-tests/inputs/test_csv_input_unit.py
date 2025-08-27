@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from forklift.inputs.csv_input import CSVInput
+from forklift.inputs.csv_input import CSVInput, _dedupe_column_names, _looks_like_header, _skip_prologue_lines, get_csv_reader
 
 
 def write(p: Path, text: str, encoding: str = "utf-8") -> None:
@@ -106,3 +106,92 @@ def test_empty_file_yields_no_rows(tmp_path: Path):
     write(f, "")
     rs = rows_from(f, delimiter=",", encoding_priority=["utf-8"])
     assert rs == []
+
+
+def test_dedupe_column_names_unique():
+    assert _dedupe_column_names(["a", "b", "c"]) == ["a", "b", "c"]
+
+
+def test_dedupe_column_names_duplicates():
+    assert _dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]
+
+
+def test_dedupe_column_names_mixed():
+    assert _dedupe_column_names(["id", "name", "name", "amount", "name"]) == ["id", "name", "name_1", "amount", "name_2"]
+
+
+def test_dedupe_column_names_empty():
+    assert _dedupe_column_names([]) == []
+
+
+def test_looks_like_header_all_non_digit():
+    assert _looks_like_header(["id", "name", "amount"]) is True
+
+
+def test_looks_like_header_some_digits():
+    assert _looks_like_header(["id", "name", "2024"]) is False
+
+
+def test_looks_like_header_empty():
+    assert _looks_like_header([]) is True
+
+
+def test_skip_prologue_lines_skips_comments_and_blanks():
+    data = io.StringIO("# comment\n\nID,Name\n1,Alice\n")
+    _skip_prologue_lines(data)
+    assert data.readline().strip() == "ID,Name"
+
+
+def test_skip_prologue_lines_header_row_detection():
+    data = io.StringIO("# comment\n\nID,Name\n1,Alice\n")
+    _skip_prologue_lines(data, ["ID", "Name"])
+    assert data.readline().strip() == "ID,Name"
+
+
+def test_skip_prologue_lines_scan_limit():
+    data = io.StringIO("# comment\n\nID,Name\n1,Alice\n")
+    with pytest.raises(ValueError):
+        _skip_prologue_lines(data, ["Not", "Found"], max_scan_rows=2)
+
+
+def test_get_csv_reader_delimiter_and_skipinitialspace():
+    data = io.StringIO("id, name ,age\n1, Alice , 30\n2,Bob,25")
+    reader = get_csv_reader(data, ",")
+    rows = list(reader)
+    assert rows[0] == ["id", "name ", "age"]
+    assert rows[1] == ["1", "Alice ", "30"]
+    assert rows[2] == ["2", "Bob", "25"]
+
+
+def test_csvinput_get_raw_header_with_header():
+    data = io.StringIO("id,name\n1,Alice\n")
+    reader = get_csv_reader(data, ",")
+    inp = CSVInput("dummy.csv")
+    header = inp._get_raw_header(reader, True, None)
+    assert header == ["id", "name"]
+
+
+def test_csvinput_get_raw_header_with_override():
+    data = io.StringIO("id,name\n1,Alice\n")
+    reader = get_csv_reader(data, ",")
+    inp = CSVInput("dummy.csv")
+    override = ["foo", "bar"]
+    header = inp._get_raw_header(reader, True, override)
+    assert header == override
+
+
+def test_csvinput_get_raw_header_headerless_with_override():
+    data = io.StringIO("1,Alice\n")
+    reader = get_csv_reader(data, ",")
+    inp = CSVInput("dummy.csv")
+    override = ["foo", "bar"]
+    header = inp._get_raw_header(reader, False, override)
+    assert header == override
+
+
+def test_csvinput_get_raw_header_headerless_no_override():
+    data = io.StringIO("1,Alice\n")
+    reader = get_csv_reader(data, ",")
+    inp = CSVInput("dummy.csv")
+    with pytest.raises(ValueError):
+        inp._get_raw_header(reader, False, None)

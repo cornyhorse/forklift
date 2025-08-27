@@ -28,12 +28,27 @@ class Engine:
             output_kind: str,
             schema: Dict[str, Any] | None = None,
             preprocessors: list[str] | None = None,
+            header_mode: str = "auto",  # "present", "absent", "auto"
             **input_opts: Any,
     ) -> None:
+        """
+        Engine for data import/export.
+
+        Args:
+            input_kind: Type of input (e.g., "csv").
+            output_kind: Type of output (e.g., "parquet").
+            schema: Optional schema for validation and type/null extraction.
+            preprocessors: List of preprocessors to apply.
+            header_mode: Explicit header handling mode ("present", "absent", "auto").
+                - "present": File is expected to have a header row.
+                - "absent": File does not have a header row; use header_override for field names.
+                - "auto": Try to detect header row.
+            **input_opts: Additional options for input class.
+        """
         self.schema = schema or {}
         self.input_opts = input_opts
+        self.input_opts["header_mode"] = header_mode  # enforce explicit header handling
         self.output_opts: Dict[str, Any] = {}
-
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
 

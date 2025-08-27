@@ -18,6 +18,12 @@ def main() -> None:
     ingest.add_argument("--delimiter")
     ingest.add_argument("--sheet")  # excel
     ingest.add_argument("--fwf-spec")  # path to JSON with x-fwf fields (or part of schema)
+    ingest.add_argument(
+        "--header-mode",
+        choices=["present", "auto", "absent"],
+        default="present",
+        help="Explicit header handling: 'present' (file has header), 'absent' (no header, use override), 'auto'"
+    )
 
     args = p.parse_args()
 
@@ -30,6 +36,7 @@ def main() -> None:
             encoding_priority=args.encoding_priority,
             delimiter=args.delimiter,
             sheet=args.sheet,
+            header_mode=args.header_mode,
         )
         if args.fwf_spec:
             with open(args.fwf_spec) as f:

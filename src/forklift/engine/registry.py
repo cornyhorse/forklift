@@ -4,6 +4,11 @@ from ..inputs.base import BaseInput
 from ..outputs.base import BaseOutput
 
 def get_input_cls(kind: str) -> Type[BaseInput]:
+    """
+    Return the input class for the given kind.
+    Supported kinds: "csv" (CSVInput)
+    Note: Input classes now support explicit header handling via the 'header_mode' option ("present", "absent", "auto").
+    """
     if kind == "csv":
         from ..inputs.csv_input import CSVInput
         return CSVInput

@@ -15,6 +15,7 @@ def test_reader_good_csv(tmp_path: Path, data_dir: Path):
         preprocessors=["type_coercion"],
         delimiter=",",
         encoding_priority=["utf-8"],
+        header_mode="auto",
     )
     eng.run(str(data), str(out))
 
@@ -36,6 +37,7 @@ def test_reader_dupe_csv(tmp_path: Path, data_dir: Path):
         preprocessors=["type_coercion"],
         delimiter=",",
         encoding_priority=["utf-8"],
+        header_mode="auto",
     )
     eng.run(str(data), str(out))
 

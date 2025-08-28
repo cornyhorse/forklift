@@ -23,6 +23,8 @@ dependencies = [
     "pyarrow>=15",
     "charset-normalizer>=3.3",
     "typing-extensions>=4.8; python_version<'3.11'",
+    # added for SQL input functionality
+    "SQLAlchemy>=2.0",
 ]
 
 [project.optional-dependencies]

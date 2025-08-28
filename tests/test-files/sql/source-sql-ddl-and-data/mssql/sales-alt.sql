@@ -29,15 +29,22 @@ CREATE TABLE sales.purchases (
   amount_usd    DECIMAL(18,2) NOT NULL CHECK (amount_usd >= 0)
 );
 
-IF OBJECT_ID('sales.v_good_customers','V') IS NOT NULL DROP VIEW sales.v_good_customers;
-EXEC('CREATE VIEW sales.v_good_customers AS
+IF OBJECT_ID('sales.v_good_customers','V') IS NOT NULL
+    DROP VIEW sales.v_good_customers;
+GO
+SET ANSI_NULLS ON;
+GO
+SET QUOTED_IDENTIFIER ON;
+GO
+CREATE VIEW sales.v_good_customers AS
 SELECT
   id, name, email, country,
-  CASE WHEN active=1 THEN ''Yes'' ELSE ''No'' END AS active_status,
+  CASE WHEN active=1 THEN 'Yes' ELSE 'No' END AS active_status,
   status, amount_usd, ISNULL(discount_pct,0) AS discount_pct,
   ROUND(amount_usd * (1 - ISNULL(discount_pct,0)/100.0), 2) AS net_amount,
   signup_date, notes
-FROM sales.good_customers;');
+FROM sales.good_customers;
+GO
 
 INSERT INTO sales.good_customers (id,name,email,signup_date,active,amount_usd,country,status,discount_pct,notes)
 SELECT 1,'Amy Adams','amy.adams@example.com','2024-01-05',1,19.99,'US','active',0,'First purchase'
@@ -58,15 +65,22 @@ SELECT TOP 0 * INTO alt.good_customers FROM sales.good_customers;
 IF OBJECT_ID('alt.purchases','U') IS NULL
 SELECT TOP 0 * INTO alt.purchases FROM sales.purchases;
 
-IF OBJECT_ID('alt.v_good_customers','V') IS NOT NULL DROP VIEW alt.v_good_customers;
-EXEC('CREATE VIEW alt.v_good_customers AS
+IF OBJECT_ID('alt.v_good_customers','V') IS NOT NULL
+    DROP VIEW alt.v_good_customers;
+GO
+SET ANSI_NULLS ON;
+GO
+SET QUOTED_IDENTIFIER ON;
+GO
+CREATE VIEW alt.v_good_customers AS
 SELECT
   id, name, email, country,
-  CASE WHEN active=1 THEN ''Yes'' ELSE ''No'' END AS active_status,
+  CASE WHEN active=1 THEN 'Yes' ELSE 'No' END AS active_status,
   status, amount_usd, ISNULL(discount_pct,0) AS discount_pct,
   ROUND(amount_usd * (1 - ISNULL(discount_pct,0)/100.0), 2) AS net_amount,
   signup_date, notes
-FROM alt.good_customers;');
+FROM alt.good_customers;
+GO
 
 INSERT INTO alt.good_customers (id,name,email,signup_date,active,amount_usd,country,status,discount_pct,notes)
 SELECT 101,'Alt Alice','alt.alice@example.com','2024-04-01',1,12.34,'US','prospect',0,'ALT schema'

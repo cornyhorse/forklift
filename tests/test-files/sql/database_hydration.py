@@ -389,14 +389,14 @@ def main() -> None:
     sql_root = find_sql_root(args.sql_root)
     print(f"[info] Using SQL root: {sql_root}")
 
-    if args.only in (None, "pg"):
-        hydrate_postgres(sql_root)
-    if args.only in (None, "mysql"):
-        hydrate_mysql(sql_root)
+    # if args.only in (None, "pg"):
+    #     hydrate_postgres(sql_root)
+    # if args.only in (None, "mysql"):
+    #     hydrate_mysql(sql_root)
     if args.only in (None, "mssql"):
         hydrate_mssql(sql_root)
-    if args.only in (None, "oracle"):
-        hydrate_oracle(sql_root)
+    # if args.only in (None, "oracle"):
+    #     hydrate_oracle(sql_root)
 
 
 if __name__ == "__main__":

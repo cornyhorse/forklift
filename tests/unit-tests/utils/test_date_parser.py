@@ -70,3 +70,8 @@ def test_matches_format_exact_invalid():
     assert not _matches_format_exact("2025-13-27", "%Y-%m-%d")
     assert not _matches_format_exact("notadate", "%Y-%m-%d")
     assert not _matches_format_exact("", "%Y-%m-%d")
+
+def test_parse_date_fallback_dateutil():
+    # This string is parseable by dateutil, but not by any of the listed formats
+    value = "27th of August, 2025"
+    assert parse_date(value)

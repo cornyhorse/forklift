@@ -23,13 +23,13 @@ def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
     to header_row. The file_handle will be positioned at the start of the header row if found.
     Only the first max_scan_rows lines are checked (default: 100), unless overridden.
 
-    Args:
-        file_handle: File-like object to advance.
-        header_row: Optional list of header strings to match as the header row.
-        max_scan_rows: Maximum number of rows to scan for the header row (None for unlimited).
-
-    Raises:
-        ValueError: If header_row is provided but not found in the file within scan limit.
+    :param file_handle: File-like object to advance.
+    :type file_handle: file-like
+    :param header_row: Optional list of header strings to match as the header row.
+    :type header_row: Optional[List[str]]
+    :param max_scan_rows: Maximum number of rows to scan for the header row (None for unlimited).
+    :type max_scan_rows: Optional[int]
+    :raises ValueError: If header_row is provided but not found in the file within scan limit.
     """
     line_count = 0
     while True:

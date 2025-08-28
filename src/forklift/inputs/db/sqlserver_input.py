@@ -4,87 +4,160 @@ from sqlalchemy import text
 import re
 
 class SQLServerInput(BaseSQLInput):
+    """
+    SQLServerInput handles SQL Server-specific quirks for connection string patching and table/view discovery.
+    It ensures SSL is enabled, the correct driver is used, and all tables/views are discovered even with driver limitations.
+
+    :param source: Database connection string.
+    :type source: str
+    :param include: List of table/view patterns to include.
+    :type include: List[str], optional
+    :param opts: Additional options for the input type.
+    :type opts: Any
+    """
     def __init__(self, source: str, include: List[str] = None, **opts: Any):
+        """
+        Initialize SQLServerInput, patching the connection string and passing options to BaseSQLInput.
+
+        :param source: Database connection string.
+        :type source: str
+        :param include: List of table/view patterns to include.
+        :type include: List[str], optional
+        :param opts: Additional options for the input type.
+        :type opts: Any
+        """
         patched_source = self._patch_connection_string(source)
         super().__init__(patched_source, include, **opts)
 
     @staticmethod
     def _patch_connection_string(source: str) -> str:
-        def _fix_driver_value(dval: str) -> str:
-            return dval.replace("{", "").replace("}", "").replace(" ", "+")
-        patched_source = source
+        """
+        Patch the connection string for SQL Server to ensure SSL and correct driver settings.
+        Handles both ODBC connect string and driver param styles.
+
+        :param source: Database connection string.
+        :type source: str
+        :return: Patched connection string.
+        :rtype: str
+        """
         if source.lower().startswith("mssql") and ("odbc_connect=" in source.lower() or "driver=" in source.lower()):
             if "odbc_connect=" in source.lower():
-                if "?" in patched_source:
-                    base, query = patched_source.split("?", 1)
-                else:
-                    base, query = patched_source, ""
-                amp_params = [p for p in query.split("&") if p] if query else []
-                new_amp_params = []
-                oc_found = False
-                from urllib.parse import unquote_plus, quote_plus
-                for p in amp_params:
-                    key, eq, val = p.partition("=")
-                    if key.lower() == "odbc_connect" and eq == "=":
-                        oc_found = True
-                        decoded = unquote_plus(val)
-                        parts = [s for s in decoded.split(";") if s]
-                        out_parts = []
-                        has_driver = False
-                        has_tsc = False
-                        for part in parts:
-                            lp = part.lower()
-                            if lp.startswith("driver="):
-                                has_driver = True
-                                dval = part[len("driver="):].strip()
-                                dval = _fix_driver_value(dval)
-                                out_parts.append(f"DRIVER={dval}")
-                            elif lp.startswith("trustservercertificate="):
-                                has_tsc = True
-                                out_parts.append(part)
-                            else:
-                                out_parts.append(part)
-                        if not has_driver:
-                            out_parts.append("DRIVER=ODBC Driver 18 for SQL Server")
-                        if not has_tsc:
-                            out_parts.append("TrustServerCertificate=yes")
-                        rebuilt = ";".join(out_parts)
-                        new_amp_params.append(f"odbc_connect={quote_plus(rebuilt)}")
-                    else:
-                        new_amp_params.append(p)
-                if not amp_params:
-                    from urllib.parse import quote_plus
-                    rebuilt = "DRIVER=ODBC Driver 18 for SQL Server;TrustServerCertificate=yes"
-                    new_amp_params.append(f"odbc_connect={quote_plus(rebuilt)}")
-                patched_source = base + "?" + "&".join(new_amp_params)
+                return SQLServerInput._patch_odbc_connect_string(source)
             else:
-                patched_source = patched_source.replace("{", "").replace("}", "")
-                if "?" in patched_source:
-                    base, query = patched_source.split("?", 1)
+                return SQLServerInput._patch_driver_params(source)
+        return source
+
+    @staticmethod
+    def _patch_odbc_connect_string(source: str) -> str:
+        """
+        Patch ODBC connect string to ensure driver and TrustServerCertificate are set.
+
+        :param source: ODBC connection string.
+        :type source: str
+        :return: Patched ODBC connection string.
+        :rtype: str
+        """
+        from urllib.parse import unquote_plus, quote_plus
+
+        def _fix_driver_value(driver_value: str) -> str:
+            """Sanitize driver value for ODBC connection string."""
+            return driver_value.replace("{", "").replace("}", "").replace(" ", "+")
+
+        def _patch_odbc_params(odbc_params: str) -> str:
+            """
+            Patch the semicolon-separated ODBC params string to ensure driver and TrustServerCertificate are set.
+
+            :param odbc_params: ODBC parameters string.
+            :type odbc_params: str
+            :return: Patched ODBC parameters string.
+            :rtype: str
+            """
+            param_parts = [param for param in odbc_params.split(";") if param]
+            patched_parts = []
+            has_driver = False
+            has_trust_server_cert = False
+            for param in param_parts:
+                param_lower = param.lower()
+                if param_lower.startswith("driver="):
+                    has_driver = True
+                    driver_value = param[len("driver="):].strip()
+                    driver_value = _fix_driver_value(driver_value)
+                    patched_parts.append(f"DRIVER={driver_value}")
+                elif param_lower.startswith("trustservercertificate="):
+                    has_trust_server_cert = True
+                    patched_parts.append(param)
                 else:
-                    base, query = patched_source, ""
-                raw_params = [p for p in re.split(r"[;&]", query) if p] if query else []
-                new_params = []
-                driver_found = False
-                tsc_found = False
-                for param in raw_params:
-                    lower_param = param.lower()
-                    if lower_param.startswith("driver="):
-                        driver_found = True
-                        driver_val = param[len("driver="):].strip()
-                        driver_val = _fix_driver_value(driver_val)
-                        param = f"driver={driver_val}"
-                    elif lower_param.startswith("trustservercertificate="):
-                        tsc_found = True
-                    new_params.append(param)
-                if not driver_found:
-                    new_params.append("driver=ODBC+Driver+18+for+SQL+Server")
-                if not tsc_found:
-                    new_params.append("TrustServerCertificate=yes")
-                patched_source = base + ("?" + "&".join(new_params) if new_params else "")
-        return patched_source
+                    patched_parts.append(param)
+            if not has_driver:
+                patched_parts.append("DRIVER=ODBC Driver 18 for SQL Server")
+            if not has_trust_server_cert:
+                patched_parts.append("TrustServerCertificate=yes")
+            return ";".join(patched_parts)
+
+        if "?" in source:
+            base_url, query_string = source.split("?", 1)
+        else:
+            base_url, query_string = source, ""
+        query_params = [param for param in query_string.split("&") if param] if query_string else []
+        patched_query_params = []
+        for param in query_params:
+            key, eq, value = param.partition("=")
+            if key.lower() == "odbc_connect" and eq == "=":
+                decoded_odbc = unquote_plus(value)
+                patched_odbc = _patch_odbc_params(decoded_odbc)
+                patched_query_params.append(f"odbc_connect={quote_plus(patched_odbc)}")
+            else:
+                patched_query_params.append(param)
+        if not query_params:
+            default_odbc = "DRIVER=ODBC Driver 18 for SQL Server;TrustServerCertificate=yes"
+            patched_query_params.append(f"odbc_connect={quote_plus(default_odbc)}")
+        return base_url + "?" + "&".join(patched_query_params)
+
+    @staticmethod
+    def _patch_driver_params(source: str) -> str:
+        """
+        Patch driver param style connection string to ensure driver and TrustServerCertificate are set.
+
+        :param source: Driver param style connection string.
+        :type source: str
+        :return: Patched connection string.
+        :rtype: str
+        """
+        def _fix_driver_value(dval: str) -> str:
+            return dval.replace("{", "").replace("}", "").replace(" ", "+")
+        source = source.replace("{", "").replace("}", "")
+        if "?" in source:
+            base, query = source.split("?", 1)
+        else:
+            base, query = source, ""
+        raw_params = [p for p in re.split(r"[;&]", query) if p] if query else []
+        new_params = []
+        driver_found = False
+        tsc_found = False
+        for param in raw_params:
+            lower_param = param.lower()
+            if lower_param.startswith("driver="):
+                driver_found = True
+                driver_val = param[len("driver="):].strip()
+                driver_val = _fix_driver_value(driver_val)
+                param = f"driver={driver_val}"
+            elif lower_param.startswith("trustservercertificate="):
+                tsc_found = True
+            new_params.append(param)
+        if not driver_found:
+            new_params.append("driver=ODBC+Driver+18+for+SQL+Server")
+        if not tsc_found:
+            new_params.append("TrustServerCertificate=yes")
+        return base + ("?" + "&".join(new_params) if new_params else "")
 
     def _get_all_tables(self) -> List[Tuple[str, str]]:
+        """
+        Discover all tables and views in the database, using multiple fallbacks for SQL Server.
+        Ensures all views are included, even if the driver/inspector misses some.
+
+        :return: List of (schema, table/view) tuples.
+        :rtype: List[Tuple[str, str]]
+        """
         tables = []
         for schema in self.inspector.get_schema_names():
             for tbl in self.inspector.get_table_names(schema=schema):
@@ -92,97 +165,143 @@ class SQLServerInput(BaseSQLInput):
             for view in self.inspector.get_view_names(schema=schema):
                 tables.append((schema, view))
             if self.engine.dialect.name == "mssql":
-                try:
-                    conn = self.connection or self.engine.connect()
-                    try:
-                        result = conn.execute(
-                            text(
-                                "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = :schema"
-                            ),
-                            {"schema": schema},
-                        )
-                        for row in result:
-                            v_schema = row[0]
-                            v_name = row[1]
-                            if (v_schema, v_name) not in tables:
-                                tables.append((v_schema, v_name))
-                    finally:
-                        if conn is not self.connection:
-                            conn.close()
-                except Exception:
-                    pass
-                try:
-                    conn = self.connection or self.engine.connect()
-                    try:
-                        result = conn.execute(
-                            text(
-                                """
-                                SELECT s.name AS schema_name, v.name AS view_name
-                                FROM sys.views v
-                                JOIN sys.schemas s ON v.schema_id = s.schema_id
-                                WHERE s.name = :schema
-                                """
-                            ),
-                            {"schema": schema},
-                        )
-                        for row in result:
-                            v_schema = row[0]
-                            v_name = row[1]
-                            if (v_schema, v_name) not in tables:
-                                tables.append((v_schema, v_name))
-                    finally:
-                        if conn is not self.connection:
-                            conn.close()
-                except Exception:
-                    pass
-                try:
-                    conn = self.connection or self.engine.connect()
-                    try:
-                        result = conn.execute(
-                            text(
-                                """
-                                SELECT TABLE_SCHEMA, TABLE_NAME
-                                FROM INFORMATION_SCHEMA.TABLES
-                                WHERE TABLE_SCHEMA = :schema
-                                  AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
-                                """
-                            ),
-                            {"schema": schema},
-                        )
-                        for row in result:
-                            t_schema = row[0]
-                            t_name = row[1]
-                            if (t_schema, t_name) not in tables:
-                                tables.append((t_schema, t_name))
-                    finally:
-                        if conn is not self.connection:
-                            conn.close()
-                except Exception:
-                    pass
+                self._add_views_from_information_schema(tables, schema)
+                self._add_views_from_sys_views(tables, schema)
+                self._add_tables_and_views_from_information_schema_tables(tables, schema)
         if self.engine.dialect.name == "mssql":
-            try:
-                conn = self.connection or self.engine.connect()
-                try:
-                    result = conn.execute(
-                        text(
-                            """
-                            SELECT s.name AS schema_name, v.name AS view_name
-                            FROM sys.views v
-                            JOIN sys.schemas s ON v.schema_id = s.schema_id
-                            """
-                        )
-                    )
-                    for row in result:
-                        v_schema = row[0]
-                        v_name = row[1]
-                        if (v_schema, v_name) not in tables:
-                            tables.append((v_schema, v_name))
-                finally:
-                    if conn is not self.connection:
-                        conn.close()
-            except Exception:
-                pass
+            self._add_all_views_from_sys_views(tables)
         return tables
 
+    def _add_views_from_information_schema(self, tables, schema):
+        """
+        Fallback: Add views from INFORMATION_SCHEMA.VIEWS for the given schema.
+        Some drivers miss views, so this ensures they're included.
+
+        :param tables: List of discovered tables/views.
+        :type tables: list
+        :param schema: Schema name to query.
+        :type schema: str
+        """
+        try:
+            conn = self.connection or self.engine.connect()
+            try:
+                result = conn.execute(
+                    text("SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = :schema"),
+                    {"schema": schema},
+                )
+                for row in result:
+                    v_schema = row[0]
+                    v_name = row[1]
+                    if (v_schema, v_name) not in tables:
+                        tables.append((v_schema, v_name))
+            finally:
+                if conn is not self.connection:
+                    conn.close()
+        except Exception:
+            pass
+
+    def _add_views_from_sys_views(self, tables, schema):
+        """
+        Fallback: Add views from sys.views/sys.schemas for the given schema.
+
+        :param tables: List of discovered tables/views.
+        :type tables: list
+        :param schema: Schema name to query.
+        :type schema: str
+        """
+        try:
+            conn = self.connection or self.engine.connect()
+            try:
+                result = conn.execute(
+                    text(
+                        """
+                        SELECT s.name AS schema_name, v.name AS view_name
+                        FROM sys.views v
+                        JOIN sys.schemas s ON v.schema_id = s.schema_id
+                        WHERE s.name = :schema
+                        """
+                    ),
+                    {"schema": schema},
+                )
+                for row in result:
+                    v_schema = row[0]
+                    v_name = row[1]
+                    if (v_schema, v_name) not in tables:
+                        tables.append((v_schema, v_name))
+            finally:
+                if conn is not self.connection:
+                    conn.close()
+        except Exception:
+            pass
+
+    def _add_tables_and_views_from_information_schema_tables(self, tables, schema):
+        """
+        Fallback: Add both base tables and views from INFORMATION_SCHEMA.TABLES for the given schema.
+
+        :param tables: List of discovered tables/views.
+        :type tables: list
+        :param schema: Schema name to query.
+        :type schema: str
+        """
+        try:
+            conn = self.connection or self.engine.connect()
+            try:
+                result = conn.execute(
+                    text(
+                        """
+                        SELECT TABLE_SCHEMA, TABLE_NAME
+                        FROM INFORMATION_SCHEMA.TABLES
+                        WHERE TABLE_SCHEMA = :schema
+                          AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
+                        """
+                    ),
+                    {"schema": schema},
+                )
+                for row in result:
+                    t_schema = row[0]
+                    t_name = row[1]
+                    if (t_schema, t_name) not in tables:
+                        tables.append((t_schema, t_name))
+            finally:
+                if conn is not self.connection:
+                    conn.close()
+        except Exception:
+            pass
+
+    def _add_all_views_from_sys_views(self, tables):
+        """
+        Fallback: Add all views across the DB from sys.views/sys.schemas.
+
+        :param tables: List of discovered tables/views.
+        :type tables: list
+        """
+        try:
+            conn = self.connection or self.engine.connect()
+            try:
+                result = conn.execute(
+                    text(
+                        """
+                        SELECT s.name AS schema_name, v.name AS view_name
+                        FROM sys.views v
+                        JOIN sys.schemas s ON v.schema_id = s.schema_id
+                        """
+                    )
+                )
+                for row in result:
+                    v_schema = row[0]
+                    v_name = row[1]
+                    if (v_schema, v_name) not in tables:
+                        tables.append((v_schema, v_name))
+            finally:
+                if conn is not self.connection:
+                    conn.close()
+        except Exception:
+            pass
+
     def iter_rows(self) -> Iterable:
+        """
+        Not implemented for SQLServerInput. Use get_tables for table/view discovery.
+
+        :raises NotImplementedError: Always, for this class.
+        """
         raise NotImplementedError("iter_rows must be implemented in SQLServerInput.")

@@ -2,7 +2,16 @@ from typing import List, Tuple, Iterable
 from forklift.inputs.base_sql_input import BaseSQLInput
 
 class MySQLInput(BaseSQLInput):
+    """
+    MySQL-specific SQL input class. Skips system schemas when discovering tables/views.
+    """
     def _get_all_tables(self) -> List[Tuple[str, str]]:
+        """
+        Get all tables and views from non-system schemas in the MySQL database.
+
+        :return: List of (schema, table/view) tuples.
+        :rtype: List[Tuple[str, str]]
+        """
         tables = []
         system_schemas = {"information_schema", "mysql", "performance_schema", "sys"}
         for schema in self.inspector.get_schema_names():
@@ -15,5 +24,9 @@ class MySQLInput(BaseSQLInput):
         return tables
 
     def iter_rows(self) -> Iterable:
-        raise NotImplementedError("iter_rows must be implemented in MySQLInput.")
+        """
+        Not implemented for MySQLInput. Use get_tables for table/view discovery.
 
+        :raises NotImplementedError: Always, for this class.
+        """
+        raise NotImplementedError("iter_rows must be implemented in MySQLInput.")

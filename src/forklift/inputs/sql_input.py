@@ -17,22 +17,66 @@ class SQLInput(BaseInput):
     """
     Wrapper for SQL input that delegates to the correct DB-specific subclass.
     Preserves the legacy interface for registry and tests.
+
+    :param source: Database connection string.
+    :type source: str
+    :param include: List of table/view patterns to include.
+    :type include: List[str], optional
+    :param opts: Additional options for the input type.
+    :type opts: Any
     """
     def __init__(self, source: str, include: List[str] = None, **opts: Any):
+        """
+        Initialize SQLInput and delegate to the correct DB-specific subclass.
+
+        :param source: Database connection string.
+        :type source: str
+        :param include: List of table/view patterns to include.
+        :type include: List[str], optional
+        :param opts: Additional options for the input type.
+        :type opts: Any
+        """
         self._delegate = get_sql_input(source, include, **opts)
 
     def _get_all_tables(self) -> List[Tuple[str, str]]:
+        """
+        Get all tables and views from the delegated input.
+
+        :return: List of (schema, table/view) tuples.
+        :rtype: List[Tuple[str, str]]
+        """
         return self._delegate._get_all_tables()
 
     def iter_rows(self) -> Iterable:
+        """
+        Iterate over rows from the delegated input source.
+
+        :return: An iterable of rows.
+        :rtype: Iterable
+        """
         return self._delegate.iter_rows()
 
     def get_tables(self) -> list:
+        """
+        Get tables matching the include patterns from the delegated input.
+
+        :return: List of matched tables.
+        :rtype: list
+        """
         return self._delegate.get_tables()
 
 def get_sql_input(source: str, include: List[str] = None, **opts: Any) -> BaseSQLInput:
     """
     Factory to select the correct SQL input class based on the connection string or engine dialect.
+
+    :param source: Database connection string.
+    :type source: str
+    :param include: List of table/view patterns to include.
+    :type include: List[str], optional
+    :param opts: Additional options for the input type.
+    :type opts: Any
+    :return: An instance of the appropriate SQL input class.
+    :rtype: BaseSQLInput
     """
     if source.lower().startswith("mssql"):
         return SQLServerInput(source, include, **opts)

@@ -13,6 +13,17 @@ from forklift.utils.dedupe import dedupe_column_names
 class ExcelInput(BaseInput):
     """
     Implements ExcelInput for reading Excel files using pandas, supporting header modes and deduplication, and yielding rows as dictionaries.
+
+    :param source: Path to the Excel file.
+    :type source: str
+    :param tables: List of table/sheet definitions (from schema importer). Each dict should contain at least 'name' and optionally 'header_override'.
+    :type tables: Optional[list[dict]]
+    :param header_mode: Header mode, one of "auto", "present", or "absent".
+    :type header_mode: str
+    :param header_override: List of column names to override headers if header_mode is "absent" (used for single-sheet mode).
+    :type header_override: Optional[list[str]]
+    :param opts: Additional options passed to BaseInput.
+    :type opts: Any
     """
 
     def __init__(self, source: str, tables: Optional[list[dict]] = None, header_mode: str = "auto", header_override: Optional[list[str]] = None, **opts: Any):
@@ -21,11 +32,11 @@ class ExcelInput(BaseInput):
 
         :param source: Path to the Excel file.
         :type source: str
-        :param tables: List of table/sheet definitions (from schema importer). Each dict should contain at least 'name' and optionally 'header_override'.
+        :param tables: List of table/sheet definitions (from schema importer).
         :type tables: Optional[list[dict]]
         :param header_mode: Header mode, one of "auto", "present", or "absent".
         :type header_mode: str
-        :param header_override: List of column names to override headers if header_mode is "absent" (used for single-sheet mode).
+        :param header_override: List of column names to override headers if header_mode is "absent".
         :type header_override: Optional[list[str]]
         :param opts: Additional options passed to BaseInput.
         :type opts: Any
@@ -41,6 +52,8 @@ class ExcelInput(BaseInput):
     def _load_excel_multi(self):
         """
         Load all specified tables/sheets from the Excel file into DataFrames.
+
+        :raises Exception: If loading a sheet fails.
         """
         if self.tables:
             for table in self.tables:
@@ -94,6 +107,9 @@ class ExcelInput(BaseInput):
         """
         Return a list of table dicts for Excel input, one per sheet/table.
         Each dict contains 'name' (the sheet name) and 'rows' (an iterable of row dicts).
+
+        :return: A list of table dicts.
+        :rtype: list[dict]
         """
         return [
             {"name": tname, "rows": (dict(row) for _, row in df.iterrows())}

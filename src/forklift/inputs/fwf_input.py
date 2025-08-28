@@ -13,6 +13,11 @@ from ..schema.fwf_schema_importer import parse_fwf_row
 
 
 class FWFInput(BaseInput):
+    """
+    Input class for FWF (fixed-width formatted) files.
+    Uses a schema specification (fwf_spec) to parse each row into a dictionary of field values.
+    """
+
     def iter_rows(self):
         """
         Iterate over rows in a fixed-width formatted (FWF) file and yield each as a dictionary.
@@ -21,6 +26,7 @@ class FWFInput(BaseInput):
         Type validation is performed at the output stage, not during parsing.
 
         :return: Yields dictionaries mapping field names to parsed string values for each row.
+        :rtype: Iterator[dict]
         """
         spec = self.opts.get("fwf_spec")  # e.g., from JSON Schema: x-fwf
         with open(self.source, "rb") as fh:
@@ -32,6 +38,9 @@ class FWFInput(BaseInput):
         """
         Return a list containing a single table dict for FWF input.
         Each dict contains 'name' (the source filename) and 'rows' (an iterable of row dicts).
+
+        :return: List of table dicts for FWF input.
+        :rtype: list[dict]
         """
         return [{
             "name": self.source,

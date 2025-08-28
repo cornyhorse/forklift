@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-sql.json",
+  "title": "Forklift SQL Input Glob Standard",
+  "description": "Specify which schemas/tables to include from the SQL source using glob-like patterns. Patterns supported: '*.*' (all schemas/tables), 'table_name' (table in default schema), 'schema.table' (specific schema/table), 'schema.*' (all tables/views in schema). Database name is provided in the connection string.",
+  "type": "object",
+  "properties": {
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Glob pattern for schema and table. Examples: '*.*', 'table_name', 'schema.table', 'schema.*'"
+      },
+      "minItems": 1,
+      "description": "List of glob patterns specifying which schemas/tables to include. If omitted, defaults to ['*.*'] (all)."
+    }
+  },
+  "required": ["include"],
+  "additionalProperties": false
+}

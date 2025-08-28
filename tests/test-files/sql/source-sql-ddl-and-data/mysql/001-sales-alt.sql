@@ -36,7 +36,7 @@ SELECT
 FROM good_customers;
 
 -- data
-INSERT INTO good_customers
+INSERT IGNORE INTO good_customers
 (id,name,email,signup_date,active,amount_usd,country,status,discount_pct,notes) VALUES
 (1,'Amy Adams','amy.adams@example.com','2024-01-05',1,19.99,'US','active',0,'First purchase'),
 (2,'Ben Baker','ben.baker@example.com','2024-01-06',1,49.00,'US','active',10,'Loyalty promo'),
@@ -44,7 +44,7 @@ INSERT INTO good_customers
 (4,'Dara Diaz','dara.diaz@example.com','2024-01-08',1,120.50,'MX','active',5,'High value'),
 (5,'Eli Evans','eli.evans@example.com','2024-01-09',1,9.99,'US','prospect',0,'Trial');
 
-INSERT INTO purchases (purchase_id,customer_id,purchase_date,item,amount_usd) VALUES
+INSERT IGNORE INTO purchases (purchase_id,customer_id,purchase_date,item,amount_usd) VALUES
 (1,1,'2024-01-05','Starter Kit',19.99),
 (2,2,'2024-01-10','Subscription',49.00);
 
@@ -63,9 +63,9 @@ SELECT
   signup_date, notes
 FROM good_customers;
 
-INSERT INTO good_customers
+INSERT IGNORE INTO good_customers
 (id,name,email,signup_date,active,amount_usd,country,status,discount_pct,notes) VALUES
 (101,'Alt Alice','alt.alice@example.com','2024-04-01',1,12.34,'US','prospect',0,'ALT schema');
 
-INSERT INTO purchases (purchase_id,customer_id,purchase_date,item,amount_usd) VALUES
+INSERT IGNORE INTO purchases (purchase_id,customer_id,purchase_date,item,amount_usd) VALUES
 (1001,101,'2024-04-01','Alt Trial',12.34);

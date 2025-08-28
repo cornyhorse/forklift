@@ -23,6 +23,7 @@ services:
 
   sqlserver:
     image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
     environment:
       ACCEPT_EULA: "Y"
       SA_PASSWORD: "YourStrong!Passw0rd"
@@ -31,12 +32,17 @@ services:
 
   oracle:
     image: container-registry.oracle.com/database/free:latest
+    platform: linux/amd64
     environment:
-      ORACLE_PWD: "po@M$DNrEd#Ni^P@iBx6W9NU"
-      ORACLE_SID: ORCLCDB
-      ORACLE_PDB: ORCLPDB1
+      ORACLE_PWD: "YourStrong!Passw0rd"
+      ORACLE_SID: FREE
+      ORACLE_PDB: FREEPDB1
       ORACLE_CHARACTERSET: AL32UTF8
     ports:
       - "127.0.0.1:1521:1521"
-    # ⚠️ Requires login to Oracle Container Registry first:
-    # docker login container-registry.oracle.com
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "grep -q 'DATABASE IS READY TO USE!' /opt/oracle/cfgtoollogs/dbca/*/*.log"]
+      interval: 30s
+      timeout: 10s
+      retries: 40
+      start_period: 90s

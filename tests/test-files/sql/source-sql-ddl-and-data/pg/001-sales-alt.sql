@@ -56,7 +56,8 @@ INSERT INTO sales.good_customers
 (17,'Qin Qi','qin.qi@example.cn','2024-03-07',TRUE,8.00,'CN','active',0,'—'),
 (18,'Raj Rao','raj.rao@example.in','2024-03-08',TRUE,22.25,'IN','active',0,'India launch'),
 (19,'Sue Sun','sue.sun@example.com','2024-03-09',TRUE,11.11,'US','active',0,'Round trip'),
-(20,'Ted Tran','ted.tran@example.com','2024-03-10',TRUE,200.00,'US','active',0,'Whale');
+(20,'Ted Tran','ted.tran@example.com','2024-03-10',TRUE,200.00,'US','active',0,'Whale')
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO sales.purchases (purchase_id,customer_id,purchase_date,item,amount_usd) VALUES
 (1,1,'2024-01-05','Starter Kit',19.99),
@@ -78,7 +79,8 @@ INSERT INTO sales.purchases (purchase_id,customer_id,purchase_date,item,amount_u
 (17,18,'2024-03-08','India Launch Pack',22.25),
 (18,19,'2024-03-09','Return Trip',11.11),
 (19,20,'2024-03-10','Whale Package',200.00),
-(20,20,'2024-03-20','Whale Addon',150.00);
+(20,20,'2024-03-20','Whale Addon',150.00)
+ON CONFLICT (purchase_id) DO NOTHING;
 
 -- ========== alt ==========
 CREATE TABLE IF NOT EXISTS alt.good_customers (LIKE sales.good_customers INCLUDING ALL);
@@ -96,7 +98,9 @@ FROM alt.good_customers;
 INSERT INTO alt.good_customers
 (id,name,email,signup_date,active,amount_usd,country,status,discount_pct,notes) VALUES
 (101,'Alt Alice','alt.alice@example.com','2024-04-01',TRUE,12.34,'US','prospect',0,'ALT schema'),
-(102,'Alt Bob','alt.bob@example.com','2024-04-02',FALSE,0.00,'US','inactive',0,'ALT schema');
+(102,'Alt Bob','alt.bob@example.com','2024-04-02',FALSE,0.00,'US','inactive',0,'ALT schema')
+ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO alt.purchases (purchase_id,customer_id,purchase_date,item,amount_usd) VALUES
-(1001,101,'2024-04-01','Alt Trial',12.34);
+(1001,101,'2024-04-01','Alt Trial',12.34)
+ON CONFLICT (purchase_id) DO NOTHING;

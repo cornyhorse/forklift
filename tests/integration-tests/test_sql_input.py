@@ -3,6 +3,7 @@ import types
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 from forklift.inputs.sql_input import SQLInput
+import psycopg2
 
 def get_sqlite_conn_str():
     """
@@ -14,12 +15,41 @@ def get_sqlite_conn_str():
     db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../test-files/sqlite/sqlite.db'))
     return f'sqlite:///{db_path}'
 
+def get_postgres_conn_str():
+    """
+    Return the Postgres connection string for the test database.
+
+    :return: Postgres connection string
+    :rtype: str
+    """
+    return "postgresql://testuser:testpass@127.0.0.1:5432/testdb"
+
 def make_mock_inspector():
     inspector = types.SimpleNamespace()
     inspector.get_schema_names = lambda: ["public", "analytics"]
     inspector.get_table_names = lambda schema=None: ["users", "events"] if schema == "public" else ["reports"]
     inspector.get_view_names = lambda schema=None: ["user_view"] if schema == "public" else ["report_view"]
     return inspector
+
+@pytest.fixture(scope="module", autouse=True)
+def hydrate_postgres_db():
+    """
+    Hydrate the Postgres test database with the schema and data from the DDL file before running tests.
+    """
+    ddl_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../test-files/sql/source-sql-ddl-and-data/pg/001-sales-alt.sql'))
+    with open(ddl_path, "r") as f:
+        ddl_sql = f.read()
+    conn = psycopg2.connect(dbname="testdb", user="testuser", password="testpass", host="127.0.0.1", port=5432)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        for stmt in ddl_sql.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                try:
+                    cur.execute(stmt)
+                except Exception:
+                    pass  # Ignore errors for idempotency
+    conn.close()
 
 def test_sql_input_all_tables():
     """
@@ -176,3 +206,117 @@ def test_sql_input_empty_database(monkeypatch):
     sql_input.inspector = inspector
     tables = sql_input.get_tables()
     assert tables == []
+
+def test_postgres_sql_input_all_tables():
+    """
+    Test that all tables and views are copied from Postgres when using the '*.*' glob pattern.
+
+    - Asserts all expected tables/views are present.
+    - Asserts rows are returned as dictionaries.
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["*.*"])
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    assert "good_customers" in table_names
+    assert "purchases" in table_names
+    assert "v_good_customers" in table_names
+    for t in tables:
+        assert isinstance(t["rows"], list)
+        if t["rows"]:
+            assert isinstance(t["rows"][0], dict)
+            assert "_table" not in t["rows"][0]
+
+def test_postgres_sql_input_sales_schema():
+    """
+    Test that only tables/views in the 'sales' schema are copied from Postgres when using 'sales.*'.
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.*"])
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    assert table_names == {"good_customers", "purchases", "v_good_customers"}
+
+def test_postgres_sql_input_single_table():
+    """
+    Test that only the specified table is copied from Postgres when using a single table glob pattern.
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.good_customers"])
+    tables = sql_input.get_tables()
+    assert len(tables) == 1
+    assert tables[0]["name"] == "good_customers"
+    assert all(isinstance(row, dict) for row in tables[0]["rows"])
+
+def test_postgres_sql_input_table_by_name():
+    """
+    Test that all tables named 'good_customers' are copied from Postgres when using a table name without schema.
+    Matches all schemas.
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["good_customers"])
+    tables = sql_input.get_tables()
+    assert len(tables) >= 1
+    for t in tables:
+        assert t["name"] == "good_customers"
+        assert all(isinstance(row, dict) for row in t["rows"])
+
+def test_postgres_sql_input_nonexistent_table():
+    """
+    Test that no tables are copied from Postgres when a non-existent table is specified in the glob pattern.
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["does_not_exist"])
+    tables = sql_input.get_tables()
+    assert tables == []
+
+def test_postgres_sql_input_schema_and_table():
+    """
+    Test that only the specified table is returned when both schema and table are provided (e.g. 'sales.good_customers').
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.good_customers"])
+    tables = sql_input.get_tables()
+    assert len(tables) == 1
+    assert tables[0]["name"] == "good_customers"
+    assert tables[0]["schema"] == "sales"
+    assert all(isinstance(row, dict) for row in tables[0]["rows"])
+
+def test_postgres_sql_input_schema_glob():
+    """
+    Test that all tables/views in the specified schema are returned when using a schema glob (e.g. 'sales.*').
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.*"])
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    schemas = {t["schema"] for t in tables}
+    assert table_names == {"good_customers", "purchases", "v_good_customers"}
+    assert schemas == {"sales"}
+    for t in tables:
+        assert t["schema"] == "sales"
+        assert all(isinstance(row, dict) for row in t["rows"])
+
+def test_postgres_sql_input_all_schemas_glob():
+    """
+    Test that all tables/views in all schemas are returned when using '*.*' glob.
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str(), include=["*.*"])
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    schemas = {t["schema"] for t in tables}
+    # Should include all tables/views in all schemas
+    assert "good_customers" in table_names
+    assert "purchases" in table_names
+    assert "v_good_customers" in table_names
+    assert "sales" in schemas
+    for t in tables:
+        assert all(isinstance(row, dict) for row in t["rows"])
+
+def test_postgres_sql_input_default_all_tables():
+    """
+    Test that all tables/views in all schemas are copied from Postgres when no 'include' argument is specified (default behavior).
+    """
+    sql_input = SQLInput(source=get_postgres_conn_str())
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    schemas = {t["schema"] for t in tables}
+    assert "good_customers" in table_names
+    assert "purchases" in table_names
+    assert "v_good_customers" in table_names
+    assert "sales" in schemas
+    for t in tables:
+        assert all(isinstance(row, dict) for row in t["rows"])

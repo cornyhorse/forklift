@@ -21,7 +21,7 @@ ruff>=0.6
 mypy>=1.10
 build>=1.2
 twine>=5.1
-psycopg-binary
+psycopg2-binary
 pymysql
 pyodbc
 oracledb

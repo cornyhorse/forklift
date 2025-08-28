@@ -52,6 +52,13 @@ class Engine:
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
 
+        # Multi-table Excel support: extract tables from schema if input_kind is 'excel'
+        if input_kind == "excel":
+            xexcel = (self.schema.get("x-excel") or {})
+            tables = xexcel.get("sheets", None)
+            if tables:
+                self.input_opts["tables"] = tables
+
         # pass schema so type_coercion can extract minimal types/nulls
         self.preprocessors = get_preprocessors(preprocessors or [], schema=self.schema)
 
@@ -120,12 +127,12 @@ class Engine:
 
         out.open()
         try:
-            for rr in self._process(inp.iter_rows()):
-                if rr.error is None:
-                    out.write(rr.row)
-                else:
-                    # duplicates and validation errors go to quarantine,
-                    # which still bumps read (matching the tests' expectations)
-                    out.quarantine(rr)
+            for table in inp.get_tables():
+                table_name = table["name"]
+                for rr in self._process((dict(row, _table=table_name) for row in table["rows"])):
+                    if rr.error is None:
+                        out.write(rr.row)
+                    else:
+                        out.quarantine(rr)
         finally:
             out.close()

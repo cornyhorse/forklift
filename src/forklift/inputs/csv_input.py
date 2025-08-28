@@ -205,3 +205,13 @@ class CSVInput(BaseInput):
             if not header_override:
                 raise ValueError("header_override required when has_header=False")
             return header_override
+
+    def get_tables(self) -> list[dict]:
+        """
+        Return a list containing a single table dict for CSV input.
+        Each dict contains 'name' (the source filename) and 'rows' (an iterable of row dicts).
+        """
+        return [{
+            "name": self.source,
+            "rows": self.iter_rows()
+        }]

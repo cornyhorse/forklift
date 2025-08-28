@@ -27,3 +27,13 @@ class FWFInput(BaseInput):
             for raw in fh:
                 row = parse_fwf_row(raw, spec)
                 yield row
+
+    def get_tables(self) -> list[dict]:
+        """
+        Return a list containing a single table dict for FWF input.
+        Each dict contains 'name' (the source filename) and 'rows' (an iterable of row dicts).
+        """
+        return [{
+            "name": self.source,
+            "rows": self.iter_rows()
+        }]

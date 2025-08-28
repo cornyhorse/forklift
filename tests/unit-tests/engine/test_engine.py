@@ -7,6 +7,8 @@ class DummyInput:
     def iter_rows(self):
         for row in self.rows:
             yield row
+    def get_tables(self):
+        return [{"name": "dummy", "rows": self.iter_rows()}]
 
 class DummyOutput:
     def __init__(self, dest, schema=None, **opts):
@@ -61,4 +63,3 @@ def test_run_success(engine):
     engine.Input = lambda source, header_override=None, **opts: DummyInput(source, rows=rows)
     engine.run('source', 'dest')
     assert len(out.written) == 2
-

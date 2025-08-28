@@ -12,6 +12,9 @@ def get_input_cls(kind: str) -> Type[BaseInput]:
     if kind == "csv":
         from ..inputs.csv_input import CSVInput
         return CSVInput
+    if kind == "excel":
+        from ..inputs.excel_input import ExcelInput
+        return ExcelInput
     raise KeyError(f"Unknown input kind: {kind}")
 
 def get_output_cls(kind: str) -> Type[BaseOutput]:

@@ -103,8 +103,6 @@ class BaseSQLBackupInput(BaseInput):
                 name = name.replace('"', '')
                 columns = [c.strip().strip('"') for c in columns_blob.split(',')]
                 table_meta = self._ensure_table(schema, name, columns)
-                if not table_meta["columns"]:
-                    table_meta["columns"] = columns
                 values = self._parse_values(values_blob)
                 if len(values) != len(columns):
                     self._skipped.append({

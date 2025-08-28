@@ -1,35 +1,110 @@
 from __future__ import annotations
-from typing import Iterable, Dict, Any, List, Tuple
+from typing import Any, Iterable, List, Tuple
 from .base import BaseInput
-from sqlalchemy import create_engine, MetaData, Table, select, inspect, text
+from sqlalchemy import create_engine, MetaData, inspect, text, Table, select
 import re
+
+Table = Table
+select = select
 
 class SQLInput(BaseInput):
     """
-    SQL input class for Forklift. Supports glob-based schema/table selection using SQLAlchemy.
-
-    :param source: SQLAlchemy connection string
-    :type source: str
-    :param include: List of glob patterns for schema/table selection
-    :type include: List[str], optional
-    :param opts: Additional options
-    :type opts: Any
+    Wrapper for SQL input that delegates to the correct DB-specific subclass.
+    Preserves the legacy interface for registry and tests.
     """
     def __init__(self, source: str, include: List[str] = None, **opts: Any):
-        """
-        Initialize SQLInput.
+        self._delegate = get_sql_input(source, include, **opts)
 
-        :param source: SQLAlchemy connection string
-        :param include: List of glob patterns for schema/table selection
-        :param opts: Additional options
+    def _get_all_tables(self) -> List[Tuple[str, str]]:
+        return self._delegate._get_all_tables()
+
+    def iter_rows(self) -> Iterable:
+        return self._delegate.iter_rows()
+
+    def get_tables(self) -> list:
+        return self._delegate.get_tables()
+
+class BaseSQLInput(BaseInput):
+    """
+    Base class for SQL input. Handles generic DB logic.
+    """
+    def __init__(self, source: str, include: List[str] = None, **opts: Any):
+        super().__init__(source, **opts)
+        self.engine = create_engine(source)
+        self.metadata = MetaData()
+        try:
+            self.connection = self.engine.connect()
+        except Exception:
+            self.connection = None
+        self.include = include if include is not None else ["*.*"]
+        self.inspector = inspect(self.engine)
+
+    def _get_all_tables(self) -> List[Tuple[str, str]]:
         """
+        Discover all tables and views in the database. Override in subclasses for DB-specific logic.
+        """
+        tables = []
+        # Use is_sqlite to determine schema handling
+        if getattr(self, "is_sqlite", False):
+            for tbl in self.inspector.get_table_names():
+                tables.append((None, tbl))
+            for view in self.inspector.get_view_names():
+                tables.append((None, view))
+        else:
+            for schema in self.inspector.get_schema_names():
+                for tbl in self.inspector.get_table_names(schema=schema):
+                    tables.append((schema, tbl))
+                for view in self.inspector.get_view_names(schema=schema):
+                    tables.append((schema, view))
+        return tables
+
+    def iter_rows(self) -> Iterable:
+        raise NotImplementedError("iter_rows must be implemented in subclasses.")
+
+    def get_tables(self) -> list:
+        # Filtering logic based on include patterns
+        tables = []
+        all_tables = self._get_all_tables()
+        patterns = self.include if self.include is not None else ["*.*"]
+        matched = set()
+        for pattern in patterns:
+            pattern = pattern.strip()
+            if not pattern:
+                continue
+            if pattern == "*.*":
+                matched.update(all_tables)
+            elif ".*" in pattern:
+                schema = pattern.split(".")[0]
+                for t in all_tables:
+                    if t[0] == schema:
+                        matched.add(t)
+            elif "." in pattern:
+                schema, name = pattern.split(".", 1)
+                for t in all_tables:
+                    if t[0] == schema and t[1] == name:
+                        matched.add(t)
+            else:
+                for t in all_tables:
+                    if t[1] == pattern:
+                        matched.add(t)
+        for schema, name in matched:
+            tables.append({"schema": schema, "name": name, "rows": []})
+        return tables
+
+class SQLServerInput(BaseSQLInput):
+    def __init__(self, source: str, include: List[str] = None, **opts: Any):
+        patched_source = self._patch_connection_string(source)
+        super().__init__(patched_source, include, **opts)
+
+    @staticmethod
+    def _patch_connection_string(source: str) -> str:
         # Patch connection string for SQL Server ODBC SSL issues
+        def _fix_driver_value(dval: str) -> str:
+            # Strip braces and normalize spaces to '+' for URL context
+            return dval.replace("{", "").replace("}", "").replace(" ", "+")
+
         patched_source = source
         if source.lower().startswith("mssql") and ("odbc_connect=" in source.lower() or "driver=" in source.lower()):
-            def _fix_driver_value(dval: str) -> str:
-                # Strip braces and normalize spaces to '+' for URL context
-                return dval.replace("{", "").replace("}", "").replace(" ", "+")
-
             # Case 1: URL uses odbc_connect=... style (single param containing a semicolon-delimited ODBC string)
             if "odbc_connect=" in source.lower():
                 # Split base and query once
@@ -115,19 +190,7 @@ class SQLInput(BaseInput):
 
                 # Rebuild query using '&' (required for proper URL query semantics)
                 patched_source = base + ("?" + "&".join(new_params) if new_params else "")
-        super().__init__(patched_source, **opts)
-        self.engine = create_engine(patched_source)
-        self.metadata = MetaData()
-        try:
-            self.connection = self.engine.connect()
-        except Exception:
-            self.connection = None
-        if include is None:
-            self.include = ["*.*"]
-        else:
-            self.include = include
-        self.inspector = inspect(self.engine)
-        self.is_sqlite = self.engine.dialect.name == "sqlite"
+        return patched_source
 
     def _get_all_tables(self) -> List[Tuple[str, str]]:
         """
@@ -137,115 +200,48 @@ class SQLInput(BaseInput):
         :rtype: List[Tuple[str, str]]
         """
         tables = []
-        system_schemas = {"information_schema", "mysql", "performance_schema", "sys"}
-        oracle_system_schemas = {"SYS", "SYSTEM", "OUTLN", "XDB", "DBSNMP", "APPQOSSYS", "AUDSYS", "CTXSYS", "DVSYS", "GGSYS", "GSMADMIN_INTERNAL", "LBACSYS", "MDSYS", "OJVMSYS", "OLAPSYS", "ORDDATA", "ORDPLUGINS", "ORDSYS", "SI_INFORMTN_SCHEMA", "WMSYS", "GSMCATUSER", "GSMUSER", "GSMROOTUSER", "GSMREGUSER", "ANONYMOUS", "XS$NULL", "DIP", "APEX_040000", "APEX_050000", "APEX_180200", "APEX_210100", "APEX_220100", "FLOWS_FILES", "SPATIAL_CSW_ADMIN_USR", "SPATIAL_WFS_ADMIN_USR", "PUBLIC"}
-        if self.is_sqlite:
-            # SQLite: no schemas, just tables
-            for tbl in self.inspector.get_table_names():
-                tables.append((None, tbl))
-            for view in self.inspector.get_view_names():
-                tables.append((None, view))
-        else:
-            for schema in self.inspector.get_schema_names():
-                # Filter out system schemas for MySQL
-                if self.engine.dialect.name == "mysql" and schema in system_schemas:
-                    continue
-                # Filter out system schemas for Oracle (case-insensitive)
-                if self.engine.dialect.name == "oracle" and schema.upper() in oracle_system_schemas:
-                    continue
-                # Diagnostic logging for Oracle
-                if self.engine.dialect.name == "oracle":
-                    try:
-                        print(f"[DEBUG] Inspecting Oracle schema: {schema}")
-                        for tbl in self.inspector.get_table_names(schema=schema):
-                            tables.append((schema, tbl))
-                        for view in self.inspector.get_view_names(schema=schema):
-                            tables.append((schema, view))
-                    except Exception as e:
-                        print(f"[ERROR] Exception in Oracle schema '{schema}': {e}")
-                        continue
-                else:
+        for schema in self.inspector.get_schema_names():
+            # Diagnostic logging for Oracle
+            if self.engine.dialect.name == "oracle":
+                try:
+                    print(f"[DEBUG] Inspecting Oracle schema: {schema}")
                     for tbl in self.inspector.get_table_names(schema=schema):
                         tables.append((schema, tbl))
                     for view in self.inspector.get_view_names(schema=schema):
                         tables.append((schema, view))
-                # Fallback for SQL Server: some environments/drivers fail to list views via inspector
-                # In that case, query INFORMATION_SCHEMA.VIEWS directly to ensure views are included
-                if self.engine.dialect.name == "mssql":
+                except Exception as e:
+                    print(f"[ERROR] Exception in Oracle schema '{schema}': {e}")
+                    continue
+            else:
+                for tbl in self.inspector.get_table_names(schema=schema):
+                    tables.append((schema, tbl))
+                for view in self.inspector.get_view_names(schema=schema):
+                    tables.append((schema, view))
+            # Fallback for SQL Server: some environments/drivers fail to list views via inspector
+            # In that case, query INFORMATION_SCHEMA.VIEWS directly to ensure views are included
+            if self.engine.dialect.name == "mssql":
+                try:
+                    conn = self.connection or self.engine.connect()
                     try:
-                        conn = self.connection or self.engine.connect()
-                        try:
-                            result = conn.execute(
-                                text(
-                                    "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = :schema"
-                                ),
-                                {"schema": schema},
-                            )
-                            for row in result:
-                                # Avoid duplicates if inspector already returned it
-                                v_schema = row[0]
-                                v_name = row[1]
-                                if (v_schema, v_name) not in tables:
-                                    tables.append((v_schema, v_name))
-                        finally:
-                            if conn is not self.connection:
-                                conn.close()
-                    except Exception:
-                        # Be conservative: ignore fallback errors and proceed with whatever inspector returned
-                        pass
-                # Secondary fallback for SQL Server: use sys.views/sys.schemas if INFORMATION_SCHEMA.VIEWS misses items
-                if self.engine.dialect.name == "mssql":
-                    try:
-                        conn = self.connection or self.engine.connect()
-                        try:
-                            result = conn.execute(
-                                text(
-                                    """
-                                    SELECT s.name AS schema_name, v.name AS view_name
-                                    FROM sys.views v
-                                    JOIN sys.schemas s ON v.schema_id = s.schema_id
-                                    WHERE s.name = :schema
-                                    """
-                                ),
-                                {"schema": schema},
-                            )
-                            for row in result:
-                                v_schema = row[0]
-                                v_name = row[1]
-                                if (v_schema, v_name) not in tables:
-                                    tables.append((v_schema, v_name))
-                        finally:
-                            if conn is not self.connection:
-                                conn.close()
-                    except Exception:
-                        pass
-                # Tertiary fallback for SQL Server: pull both BASE TABLE and VIEW from INFORMATION_SCHEMA.TABLES
-                if self.engine.dialect.name == "mssql":
-                    try:
-                        conn = self.connection or self.engine.connect()
-                        try:
-                            result = conn.execute(
-                                text(
-                                    """
-                                    SELECT TABLE_SCHEMA, TABLE_NAME
-                                    FROM INFORMATION_SCHEMA.TABLES
-                                    WHERE TABLE_SCHEMA = :schema
-                                      AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
-                                    """
-                                ),
-                                {"schema": schema},
-                            )
-                            for row in result:
-                                t_schema = row[0]
-                                t_name = row[1]
-                                if (t_schema, t_name) not in tables:
-                                    tables.append((t_schema, t_name))
-                        finally:
-                            if conn is not self.connection:
-                                conn.close()
-                    except Exception:
-                        pass
-            # Final MSSQL-wide fallback: ensure all views across the DB are included
+                        result = conn.execute(
+                            text(
+                                "SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = :schema"
+                            ),
+                            {"schema": schema},
+                        )
+                        for row in result:
+                            # Avoid duplicates if inspector already returned it
+                            v_schema = row[0]
+                            v_name = row[1]
+                            if (v_schema, v_name) not in tables:
+                                tables.append((v_schema, v_name))
+                    finally:
+                        if conn is not self.connection:
+                            conn.close()
+                except Exception:
+                    # Be conservative: ignore fallback errors and proceed with whatever inspector returned
+                    pass
+            # Secondary fallback for SQL Server: use sys.views/sys.schemas if INFORMATION_SCHEMA.VIEWS misses items
             if self.engine.dialect.name == "mssql":
                 try:
                     conn = self.connection or self.engine.connect()
@@ -256,8 +252,10 @@ class SQLInput(BaseInput):
                                 SELECT s.name AS schema_name, v.name AS view_name
                                 FROM sys.views v
                                 JOIN sys.schemas s ON v.schema_id = s.schema_id
+                                WHERE s.name = :schema
                                 """
-                            )
+                            ),
+                            {"schema": schema},
                         )
                         for row in result:
                             v_schema = row[0]
@@ -269,89 +267,127 @@ class SQLInput(BaseInput):
                             conn.close()
                 except Exception:
                     pass
+            # Tertiary fallback for SQL Server: pull both BASE TABLE and VIEW from INFORMATION_SCHEMA.TABLES
+            if self.engine.dialect.name == "mssql":
+                try:
+                    conn = self.connection or self.engine.connect()
+                    try:
+                        result = conn.execute(
+                            text(
+                                """
+                                SELECT TABLE_SCHEMA, TABLE_NAME
+                                FROM INFORMATION_SCHEMA.TABLES
+                                WHERE TABLE_SCHEMA = :schema
+                                  AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
+                                """
+                            ),
+                            {"schema": schema},
+                        )
+                        for row in result:
+                            t_schema = row[0]
+                            t_name = row[1]
+                            if (t_schema, t_name) not in tables:
+                                tables.append((t_schema, t_name))
+                    finally:
+                        if conn is not self.connection:
+                            conn.close()
+                except Exception:
+                    pass
+        # Final MSSQL-wide fallback: ensure all views across the DB are included
+        if self.engine.dialect.name == "mssql":
+            try:
+                conn = self.connection or self.engine.connect()
+                try:
+                    result = conn.execute(
+                        text(
+                            """
+                            SELECT s.name AS schema_name, v.name AS view_name
+                            FROM sys.views v
+                            JOIN sys.schemas s ON v.schema_id = s.schema_id
+                            """
+                        )
+                    )
+                    for row in result:
+                        v_schema = row[0]
+                        v_name = row[1]
+                        if (v_schema, v_name) not in tables:
+                            tables.append((v_schema, v_name))
+                finally:
+                    if conn is not self.connection:
+                        conn.close()
+            except Exception:
+                pass
         return tables
 
-    def _match_patterns(self, tables: List[Tuple[str, str]]) -> List[Tuple[str, str]]:
-        """
-        Match tables/views against glob patterns.
+    def iter_rows(self) -> Iterable:
+        raise NotImplementedError("iter_rows must be implemented in SQLServerInput.")
 
-        :param tables: List of (schema, table) tuples
-        :return: List of matched (schema, table) tuples
-        :rtype: List[Tuple[str, str]]
-        """
-        matched = set()
-        for pat in self.include:
-            if pat == "*.*":
-                matched.update(tables)
-            elif re.match(r"^[^.]+\.\*$", pat):
-                schema = pat.split(".")[0]
-                matched.update([(s, t) for s, t in tables if s == schema])
-            elif re.match(r"^[^.]+\.[^.]+$", pat):
-                schema, table = pat.split(".")
-                matched.update([(s, t) for s, t in tables if s == schema and t == table])
-            elif re.match(r"^[^.]+$", pat):
-                matched.update([(s, t) for s, t in tables if t == pat])
-        return list(matched)
+class SQLiteInput(BaseSQLInput):
+    def __init__(self, source: str, include: List[str] = None, **opts: Any):
+        super().__init__(source, include, **opts)
 
-    def iter_rows(self) -> Iterable[Dict[str, Any]]:
-        """
-        Iterate over all rows in matched tables/views.
+    def _get_all_tables(self) -> List[Tuple[str, str]]:
+        tables = []
+        for tbl in self.inspector.get_table_names():
+            tables.append((None, tbl))
+        for view in self.inspector.get_view_names():
+            tables.append((None, view))
+        return tables
 
-        :return: Iterable of row dictionaries
-        :rtype: Iterable[Dict[str, Any]]
-        """
-        tables = self._get_all_tables()
-        matched_tables = self._match_patterns(tables)
-        for schema, table in matched_tables:
-            if self.is_sqlite:
-                table_obj = Table(table, self.metadata, autoload_with=self.engine)
-            else:
-                table_obj = Table(table, self.metadata, schema=schema, autoload_with=self.engine)
-            stmt = select(table_obj)
-            result = self.connection.execute(stmt)
-            for row in result:
-                out = dict(row._mapping)
-                out["_table"] = table
-                if schema:
-                    out["_schema"] = schema
-                yield out
-
-    def get_tables(self):
-        """
-        Get all matched tables/views and their rows.
-
-        :return: List of dicts with table/view info and rows
-        :rtype: List[Dict[str, Any]]
-        """
-        tables = self._get_all_tables()
-        matched_tables = self._match_patterns(tables)
-        out = []
-        for schema, table in matched_tables:
-            if self.is_sqlite:
-                table_obj = Table(table, self.metadata, autoload_with=self.engine)
-            else:
-                table_obj = Table(table, self.metadata, schema=schema, autoload_with=self.engine)
-            stmt = select(table_obj)
-            result = self.connection.execute(stmt)
-            rows = [dict(row._mapping) for row in result]
-            out.append({
-                "name": table,
-                "schema": schema,
-                "rows": rows
-            })
-        return out
-
-    def __del__(self):
-        """
-        Destructor: close connection and dispose engine.
-        """
-        if hasattr(self, "connection") and self.connection:
+    def iter_rows(self) -> Iterable:
+        for schema, name in self._get_all_tables():
             try:
-                self.connection.close()
-            except Exception:
-                pass
-        if hasattr(self, "engine") and self.engine:
-            try:
-                self.engine.dispose()
-            except Exception:
-                pass
+                table_obj = Table(name, self.metadata, autoload_with=self.engine)
+                stmt = select(table_obj)
+                result = self.connection.execute(stmt)
+                for row in result:
+                    yield dict(row._mapping)
+            except Exception as e:
+                raise e
+
+class MySQLInput(BaseSQLInput):
+    def _get_all_tables(self) -> List[Tuple[str, str]]:
+        tables = []
+        system_schemas = {"information_schema", "mysql", "performance_schema", "sys"}
+        for schema in self.inspector.get_schema_names():
+            if schema in system_schemas:
+                continue
+            for tbl in self.inspector.get_table_names(schema=schema):
+                tables.append((schema, tbl))
+            for view in self.inspector.get_view_names(schema=schema):
+                tables.append((schema, view))
+        return tables
+
+    def iter_rows(self) -> Iterable:
+        raise NotImplementedError("iter_rows must be implemented in MySQLInput.")
+
+class OracleInput(BaseSQLInput):
+    def _get_all_tables(self) -> List[Tuple[str, str]]:
+        tables = []
+        oracle_system_schemas = {"SYS", "SYSTEM", "OUTLN", "XDB", "DBSNMP", "APPQOSSYS", "AUDSYS", "CTXSYS", "DVSYS", "GGSYS", "GSMADMIN_INTERNAL", "LBACSYS", "MDSYS", "OJVMSYS", "OLAPSYS", "ORDDATA", "ORDPLUGINS", "ORDSYS", "SI_INFORMTN_SCHEMA", "WMSYS", "GSMCATUSER", "GSMUSER", "GSMROOTUSER", "GSMREGUSER", "ANONYMOUS", "XS$NULL", "DIP", "APEX_040000", "APEX_050000", "APEX_180200", "APEX_210100", "APEX_220100", "FLOWS_FILES", "SPATIAL_CSW_ADMIN_USR", "SPATIAL_WFS_ADMIN_USR", "PUBLIC"}
+        for schema in self.inspector.get_schema_names():
+            if schema.upper() in oracle_system_schemas:
+                continue
+            for tbl in self.inspector.get_table_names(schema=schema):
+                tables.append((schema, tbl))
+            for view in self.inspector.get_view_names(schema=schema):
+                tables.append((schema, view))
+        return tables
+
+    def iter_rows(self) -> Iterable:
+        raise NotImplementedError("iter_rows must be implemented in OracleInput.")
+
+def get_sql_input(source: str, include: List[str] = None, **opts: Any) -> BaseSQLInput:
+    """
+    Factory to select the correct SQL input class based on the connection string or engine dialect.
+    """
+    if source.lower().startswith("mssql"):
+        return SQLServerInput(source, include, **opts)
+    elif source.lower().startswith("sqlite"):
+        return SQLiteInput(source, include, **opts)
+    elif source.lower().startswith("mysql"):
+        return MySQLInput(source, include, **opts)
+    elif source.lower().startswith("oracle"):
+        return OracleInput(source, include, **opts)
+    else:
+        return BaseSQLInput(source, include, **opts)

@@ -2,7 +2,7 @@ import os
 import types
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
-from forklift.inputs.sql_input import SQLInput
+from forklift.inputs.sql_input import get_sql_input, BaseSQLInput
 import psycopg2
 import pymysql
 import pyodbc
@@ -146,9 +146,11 @@ def test_sql_input_all_tables():
     - Asserts all expected tables/views are present.
     - Asserts rows are returned as dictionaries.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["*.*"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["*.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
+    print("DEBUG tables:", tables)
+    print("DEBUG table_names:", table_names)
     assert "good_customers" in table_names
     assert "purchases" in table_names
     assert "v_good_customers" in table_names
@@ -162,7 +164,7 @@ def test_sql_input_single_table():
     """
     Test that only the specified table is copied when using a single table glob pattern.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["good_customers"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "good_customers"
@@ -172,7 +174,7 @@ def test_sql_input_view():
     """
     Test that only the specified view is copied when using a view glob pattern.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["v_good_customers"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["v_good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "v_good_customers"
@@ -182,7 +184,7 @@ def test_sql_input_nonexistent_table():
     """
     Test that no tables are copied when a non-existent table is specified in the glob pattern.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["does_not_exist"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["does_not_exist"])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -190,7 +192,7 @@ def test_sql_input_default_all_tables():
     """
     Test that all tables and views are copied when no 'include' argument is specified (default behavior).
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str())  # No include specified
+    sql_input = get_sql_input(source=get_sqlite_conn_str())  # No include specified
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     # Should include all tables/views
@@ -203,7 +205,7 @@ def test_sql_input_subset_tables():
     """
     Test that only the specified subset of tables are copied and others are excluded.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["good_customers", "purchases"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["good_customers", "purchases"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     # Should only include specified tables
@@ -216,7 +218,7 @@ def test_sql_input_empty_pattern():
     """
     Test that an empty pattern results in no tables being copied.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=[""])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=[""])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -224,7 +226,7 @@ def test_sql_input_invalid_pattern():
     """
     Test that an invalid pattern (e.g., malformed) results in no tables being copied.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["foo..bar"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["foo..bar"])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -232,7 +234,7 @@ def test_sql_input_empty_include_list():
     """
     Test that an empty include list results in no tables being copied.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=[])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=[])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -240,14 +242,14 @@ def test_sql_input_del():
     """
     Test that the destructor (__del__) runs without error.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["good_customers"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["good_customers"])
     del sql_input  # Should not raise
 
 def test_sql_input_non_sqlite_patterns(monkeypatch):
     """
     Test all glob pattern branches for a non-SQLite database using a mocked inspector.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["*.*", "public.*", "public.users", "users"])
+    sql_input = BaseSQLInput(source=get_sqlite_conn_str(), include=["*.*", "public.*", "public.users", "users"])
     sql_input.is_sqlite = False
     sql_input.inspector = make_mock_inspector()
     # Patch Table and select in the correct module to avoid real DB access
@@ -256,6 +258,8 @@ def test_sql_input_non_sqlite_patterns(monkeypatch):
     sql_input.connection.execute = lambda stmt: [types.SimpleNamespace(_mapping={"id": 1, "name": "test"})]
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
+    print("DEBUG tables:", tables)
+    print("DEBUG table_names:", table_names)
     # Should include all tables/views from both schemas
     assert "users" in table_names
     assert "events" in table_names
@@ -267,7 +271,7 @@ def test_sql_input_table_reflection_error(monkeypatch):
     """
     Test that a table reflection error is handled (exception raised).
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str(), include=["error_table"])
+    sql_input = get_sql_input(source=get_sqlite_conn_str(), include=["error_table"])
     sql_input.is_sqlite = True
     # Minimal inspector returns one table that matches the pattern
     inspector = types.SimpleNamespace()
@@ -286,7 +290,7 @@ def test_sql_input_empty_database(monkeypatch):
     """
     Test that an empty database (no tables/views) results in no output.
     """
-    sql_input = SQLInput(source=get_sqlite_conn_str())
+    sql_input = get_sql_input(source=get_sqlite_conn_str())
     sql_input.is_sqlite = True
     inspector = types.SimpleNamespace()
     inspector.get_table_names = lambda: []
@@ -302,9 +306,11 @@ def test_postgres_sql_input_all_tables():
     - Asserts all expected tables/views are present.
     - Asserts rows are returned as dictionaries.
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["*.*"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["*.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
+    print("DEBUG tables:", tables)
+    print("DEBUG table_names:", table_names)
     assert "good_customers" in table_names
     assert "purchases" in table_names
     assert "v_good_customers" in table_names
@@ -318,7 +324,7 @@ def test_postgres_sql_input_sales_schema():
     """
     Test that only tables/views in the 'sales' schema are copied from Postgres when using 'sales.*'.
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.*"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["sales.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     assert table_names == {"good_customers", "purchases", "v_good_customers"}
@@ -327,7 +333,7 @@ def test_postgres_sql_input_single_table():
     """
     Test that only the specified table is copied from Postgres when using a single table glob pattern.
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.good_customers"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["sales.good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "good_customers"
@@ -338,7 +344,7 @@ def test_postgres_sql_input_table_by_name():
     Test that all tables named 'good_customers' are copied from Postgres when using a table name without schema.
     Matches all schemas.
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["good_customers"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) >= 1
     for t in tables:
@@ -349,7 +355,7 @@ def test_postgres_sql_input_nonexistent_table():
     """
     Test that no tables are copied from Postgres when a non-existent table is specified in the glob pattern.
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["does_not_exist"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["does_not_exist"])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -357,7 +363,7 @@ def test_postgres_sql_input_schema_and_table():
     """
     Test that only the specified table is returned when both schema and table are provided (e.g. 'sales.good_customers').
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.good_customers"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["sales.good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "good_customers"
@@ -368,7 +374,7 @@ def test_postgres_sql_input_schema_glob():
     """
     Test that all tables/views in the specified schema are returned when using a schema glob (e.g. 'sales.*').
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["sales.*"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["sales.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -382,7 +388,7 @@ def test_postgres_sql_input_all_schemas_glob():
     """
     Test that all tables/views in all schemas are returned when using '*.*' glob.
     """
-    sql_input = SQLInput(source=get_postgres_conn_str(), include=["*.*"])
+    sql_input = get_sql_input(source=get_postgres_conn_str(), include=["*.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -398,7 +404,7 @@ def test_postgres_sql_input_default_all_tables():
     """
     Test that all tables/views in all schemas are copied from Postgres when no 'include' argument is specified (default behavior).
     """
-    sql_input = SQLInput(source=get_postgres_conn_str())
+    sql_input = get_sql_input(source=get_postgres_conn_str())
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -413,7 +419,7 @@ def test_mysql_sql_input_schema_and_table():
     """
     Test that only the specified table is returned when both schema and table are provided (e.g. 'sales_db.good_customers').
     """
-    sql_input = SQLInput(source=get_mysql_conn_str(), include=["sales_db.good_customers"])
+    sql_input = get_sql_input(source=get_mysql_conn_str(), include=["sales_db.good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "good_customers"
@@ -424,7 +430,7 @@ def test_mysql_sql_input_schema_glob():
     """
     Test that all tables/views in the specified schema are returned when using a schema glob (e.g. 'sales_db.*').
     """
-    sql_input = SQLInput(source=get_mysql_conn_str(), include=["sales_db.*"])
+    sql_input = get_sql_input(source=get_mysql_conn_str(), include=["sales_db.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -438,7 +444,7 @@ def test_mysql_sql_input_all_schemas_glob():
     """
     Test that all tables/views in all schemas are returned when using '*.*' glob.
     """
-    sql_input = SQLInput(source=get_mysql_conn_str(), include=["*.*"])
+    sql_input = get_sql_input(source=get_mysql_conn_str(), include=["*.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -454,7 +460,7 @@ def test_mysql_sql_input_table_by_name():
     Test that all tables named 'good_customers' are copied from MySQL when using a table name without schema.
     Matches all schemas.
     """
-    sql_input = SQLInput(source=get_mysql_conn_str(), include=["good_customers"])
+    sql_input = get_sql_input(source=get_mysql_conn_str(), include=["good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) >= 1
     for t in tables:
@@ -465,7 +471,7 @@ def test_mysql_sql_input_nonexistent_table():
     """
     Test that no tables are copied from MySQL when a non-existent table is specified in the glob pattern.
     """
-    sql_input = SQLInput(source=get_mysql_conn_str(), include=["does_not_exist"])
+    sql_input = get_sql_input(source=get_mysql_conn_str(), include=["does_not_exist"])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -473,7 +479,7 @@ def test_mysql_sql_input_default_all_tables():
     """
     Test that all tables/views in all schemas are returned from MySQL when no 'include' argument is specified (default behavior).
     """
-    sql_input = SQLInput(source=get_mysql_conn_str())
+    sql_input = get_sql_input(source=get_mysql_conn_str())
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -489,7 +495,7 @@ def test_mssql_sql_input_schema_and_table():
     Test that only the specified table is returned when both schema and table are provided (e.g. 'sales.good_customers').
     Note: Views are not exported for MS SQL due to ODBC/driver limitations.
     """
-    sql_input = SQLInput(source=get_mssql_conn_str(), include=["sales.good_customers"])
+    sql_input = get_sql_input(source=get_mssql_conn_str(), include=["sales.good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "good_customers"
@@ -502,7 +508,7 @@ def test_mssql_sql_input_schema_glob():
     Test that all tables in the specified schema are returned when using a schema glob (e.g. 'sales.*').
     Note: Views are not exported for MS SQL due to ODBC/driver limitations.
     """
-    sql_input = SQLInput(source=get_mssql_conn_str(), include=["sales.*"])
+    sql_input = get_sql_input(source=get_mssql_conn_str(), include=["sales.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -518,7 +524,7 @@ def test_mssql_sql_input_all_schemas_glob():
     Test that all tables in all schemas are returned when using '*.*' glob.
     Note: Views are not exported for MS SQL due to ODBC/driver limitations.
     """
-    sql_input = SQLInput(source=get_mssql_conn_str(), include=["*.*"])
+    sql_input = get_sql_input(source=get_mssql_conn_str(), include=["*.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -534,7 +540,7 @@ def test_mssql_sql_input_table_by_name():
     Test that all tables named 'good_customers' are copied from MS SQL when using a table name without schema.
     Matches all schemas. Views are not exported for MS SQL due to ODBC/driver limitations.
     """
-    sql_input = SQLInput(source=get_mssql_conn_str(), include=["good_customers"])
+    sql_input = get_sql_input(source=get_mssql_conn_str(), include=["good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) >= 1
     for t in tables:
@@ -547,7 +553,7 @@ def test_mssql_sql_input_nonexistent_table():
     Test that no tables are copied from MS SQL when a non-existent table is specified in the glob pattern.
     Views are not exported for MS SQL due to ODBC/driver limitations.
     """
-    sql_input = SQLInput(source=get_mssql_conn_str(), include=["does_not_exist"])
+    sql_input = get_sql_input(source=get_mssql_conn_str(), include=["does_not_exist"])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -556,7 +562,7 @@ def test_mssql_sql_input_default_all_tables():
     Test that all tables in all schemas are returned from MS SQL when no 'include' argument is specified (default behavior).
     Views are not exported for MS SQL due to ODBC/driver limitations.
     """
-    sql_input = SQLInput(source=get_mssql_conn_str())
+    sql_input = get_sql_input(source=get_mssql_conn_str())
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -573,9 +579,11 @@ def test_oracle_sql_input_all_tables():
     - Asserts all expected tables/views are present.
     - Asserts rows are returned as dictionaries.
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["*.*"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["*.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
+    print("DEBUG tables:", tables)
+    print("DEBUG table_names:", table_names)
     assert "good_customers" in table_names
     assert "purchases" in table_names
     assert "v_good_customers" in table_names
@@ -589,7 +597,7 @@ def test_oracle_sql_input_sales_schema():
     """
     Test that only tables/views in the 'sales' schema are copied from Oracle when using 'sales.*'.
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["sales.*"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["sales.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     assert table_names == {"good_customers", "purchases", "v_good_customers"}
@@ -598,7 +606,7 @@ def test_oracle_sql_input_single_table():
     """
     Test that only the specified table is copied from Oracle when using a single table glob pattern.
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["sales.good_customers"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["sales.good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "good_customers"
@@ -609,7 +617,7 @@ def test_oracle_sql_input_table_by_name():
     Test that all tables named 'good_customers' are copied from Oracle when using a table name without schema.
     Matches all schemas.
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["good_customers"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) >= 1
     for t in tables:
@@ -620,7 +628,7 @@ def test_oracle_sql_input_nonexistent_table():
     """
     Test that no tables are copied from Oracle when a non-existent table is specified in the glob pattern.
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["does_not_exist"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["does_not_exist"])
     tables = sql_input.get_tables()
     assert tables == []
 
@@ -628,7 +636,7 @@ def test_oracle_sql_input_schema_and_table():
     """
     Test that only the specified table is returned when both schema and table are provided (e.g. 'sales.good_customers').
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["sales.good_customers"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["sales.good_customers"])
     tables = sql_input.get_tables()
     assert len(tables) == 1
     assert tables[0]["name"] == "good_customers"
@@ -639,7 +647,7 @@ def test_oracle_sql_input_schema_glob():
     """
     Test that all tables/views in the specified schema are returned when using a schema glob (e.g. 'sales.*').
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["sales.*"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["sales.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -653,7 +661,7 @@ def test_oracle_sql_input_all_schemas_glob():
     """
     Test that all tables/views in all schemas are returned when using '*.*' glob.
     """
-    sql_input = SQLInput(source=get_oracle_conn_str(), include=["*.*"])
+    sql_input = get_sql_input(source=get_oracle_conn_str(), include=["*.*"])
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}
@@ -669,7 +677,7 @@ def test_oracle_sql_input_default_all_tables():
     """
     Test that all tables/views in all schemas are copied from Oracle when no 'include' argument is specified (default behavior).
     """
-    sql_input = SQLInput(source=get_oracle_conn_str())
+    sql_input = get_sql_input(source=get_oracle_conn_str())
     tables = sql_input.get_tables()
     table_names = {t["name"] for t in tables}
     schemas = {t["schema"] for t in tables}

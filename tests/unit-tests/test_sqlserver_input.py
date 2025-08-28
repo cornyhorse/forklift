@@ -91,3 +91,81 @@ def test_add_views_from_information_schema_handles_exception(monkeypatch):
     tables = []
     s._add_views_from_information_schema(tables, 'dbo')
     assert tables == [('dbo', 'view2')]
+
+def test_add_views_from_information_schema_exception(monkeypatch):
+    monkeypatch.setattr(BaseSQLInput, "__init__", lambda self, *a, **kw: None)
+    s = SQLServerInput('mssql+pyodbc:///?odbc_connect=DRIVER%3DODBC+Driver+17+for+SQL+Server')
+    class FailingEngine:
+        def connect(self):
+            raise Exception("fail connect")
+    s.connection = None
+    s.engine = FailingEngine()
+    tables = []
+    # Should not raise
+    s._add_views_from_information_schema(tables, 'dbo')
+    assert tables == []
+
+def test_add_views_from_sys_views_exception(monkeypatch):
+    monkeypatch.setattr(BaseSQLInput, "__init__", lambda self, *a, **kw: None)
+    s = SQLServerInput('mssql+pyodbc:///?odbc_connect=DRIVER%3DODBC+Driver+17+for+SQL+Server')
+    class FailingEngine:
+        def connect(self):
+            raise Exception("fail connect")
+    s.connection = None
+    s.engine = FailingEngine()
+    tables = []
+    # Should not raise
+    s._add_views_from_sys_views(tables, 'dbo')
+    assert tables == []
+
+def test_add_tables_and_views_from_information_schema_tables_exception(monkeypatch):
+    monkeypatch.setattr(BaseSQLInput, "__init__", lambda self, *a, **kw: None)
+    s = SQLServerInput('mssql+pyodbc:///?odbc_connect=DRIVER%3DODBC+Driver+17+for+SQL+Server')
+    class FailingEngine:
+        def connect(self):
+            raise Exception("fail connect")
+    s.connection = None
+    s.engine = FailingEngine()
+    tables = []
+    # Should not raise
+    s._add_tables_and_views_from_information_schema_tables(tables, 'dbo')
+    assert tables == []
+
+def test_add_all_views_from_sys_views_exception(monkeypatch):
+    monkeypatch.setattr(BaseSQLInput, "__init__", lambda self, *a, **kw: None)
+    s = SQLServerInput('mssql+pyodbc:///?odbc_connect=DRIVER%3DODBC+Driver+17+for+SQL+Server')
+    class FailingEngine:
+        def connect(self):
+            raise Exception("fail connect")
+    s.connection = None
+    s.engine = FailingEngine()
+    tables = []
+    # Should not raise
+    s._add_all_views_from_sys_views(tables)
+    assert tables == []
+
+def test_patch_connection_string_malformed():
+    # No '=' in param
+    source = 'mssql+pyodbc:///?odbc_connect'
+    patched = SQLServerInput._patch_connection_string(source)
+    assert 'odbc_connect=' in patched
+    # Unknown param
+    source = 'mssql+pyodbc:///?foo=bar'
+    patched = SQLServerInput._patch_connection_string(source)
+    assert 'foo=bar' in patched
+    # Only TrustServerCertificate present
+    source = 'mssql+pyodbc:///?odbc_connect=TrustServerCertificate%3Dyes'
+    patched = SQLServerInput._patch_connection_string(source)
+    decoded = unquote_plus(patched.split('odbc_connect=')[1])
+    assert 'DRIVER=ODBC Driver 18 for SQL Server' in decoded
+    assert 'TrustServerCertificate=yes' in decoded
+    # Only driver present
+    source = 'mssql+pyodbc:///?odbc_connect=DRIVER%3DODBC+Driver+17+for+SQL+Server'
+    patched = SQLServerInput._patch_connection_string(source)
+    decoded = unquote_plus(patched.split('odbc_connect=')[1])
+    assert 'DRIVER=ODBC+Driver+17+for+SQL+Server' in decoded or 'DRIVER=ODBC Driver 17 for SQL Server' in decoded
+    assert 'TrustServerCertificate=yes' in decoded
+    # No params at all
+    source = 'mssql+pyodbc:///'
+    patched = SQLServerInput._patch_connection_string(source)
+    assert patched == source  # Should remain unchanged when no params present

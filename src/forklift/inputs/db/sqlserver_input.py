@@ -34,16 +34,25 @@ class SQLServerInput(BaseSQLInput):
         """
         Patch the connection string for SQL Server to ensure SSL and correct driver settings.
         Handles both ODBC connect string and driver param styles.
-
-        :param source: Database connection string.
-        :type source: str
-        :return: Patched connection string.
-        :rtype: str
         """
-        if source.lower().startswith("mssql") and ("odbc_connect=" in source.lower() or "driver=" in source.lower()):
-            if "odbc_connect=" in source.lower():
+        lower = source.lower()
+        if lower.startswith('mssql'):
+            from urllib.parse import quote_plus
+            default_odbc = "DRIVER=ODBC Driver 18 for SQL Server;TrustServerCertificate=yes"
+            # Bare odbc_connect (no '=') ?odbc_connect or &odbc_connect at param boundary
+            bare_pattern = r'([?&])odbc_connect(?=(&|$))'
+            if re.search(bare_pattern, source, flags=re.IGNORECASE) and 'odbc_connect=' not in lower:
+                encoded = quote_plus(default_odbc)
+                source = re.sub(bare_pattern,
+                                lambda m: f"{m.group(1)}odbc_connect={encoded}{m.group(2) if m.group(2)=='&' else ''}",
+                                source,
+                                flags=re.IGNORECASE)
+                # We inserted a fully formed odbc_connect param; no further patching needed
+                return source
+            has_odbc = 'odbc_connect=' in lower or re.search(bare_pattern, lower) is not None
+            if has_odbc:
                 return SQLServerInput._patch_odbc_connect_string(source)
-            else:
+            if 'driver=' in lower:
                 return SQLServerInput._patch_driver_params(source)
         return source
 
@@ -98,20 +107,37 @@ class SQLServerInput(BaseSQLInput):
             base_url, query_string = source.split("?", 1)
         else:
             base_url, query_string = source, ""
-        query_params = [param for param in query_string.split("&") if param] if query_string else []
-        patched_query_params = []
-        for param in query_params:
-            key, eq, value = param.partition("=")
-            if key.lower() == "odbc_connect" and eq == "=":
-                decoded_odbc = unquote_plus(value)
-                patched_odbc = _patch_odbc_params(decoded_odbc)
-                patched_query_params.append(f"odbc_connect={quote_plus(patched_odbc)}")
-            else:
-                patched_query_params.append(param)
-        if not query_params:
+        # Robust handling: if empty query or sole/bare odbc_connect add default
+        if not query_string or query_string.strip().lower() == 'odbc_connect':
             default_odbc = "DRIVER=ODBC Driver 18 for SQL Server;TrustServerCertificate=yes"
-            patched_query_params.append(f"odbc_connect={quote_plus(default_odbc)}")
-        return base_url + "?" + "&".join(patched_query_params)
+            return base_url + "?odbc_connect=" + quote_plus(default_odbc)
+        query_params = [param for param in query_string.split("&") if param]
+        cleaned_query_params = []
+        found_odbc_connect = False
+        for param in query_params:
+            # Handle bare odbc_connect (no '=')
+            if param.strip().lower() == 'odbc_connect':
+                found_odbc_connect = True
+                default_odbc = "DRIVER=ODBC Driver 18 for SQL Server;TrustServerCertificate=yes"
+                cleaned_query_params.append(f"odbc_connect={quote_plus(default_odbc)}")
+                continue
+            key, eq, value = param.partition("=")
+            if key.lower() == "odbc_connect":
+                found_odbc_connect = True
+                if eq == "=" and value:
+                    decoded_odbc = unquote_plus(value)
+                    patched_odbc = _patch_odbc_params(decoded_odbc)
+                    cleaned_query_params.append(f"odbc_connect={quote_plus(patched_odbc)}")
+                else:
+                    default_odbc = "DRIVER=ODBC Driver 18 for SQL Server;TrustServerCertificate=yes"
+                    cleaned_query_params.append(f"odbc_connect={quote_plus(default_odbc)}")
+            else:
+                cleaned_query_params.append(param)
+        if not query_params or not found_odbc_connect:
+            default_odbc = "DRIVER=ODBC Driver 18 for SQL Server;TrustServerCertificate=yes"
+            cleaned_query_params.append(f"odbc_connect={quote_plus(default_odbc)}")
+        # Always reconstruct output from cleaned_query_params
+        return base_url + "?" + "&".join(cleaned_query_params)
 
     @staticmethod
     def _patch_driver_params(source: str) -> str:

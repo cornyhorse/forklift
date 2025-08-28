@@ -52,6 +52,11 @@ class Engine:
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
 
+        # Pass 'include' patterns to SQLInput if input_kind is 'sql'
+        if input_kind == "sql":
+            include_patterns = self.schema.get("include", ["*.*"])
+            self.input_opts["include"] = include_patterns
+
         # pass schema so type_coercion can extract minimal types/nulls
         self.preprocessors = get_preprocessors(preprocessors or [], schema=self.schema)
 

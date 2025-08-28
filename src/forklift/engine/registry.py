@@ -15,6 +15,9 @@ def get_input_cls(kind: str) -> Type[BaseInput]:
     if kind == "excel":
         from ..inputs.excel_input import ExcelInput
         return ExcelInput
+    if kind == "sql":
+        from ..inputs.sql_input import SQLInput
+        return SQLInput
     raise KeyError(f"Unknown input kind: {kind}")
 
 def get_output_cls(kind: str) -> Type[BaseOutput]:

@@ -7,7 +7,7 @@ jsonschema>=4.22
 openpyxl>=3.1        # Excel xlsx
 xlrd>=2.0            # legacy .xls (no bundled xlrd<2)
 pandas
-
+sqlalchemy==2.0.43
 # optional S3 I/O
 boto3>=1.34
 smart-open>=7.0
@@ -15,7 +15,7 @@ smart-open>=7.0
 # helpful utils
 python-dateutil>=2.9
 
-# (dev/test tools — move to requirements-dev.txt if you prefer)
+# (dev/test tools — move to requirements-dev.txt eventually)
 pytest>=8.0
 ruff>=0.6
 mypy>=1.10

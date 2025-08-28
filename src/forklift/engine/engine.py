@@ -52,10 +52,41 @@ class Engine:
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
 
-        # Pass 'include' patterns to SQLInput if input_kind is 'sql'
-        if input_kind == "sql":
-            include_patterns = self.schema.get("include", ["*.*"])
-            self.input_opts["include"] = include_patterns
+        # Unified include pattern derivation for SQL varieties
+        if input_kind in ("sql", "sql_backup"):
+            include_patterns: list[str] = []
+            # Root-level include (legacy sql schema standard)
+            root_include = (self.schema or {}).get("include") or []
+            if isinstance(root_include, list):
+                include_patterns.extend(root_include)
+            # x-sql extension block
+            x_sql = (self.schema or {}).get("x-sql") or {}
+            xsql_include = x_sql.get("include") or []
+            if isinstance(xsql_include, list):
+                include_patterns.extend(xsql_include)
+            # Per-table selectors
+            for tbl in x_sql.get("tables", []) or []:
+                sel = tbl.get("select") or {}
+                schema_name = sel.get("schema")
+                table_name = sel.get("name")
+                pattern = sel.get("pattern")  # explicit pattern override (e.g. sales.*)
+                if pattern:
+                    include_patterns.append(pattern)
+                elif schema_name and table_name:
+                    include_patterns.append(f"{schema_name}.{table_name}")
+                elif table_name:  # bare table
+                    include_patterns.append(table_name)
+            # Default if nothing specified
+            if not include_patterns:
+                include_patterns = ["*.*"]
+            # Deduplicate preserving order
+            seen = set()
+            deduped = []
+            for p in include_patterns:
+                if p not in seen:
+                    seen.add(p)
+                    deduped.append(p)
+            self.input_opts["include"] = deduped
 
         # pass schema so type_coercion can extract minimal types/nulls
         self.preprocessors = get_preprocessors(preprocessors or [], schema=self.schema)

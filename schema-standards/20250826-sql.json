@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-sql.json",
-  "title": "Forklift SQL Input Glob Standard",
-  "description": "Specify which schemas/tables to include from the SQL source using glob-like patterns. Patterns supported: '*.*' (all schemas/tables), 'table_name' (table in default schema), 'schema.table' (specific schema/table), 'schema.*' (all tables/views in schema). Database name is provided in the connection string.",
+  "title": "Forklift SQL Input Glob / Table Schema Standard",
+  "description": "Specify which schemas/tables to include from the SQL source using glob-like patterns OR extended x-sql configuration. Patterns supported: '*.*' (all schemas/tables), 'table_name' (table in default schema), 'schema.table' (specific schema/table), 'schema.*' (all tables/views in schema). Optional x-sql block allows richer configuration including per-table selection and column schema.",
   "type": "object",
   "properties": {
     "include": {
@@ -12,9 +12,49 @@
         "description": "Glob pattern for schema and table. Examples: '*.*', 'table_name', 'schema.table', 'schema.*'"
       },
       "minItems": 1,
-      "description": "List of glob patterns specifying which schemas/tables to include. If omitted, defaults to ['*.*'] (all)."
+      "description": "List of glob patterns specifying which schemas/tables to include. If omitted and no x-sql.include/tables present, defaults to ['*.*'] (all)."
+    },
+    "x-sql": {
+      "type": "object",
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Additional include patterns merged with root-level include (order preserved, duplicates removed)."
+        },
+        "tables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "select": {
+                "type": "object",
+                "properties": {
+                  "schema": { "type": "string" },
+                  "name": { "type": "string" },
+                  "pattern": { "type": "string", "description": "Explicit include pattern override (e.g. sales.*)." }
+                },
+                "additionalProperties": false
+              },
+              "columns": {
+                "type": "object",
+                "description": "Optional per-table column schema: each property is a column with standard JSON Schema spec.",
+                "additionalProperties": { "type": "object" }
+              },
+              "required": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Columns required for this specific table."
+              }
+            },
+            "required": ["select"],
+            "additionalProperties": false
+          },
+          "description": "Per-table configuration blocks. Each produces an include pattern derived from select (schema+name, name, or explicit pattern)."
+        }
+      },
+      "additionalProperties": false
     }
   },
-  "required": ["include"],
   "additionalProperties": false
 }

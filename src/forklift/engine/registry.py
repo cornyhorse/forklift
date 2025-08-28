@@ -18,6 +18,9 @@ def get_input_cls(kind: str) -> Type[BaseInput]:
     if kind == "sql":
         from ..inputs.sql_input import SQLInput
         return SQLInput
+    if kind == "sql_backup":
+        from ..inputs.sql_backup_input import SQLBackupInput
+        return SQLBackupInput
     raise KeyError(f"Unknown input kind: {kind}")
 
 def get_output_cls(kind: str) -> Type[BaseOutput]:

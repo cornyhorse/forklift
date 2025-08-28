@@ -2,7 +2,8 @@ import os
 import types
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
-from forklift.inputs.sql_input import get_sql_input, BaseSQLInput
+from forklift.inputs.sql_input import get_sql_input
+from forklift.inputs.base_sql_input import BaseSQLInput
 import psycopg2
 import pymysql
 import pyodbc

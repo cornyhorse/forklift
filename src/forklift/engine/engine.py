@@ -52,13 +52,6 @@ class Engine:
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
 
-        # Multi-table Excel support: extract tables from schema if input_kind is 'excel'
-        if input_kind == "excel":
-            xexcel = (self.schema.get("x-excel") or {})
-            tables = xexcel.get("sheets", None)
-            if tables:
-                self.input_opts["tables"] = tables
-
         # pass schema so type_coercion can extract minimal types/nulls
         self.preprocessors = get_preprocessors(preprocessors or [], schema=self.schema)
 

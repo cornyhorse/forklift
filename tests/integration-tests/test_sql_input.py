@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 from forklift.inputs.sql_input import SQLInput
 import psycopg2
+import pymysql
 
 def get_sqlite_conn_str():
     """
@@ -23,6 +24,15 @@ def get_postgres_conn_str():
     :rtype: str
     """
     return "postgresql://testuser:testpass@127.0.0.1:5432/testdb"
+
+def get_mysql_conn_str():
+    """
+    Return the MySQL connection string for the test database.
+
+    :return: MySQL connection string
+    :rtype: str
+    """
+    return "mysql+pymysql://testuser:testpass@127.0.0.1:3306/sales_db"
 
 def make_mock_inspector():
     inspector = types.SimpleNamespace()
@@ -50,6 +60,39 @@ def hydrate_postgres_db():
                 except Exception:
                     pass  # Ignore errors for idempotency
     conn.close()
+
+@pytest.fixture(scope="module", autouse=True)
+def hydrate_mysql_db():
+    """
+    Hydrate the MySQL test database with the schema and data from the DDL file before running tests.
+    Grants privileges to testuser for sales_db and alt_db using root user.
+    """
+    ddl_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../test-files/sql/source-sql-ddl-and-data/mysql/001-sales-alt.sql'))
+    with open(ddl_path, "r") as f:
+        ddl_sql = f.read()
+    # Connect as root to grant privileges
+    root_conn = pymysql.connect(user="root", password="root", host="127.0.0.1", port=3306)
+    with root_conn.cursor() as cur:
+        cur.execute("CREATE DATABASE IF NOT EXISTS sales_db;")
+        cur.execute("CREATE DATABASE IF NOT EXISTS alt_db;")
+        cur.execute("GRANT ALL PRIVILEGES ON sales_db.* TO 'testuser'@'%';")
+        cur.execute("GRANT ALL PRIVILEGES ON alt_db.* TO 'testuser'@'%';")
+        cur.execute("FLUSH PRIVILEGES;")
+    root_conn.commit()
+    root_conn.close()
+    # Now connect as testuser to run the DDL
+    conn = pymysql.connect(user="testuser", password="testpass", host="127.0.0.1", port=3306)
+    with conn.cursor() as cur:
+        for stmt in ddl_sql.split(';'):
+            stmt = stmt.strip()
+            if stmt:
+                try:
+                    cur.execute(stmt)
+                except Exception:
+                    pass  # Ignore errors for idempotency
+    conn.commit()
+    conn.close()
+
 
 def test_sql_input_all_tables():
     """
@@ -318,5 +361,80 @@ def test_postgres_sql_input_default_all_tables():
     assert "purchases" in table_names
     assert "v_good_customers" in table_names
     assert "sales" in schemas
+    for t in tables:
+        assert all(isinstance(row, dict) for row in t["rows"])
+
+def test_mysql_sql_input_schema_and_table():
+    """
+    Test that only the specified table is returned when both schema and table are provided (e.g. 'sales_db.good_customers').
+    """
+    sql_input = SQLInput(source=get_mysql_conn_str(), include=["sales_db.good_customers"])
+    tables = sql_input.get_tables()
+    assert len(tables) == 1
+    assert tables[0]["name"] == "good_customers"
+    assert tables[0]["schema"] == "sales_db"
+    assert all(isinstance(row, dict) for row in tables[0]["rows"])
+
+def test_mysql_sql_input_schema_glob():
+    """
+    Test that all tables/views in the specified schema are returned when using a schema glob (e.g. 'sales_db.*').
+    """
+    sql_input = SQLInput(source=get_mysql_conn_str(), include=["sales_db.*"])
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    schemas = {t["schema"] for t in tables}
+    assert table_names == {"good_customers", "purchases", "v_good_customers"}
+    assert schemas == {"sales_db"}
+    for t in tables:
+        assert t["schema"] == "sales_db"
+        assert all(isinstance(row, dict) for row in t["rows"])
+
+def test_mysql_sql_input_all_schemas_glob():
+    """
+    Test that all tables/views in all schemas are returned when using '*.*' glob.
+    """
+    sql_input = SQLInput(source=get_mysql_conn_str(), include=["*.*"])
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    schemas = {t["schema"] for t in tables}
+    assert "good_customers" in table_names
+    assert "purchases" in table_names
+    assert "v_good_customers" in table_names
+    assert "sales_db" in schemas
+    for t in tables:
+        assert all(isinstance(row, dict) for row in t["rows"])
+
+def test_mysql_sql_input_table_by_name():
+    """
+    Test that all tables named 'good_customers' are copied from MySQL when using a table name without schema.
+    Matches all schemas.
+    """
+    sql_input = SQLInput(source=get_mysql_conn_str(), include=["good_customers"])
+    tables = sql_input.get_tables()
+    assert len(tables) >= 1
+    for t in tables:
+        assert t["name"] == "good_customers"
+        assert all(isinstance(row, dict) for row in t["rows"])
+
+def test_mysql_sql_input_nonexistent_table():
+    """
+    Test that no tables are copied from MySQL when a non-existent table is specified in the glob pattern.
+    """
+    sql_input = SQLInput(source=get_mysql_conn_str(), include=["does_not_exist"])
+    tables = sql_input.get_tables()
+    assert tables == []
+
+def test_mysql_sql_input_default_all_tables():
+    """
+    Test that all tables/views in all schemas are returned from MySQL when no 'include' argument is specified (default behavior).
+    """
+    sql_input = SQLInput(source=get_mysql_conn_str())
+    tables = sql_input.get_tables()
+    table_names = {t["name"] for t in tables}
+    schemas = {t["schema"] for t in tables}
+    assert "good_customers" in table_names
+    assert "purchases" in table_names
+    assert "v_good_customers" in table_names
+    assert "sales_db" in schemas
     for t in tables:
         assert all(isinstance(row, dict) for row in t["rows"])

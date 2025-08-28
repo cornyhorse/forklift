@@ -42,6 +42,7 @@ class SQLInput(BaseInput):
         :rtype: List[Tuple[str, str]]
         """
         tables = []
+        system_schemas = {"information_schema", "mysql", "performance_schema", "sys"}
         if self.is_sqlite:
             # SQLite: no schemas, just tables
             for tbl in self.inspector.get_table_names():
@@ -50,6 +51,9 @@ class SQLInput(BaseInput):
                 tables.append((None, view))
         else:
             for schema in self.inspector.get_schema_names():
+                # Filter out system schemas for MySQL
+                if self.engine.dialect.name == "mysql" and schema in system_schemas:
+                    continue
                 for tbl in self.inspector.get_table_names(schema=schema):
                     tables.append((schema, tbl))
                 for view in self.inspector.get_view_names(schema=schema):

@@ -25,6 +25,8 @@ dependencies = [
     "typing-extensions>=4.8; python_version<'3.11'",
     # added for SQL input functionality
     "SQLAlchemy>=2.0",
+    # date parsing utilities
+    "python-dateutil>=2.9",
 ]
 
 [project.optional-dependencies]

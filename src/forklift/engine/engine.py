@@ -35,19 +35,26 @@ class Engine:
         self.input_opts = input_opts
         self.input_opts["header_mode"] = header_mode
         self.output_opts: Dict[str, Any] = {}
+        # Plugin class references (kept short historically). Provide verbose aliases.
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
+        self.input_plugin_class = self.Input
+        self.output_plugin_class = self.Output
 
         # Derive include patterns for SQL families via utility helper.
         if input_kind in ("sql", "sql_backup"):
             self.input_opts["include"] = derive_sql_include_patterns(self.schema)
 
         self.preprocessors = get_preprocessors(preprocessors or [], schema=self.schema)
+        # Required fields collection (retain original attribute for backward compatibility)
         self.required = list(self.schema.get("required", []))
-        xcsv = (self.schema.get("x-csv") or {})
-        self.dedupe_keys: Tuple[str, ...] = tuple((xcsv.get("dedupe") or {}).get("keys", []) or ())
-        self.validator = None  # placeholder
-        self.allow_required_nulls = bool((xcsv.get("nulls") or {}))
+        self.required_field_names = self.required  # alias
+        xcsv_extension_block = (self.schema.get("x-csv") or {})
+        dedupe_config = (xcsv_extension_block.get("dedupe") or {})
+        self.dedupe_keys: Tuple[str, ...] = tuple(dedupe_config.get("keys", []) or ())
+        self.deduplication_key_fields = self.dedupe_keys  # alias
+        self.validator = None  # placeholder for potential future validator object
+        self.allow_required_nulls = bool((xcsv_extension_block.get("nulls") or {}))
 
     def _required_ok(self, row: Row) -> bool:
         """Check whether required columns are satisfied.
@@ -59,41 +66,42 @@ class Engine:
         :param row: Row under evaluation.
         :return: ``True`` if row satisfies required constraints, else ``False``.
         """
-        if not self.required:
+        if not self.required_field_names:
             return True
-        for required_field in self.required:
-            if required_field not in row:
+        for required_field_name in self.required_field_names:
+            if required_field_name not in row:
+                # Header missing that column altogether — treated as pass.
                 continue
-            required_field_value = row.get(required_field)
+            required_field_value = row.get(required_field_name)
             if required_field_value is None or (isinstance(required_field_value, str) and required_field_value.strip() == ""):
                 if self.allow_required_nulls:
                     continue
                 return False
         return True
 
-    def _process(self, rows: Iterable[Row]) -> Iterable[RowResult]:
+    def _process(self, input_rows: Iterable[Row]) -> Iterable[RowResult]:
         """Apply preprocessors, required-field checks, and optional dedupe.
 
-        :param rows: Iterable of raw row dicts.
+        :param input_rows: Iterable of raw row dicts.
         :yield: ``RowResult`` containing either a clean row or an error.
         """
-        seen_dedupe_key_tuples = set()
-        for row in rows:
+        seen_deduplication_key_tuples = set()
+        for current_row in input_rows:
             try:
                 for preprocessor in self.preprocessors:
-                    row = preprocessor.apply(row)
-                if not self._required_ok(row):
+                    current_row = preprocessor.apply(current_row)
+                if not self._required_ok(current_row):
                     raise ValueError("missing required field")
-                if self.dedupe_keys:
-                    dedupe_key_tuple = tuple(row.get(dedupe_key) for dedupe_key in self.dedupe_keys)
-                    if dedupe_key_tuple in seen_dedupe_key_tuples:
-                        row["__forklift_skip__"] = True
-                        yield RowResult(row=row, error=None)
+                if self.deduplication_key_fields:
+                    deduplication_key_tuple = tuple(current_row.get(key) for key in self.deduplication_key_fields)
+                    if deduplication_key_tuple in seen_deduplication_key_tuples:
+                        current_row["__forklift_skip__"] = True
+                        yield RowResult(row=current_row, error=None)
                         continue
-                    seen_dedupe_key_tuples.add(dedupe_key_tuple)
-                yield RowResult(row=row, error=None)
+                    seen_deduplication_key_tuples.add(deduplication_key_tuple)
+                yield RowResult(row=current_row, error=None)
             except Exception as exc:  # pragma: no cover - defensive
-                yield RowResult(row=row, error=exc)
+                yield RowResult(row=current_row, error=exc)
 
     def run(self, source: str, dest: str) -> None:
         """Execute ingest → preprocess → output pipeline.

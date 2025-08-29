@@ -1,92 +1,52 @@
 from __future__ import annotations
 from typing import Any, Iterable, List, Tuple
 from .base import BaseInput
-from sqlalchemy import create_engine, MetaData, inspect, text, Table, select
-import re
 from forklift.inputs.db.mysql_input import MySQLInput
 from forklift.inputs.db.oracle_input import OracleInput
 from forklift.inputs.db.sqlite_input import SQLiteInput
 from forklift.inputs.db.sqlserver_input import SQLServerInput
 from forklift.inputs.db.postgres_input import PostgresInput
 from forklift.inputs.base_sql_input import BaseSQLInput
+from sqlalchemy import Table as _SA_Table, select as _sa_select  # noqa: F401
 
-Table = Table
-select = select
+# Re-export for test monkeypatching (tests patch forklift.inputs.sql_input.Table)
+Table = _SA_Table  # type: ignore
+select = _sa_select  # type: ignore
 
 class SQLInput(BaseInput):
-    """
-    Wrapper for SQL input that delegates to the correct DB-specific subclass.
-    Preserves the legacy interface for registry and tests.
+    """Wrapper delegating to the appropriate concrete SQL input class.
 
     :param source: Database connection string.
-    :type source: str
-    :param include: List of table/view patterns to include.
-    :type include: List[str], optional
-    :param opts: Additional options for the input type.
-    :type opts: Any
+    :param include: Optional list of table/view patterns.
+    :param opts: Additional implementation options.
     """
     def __init__(self, source: str, include: List[str] = None, **opts: Any):
-        """
-        Initialize SQLInput and delegate to the correct DB-specific subclass.
-
-        :param source: Database connection string.
-        :type source: str
-        :param include: List of table/view patterns to include.
-        :type include: List[str], optional
-        :param opts: Additional options for the input type.
-        :type opts: Any
-        """
+        super().__init__(source, **opts)
         self._delegate = get_sql_input(source, include, **opts)
 
     def _get_all_tables(self) -> List[Tuple[str, str]]:
-        """
-        Get all tables and views from the delegated input.
-
-        :return: List of (schema, table/view) tuples.
-        :rtype: List[Tuple[str, str]]
-        """
+        """Proxy to delegate implementation."""
         return self._delegate._get_all_tables()
 
     def iter_rows(self) -> Iterable:
-        """
-        Iterate over rows from the delegated input source.
-
-        :return: An iterable of rows.
-        :rtype: Iterable
-        """
+        """Proxy row iterator from delegate."""
         return self._delegate.iter_rows()
 
     def get_tables(self) -> list:
-        """
-        Get tables matching the include patterns from the delegated input.
-
-        :return: List of matched tables.
-        :rtype: list
-        """
+        """Proxy table discovery from delegate."""
         return self._delegate.get_tables()
 
 def get_sql_input(source: str, include: List[str] = None, **opts: Any) -> BaseSQLInput:
-    """
-    Factory to select the correct SQL input class based on the connection string or engine dialect.
-
-    :param source: Database connection string.
-    :type source: str
-    :param include: List of table/view patterns to include.
-    :type include: List[str], optional
-    :param opts: Additional options for the input type.
-    :type opts: Any
-    :return: An instance of the appropriate SQL input class.
-    :rtype: BaseSQLInput
-    """
-    if source.lower().startswith("mssql"):
+    """Factory returning a concrete SQL input based on URI prefix."""
+    lower = source.lower()
+    if lower.startswith("mssql"):
         return SQLServerInput(source, include, **opts)
-    elif source.lower().startswith("sqlite"):
+    if lower.startswith("sqlite"):
         return SQLiteInput(source, include, **opts)
-    elif source.lower().startswith("mysql"):
+    if lower.startswith("mysql"):
         return MySQLInput(source, include, **opts)
-    elif source.lower().startswith("oracle"):
+    if lower.startswith("oracle"):
         return OracleInput(source, include, **opts)
-    elif source.lower().startswith("postgres") or source.lower().startswith("postgresql"):
+    if lower.startswith("postgres") or lower.startswith("postgresql"):
         return PostgresInput(source, include, **opts)
-    else:
-        return BaseSQLInput(source, include, **opts)
+    return BaseSQLInput(source, include, **opts)

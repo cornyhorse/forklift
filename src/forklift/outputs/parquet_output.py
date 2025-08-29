@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 from ..outputs.base import BaseOutput
 from ..types import Row, RowResult
@@ -13,7 +12,7 @@ class PQOutput(BaseOutput):
 
     - Does not actually write Parquet yet.
     - Tracks counts and writes a manifest and a quarantine JSONL so tests can assert.
-    - Quarantine file path: <dest>/_quarantine.jsonl
+    - Quarantine file path: ``<dest>/_quarantine.jsonl``
     """
 
     def __init__(self, dest: str, schema: dict | None = None, **kwargs):
@@ -21,23 +20,28 @@ class PQOutput(BaseOutput):
         self.schema = schema
 
     def open(self) -> None:
+        """Initialize output directory and open quarantine file."""
         self._dest = Path(self.dest)
         self._dest.mkdir(parents=True, exist_ok=True)
-
-        # Flat quarantine file to satisfy tests (no subdir)
         self._qpath = self._dest / "_quarantine.jsonl"
         self._qfp = self._qpath.open("w", encoding="utf-8")
-
-        # Basic counters for manifest
         self._counts = {"read": 0, "kept": 0, "rejected": 0}
 
     def validate_row(self, row: Row) -> None:
-        """
-        Validate a row against the schema. Raises ValueError if validation fails.
-        Supports type validation for 'integer', 'date', and 'boolean'.
+        """Validate a row against the schema (if provided).
+
+        Performs lightweight type checks for field specifications inside the
+        schema's ``fields`` list. Supported types:
+
+        * ``integer`` – value convertible via ``int``.
+        * ``date`` – value convertible using :func:`forklift.utils.date_parser.parse_date`.
+        * ``boolean`` – membership in configured ``true`` / ``false`` token lists.
+
+        :param row: Row dictionary to validate.
+        :raises ValueError: On type mismatch for any configured field.
         """
         if not self.schema or "fields" not in self.schema:
-            return  # No schema, nothing to validate
+            return
         from forklift.utils.date_parser import parse_date
         for field in self.schema["fields"]:
             name = field["name"]
@@ -61,6 +65,12 @@ class PQOutput(BaseOutput):
                     raise ValueError(f"Field '{name}' expected boolean, got '{value}'")
 
     def write(self, row: Row) -> None:
+        """Process an accepted row: validate and update counters.
+
+        Skips rows explicitly marked with ``__forklift_skip__``.
+
+        :param row: Row dictionary.
+        """
         # Skip rows explicitly marked by preprocessors
         if row.get("__forklift_skip__"):
             self._counts["read"] += 1
@@ -74,12 +84,17 @@ class PQOutput(BaseOutput):
             self.quarantine(RowResult(row=row, error=e))
 
     def quarantine(self, rr: RowResult) -> None:
+        """Record a rejected row to the quarantine JSONL and count it.
+
+        :param rr: RowResult containing original row + error.
+        """
         self._counts["read"] += 1
         self._counts["rejected"] += 1
         payload = {"row": rr.row, "error": str(rr.error)}
         self._qfp.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def close(self) -> None:
+        """Close quarantine file and emit a manifest JSON file."""
         try:
             # Ensure quarantine file is closed/flushed
             if hasattr(self, "_qfp") and not self._qfp.closed:

@@ -59,12 +59,7 @@ def get_preprocessors(names, schema: Dict[str, Any] | None = None):
     try:
         from ..preprocessors.type_coercion import TypeCoercion
         mapping["type_coercion"] = TypeCoercion
-    except Exception:
-        pass
-    try:
-        from ..preprocessors.footer_filter import FooterFilter
-        mapping["footer_filter"] = FooterFilter
-    except Exception:
+    except Exception:  # pragma: no cover
         pass
 
     types, nulls = _extract_types_and_nulls(schema)

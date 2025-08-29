@@ -9,27 +9,23 @@ from ..utils.standardize import standardize_postgres_column_name
 _PROLOGUE_PREFIXES = ("#",)
 _FOOTER_PREFIXES = ("TOTAL", "SUMMARY")
 
-import re
-
 
 def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
                          max_scan_rows: Optional[int] = 100) -> None:
-    """
-    Advance the file_handle past any prologue lines, which are lines that are either blank,
-    start with any of the prefixes defined in _PROLOGUE_PREFIXES, or (if header_row is provided)
-    until a line matching the header_row is found.
+    """Advance a file handle past prologue lines.
 
-    If header_row is provided, lines are read and compared (after splitting and stripping)
-    to header_row. The file_handle will be positioned at the start of the header row if found.
-    Only the first max_scan_rows lines are checked (default: 100), unless overridden.
+    Prologue lines are blank lines, lines starting with one of
+    :data:`_PROLOGUE_PREFIXES`, or (when ``header_row`` is provided) any line
+    until a matching header row is encountered.
 
-    :param file_handle: File-like object to advance.
-    :type file_handle: file-like
-    :param header_row: Optional list of header strings to match as the header row.
-    :type header_row: Optional[List[str]]
-    :param max_scan_rows: Maximum number of rows to scan for the header row (None for unlimited).
-    :type max_scan_rows: Optional[int]
-    :raises ValueError: If header_row is provided but not found in the file within scan limit.
+    :param file_handle: Seekable text file-like object opened for reading.
+    :param header_row: Optional explicit header row tokens to match; when
+        provided scanning continues until a matching row is found or the scan
+        limit is exceeded.
+    :param max_scan_rows: Maximum number of lines to scan (``None`` disables the
+        limit).
+    :raises ValueError: If ``header_row`` is provided but not found within the
+        scan limit / file length.
     """
     line_count = 0
     while True:
@@ -59,37 +55,14 @@ def _skip_prologue_lines(file_handle, header_row: Optional[List[str]] = None,
 
 
 def get_csv_reader(file_handle: Any, delimiter: str) -> Iterator[List[str]]:
-    """
-    Create a CSV reader for the given file handle and delimiter.
+    """Create a CSV row iterator with consistent whitespace handling.
 
-            skipinitialspace=True is an option on Python’s built-in csv.reader.
-            It tells the reader to ignore any whitespace immediately following the delimiter.
+    Uses :func:`csv.reader` with ``skipinitialspace=True`` so that a space
+    following a delimiter is ignored (useful for loosely formatted exports).
 
-            e.g.
-            ------------------
-            import csv
-            from io import StringIO
-
-            data = "id, name ,age\n1, Alice , 30\n2,Bob,25"
-            reader_default = list(csv.reader(StringIO(data), delimiter=","))
-            reader_skipspace = list(csv.reader(StringIO(data), delimiter=",", skipinitialspace=True))
-
-            print("Default:", reader_default)
-            print("Skipinitialspace:", reader_skipspace)
-            ------------------
-
-            Default:          [['id', ' name ', 'age'], ['1', ' Alice ', ' 30'], ['2', 'Bob', '25']]
-            Skipinitialspace: [['id', 'name ', 'age'], ['1', 'Alice ', '30'], ['2', 'Bob', '25']]
-            ------------------
-            Note in the above how "name" is read as " name " with the default reader, but as "name " with skipinitialspace=True.
-            This is particularly useful when dealing with CSV files that may have inconsistent spacing after delimiters.
-
-    Args:
-        file_handle: A file-like object opened for reading text.
-        delimiter: The character used to separate fields in the CSV file.
-
-    Returns:
-        A csv.reader object configured with the specified delimiter and skipinitialspace=True.
+    :param file_handle: File-like object positioned at the first CSV row.
+    :param delimiter: Single character delimiter.
+    :return: Iterator yielding lists of raw string cells.
     """
     csv_reader = csv.reader(file_handle, delimiter=delimiter, skipinitialspace=True)
     return csv_reader
@@ -97,6 +70,15 @@ def get_csv_reader(file_handle: Any, delimiter: str) -> Iterator[List[str]]:
 
 class CSVInput(BaseInput):
     def _prepare_csv_reader_and_fieldnames(self, file_handle):
+        """Prepare a DictReader and deduplicated field name list.
+
+        Determines header presence according to ``header_mode`` / overrides,
+        skips any prologue lines, normalizes and deduplicates header names, and
+        returns a configured :class:`csv.DictReader` plus the final field list.
+
+        :param file_handle: Open file handle at beginning of file.
+        :return: Tuple of (``DictReader``, ``List[str]`` field names).
+        """
         header_mode = self.opts.get("header_mode", "auto")  # "auto", "present", "absent"
         if header_mode == "present":
             has_header = True
@@ -108,7 +90,6 @@ class CSVInput(BaseInput):
         header_override: Optional[List[str]] = self.opts.get("header_override")
         header_scan_limit = self.opts.get("header_scan_limit", 100)
         delimiter = self.opts.get("delimiter") or ","
-        # Clarify header detection and override logic
         header_row_for_detection = header_override if has_header and header_override else None
 
         try:
@@ -129,28 +110,27 @@ class CSVInput(BaseInput):
                 skipinitialspace=True,
             )
             return dict_reader, fieldnames
-        except Exception as e:
+        except Exception as e:  # pragma: no cover - defensive
             file_handle.close()
             raise e
 
     def iter_rows(self) -> Iterable[Dict[str, Any]]:
-        """
-        Iterate over rows from the CSV source, skipping prologue lines, deduplicating consecutive identical rows,
-        and skipping footer/summary rows. Handles explicit header handling via the 'header_mode' option:
+        """Yield normalized row dictionaries from the CSV source.
 
-        header_mode:
-            - "present": File is expected to have a header row.
-            - "absent": File does not have a header row; use header_override for field names.
-            - "auto": Try to detect header row.
+        Applies: prologue skipping, header handling (present/absent/auto),
+        delimiter selection, header normalization + deduplication, blank row
+        filtering, footer keyword filtering, and consecutive duplicate row
+        elimination.
 
-        Uses options from self.opts:
-            - delimiter: CSV delimiter character (default: ',')
-            - encoding_priority: List of encodings to try for file reading
-            - header_override: Optional list of header names to use instead of the file's header row
-            - header_mode: Explicit header handling mode
-            - header_scan_limit: Maximum number of rows to scan for header row (default: 100)
+        Recognized ``self.opts`` keys:
 
-        :return: An iterator of dictionaries mapping field names to values for each valid row.
+        * ``delimiter`` – field separator (default ``,``)
+        * ``encoding_priority`` – ordered encodings to attempt
+        * ``header_override`` – explicit header list when file lacks one
+        * ``header_mode`` – ``present`` | ``absent`` | ``auto``
+        * ``header_scan_limit`` – lines to scan for a matching header
+
+        :return: Iterator of row dicts.
         """
         encoding_priority: List[str] = self.opts.get("encoding_priority") or ["utf-8-sig", "utf-8", "cp1252", "latin-1"]
         file_handle = open_text_auto(self.source, encoding_priority)
@@ -180,19 +160,13 @@ class CSVInput(BaseInput):
 
     def _get_raw_header(self, csv_reader: Iterator[List[str]], has_header: bool,
                         header_override: Optional[List[str]]) -> List[str]:
-        """
-        Determine the raw header row for the CSV file.
+        """Return the raw header row (file or override).
 
-        Args:
-            csv_reader: The CSV reader object positioned at the first data row.
-            has_header: Whether the CSV file has a header row.
-            header_override: Optional list of header names to use instead of the file's header row.
-
-        Returns:
-            List of header names, either from the file or overridden.
-
-        Raises:
-            ValueError: If has_header is False and header_override is not provided.
+        :param csv_reader: Iterator positioned at the first potential header row.
+        :param has_header: Whether the file contains a header row.
+        :param header_override: Explicit header list overriding the file header.
+        :return: List of header names (possibly empty).
+        :raises ValueError: If ``has_header`` is False and no ``header_override`` provided.
         """
         if has_header:
             try:
@@ -207,9 +181,9 @@ class CSVInput(BaseInput):
             return header_override
 
     def get_tables(self) -> list[dict]:
-        """
-        Return a list containing a single table dict for CSV input.
-        Each dict contains 'name' (the source filename) and 'rows' (an iterable of row dicts).
+        """Return a single logical table describing the CSV file.
+
+        :return: List with one element containing ``name`` and ``rows`` iterator.
         """
         return [{
             "name": self.source,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Iterable, Dict, Any
+from typing import Iterable, Any
 from ..types import Row
 
 class BaseInput(ABC):
@@ -31,4 +31,15 @@ class BaseInput(ABC):
 
         :return: An iterable of Row objects.
         :rtype: Iterable[Row]
+        """
+
+    @abstractmethod
+    def get_tables(self) -> list[dict]:
+        """Return logical table descriptors.
+
+        Each descriptor must contain at least ``name`` and ``rows`` (an
+        iterable / generator of row dicts). For single-file inputs (CSV, FWF)
+        this is typically a list with one element.
+
+        :return: List of table metadata dictionaries.
         """

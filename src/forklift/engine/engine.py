@@ -31,87 +31,82 @@ class Engine:
             header_mode: str = "auto",  # "present", "absent", "auto"
             **input_opts: Any,
     ) -> None:
-        """
-        Engine for data import/export.
+        """Initialize the data processing engine.
 
-        Args:
-            input_kind: Type of input (e.g., "csv").
-            output_kind: Type of output (e.g., "parquet").
-            schema: Optional schema for validation and type/null extraction.
-            preprocessors: List of preprocessors to apply.
-            header_mode: Explicit header handling mode ("present", "absent", "auto").
-                - "present": File is expected to have a header row.
-                - "absent": File does not have a header row; use header_override for field names.
-                - "auto": Try to detect header row.
-            **input_opts: Additional options for input class.
+        Wires together the selected input and output plugins, derives include
+        patterns (for SQL variants), loads preprocessors, and prepares light
+        validation metadata derived from the provided schema.
+
+        :param input_kind: Registered input kind (e.g. ``"csv"``, ``"excel"``, ``"sql"``).
+        :param output_kind: Registered output kind (e.g. ``"parquet"``).
+        :param schema: Optional schema dict containing ``fields`` and extension
+            blocks like ``x-csv`` or ``x-sql``.
+        :param preprocessors: Ordered list of preprocessor names to apply.
+        :param header_mode: Header handling mode for CSV-like inputs (``"present"``,
+            ``"absent"``, or ``"auto"``).
+        :param input_opts: Additional keyword options forwarded to the input class.
         """
         self.schema = schema or {}
         self.input_opts = input_opts
-        self.input_opts["header_mode"] = header_mode  # enforce explicit header handling
+        self.input_opts["header_mode"] = header_mode
         self.output_opts: Dict[str, Any] = {}
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
 
-        # Unified include pattern derivation for SQL varieties
+        # Derive include patterns for SQL families.
         if input_kind in ("sql", "sql_backup"):
             include_patterns: list[str] = []
-            # Root-level include (legacy sql schema standard)
             root_include = (self.schema or {}).get("include") or []
             if isinstance(root_include, list):
                 include_patterns.extend(root_include)
-            # x-sql extension block
             x_sql = (self.schema or {}).get("x-sql") or {}
             xsql_include = x_sql.get("include") or []
             if isinstance(xsql_include, list):
                 include_patterns.extend(xsql_include)
-            # Per-table selectors
             for tbl in x_sql.get("tables", []) or []:
                 sel = tbl.get("select") or {}
                 schema_name = sel.get("schema")
                 table_name = sel.get("name")
-                pattern = sel.get("pattern")  # explicit pattern override (e.g. sales.*)
+                pattern = sel.get("pattern")
                 if pattern:
                     include_patterns.append(pattern)
                 elif schema_name and table_name:
                     include_patterns.append(f"{schema_name}.{table_name}")
-                elif table_name:  # bare table
+                elif table_name:
                     include_patterns.append(table_name)
-            # Default if nothing specified
             if not include_patterns:
                 include_patterns = ["*.*"]
-            # Deduplicate preserving order
             seen = set()
-            deduped = []
+            deduped: list[str] = []
             for p in include_patterns:
                 if p not in seen:
                     seen.add(p)
                     deduped.append(p)
             self.input_opts["include"] = deduped
 
-        # pass schema so type_coercion can extract minimal types/nulls
         self.preprocessors = get_preprocessors(preprocessors or [], schema=self.schema)
-
-        # very light in-engine validation
         self.required = list(self.schema.get("required", []))
-
-        # dedupe keys from x-csv.dedupe.keys (if present)
         xcsv = (self.schema.get("x-csv") or {})
         self.dedupe_keys: Tuple[str, ...] = tuple((xcsv.get("dedupe") or {}).get("keys", []) or ())
-
-        self.validator = None  # placeholder for future JSON Schema validator
-
-        xcsv = (self.schema.get("x-csv") or {})
+        self.validator = None  # placeholder
         self.allow_required_nulls = bool((xcsv.get("nulls") or {}))
 
     def _required_ok(self, row: Row) -> bool:
-        # Presence-only check: the column must exist in the header.
-        # NULLs are allowed when x-csv.nulls is configured; otherwise, they are NOT allowed.
+        """Check whether required columns are satisfied.
+
+        A required column passes if it is absent from the row header (header-level
+        omission tolerated) or present with a non-empty, non-null value; unless
+        the ``x-csv.nulls`` extension allows nulls.
+
+        :param row: Row under evaluation.
+        :return: ``True`` if row satisfies required constraints, else ``False``.
+        """
         if not self.required:
             return True
         for k in self.required:
-            if k not in row:  # header didn’t include it; don’t fail here
+            if k not in row:
                 continue
-            v = row.get(k, None)
+            v = row.get(k)
             if v is None or (isinstance(v, str) and v.strip() == ""):
                 if self.allow_required_nulls:
                     continue
@@ -119,32 +114,39 @@ class Engine:
         return True
 
     def _process(self, rows: Iterable[Row]) -> Iterable[RowResult]:
+        """Apply preprocessors, required-field checks, and optional dedupe.
+
+        :param rows: Iterable of raw row dicts.
+        :yield: ``RowResult`` containing either a clean row or an error.
+        """
         seen_keys = set()
         for row in rows:
             try:
-                # preprocessors (coercion etc.)
                 for p in self.preprocessors:
                     row = p.apply(row)
-
-                # required fields
                 if not self._required_ok(row):
                     raise ValueError("missing required field")
-
-                # dedupe-by-key if configured
                 if self.dedupe_keys:
                     key = tuple(row.get(k) for k in self.dedupe_keys)
                     if key in seen_keys:
-                        row["__forklift_skip__"] = True  # mark as read-only skip
+                        row["__forklift_skip__"] = True
                         yield RowResult(row=row, error=None)
                         continue
                     seen_keys.add(key)
-                # row is good
                 yield RowResult(row=row, error=None)
-            except Exception as e:
+            except Exception as e:  # pragma: no cover - defensive
                 yield RowResult(row=row, error=e)
 
     def run(self, source: str, dest: str) -> None:
-        # header override for headerless TSV from schema.x-csv.header.mode == "provided"
+        """Execute ingest → preprocess → output pipeline.
+
+        Reads tables from the input plugin, augments each row with ``_table`` and
+        streams them through processing; accepted rows are written, failures are
+        quarantined.
+
+        :param source: Input location (filepath, connection string, etc.).
+        :param dest: Output destination path.
+        """
         header_override = None
         xcsv = (self.schema or {}).get("x-csv") or {}
         header = xcsv.get("header") or {}

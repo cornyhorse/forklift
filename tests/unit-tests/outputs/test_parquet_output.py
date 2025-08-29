@@ -29,7 +29,7 @@ def test_quarantine_and_close(tmp_path, monkeypatch):
     pq.quarantine(rr)
     pq.close()
 
-    assert pq._counts["read"] == 2
-    assert pq._counts["kept"] == 1
-    assert pq._counts["rejected"] == 1
+    assert pq.counters["read"] == 2
+    assert pq.counters["kept"] == 1
+    assert pq.counters["rejected"] == 1
     assert (outdir / "_quarantine.jsonl").exists()

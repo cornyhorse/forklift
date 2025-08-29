@@ -1,18 +1,43 @@
 from __future__ import annotations
 
+"""Parquet (test stub) output writer.
+
+This module provides :class:`PQOutput`, a minimal implementation of the
+``BaseOutput`` interface used by the test-suite. It intentionally does *not*
+produce real Parquet files yet; instead it validates rows (lightweight type
+checks), tracks counts, and records rejected rows in a quarantine JSONL file.
+
+Artifacts written under the destination directory (``dest``):
+
+* ``_quarantine.jsonl`` – one JSON object per rejected row (may be empty)
+* ``_manifest.json`` – summary counters: ``read``, ``kept``, ``rejected``
+
+Future enhancement could swap the in-memory no-op write for an actual Parquet
+export using ``pyarrow`` or an equivalent backend without changing the public
+Engine contract.
+"""
+
 import json
 from pathlib import Path
 
 from ..outputs.base import BaseOutput
 from ..types import Row, RowResult
+from ..utils.row_validation import validate_row_against_schema
 
 
 class PQOutput(BaseOutput):
-    """Test-oriented minimal writer.
+    """Test-oriented minimal writer (no real Parquet emission yet).
 
-    - Does not actually write Parquet yet.
-    - Tracks counts and writes a manifest and a quarantine JSONL so tests can assert.
-    - Quarantine file path: ``<dest>/_quarantine.jsonl``
+    Responsibilities:
+
+    * Validate incoming rows against an optional schema (subset: integer, date, boolean)
+    * Maintain counts (``read``, ``kept``, ``rejected``)
+    * Append rejected rows (with error messages) to ``_quarantine.jsonl``
+    * Persist counts to ``_manifest.json`` on close
+
+    :param dest: Output directory path (created if missing).
+    :param schema: Optional schema dict containing ``fields`` collection.
+    :param kwargs: Additional (unused) keyword arguments for future expansion.
     """
 
     def __init__(self, dest: str, schema: dict | None = None, **kwargs):
@@ -20,86 +45,74 @@ class PQOutput(BaseOutput):
         self.schema = schema
 
     def open(self) -> None:
-        """Initialize output directory and open quarantine file."""
-        self._dest = Path(self.dest)
-        self._dest.mkdir(parents=True, exist_ok=True)
-        self._qpath = self._dest / "_quarantine.jsonl"
-        self._qfp = self._qpath.open("w", encoding="utf-8")
-        self._counts = {"read": 0, "kept": 0, "rejected": 0}
+        """Initialize output directory and open quarantine file.
+
+        Side effects:
+          * Ensures ``dest`` directory exists.
+          * Opens (truncates) ``_quarantine.jsonl`` for writing.
+          * Initializes internal counters.
+
+        :raises OSError: If the destination directory cannot be created.
+        """
+        self.output_dir = Path(self.dest)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.quarantine_file_path = self.output_dir / "_quarantine.jsonl"
+        self.quarantine_handle = self.quarantine_file_path.open("w", encoding="utf-8")
+        self.counters = {"read": 0, "kept": 0, "rejected": 0}
 
     def validate_row(self, row: Row) -> None:
-        """Validate a row against the schema (if provided).
+        """Validate a row against the schema (if provided) using utility helper.
 
-        Performs lightweight type checks for field specifications inside the
-        schema's ``fields`` list. Supported types:
-
-        * ``integer`` – value convertible via ``int``.
-        * ``date`` – value convertible using :func:`forklift.utils.date_parser.parse_date`.
-        * ``boolean`` – membership in configured ``true`` / ``false`` token lists.
+        Delegates to :func:`forklift.utils.row_validation.validate_row_against_schema`
+        which implements the lightweight subset of field type checks (integer,
+        date, boolean) used in tests.
 
         :param row: Row dictionary to validate.
         :raises ValueError: On type mismatch for any configured field.
         """
-        if not self.schema or "fields" not in self.schema:
-            return
-        from forklift.utils.date_parser import parse_date
-        for field in self.schema["fields"]:
-            name = field["name"]
-            field_type = field.get("type")
-            fmt = field.get("format")
-            value = row.get(name)
-            if field_type == "integer":
-                if value is not None and value != "":
-                    try:
-                        int(value)
-                    except Exception:
-                        raise ValueError(f"Field '{name}' expected integer, got '{value}'")
-            elif field_type == "date":
-                if value is not None and value != "":
-                    if not parse_date(value, fmt):
-                        raise ValueError(f"Field '{name}' expected date{f' {fmt}' if fmt else ''}, got '{value}'")
-            elif field_type == "boolean":
-                true_vals = field.get("true", ["Y", "1", "T", "True"])
-                false_vals = field.get("false", ["N", "0", "F", "False"])
-                if value not in true_vals and value not in false_vals:
-                    raise ValueError(f"Field '{name}' expected boolean, got '{value}'")
+        validate_row_against_schema(row, self.schema)
 
     def write(self, row: Row) -> None:
-        """Process an accepted row: validate and update counters.
+        """Validate and account for an accepted row.
 
-        Skips rows explicitly marked with ``__forklift_skip__``.
+        Rows tagged with ``__forklift_skip__`` are *counted* (``read``) but not
+        validated nor kept. Successful validation increments ``kept``; failures
+        are delegated to :meth:`quarantine`.
 
-        :param row: Row dictionary.
+        :param row: Row dictionary (possibly mutated by preprocessors upstream).
         """
         # Skip rows explicitly marked by preprocessors
         if row.get("__forklift_skip__"):
-            self._counts["read"] += 1
+            self.counters["read"] += 1
             return
-        self._counts["read"] += 1
+        self.counters["read"] += 1
         try:
             self.validate_row(row)
-            self._counts["kept"] += 1
+            self.counters["kept"] += 1
             # Intentionally no parquet writing yet (unit-test stub)
         except Exception as e:
             self.quarantine(RowResult(row=row, error=e))
 
     def quarantine(self, rr: RowResult) -> None:
-        """Record a rejected row to the quarantine JSONL and count it.
+        """Record a rejected row and increment counters.
 
-        :param rr: RowResult containing original row + error.
+        :param rr: RowResult containing the original row and validation (or other) error.
+        :raises ValueError: Never raised; errors are serialized to JSONL.
         """
-        self._counts["read"] += 1
-        self._counts["rejected"] += 1
+        self.counters["read"] += 1
+        self.counters["rejected"] += 1
         payload = {"row": rr.row, "error": str(rr.error)}
-        self._qfp.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        self.quarantine_handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
     def close(self) -> None:
-        """Close quarantine file and emit a manifest JSON file."""
+        """Flush quarantine log (if open) and emit manifest.
+
+        Always writes ``_manifest.json`` even if no rows were processed, so
+        callers / tests can rely on the file's presence.
+        """
         try:
-            # Ensure quarantine file is closed/flushed
-            if hasattr(self, "_qfp") and not self._qfp.closed:
-                self._qfp.close()
+            if hasattr(self, "quarantine_handle") and not self.quarantine_handle.closed:
+                self.quarantine_handle.close()
         finally:
-            # Always write a small manifest for assertions
-            manifest = self._dest / "_manifest.json"
-            manifest.write_text(json.dumps(self._counts, indent=2), encoding="utf-8")
+            manifest = self.output_dir / "_manifest.json"
+            manifest.write_text(json.dumps(self.counters, indent=2), encoding="utf-8")

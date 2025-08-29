@@ -31,7 +31,7 @@ def get_output_cls(kind: str) -> Type[BaseOutput]:
 
 def _extract_types_and_nulls(schema: Dict[str, Any] | None):
     if not schema:
-        return {}, {}, {}
+        return {}, {}, {}, {}
     props = schema.get("properties", {})
     # Preserve full specs for TypeCoercion (includes decimal, binary, datetime, etc.)
     full_specs = props
@@ -46,7 +46,10 @@ def _extract_types_and_nulls(schema: Dict[str, Any] | None):
     for k in full_specs.keys():
         nulls.setdefault(k, [])
         nulls[k].extend(global_nulls)
-    return full_specs, nulls, props
+    bool_cfg = (xcsv.get("booleans") or {})
+    true_tokens = set(bool_cfg.get("true", []))
+    false_tokens = set(bool_cfg.get("false", []))
+    return full_specs, nulls, props, {"true": true_tokens, "false": false_tokens}
 
 def get_preprocessors(names, schema: Dict[str, Any] | None = None):
     if not names:
@@ -58,11 +61,11 @@ def get_preprocessors(names, schema: Dict[str, Any] | None = None):
     except Exception:  # pragma: no cover
         pass
 
-    full_specs, nulls, _ = _extract_types_and_nulls(schema)
+    full_specs, nulls, _, bool_cfg = _extract_types_and_nulls(schema)
     out = []
     for n in names:
         if n == "type_coercion" and "type_coercion" in mapping:
-            out.append(mapping[n](types=full_specs, nulls=nulls))
+            out.append(mapping[n](types=full_specs, nulls=nulls, booleans=bool_cfg))
         elif n in mapping:
             out.append(mapping[n]())
     return out

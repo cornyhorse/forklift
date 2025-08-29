@@ -25,18 +25,22 @@ def test_validation_failure_triggers_quarantine(tmp_path):
     outdir = tmp_path / "fail_out"
     pqout = PQOutput(dest=str(outdir), schema=schema)
     pqout.open()
-    # Invalid integer -> validation fails -> read increments once, rejected increments once
+    # Bad value will be quarantined automatically during close() schema validation.
     pqout.write({"id": "abc"})
     pqout.close()
+    # Counters: read=1, kept=0, rejected=1
     assert pqout.counters["read"] == 1
     assert pqout.counters["rejected"] == 1
     assert pqout.counters["kept"] == 0
     q_path = outdir / "_quarantine.jsonl"
     content = q_path.read_text().strip().splitlines()
+    # One quarantine entry
     assert len(content) == 1
     line_json = json.loads(content[0])
     assert line_json["row"] == {"id": "abc"}
-    assert "Field 'id' expected integer" in line_json["error"]
+    assert "bad" in line_json["error"].lower() or "invalid" in line_json["error"].lower()
+    # No parquet file because all rows rejected
+    assert not list(outdir.glob("*.parquet"))
 
 
 def test_close_with_no_rows_triggers_empty_flush_branch(tmp_path):

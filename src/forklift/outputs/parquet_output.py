@@ -25,7 +25,6 @@ from typing import Dict, List, Any, Literal
 
 from ..outputs.base import BaseOutput
 from ..types import Row, RowResult
-from ..utils.row_validation import validate_row_against_schema
 import pyarrow as pa
 import pyarrow.parquet as pq
 import polars as pl
@@ -72,38 +71,42 @@ class PQOutput(BaseOutput):
         # For chunked mode: maintain ParquetWriter per table
         self._writers: Dict[str, pq.ParquetWriter] = {}
 
-    def open(self) -> None:
+    def open(self) -> None:  # type: ignore[override]
         self.output_dir = Path(self.dest)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.quarantine_file_path = self.output_dir / "_quarantine.jsonl"
         self.quarantine_handle = self.quarantine_file_path.open("w", encoding="utf-8")
         self.counters = {"read": 0, "kept": 0, "rejected": 0}
-        # (Removed legacy integer/boolean coercion collection to preserve declared schema types.)
-
-    # ---------------- Validation -----------------
-    def validate_row(self, row: Row) -> None:
-        validate_row_against_schema(row, self.schema)
+        self._validated = False
+        # Pre-compute schema type map; empty map -> no validation
+        self._type_map: Dict[str, Any] = {}
+        if isinstance(self.schema, dict):
+            for f in self.schema.get("fields", []) or []:
+                if isinstance(f, dict) and f.get("name") and f.get("type"):
+                    self._type_map[str(f["name"])]= f.get("type")
+        self._has_validation = bool(self._type_map)
 
     # ---------------- Public write API -----------
-    def write(self, row: Row) -> None:
+    def write(self, row: Row) -> None:  # type: ignore[override]
         self.counters["read"] += 1
         if row.get("__forklift_skip__"):
             return
-        try:
-            self.validate_row(row)
-        except Exception as e:
-            # Single failure: increment rejected only.
-            self.quarantine(RowResult(row=row, error=e))
-            return
-        self.counters["kept"] += 1
         table_name = row.get("_table") or "data"
         clean_row = {k: v for k, v in row.items() if not k.startswith("__forklift_")}
         buf = self.row_buffers.setdefault(table_name, [])
         buf.append(clean_row)
-        if self.mode == "chunked" and len(buf) >= self.chunk_size:
-            self._flush_table_chunk(table_name)
+        if not self._has_validation:
+            # No deferred validation -> count immediately
+            self.counters["kept"] += 1
+            if self.mode == "chunked" and len(buf) >= self.chunk_size:
+                self._flush_table_chunk(table_name)
+        else:
+            # Validation required; defer counts until flush/close
+            if self.mode == "chunked" and len(buf) >= self.chunk_size:
+                self._flush_table_chunk(table_name)
 
-    def quarantine(self, rr: RowResult) -> None:
+    def quarantine(self, rr: RowResult) -> None:  # manual path
+        self.counters["read"] += 1
         self.counters["rejected"] += 1
         payload = {"row": rr.row, "error": str(rr.error)}
         self.quarantine_handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
@@ -114,29 +117,55 @@ class PQOutput(BaseOutput):
         base = Path(name).name
         return base.replace("/", "_").replace("\\", "_")
 
-    def _flush_table_chunk(self, table_name: str) -> None:
-        """Flush current buffer for a single table in chunked mode.
+    def _validate_rows(self, rows: List[Row]) -> tuple[List[Row], List[tuple[Row, Exception]]]:
+        if not self._has_validation or not rows:
+            return rows, []
+        try:
+            from ..preprocessors.type_coercion import TypeCoercion  # lazy import
+        except Exception:  # pragma: no cover
+            return rows, []  # fail open
+        df = pl.DataFrame(rows)
+        tc = TypeCoercion(types=self._type_map)
+        coerced = tc.process_dataframe(df)
+        errors = getattr(tc, "_df_errors", [])
+        return coerced.to_dicts(), errors
 
-        Creates writer lazily on first flush using inferred schema from first chunk.
-        """
+    def _flush_table_chunk(self, table_name: str) -> None:
         rows = self.row_buffers.get(table_name)
         if not rows:
             return
-        table_pa = pa.Table.from_pylist(rows)  # type: ignore[arg-type]
-        safe_name = self._sanitize_table_name(table_name)
-        out_path = self.output_dir / f"{safe_name}.parquet"
-        writer = self._writers.get(table_name)
-        if writer is None:
-            writer = pq.ParquetWriter(out_path, table_pa.schema, compression=self.compression)
-            self._writers[table_name] = writer
-        writer.write_table(table_pa)
-        # Clear buffer
+        # Validate if required
+        if self._has_validation:
+            kept_rows, errors = self._validate_rows(rows)
+            # quarantine errors
+            for orig_row, exc in errors:
+                self.quarantine_handle.write(json.dumps({"row": orig_row, "error": str(exc)}, ensure_ascii=False) + "\n")
+            self.counters["kept"] += len(kept_rows)
+            self.counters["rejected"] += len(errors)
+            if kept_rows:
+                table_pa = pa.Table.from_pylist(kept_rows)  # type: ignore[arg-type]
+                safe_name = self._sanitize_table_name(table_name)
+                out_path = self.output_dir / f"{safe_name}.parquet"
+                writer = self._writers.get(table_name)
+                if writer is None:
+                    writer = pq.ParquetWriter(out_path, table_pa.schema, compression=self.compression)
+                    self._writers[table_name] = writer
+                writer.write_table(table_pa)
+        else:
+            # No validation path (original behavior)
+            table_pa = pa.Table.from_pylist(rows)  # type: ignore[arg-type]
+            safe_name = self._sanitize_table_name(table_name)
+            out_path = self.output_dir / f"{safe_name}.parquet"
+            writer = self._writers.get(table_name)
+            if writer is None:
+                writer = pq.ParquetWriter(out_path, table_pa.schema, compression=self.compression)
+                self._writers[table_name] = writer
+            writer.write_table(table_pa)
         rows.clear()
 
     def _flush_all_chunked(self) -> None:
         for table_name in list(self.row_buffers.keys()):
             self._flush_table_chunk(table_name)
-        # Close writers
         for writer in self._writers.values():
             try:
                 writer.close()
@@ -147,12 +176,30 @@ class PQOutput(BaseOutput):
     def _flush_vectorized(self) -> None:
         if not self.row_buffers:
             return
+        if self._has_validation:
+            # per-table validation & write
+            for table_name, rows in self.row_buffers.items():
+                if not rows:
+                    continue
+                kept_rows, errors = self._validate_rows(rows)
+                for orig_row, exc in errors:
+                    self.quarantine_handle.write(json.dumps({"row": orig_row, "error": str(exc)}, ensure_ascii=False) + "\n")
+                if kept_rows:
+                    safe_table_name = self._sanitize_table_name(table_name)
+                    out_path = self.output_dir / f"{safe_table_name}.parquet"
+                    table_pa = pa.Table.from_pylist(kept_rows)  # type: ignore[arg-type]
+                    pq.write_table(table_pa, out_path, compression=self.compression)
+                self.counters["kept"] += len(kept_rows)
+                self.counters["rejected"] += len(errors)
+                rows.clear()
+            self._validated = True
+            return
+        # No validation path
         for table_name, rows in self.row_buffers.items():
             if not rows:
                 continue
             safe_table_name = self._sanitize_table_name(table_name)
             out_path = self.output_dir / f"{safe_table_name}.parquet"
-            # Use pyarrow for schema consistency (handles Decimal, bytes) even in vectorized mode
             table_pa = pa.Table.from_pylist(rows)  # type: ignore[arg-type]
             pq.write_table(table_pa, out_path, compression=self.compression)
             rows.clear()
@@ -164,7 +211,7 @@ class PQOutput(BaseOutput):
             self._flush_vectorized()
 
     # ---------------- Lifecycle -------------------
-    def close(self) -> None:
+    def close(self) -> None:  # type: ignore[override]
         try:
             self._flush_parquet()
             if hasattr(self, "quarantine_handle") and not self.quarantine_handle.closed:

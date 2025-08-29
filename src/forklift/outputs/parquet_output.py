@@ -118,6 +118,17 @@ class PQOutput(BaseOutput):
         payload = {"row": rr.row, "error": str(rr.error)}
         self.quarantine_handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
+    @staticmethod
+    def _sanitize_table_name(name: str) -> str:
+        """Return a filesystem-safe table name for parquet emission.
+
+        Uses only the basename component (drops any directory parts) so an
+        absolute source path cannot escape the destination directory.
+        """
+        # Take basename then replace remaining path separators defensively.
+        base = Path(name).name
+        return base.replace("/", "_").replace("\\", "_")
+
     def _flush_parquet(self) -> None:
         """Write buffered rows to Parquet files (one per table).
 
@@ -132,7 +143,8 @@ class PQOutput(BaseOutput):
                 continue
             # Infer schema; allow mixed types (pyarrow will best-effort cast)
             batch_table = pa.Table.from_pylist(rows)
-            out_path = self.output_dir / f"{table_name}.parquet"
+            safe_table_name = self._sanitize_table_name(table_name)
+            out_path = self.output_dir / f"{safe_table_name}.parquet"
             pq.write_table(batch_table, out_path, compression=self.compression)
 
     def close(self) -> None:

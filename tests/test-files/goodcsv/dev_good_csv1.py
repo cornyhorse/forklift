@@ -59,7 +59,7 @@ def run(clean: bool, dest: Path) -> None:
         input_kind="csv",
         output_kind="parquet",
         schema=schema,
-        preprocessors=["type_coercion"],  # enable basic coercion
+        preprocessors=["type_coercion"],
         header_mode="auto",
         **input_opts,
     )

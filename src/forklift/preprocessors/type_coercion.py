@@ -313,7 +313,8 @@ class TypeCoercion(Preprocessor):
 
         # Capture original rows and append a stable row index column for later error reconstruction
         original_rows = df.to_dicts()
-        df = df.with_row_count('__row_idx__')
+        # Use modern Polars API (with_row_index) – drop deprecated with_row_count to avoid warnings
+        df = df.with_row_index('__row_idx__')  # type: ignore[attr-defined]
 
         cast_exprs: list[pl.Expr] = []
         invalid_exprs: list[tuple[str, pl.Expr]] = []  # (field_name, invalid_mask_expr)
@@ -328,8 +329,8 @@ class TypeCoercion(Preprocessor):
             is_blank = col.map_elements(lambda v: isinstance(v, str) and v.strip() == "", return_dtype=pl.Boolean)
             cond = col.is_null() | is_blank
             if null_tokens:
-                tok_set = set(null_tokens)
-                cond = cond | col.map_elements(lambda v, ts=tok_set: isinstance(v, str) and v in ts, return_dtype=pl.Boolean)
+                tok_set_local = set(null_tokens)
+                cond = cond | col.map_elements(lambda v: isinstance(v, str) and v in tok_set_local, return_dtype=pl.Boolean)
             return pl.when(cond).then(pl.lit(None)).otherwise(col)
 
         def _norm_numeric_tokens(e: pl.Expr) -> pl.Expr:

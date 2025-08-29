@@ -2,116 +2,106 @@
 excel_input.py
 ===============
 
-Implements ExcelInput for reading Excel files using pandas, supporting header modes and deduplication, and yielding rows as dictionaries.
+Implements ExcelInput for reading Excel files using polars only, supporting header modes and
+column deduplication, and yielding rows as dictionaries.
 """
 from __future__ import annotations
 from typing import Iterable, Dict, Any, Optional
 from .base import BaseInput
-import pandas as pd
 from forklift.utils.dedupe import dedupe_column_names
+
+try:  # pragma: no cover - import guard
+    import polars as pl  # type: ignore
+except Exception as e:  # pragma: no cover
+    raise RuntimeError("polars is required for ExcelInput. Install with 'pip install polars'.") from e
 
 class ExcelInput(BaseInput):
     """
-    Implements ExcelInput for reading Excel files using pandas, supporting header modes and deduplication, and yielding rows as dictionaries.
+    ExcelInput reads Excel sheets using polars.
 
     :param source: Path to the Excel file.
-    :type source: str
-    :param tables: List of table/sheet definitions (from schema importer). Each dict should contain at least 'name' and optionally 'header_override'.
-    :type tables: Optional[list[dict]]
-    :param header_mode: Header mode, one of "auto", "present", or "absent".
-    :type header_mode: str
-    :param header_override: List of column names to override headers if header_mode is "absent" (used for single-sheet mode).
-    :type header_override: Optional[list[str]]
-    :param opts: Additional options passed to BaseInput.
-    :type opts: Any
+    :param tables: Optional list of table/sheet definitions; each dict must have 'name' and may
+                   include 'header_override'. If omitted, single-sheet mode is used.
+    :param header_mode: One of "auto", "present", or "absent".
+    :param header_override: Column names to apply when header_mode == "absent" (single-sheet mode).
+    :param opts: Additional options passed to BaseInput (e.g., sheet_name for single-sheet mode).
     """
 
-    def __init__(self, source: str, tables: Optional[list[dict]] = None, header_mode: str = "auto", header_override: Optional[list[str]] = None, **opts: Any):
-        """
-        Initialize an ExcelInput instance.
-
-        :param source: Path to the Excel file.
-        :type source: str
-        :param tables: List of table/sheet definitions (from schema importer).
-        :type tables: Optional[list[dict]]
-        :param header_mode: Header mode, one of "auto", "present", or "absent".
-        :type header_mode: str
-        :param header_override: List of column names to override headers if header_mode is "absent".
-        :type header_override: Optional[list[str]]
-        :param opts: Additional options passed to BaseInput.
-        :type opts: Any
-        """
+    def __init__(
+        self,
+        source: str,
+        tables: Optional[list[dict]] = None,
+        header_mode: str = "auto",
+        header_override: Optional[list[str]] = None,
+        **opts: Any,
+    ):
         super().__init__(source, **opts)
         self.header_mode = header_mode
         self.header_override = header_override
         self.opts = opts
         self.tables = tables
-        self._dfs = {}  # table_name -> DataFrame
+        self._dfs: dict[str, pl.DataFrame] = {}
         self._load_excel_multi()
 
-    def _load_excel_multi(self):
-        """
-        Load all specified tables/sheets from the Excel file into DataFrames.
+    # ---------------------- Loading ----------------------
+    def _read_sheet(self, sheet_name: Optional[str], header_override: Optional[list[str]]) -> pl.DataFrame:
+        """Read a single sheet into a polars DataFrame."""
+        has_header = self.header_mode != "absent"
+        try:
+            df = pl.read_excel(
+                self.source,
+                sheet_name=sheet_name,  # type: ignore[arg-type]
+                sheet_id=None if sheet_name is not None else 0,
+                has_header=has_header,
+            )
+        except Exception as e:  # pragma: no cover
+            raise RuntimeError(f"Failed reading Excel with polars: {e}") from e
 
-        :raises Exception: If loading a sheet fails.
-        """
+        # Column handling
+        if not has_header:
+            if header_override:
+                cols = dedupe_column_names(header_override)
+                if len(cols) != len(df.columns):
+                    raise ValueError(
+                        f"Header override length {len(cols)} does not match column count {len(df.columns)} for sheet {sheet_name or 'default'}"
+                    )
+                df.columns = cols  # type: ignore[attr-defined]
+            else:  # absent, no override: dedupe existing generated names
+                df.columns = dedupe_column_names(df.columns)  # type: ignore[attr-defined]
+        else:  # present/auto
+            df.columns = dedupe_column_names([str(c) for c in df.columns])  # type: ignore[attr-defined]
+        return df
+
+    def _load_excel_multi(self) -> None:
         if self.tables:
             for table in self.tables:
-                sheet_name = table.get('name')
-                header_override = table.get('header_override', None)
-                try:
-                    df = pd.read_excel(self.source, sheet_name=sheet_name, header=None if self.header_mode == "absent" else 0)
-                except ImportError:
-                    raise RuntimeError("pandas is required for ExcelInput. Please install pandas.")
-                if self.header_mode == "absent" and header_override:
-                    df.columns = dedupe_column_names(header_override)
-                elif self.header_mode == "present" or self.header_mode == "auto":
-                    df.columns = dedupe_column_names([str(col) for col in df.columns])
-                self._dfs[sheet_name] = df
+                sheet_name = table.get("name")
+                if sheet_name is None:
+                    raise ValueError("Table definition missing 'name' for Excel sheet")
+                header_override = table.get("header_override")
+                self._dfs[sheet_name] = self._read_sheet(sheet_name, header_override)
         else:
-            # Fallback to single-sheet mode for backward compatibility
-            sheet_name = self.opts.get('sheet_name', None)
-            try:
-                df = pd.read_excel(self.source, sheet_name=sheet_name, header=None if self.header_mode == "absent" else 0)
-            except ImportError:
-                raise RuntimeError("pandas is required for ExcelInput. Please install pandas.")
-            if self.header_mode == "absent" and self.header_override:
-                df.columns = dedupe_column_names(self.header_override)
-            elif self.header_mode == "present" or self.header_mode == "auto":
-                df.columns = dedupe_column_names([str(col) for col in df.columns])
-            self._dfs[sheet_name or 'default'] = df
+            sheet_name = self.opts.get("sheet_name")
+            self._dfs[sheet_name or "default"] = self._read_sheet(sheet_name, self.header_override)
+
+    # ---------------------- Iteration ----------------------
+    def _iter_dataframe_rows(self, df: pl.DataFrame) -> Iterable[Dict[str, Any]]:
+        for row in df.iter_rows(named=True):  # type: ignore[attr-defined]
+            yield dict(row)
 
     def iter_rows(self, table_name: Optional[str] = None) -> Iterable[Dict[str, Any]]:
-        """
-        Iterate over the rows of the specified table/sheet, yielding each row as a dictionary.
-        If table_name is None, iterate over all tables, yielding rows with a '_table' key indicating the table name.
-
-        :param table_name: Name of the table/sheet to iterate. If None, iterate all tables.
-        :type table_name: Optional[str]
-        :return: An iterable of dictionaries, one per row.
-        :rtype: Iterable[Dict[str, Any]]
-        """
         if table_name:
             df = self._dfs.get(table_name)
             if df is not None:
-                for _, row in df.iterrows():
-                    yield dict(row)
+                yield from self._iter_dataframe_rows(df)
         else:
             for tname, df in self._dfs.items():
-                for _, row in df.iterrows():
-                    result = dict(row)
-                    result['_table'] = tname
-                    yield result
+                for row in self._iter_dataframe_rows(df):
+                    row["_table"] = tname
+                    yield row
 
     def get_tables(self) -> list[dict]:
-        """
-        Return a list of table dicts for Excel input, one per sheet/table.
-        Each dict contains 'name' (the sheet name) and 'rows' (an iterable of row dicts).
-
-        :return: A list of table dicts.
-        :rtype: list[dict]
-        """
         return [
-            {"name": tname, "rows": (dict(row) for _, row in df.iterrows())}
+            {"name": tname, "rows": (dict(r) for r in df.iter_rows(named=True))}  # type: ignore[attr-defined]
             for tname, df in self._dfs.items()
         ]

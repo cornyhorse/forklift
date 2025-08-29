@@ -2,11 +2,11 @@
 pyarrow>=15,<18
 charset-normalizer>=3.3
 jsonschema>=4.22
+polars>=0.20  # DataFrame engine (MIT)
 
 # input types
 openpyxl>=3.1        # Excel xlsx
 xlrd>=2.0            # legacy .xls (no bundled xlrd<2)
-pandas
 sqlalchemy==2.0.43
 # optional S3 I/O
 boto3>=1.34

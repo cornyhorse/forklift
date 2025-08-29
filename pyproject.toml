@@ -21,6 +21,7 @@ classifiers = [
 dependencies = [
     # keep core minimal; you’ll likely add more as you implement
     "pyarrow>=15",
+    "polars>=0.20",
     "charset-normalizer>=3.3",
     "typing-extensions>=4.8; python_version<'3.11'",
     # added for SQL input functionality

@@ -1,5 +1,5 @@
 import pytest
-from forklift.engine.engine import Engine, DuplicateRow
+from forklift.engine.engine import Engine
 
 class DummyInput:
     def __init__(self, source, header_override=None, **opts):

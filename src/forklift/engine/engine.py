@@ -2,23 +2,8 @@ from __future__ import annotations
 from typing import Iterable, Any, Dict, Tuple
 
 from .registry import get_input_cls, get_output_cls, get_preprocessors
-
-try:
-    from ..types import Row, RowResult
-except Exception:
-    from dataclasses import dataclass
-
-    Row = Dict[str, Any]  # type: ignore
-
-
-    @dataclass
-    class RowResult:
-        row: Row
-        error: Exception | None
-
-
-class DuplicateRow(Exception):
-    pass
+from ..utils.sql_include import derive_sql_include_patterns
+from ..types import Row, RowResult
 
 
 class Engine:
@@ -53,36 +38,9 @@ class Engine:
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)
 
-        # Derive include patterns for SQL families.
+        # Derive include patterns for SQL families via utility helper.
         if input_kind in ("sql", "sql_backup"):
-            include_patterns: list[str] = []
-            root_include = (self.schema or {}).get("include") or []
-            if isinstance(root_include, list):
-                include_patterns.extend(root_include)
-            x_sql = (self.schema or {}).get("x-sql") or {}
-            xsql_include = x_sql.get("include") or []
-            if isinstance(xsql_include, list):
-                include_patterns.extend(xsql_include)
-            for tbl in x_sql.get("tables", []) or []:
-                sel = tbl.get("select") or {}
-                schema_name = sel.get("schema")
-                table_name = sel.get("name")
-                pattern = sel.get("pattern")
-                if pattern:
-                    include_patterns.append(pattern)
-                elif schema_name and table_name:
-                    include_patterns.append(f"{schema_name}.{table_name}")
-                elif table_name:
-                    include_patterns.append(table_name)
-            if not include_patterns:
-                include_patterns = ["*.*"]
-            seen = set()
-            deduped: list[str] = []
-            for p in include_patterns:
-                if p not in seen:
-                    seen.add(p)
-                    deduped.append(p)
-            self.input_opts["include"] = deduped
+            self.input_opts["include"] = derive_sql_include_patterns(self.schema)
 
         self.preprocessors = get_preprocessors(preprocessors or [], schema=self.schema)
         self.required = list(self.schema.get("required", []))

@@ -1,6 +1,6 @@
 """Utilities for deriving SQL include pattern lists from a schema.
 
-The legacy logic lived inline in ``Engine.__init__``; it is extracted here so
+The logic lived inline in ``Engine.__init__``; it is extracted here so
 it can be unit‑tested and reused by other components (e.g. future CLI tooling
 or schema validators) without importing the full Engine.
 """
@@ -14,7 +14,7 @@ def derive_sql_include_patterns(schema: Dict[str, Any] | None) -> List[str]:
 
     The function merges patterns from three schema locations (all optional):
 
-    * ``schema["include"]`` – root‑level legacy list
+    * ``schema["include"]`` – root‑level list
     * ``schema["x-sql"]["include"]`` – extension block
     * ``schema["x-sql"]["tables"][*].select`` – table selection objects where
       either an explicit ``pattern`` or (``schema`` + ``name``) or bare ``name``

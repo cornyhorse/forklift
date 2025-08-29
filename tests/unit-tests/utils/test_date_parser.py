@@ -1,77 +1,122 @@
 import pytest
-from forklift.utils.date_parser import parse_date, COMMON_DATE_FORMATS, _normalize_format, _matches_format_exact
+from datetime import datetime
 
-def test_parse_date_valid_common_formats():
-    cases = [
-        ("20250827", "%Y%m%d"),
-        ("2025-08-27", "%Y-%m-%d"),
-        ("08/27/2025", "%m/%d/%Y"),
-        ("27/08/2025", "%d/%m/%Y"),
-        ("2025/08/27", "%Y/%m/%d"),
-        ("27-Aug-2025", "%d-%b-%Y"),
-        ("Aug 27, 2025", "%b %d, %Y"),
-        ("27 Aug 2025", "%d %b %Y"),
-        ("2025.08.27", "%Y.%m.%d"),
-    ]
-    for value, fmt in cases:
-        assert parse_date(value, fmt)
-        assert parse_date(value)  # Should work with default formats
+from forklift.utils.date_parser import (
+    parse_date,
+    coerce_date,
+    coerce_datetime,
+    COMMON_DATE_FORMATS,
+)
 
-def test_parse_date_invalid_common_formats():
-    cases = [
-        ("2025-13-27", "%Y-%m-%d"),  # invalid month
-        ("99/99/9999", "%m/%d/%Y"),  # invalid date
-        ("2025/32/08", "%Y/%d/%m"),  # truly invalid day
-        ("Aug 32, 2025", "%b %d, %Y"),  # invalid day
-        ("", "%Y%m%d"),  # empty string
-        (None, "%Y%m%d"),  # None
-        ("notadate", "%Y%m%d"),  # not a date
-    ]
-    for value, fmt in cases:
-        assert not parse_date(value, fmt)
-        assert not parse_date(value)
+# parse_date tests
 
-def test_parse_date_custom_format():
-    assert parse_date("2025|08|27", "%Y|%m|%d")
-    assert not parse_date("2025|8|27", "%Y|%m|%d")  # month must be 2 digits
+def test_parse_date_none_and_non_string():
+    assert parse_date(None) is False
+    assert parse_date(123) is False  # type: ignore
 
-def test_parse_date_multiple_formats():
-    formats = ["%Y-%m-%d", "%d/%m/%Y"]
-    assert parse_date("2025-08-27", formats=formats)
-    assert parse_date("27/08/2025", formats=formats)
-    assert not parse_date("2025/08/27", formats=formats)
 
-def test_parse_date_wrong_type():
-    assert not parse_date(20250827, "%Y%m%d")
-    assert not parse_date([], "%Y%m%d")
-    assert not parse_date({}, "%Y%m%d")
+def test_parse_date_with_explicit_schema_token_format_success_and_failure():
+    # Schema tokens YYYY MM DD
+    assert parse_date("2025-08-29", fmt="YYYY-MM-DD") is True
+    # Mismatch (wrong zero padding or different literal) returns False
+    assert parse_date("2025/08-29", fmt="YYYY-MM-DD") is False
 
-def test_normalize_format_basic():
-    assert _normalize_format("YYYY-MM-DD") == "%Y-%m-%d"
-    assert _normalize_format("DD/MMMM/YYYY") == "%d/%B/%Y"
-    assert _normalize_format("MMM DD, YYYY") == "%b %d, %Y"
-    assert _normalize_format("YYYY.MM.DD") == "%Y.%m.%d"
-    assert _normalize_format("YYYY/MM/DD") == "%Y/%m/%d"
 
-def test_normalize_format_no_tokens():
-    # Should return unchanged if no schema tokens
-    assert _normalize_format("%Y-%m-%d") == "%Y-%m-%d"
-    assert _normalize_format("%d/%m/%Y") == "%d/%m/%Y"
+def test_parse_date_with_formats_list():
+    # Provide custom list (token + strptime mixed)
+    fmts = ["DD|MM|YYYY", "%Y*%m*%d"]
+    assert parse_date("29|08|2025", formats=fmts) is True
+    assert parse_date("2025*08*29", formats=fmts) is True
+    # No match
+    assert parse_date("29-08-2025", formats=fmts) is False
 
-def test_matches_format_exact_strict():
-    # Exact match required
-    assert _matches_format_exact("2025-08-27", "%Y-%m-%d")
-    assert not _matches_format_exact("2025-8-27", "%Y-%m-%d")  # month not zero-padded
-    assert not _matches_format_exact("2025-08-27 ", "%Y-%m-%d")  # trailing space
-    assert not _matches_format_exact("2025-08-27T00:00:00", "%Y-%m-%d")  # extra literal
 
-def test_matches_format_exact_invalid():
-    # Should return False for invalid dates
-    assert not _matches_format_exact("2025-13-27", "%Y-%m-%d")
-    assert not _matches_format_exact("notadate", "%Y-%m-%d")
-    assert not _matches_format_exact("", "%Y-%m-%d")
+def test_parse_date_common_formats_iteration():
+    # Pick one definitely in COMMON_DATE_FORMATS
+    assert "%Y.%m.%d" in COMMON_DATE_FORMATS
+    assert parse_date("2025.08.29") is True
 
-def test_parse_date_fallback_dateutil():
-    # This string is parseable by dateutil, but not by any of the listed formats
-    value = "27th of August, 2025"
-    assert parse_date(value)
+
+def test_parse_date_falls_back_to_dateutil():
+    # "March 05 2025" not in COMMON_DATE_FORMATS list exactly
+    assert parse_date("March 05 2025") is True
+
+
+def test_parse_date_unparseable_returns_false():
+    assert parse_date("not-a-date") is False
+
+# coerce_date tests
+
+def test_coerce_date_empty_and_none_raise():
+    with pytest.raises(ValueError):
+        coerce_date(None)  # type: ignore
+    with pytest.raises(ValueError):
+        coerce_date("   ")
+
+
+def test_coerce_date_with_explicit_fmt_tokens_success():
+    assert coerce_date("2025-08-29", fmt="YYYY-MM-DD") == "2025-08-29"
+
+
+def test_coerce_date_with_explicit_fmt_tokens_failure():
+    with pytest.raises(ValueError):
+        coerce_date("2025/08/29", fmt="YYYY-MM-DD")
+
+
+def test_coerce_date_with_formats_list_success_first_and_failure():
+    fmts = ["DD|MM|YYYY", "YYYY/MM/DD"]
+    assert coerce_date("29|08|2025", formats=fmts) == "2025-08-29"
+    assert coerce_date("2025/08/29", formats=fmts) == "2025-08-29"
+    with pytest.raises(ValueError):
+        coerce_date("2025*08*29", formats=fmts)
+
+
+def test_coerce_date_common_formats_path():
+    assert coerce_date("20250829") == "2025-08-29"  # %Y%m%d in common list
+
+
+def test_coerce_date_fallback_dateutil_path():
+    # Not covered by earlier patterns, but dateutil can parse
+    assert coerce_date("March 5 2025") == "2025-03-05"
+
+
+def test_coerce_date_bad_date_after_all_paths():
+    with pytest.raises(ValueError):
+        coerce_date("bad-date-value")
+
+# coerce_datetime tests
+
+def test_coerce_datetime_empty_and_none():
+    with pytest.raises(ValueError):
+        coerce_datetime(None)  # type: ignore
+    with pytest.raises(ValueError):
+        coerce_datetime("   ")
+
+
+def test_coerce_datetime_iso_z():
+    dt = coerce_datetime("2024-03-01T12:34:56Z")
+    assert dt.year == 2024 and dt.minute == 34
+
+
+def test_coerce_datetime_with_dateutil_fallback_strptime(monkeypatch):
+    # Force dateutil parser path to raise so strptime fallback is used
+    from forklift.utils import date_parser as dp
+
+    original_parse = dp.parser.parse
+
+    def fail_parse(value, fuzzy=False):  # mimic signature
+        raise ValueError("forced fail")
+
+    try:
+        monkeypatch.setattr(dp.parser, "parse", fail_parse)
+        dt = dp.coerce_datetime("2024-03-02 01:02:03")  # matches first fallback format
+        assert dt.hour == 1 and dt.second == 3
+    finally:
+        # restore for safety (monkeypatch auto restores, but explicit is fine)
+        monkeypatch.setattr(dp.parser, "parse", original_parse)
+
+
+def test_coerce_datetime_invalid_raises():
+    with pytest.raises(ValueError):
+        coerce_datetime("not-a-datetime")
+

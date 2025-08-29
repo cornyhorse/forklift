@@ -311,6 +311,10 @@ class TypeCoercion(Preprocessor):
             self._df_errors = []  # type: ignore[attr-defined]
             return df
 
+        # Capture original rows and append a stable row index column for later error reconstruction
+        original_rows = df.to_dicts()
+        df = df.with_row_count('__row_idx__')
+
         cast_exprs: list[pl.Expr] = []
         invalid_exprs: list[tuple[str, pl.Expr]] = []  # (field_name, invalid_mask_expr)
 
@@ -320,9 +324,12 @@ class TypeCoercion(Preprocessor):
         def _nullify(field: str) -> pl.Expr:
             col = pl.col(field)
             null_tokens = self.nulls.get(field)
-            cond = col.is_null() | col.cast(pl.Utf8).str.strip_chars().eq("")
+            # Treat blank only if original value is a string consisting solely of whitespace
+            is_blank = col.map_elements(lambda v: isinstance(v, str) and v.strip() == "", return_dtype=pl.Boolean)
+            cond = col.is_null() | is_blank
             if null_tokens:
-                cond = cond | col.cast(pl.Utf8).is_in(list(null_tokens))
+                tok_set = set(null_tokens)
+                cond = cond | col.map_elements(lambda v, ts=tok_set: isinstance(v, str) and v in ts, return_dtype=pl.Boolean)
             return pl.when(cond).then(pl.lit(None)).otherwise(col)
 
         def _norm_numeric_tokens(e: pl.Expr) -> pl.Expr:
@@ -333,6 +340,7 @@ class TypeCoercion(Preprocessor):
             return e
 
         # Build per-field cast expressions and invalid masks ----------------
+        binary_deferred: list[str] = []
         for field in self._specs.keys():
             if field not in df.columns:
                 continue
@@ -358,34 +366,6 @@ class TypeCoercion(Preprocessor):
                 cast_exprs.append(casted)
                 invalid_exprs.append((field, invalid))
 
-            elif declared == "decimal":
-                meta = self._meta.get(field, {})
-                scale = int(meta.get("scale", 0)) if meta.get("scale") is not None else None
-                # for invalid detection, use a Decimal dtype cast (no Object involvement)
-                norm_str = _norm_numeric_tokens(src).cast(pl.Utf8)
-                dec_dtype = pl.Decimal(38, scale if scale is not None else 9)
-                mask_cast = norm_str.cast(dec_dtype, strict=False)
-                value_expr = norm_str.map_elements(
-                    (lambda s, _scale=scale: _coerce_decimal_opt(s, _scale) if s is not None and str(
-                        s).strip() != "" else None),
-                    return_dtype=dec_dtype,
-                ).alias(field)
-                cast_exprs.append(value_expr)
-                invalid_exprs.append((field, base_nonblank & mask_cast.is_null()))
-
-            elif declared == "boolean":
-                lowered = src.cast(pl.Utf8).str.strip_chars().str.to_lowercase()
-                true_vals = list(self._true_tokens)
-                false_vals = list(self._false_tokens)
-                mapped = (
-                    pl.when(lowered.is_in(true_vals)).then(pl.lit(True))
-                    .when(lowered.is_in(false_vals)).then(pl.lit(False))
-                    .otherwise(None)
-                ).alias(field)
-                invalid = base_nonblank & (~lowered.is_in(true_vals + false_vals))
-                cast_exprs.append(mapped)
-                invalid_exprs.append((field, invalid))
-
             elif declared == "date":
                 meta = self._meta.get(field, {})
                 user_fmts = [
@@ -404,13 +384,11 @@ class TypeCoercion(Preprocessor):
 
                 is_str = pl.col(field).map_elements(lambda v: isinstance(v, str), return_dtype=pl.Boolean)
 
-                # Fast, vectorized (Rust) parse to pl.Date
                 parsed_try = pl.coalesce([
                     *[src.cast(pl.Utf8).str.strptime(pl.Date, format=f, strict=False) for f in candidates]
                 ])
 
                 if self._python_date_fallback:
-                    # Slow fallback only where the fast path failed
                     fallback_date = src.cast(pl.Utf8).map_elements(
                         (lambda s, fmts=tuple(user_fmts) if user_fmts else None: _coerce_date_py_opt(s, fmts)),
                         return_dtype=pl.Date,
@@ -426,8 +404,7 @@ class TypeCoercion(Preprocessor):
                     ).alias(field)
 
                 cast_exprs.append(parsed)
-                # invalid checking handled post-cast via generic null-check
-
+                # invalid handled generically (null after attempted parse)
 
             elif declared == "datetime" or declared == "timestamp":
                 meta = self._meta.get(field, {})
@@ -476,25 +453,98 @@ class TypeCoercion(Preprocessor):
                 cast_exprs.append(parsed_dt)
                 # invalid checking handled post-cast via generic null-check
 
+            elif declared == "decimal":
+                meta = self._meta.get(field, {})
+                scale = int(meta.get("scale", 0)) if meta.get("scale") is not None else None
+                # Safely stringify only scalar numeric/string-like values; treat collections as invalid (None)
+                raw_str = src.map_elements(
+                    lambda v: (str(v).strip() if (v is not None and isinstance(v, (str, int, float, Decimal))) else None),
+                    return_dtype=pl.Utf8,
+                )
+                # Normalize numeric artifacts (parentheses negative, currency, commas)
+                norm_str = (
+                    raw_str
+                    .str.replace_all(r"^\((.*)\)$", r"-$1")
+                    .str.replace_all(r"[,$€]", "")
+                )
+                dec_dtype = pl.Decimal(38, scale if scale is not None else 9)
+                mask_cast = norm_str.cast(dec_dtype, strict=False)
+                value_expr = norm_str.map_elements(
+                    (lambda s, _scale=scale: _coerce_decimal_opt(s, _scale) if s is not None and str(s).strip() != "" else None),
+                    return_dtype=dec_dtype,
+                ).alias(field)
+                cast_exprs.append(value_expr)
+                invalid_exprs.append((field, base_nonblank & mask_cast.is_null()))
+
+            elif declared == "boolean":
+                lowered = src.cast(pl.Utf8).str.strip_chars().str.to_lowercase()
+                true_vals = list(self._true_tokens)
+                false_vals = list(self._false_tokens)
+                mapped = (
+                    pl.when(lowered.is_in(true_vals)).then(pl.lit(True))
+                    .when(lowered.is_in(false_vals)).then(pl.lit(False))
+                    .otherwise(None)
+                ).alias(field)
+                invalid = base_nonblank & (~lowered.is_in(true_vals + false_vals))
+                cast_exprs.append(mapped)
+                invalid_exprs.append((field, invalid))
+
             elif declared == "string":
                 cast_exprs.append(src.cast(pl.Utf8).alias(field))
                 # strings are never invalid by casting
 
             elif declared == "binary":
-                casted = src.map_elements(
-                    (lambda v: _coerce_binary_opt(v)),
-                    return_dtype=pl.Binary,
-                ).alias(field)
-                cast_exprs.append(casted)
-                invalid_exprs.append((field, base_nonblank & casted.is_null()))
-
+                # Defer binary conversion until after initial casting to avoid Polars Binary map_elements issues
+                binary_deferred.append(field)
+                # Do not add the textual column now; we'll add final Binary column later from original df
+                continue
             else:
                 cast_exprs.append(src.alias(field))
 
         # Apply casts once to get the typed DataFrame
         typed = df.with_columns(cast_exprs)
+        typed_keep = typed.select(typed.columns)
 
-        # Generic invalid-mask: for all declared (non-string) fields present, mark invalid if base-nonblank and result is null
+        # Post-process deferred binary fields using pure Python for reliability
+        if binary_deferred:
+            for field in binary_deferred:
+                original_series = df.get_column(field) if field in df.columns else None
+                conv: list[bytes | None] = []
+                invalid_mask_list: list[bool] = []
+                null_tokens = self.nulls.get(field, set())
+                if original_series is None:
+                    continue
+                for raw in original_series.to_list():
+                    base_nonblank = False
+                    if raw is None:
+                        conv.append(None)
+                        invalid_mask_list.append(False)
+                        continue
+                    if isinstance(raw, (bytes, bytearray)):
+                        conv.append(bytes(raw))
+                        invalid_mask_list.append(False)
+                        continue
+                    if isinstance(raw, str):
+                        token = raw.strip()
+                        if token == "" or token in null_tokens:
+                            conv.append(None)
+                            invalid_mask_list.append(False)
+                            continue
+                        base_nonblank = True
+                        try:
+                            conv.append(_coerce_binary(token))
+                            invalid_mask_list.append(False)
+                        except Exception:
+                            conv.append(None)
+                            invalid_mask_list.append(base_nonblank)
+                    else:
+                        conv.append(None)
+                        invalid_mask_list.append(False)
+                typed_keep = typed_keep.with_columns([
+                    pl.Series(field, conv, dtype=pl.Binary),
+                    pl.Series(f"__bin_invalid__{field}", invalid_mask_list, dtype=pl.Boolean),
+                ])
+
         combined_invalids: list[pl.Expr] = []
         for field in self._specs.keys():
             if field not in df.columns:
@@ -502,22 +552,19 @@ class TypeCoercion(Preprocessor):
             declared = self._specs[field]
             if declared == "string":
                 continue
+            if declared == "binary" and field in binary_deferred:
+                combined_invalids.append(pl.col(f"__bin_invalid__{field}"))
+                continue
             temp_nb_name = base_nonblank_map.get(field)
             if temp_nb_name is None:
                 continue
             combined_invalids.append(pl.col(temp_nb_name) & pl.col(field).is_null())
 
         bad_mask_expr = pl.any_horizontal(combined_invalids) if combined_invalids else pl.lit(False)
-        good = typed.filter(~bad_mask_expr)
-        bad = typed.filter(bad_mask_expr)
+        good = typed_keep.filter(~bad_mask_expr)
+        bad = typed_keep.filter(bad_mask_expr)
 
-        # Drop temp nonblank columns from outputs
-        temp_cols = [c for c in good.columns if c.startswith("__nb__")]
-        if temp_cols:
-            good = good.drop(temp_cols)
-            bad = bad.drop(temp_cols)
-
-        # Build legacy error list from boolean selections (no extra columns kept)
+        # Build error rows BEFORE dropping temp columns so masks resolve
         error_rows: list[tuple[dict, Exception]] = []
         if bad.height:
             per_field_flags = [
@@ -528,9 +575,26 @@ class TypeCoercion(Preprocessor):
                 bad_err_df = bad.select([expr.alias(f"__bad__{name}") for name, expr in per_field_flags])
                 flags = bad_err_df.to_numpy()
                 bad_orig = bad.select(df.columns).to_dicts()
-                for row_dict, flag_row in zip(bad_orig, flags):
+                # Replace bad_orig with original raw rows using stored row index
+                if "__row_idx__" in bad.columns:
+                    idx_series = bad.select(["__row_idx__"]).to_series().to_list()
+                    bad_raw_rows = [original_rows[i] for i in idx_series]
+                else:
+                    bad_raw_rows = bad_orig
+                for raw_row, flag_row in zip(bad_raw_rows, flags):
                     failing = [name for (name, _), flag in zip(per_field_flags, flag_row) if bool(flag)]
-                    error_rows.append((row_dict, ValueError(f"type coercion failed: {', '.join(failing)}")))
+                    if failing:
+                        if len(failing) == 1 and self._specs.get(failing[0]) == 'binary':
+                            msg = f"bad binary: {failing[0]}"
+                        else:
+                            msg = f"invalid value for {', '.join(failing)}"
+                        error_rows.append((raw_row, ValueError(msg)))
+
+        # Now drop temp __nb__ columns from outputs
+        temp_cols = [c for c in good.columns if c.startswith("__nb__") or c == "__row_idx__" or c.startswith("__bin_invalid__")]
+        if temp_cols:
+            good = good.drop(temp_cols)
+        # (We don't need to drop from bad since we only captured original columns above)
 
         self._df_errors = error_rows  # type: ignore[attr-defined]
         return good

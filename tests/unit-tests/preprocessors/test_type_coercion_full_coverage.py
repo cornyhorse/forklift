@@ -108,7 +108,7 @@ def test_type_coercion_vectorized_all_declared_types_and_paths():
     assert row["b"] is True
     assert row["s"] == "123"
     assert isinstance(row["dt"], datetime)
-    assert row["date_only"] == "2024-03-02"
+    assert row["date_only"].isoformat() == "2024-03-02"
     assert row["bin_hex"] == b"Hi"
     assert row["bin_b64"] == b"Hi"
     assert row["unknown"] == "keep-me"

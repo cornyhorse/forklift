@@ -53,7 +53,7 @@ def test_goodcsv1_ingest(tmp_out: Path, data_dir: Path):
         "id": pa.int64(),
         "name": pa.string(),
         "email": pa.string(),
-        "signup_date": pa.string(),  # ISO date string retained
+        "signup_date": pa.date32(),  # date32 parquet type
         "active": pa.bool_(),
         "amount_usd": pa.float64(),
         "country": pa.string(),

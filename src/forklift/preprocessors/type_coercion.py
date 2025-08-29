@@ -12,6 +12,7 @@ _NUM_NEG_PARENS = re.compile(r"^\((.*)\)$")
 _TRUE = {"true", "t", "yes", "y", "1"}
 _FALSE = {"false", "f", "no", "n", "0"}
 
+
 def _coerce_bool(v: Any) -> bool:
     """Coerce a scalar into a boolean.
 
@@ -31,6 +32,7 @@ def _coerce_bool(v: Any) -> bool:
     if s in _FALSE:
         return False
     raise ValueError(f"bad boolean: {v!r}")
+
 
 def _coerce_number(s: str) -> float:
     """Coerce a formatted numeric string into a float.
@@ -53,6 +55,7 @@ def _coerce_number(s: str) -> float:
     val = float(s)
     return -val if neg else val
 
+
 def _coerce_date(s: str) -> str:
     """Normalize a date string to ISO (YYYY-MM-DD).
 
@@ -72,6 +75,7 @@ def _coerce_date(s: str) -> str:
         except ValueError:
             continue
     raise ValueError(f"bad date: {s}")
+
 
 def _normalize_type(spec: Any) -> str | None:
     """Normalize a user / schema type specification.
@@ -105,6 +109,7 @@ def _normalize_type(spec: Any) -> str | None:
         if t == "string":
             return "string"
     return None
+
 
 class TypeCoercion(Preprocessor):
     """Minimal type coercion preprocessor.

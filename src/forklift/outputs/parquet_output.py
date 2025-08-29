@@ -1,48 +1,57 @@
 from __future__ import annotations
 
-"""Parquet (test stub) output writer.
+"""Parquet output writer.
 
-This module provides :class:`PQOutput`, a minimal implementation of the
-``BaseOutput`` interface used by the test-suite. It intentionally does *not*
-produce real Parquet files yet; instead it validates rows (lightweight type
-checks), tracks counts, and records rejected rows in a quarantine JSONL file.
+Creates one Parquet file per logical table (or ``data.parquet`` when no
+``_table`` key is present) using :mod:`pyarrow`. Also records counts and a
+quarantine JSONL for rejected rows.
 
-Artifacts written under the destination directory (``dest``):
+Artifacts written under ``dest``:
 
+* ``<table>.parquet`` – one per logical table (or ``data.parquet``)
 * ``_quarantine.jsonl`` – one JSON object per rejected row (may be empty)
 * ``_manifest.json`` – summary counters: ``read``, ``kept``, ``rejected``
 
-Future enhancement could swap the in-memory no-op write for an actual Parquet
-export using ``pyarrow`` or an equivalent backend without changing the public
-Engine contract.
+Requirements:
+  * ``pyarrow`` must be installed (import is unconditional).
 """
 
 import json
 from pathlib import Path
+from typing import Dict, List
 
 from ..outputs.base import BaseOutput
 from ..types import Row, RowResult
 from ..utils.row_validation import validate_row_against_schema
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 
 class PQOutput(BaseOutput):
-    """Test-oriented minimal writer (no real Parquet emission yet).
+    """Parquet output writer with basic per-table file emission.
 
-    Responsibilities:
+    Buffers rows in-memory keyed by logical table name until :meth:`close`,
+    then writes each buffer to ``<table>.parquet`` (or ``data.parquet`` when
+    the ``_table`` key is absent).
 
-    * Validate incoming rows against an optional schema (subset: integer, date, boolean)
-    * Maintain counts (``read``, ``kept``, ``rejected``)
-    * Append rejected rows (with error messages) to ``_quarantine.jsonl``
-    * Persist counts to ``_manifest.json`` on close
+    Attributes (set after :meth:`open`):
+      * ``output_dir`` (Path): Destination directory.
+      * ``quarantine_file_path`` (Path): Path to quarantine JSONL file.
+      * ``quarantine_handle`` (IO): Open handle for quarantine writes.
+      * ``counters`` (dict): Read/kept/rejected integer counters.
+      * ``row_buffers`` (dict[str, list[Row]]): Buffered kept rows per table.
 
     :param dest: Output directory path (created if missing).
     :param schema: Optional schema dict containing ``fields`` collection.
-    :param kwargs: Additional (unused) keyword arguments for future expansion.
+    :param kwargs: Additional keyword arguments (``compression``, ``combine`` future use).
     """
 
     def __init__(self, dest: str, schema: dict | None = None, **kwargs):
         super().__init__(dest, schema, **kwargs)
         self.schema = schema
+        self.compression = kwargs.get("compression", "snappy")
+        self.combine_files = kwargs.get("combine", False)
+        self.row_buffers: Dict[str, List[Row]] = {}
 
     def open(self) -> None:
         """Initialize output directory and open quarantine file.
@@ -50,8 +59,9 @@ class PQOutput(BaseOutput):
         Side effects:
           * Ensures ``dest`` directory exists.
           * Opens (truncates) ``_quarantine.jsonl`` for writing.
-          * Initializes internal counters.
+          * Initializes internal counters and buffers.
 
+        :returns: ``None``
         :raises OSError: If the destination directory cannot be created.
         """
         self.output_dir = Path(self.dest)
@@ -63,23 +73,23 @@ class PQOutput(BaseOutput):
     def validate_row(self, row: Row) -> None:
         """Validate a row against the schema (if provided) using utility helper.
 
-        Delegates to :func:`forklift.utils.row_validation.validate_row_against_schema`
-        which implements the lightweight subset of field type checks (integer,
-        date, boolean) used in tests.
+        Delegates to :func:`forklift.utils.row_validation.validate_row_against_schema`.
 
         :param row: Row dictionary to validate.
+        :returns: ``None``
         :raises ValueError: On type mismatch for any configured field.
         """
         validate_row_against_schema(row, self.schema)
 
     def write(self, row: Row) -> None:
-        """Validate and account for an accepted row.
+        """Validate, count, and buffer an accepted row.
 
         Rows tagged with ``__forklift_skip__`` are *counted* (``read``) but not
         validated nor kept. Successful validation increments ``kept``; failures
         are delegated to :meth:`quarantine`.
 
         :param row: Row dictionary (possibly mutated by preprocessors upstream).
+        :returns: ``None``
         """
         # Skip rows explicitly marked by preprocessors
         if row.get("__forklift_skip__"):
@@ -89,28 +99,51 @@ class PQOutput(BaseOutput):
         try:
             self.validate_row(row)
             self.counters["kept"] += 1
-            # Intentionally no parquet writing yet (unit-test stub)
+            # Buffer row for parquet emission later
+            table_name = row.get("_table") or "data"
+            # Optionally drop internal keys before writing
+            clean_row = {k: v for k, v in row.items() if not k.startswith("__forklift_")}
+            self.row_buffers.setdefault(table_name, []).append(clean_row)
         except Exception as e:
             self.quarantine(RowResult(row=row, error=e))
 
     def quarantine(self, rr: RowResult) -> None:
-        """Record a rejected row and increment counters.
+        """Record a rejected row (serialize to quarantine) and update counters.
 
         :param rr: RowResult containing the original row and validation (or other) error.
-        :raises ValueError: Never raised; errors are serialized to JSONL.
+        :returns: ``None``
         """
         self.counters["read"] += 1
         self.counters["rejected"] += 1
         payload = {"row": rr.row, "error": str(rr.error)}
         self.quarantine_handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
-    def close(self) -> None:
-        """Flush quarantine log (if open) and emit manifest.
+    def _flush_parquet(self) -> None:
+        """Write buffered rows to Parquet files (one per table).
 
-        Always writes ``_manifest.json`` even if no rows were processed, so
-        callers / tests can rely on the file's presence.
+        No-op if there are no buffered rows.
+
+        :returns: ``None``
+        """
+        if not self.row_buffers:
+            return
+        for table_name, rows in self.row_buffers.items():
+            if not rows:
+                continue
+            # Infer schema; allow mixed types (pyarrow will best-effort cast)
+            batch_table = pa.Table.from_pylist(rows)
+            out_path = self.output_dir / f"{table_name}.parquet"
+            pq.write_table(batch_table, out_path, compression=self.compression)
+
+    def close(self) -> None:
+        """Flush buffered rows, close quarantine file, and write manifest.
+
+        Always writes ``_manifest.json`` even if no rows were processed.
+
+        :returns: ``None``
         """
         try:
+            self._flush_parquet()
             if hasattr(self, "quarantine_handle") and not self.quarantine_handle.closed:
                 self.quarantine_handle.close()
         finally:

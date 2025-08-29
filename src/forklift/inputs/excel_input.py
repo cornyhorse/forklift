@@ -8,12 +8,13 @@ column deduplication, and yielding rows as dictionaries.
 from __future__ import annotations
 from typing import Iterable, Dict, Any, Optional
 from .base import BaseInput
-from forklift.utils.dedupe import dedupe_column_names
+from forklift.utils.column_name_utilities import dedupe_column_names
 
 try:  # pragma: no cover - import guard
     import polars as pl  # type: ignore
 except Exception as e:  # pragma: no cover
     raise RuntimeError("polars is required for ExcelInput. Install with 'pip install polars'.") from e
+
 
 class ExcelInput(BaseInput):
     """
@@ -28,12 +29,12 @@ class ExcelInput(BaseInput):
     """
 
     def __init__(
-        self,
-        source: str,
-        tables: Optional[list[dict]] = None,
-        header_mode: str = "auto",
-        header_override: Optional[list[str]] = None,
-        **opts: Any,
+            self,
+            source: str,
+            tables: Optional[list[dict]] = None,
+            header_mode: str = "auto",
+            header_override: Optional[list[str]] = None,
+            **opts: Any,
     ):
         super().__init__(source, **opts)
         self.header_mode = header_mode

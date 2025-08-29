@@ -2,8 +2,8 @@ from typing import Any, Dict, Optional, List
 import json
 import jsonschema
 import re
-from ..utils.dedupe import dedupe_column_names
-from ..utils.standardize import standardize_postgres_column_name
+from ..utils.column_name_utilities import standardize_postgres_column_name, dedupe_column_names
+
 
 class ExcelSchemaImporter:
     def __init__(self, schema_path: str):

@@ -2,9 +2,8 @@ from __future__ import annotations
 import csv
 from typing import Iterable, Dict, Any, List, Optional, Iterator
 from .base import BaseInput
-from ..utils.encoding import open_text_auto
-from ..utils.dedupe import dedupe_column_names
-from ..utils.standardize import standardize_postgres_column_name
+from ..utils.detect_encoding import open_text_auto
+from ..utils.column_name_utilities import standardize_postgres_column_name, dedupe_column_names
 
 _PROLOGUE_PREFIXES = ("#",)
 _FOOTER_PREFIXES = ("TOTAL", "SUMMARY")

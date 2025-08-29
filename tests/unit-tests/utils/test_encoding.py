@@ -1,5 +1,5 @@
 from pathlib import Path
-from forklift.utils.encoding import open_text_auto
+from forklift.utils.detect_encoding import open_text_auto
 
 
 def test_open_text_auto_fallback(tmp_path: Path):

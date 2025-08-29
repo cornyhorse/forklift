@@ -78,6 +78,7 @@ class PQOutput(BaseOutput):
         self.quarantine_file_path = self.output_dir / "_quarantine.jsonl"
         self.quarantine_handle = self.quarantine_file_path.open("w", encoding="utf-8")
         self.counters = {"read": 0, "kept": 0, "rejected": 0}
+        # (Removed legacy integer/boolean coercion collection to preserve declared schema types.)
 
     # ---------------- Validation -----------------
     def validate_row(self, row: Row) -> None:
@@ -85,24 +86,24 @@ class PQOutput(BaseOutput):
 
     # ---------------- Public write API -----------
     def write(self, row: Row) -> None:
-        if row.get("__forklift_skip__"):
-            self.counters["read"] += 1
-            return
         self.counters["read"] += 1
+        if row.get("__forklift_skip__"):
+            return
         try:
             self.validate_row(row)
-            self.counters["kept"] += 1
-            table_name = row.get("_table") or "data"
-            clean_row = {k: v for k, v in row.items() if not k.startswith("__forklift_")}
-            buf = self.row_buffers.setdefault(table_name, [])
-            buf.append(clean_row)
-            if self.mode == "chunked" and len(buf) >= self.chunk_size:
-                self._flush_table_chunk(table_name)
         except Exception as e:
+            # Single failure: increment rejected only.
             self.quarantine(RowResult(row=row, error=e))
+            return
+        self.counters["kept"] += 1
+        table_name = row.get("_table") or "data"
+        clean_row = {k: v for k, v in row.items() if not k.startswith("__forklift_")}
+        buf = self.row_buffers.setdefault(table_name, [])
+        buf.append(clean_row)
+        if self.mode == "chunked" and len(buf) >= self.chunk_size:
+            self._flush_table_chunk(table_name)
 
     def quarantine(self, rr: RowResult) -> None:
-        self.counters["read"] += 1
         self.counters["rejected"] += 1
         payload = {"row": rr.row, "error": str(rr.error)}
         self.quarantine_handle.write(json.dumps(payload, ensure_ascii=False) + "\n")

@@ -17,6 +17,8 @@ class Engine:
             preprocessors: list[str] | None = None,
             header_mode: str = "auto",  # "present", "absent", "auto"
             processing_chunk_size: int = 50_000,
+            output_mode: str = "vectorized",
+            output_chunk_size: int = 50_000,
             **input_opts: Any,
     ) -> None:
         """Initialize the data processing engine.
@@ -37,7 +39,12 @@ class Engine:
         self.schema = schema or {}
         self.input_opts = input_opts
         self.input_opts["header_mode"] = header_mode
+        # configure output opts for parquet (and ignore silently for others)
         self.output_opts: Dict[str, Any] = {}
+        if output_kind == "parquet":
+            self.output_opts["mode"] = output_mode
+            self.output_opts["chunk_size"] = output_chunk_size
+
         # Plugin class references (kept short historically). Provide verbose aliases.
         self.Input = get_input_cls(input_kind)
         self.Output = get_output_cls(output_kind)

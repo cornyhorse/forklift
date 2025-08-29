@@ -1,5 +1,5 @@
 import pytest
-from forklift.utils.standardize import standardize_postgres_column_name
+from forklift.utils.column_name_utilities import standardize_postgres_column_name
 
 
 @pytest.mark.parametrize(

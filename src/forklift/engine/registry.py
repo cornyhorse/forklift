@@ -31,15 +31,11 @@ def get_output_cls(kind: str) -> Type[BaseOutput]:
 
 def _extract_types_and_nulls(schema: Dict[str, Any] | None):
     if not schema:
-        return {}, {}
+        return {}, {}, {}
     props = schema.get("properties", {})
-    types: Dict[str, str] = {}
-    for k, spec in props.items():
-        t = spec.get("type")
-        if t in ("number", "integer"):
-            types[k] = "number"
-        elif t == "string" and spec.get("format") == "date":
-            types[k] = "date"
+    # Preserve full specs for TypeCoercion (includes decimal, binary, datetime, etc.)
+    full_specs = props
+    # Build null tokens map
     nulls: Dict[str, list[str]] = {}
     xcsv = (schema.get("x-csv") or {})
     null_cfg = (xcsv.get("nulls") or {})
@@ -47,10 +43,10 @@ def _extract_types_and_nulls(schema: Dict[str, Any] | None):
     for k, vals in percol.items():
         nulls[k] = list(vals)
     global_nulls = list(null_cfg.get("global") or [])
-    for k in types:
+    for k in full_specs.keys():
         nulls.setdefault(k, [])
         nulls[k].extend(global_nulls)
-    return types, nulls
+    return full_specs, nulls, props
 
 def get_preprocessors(names, schema: Dict[str, Any] | None = None):
     if not names:
@@ -62,11 +58,11 @@ def get_preprocessors(names, schema: Dict[str, Any] | None = None):
     except Exception:  # pragma: no cover
         pass
 
-    types, nulls = _extract_types_and_nulls(schema)
+    full_specs, nulls, _ = _extract_types_and_nulls(schema)
     out = []
     for n in names:
         if n == "type_coercion" and "type_coercion" in mapping:
-            out.append(mapping[n](types=types, nulls=nulls))
+            out.append(mapping[n](types=full_specs, nulls=nulls))
         elif n in mapping:
             out.append(mapping[n]())
     return out

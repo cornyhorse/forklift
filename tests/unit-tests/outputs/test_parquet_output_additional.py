@@ -25,10 +25,10 @@ def test_validation_failure_triggers_quarantine(tmp_path):
     outdir = tmp_path / "fail_out"
     pqout = PQOutput(dest=str(outdir), schema=schema)
     pqout.open()
-    # Invalid integer -> validation fails -> write() increments read once, quarantine adds another read + rejected
+    # Invalid integer -> validation fails -> read increments once, rejected increments once
     pqout.write({"id": "abc"})
     pqout.close()
-    assert pqout.counters["read"] == 2
+    assert pqout.counters["read"] == 1
     assert pqout.counters["rejected"] == 1
     assert pqout.counters["kept"] == 0
     q_path = outdir / "_quarantine.jsonl"
@@ -62,5 +62,3 @@ def test_flush_with_empty_rows_list_continue_branch(tmp_path):
     assert (outdir / "real_table.parquet").exists()
     assert not (outdir / "empty_table.parquet").exists()
     pqout.close()
-
-

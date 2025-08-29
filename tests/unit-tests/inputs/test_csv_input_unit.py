@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from forklift.utils.dedupe import dedupe_column_names
+from forklift.utils.column_name_utilities import dedupe_column_names
 from forklift.inputs.csv_input import CSVInput, _skip_prologue_lines, get_csv_reader
 
 

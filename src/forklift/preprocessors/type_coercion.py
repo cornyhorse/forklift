@@ -153,6 +153,8 @@ def _normalize_type(spec: Any) -> Tuple[str | None, Dict[str, Any]]:
 # Preprocessor implementation
 # ---------------------------------------------------------------------------
 
+import polars as pl
+
 class TypeCoercion(Preprocessor):
     """Enhanced type coercion preprocessor for Parquet-compatible primitives.
 
@@ -181,74 +183,95 @@ class TypeCoercion(Preprocessor):
                     self._meta[field_name] = meta
         self.nulls = {field_name: set(null_tokens) for field_name, null_tokens in (nulls or {}).items()}
 
-    def apply(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        coerced_row: Dict[str, Any] = {}
-        for field_name, value in row.items():
-            trimmed_value = value.strip() if isinstance(value, str) else value
-            if field_name in self.nulls and trimmed_value in self.nulls[field_name]:
-                coerced_row[field_name] = None
-                continue
-            if trimmed_value in ("", None):
-                coerced_row[field_name] = None
-                continue
-            declared_type = self._specs.get(field_name)
-            try:
-                if declared_type == "number":
-                    if isinstance(trimmed_value, str):
-                        coerced_row[field_name] = _coerce_number(trimmed_value)
-                    else:
-                        coerced_row[field_name] = float(trimmed_value)
-                elif declared_type == "integer":
-                    if isinstance(trimmed_value, str):
-                        coerced_row[field_name] = _coerce_integer(trimmed_value)
-                    else:
-                        coerced_row[field_name] = int(trimmed_value)
-                elif declared_type == "date":
-                    if isinstance(trimmed_value, str):
-                        coerced_row[field_name] = coerce_date(trimmed_value)
-                    else:
-                        raise ValueError("non-string date")
-                elif declared_type == "datetime":
-                    if isinstance(trimmed_value, str):
-                        coerced_row[field_name] = coerce_datetime(trimmed_value)
-                    elif isinstance(trimmed_value, datetime):
-                        coerced_row[field_name] = trimmed_value
-                    else:
-                        raise ValueError("unsupported datetime value")
-                elif declared_type == "boolean":
-                    coerced_row[field_name] = _coerce_bool(trimmed_value)
-                elif declared_type == "string":
-                    coerced_row[field_name] = str(trimmed_value)
-                elif declared_type == "decimal":
-                    if isinstance(trimmed_value, (int, float, Decimal)):
-                        dec_val = Decimal(str(trimmed_value))
-                    elif isinstance(trimmed_value, str):
-                        dec_val = _coerce_decimal(trimmed_value, self._meta.get(field_name, {}).get("scale"))
-                    else:
-                        raise ValueError("unsupported decimal value")
-                    # Optionally enforce scale if meta present but not yet applied (non-string input)
-                    scale_meta = self._meta.get(field_name, {}).get("scale")
-                    if scale_meta is not None and (isinstance(trimmed_value, (int, float, Decimal))):
-                        quant = Decimal(1).scaleb(-scale_meta)
-                        dec_val = dec_val.quantize(quant, rounding=ROUND_HALF_UP)
-                    coerced_row[field_name] = dec_val
-                elif declared_type == "binary":
-                    if isinstance(trimmed_value, bytes):
-                        coerced_row[field_name] = trimmed_value
-                    elif isinstance(trimmed_value, str):
-                        coerced_row[field_name] = _coerce_binary(trimmed_value)
-                    else:
-                        raise ValueError("unsupported binary value")
-                else:
-                    coerced_row[field_name] = value
-            except Exception as exc:
-                # Re-raise with field context to aid quarantine diagnostics
-                raise ValueError(f"Field '{field_name}' {declared_type or 'unknown'} coercion failed: {exc}") from exc
-        return coerced_row
+    def apply(self, row: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        raise NotImplementedError("TypeCoercion is DataFrame-only; use process_dataframe().")
 
-    def process(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        try:
-            coerced_row = self.apply(row)
-            return {"row": coerced_row, "error": None}
-        except Exception as exc:  # pragma: no cover - thin wrapper
-            return {"row": row, "error": exc}
+    def process(self, row: Dict[str, Any]) -> Dict[str, Any]:  # type: ignore[override]
+        raise NotImplementedError("TypeCoercion is DataFrame-only; use process_dataframe().")
+
+    def process_dataframe(self, df: "pl.DataFrame") -> "pl.DataFrame":  # type: ignore[name-defined]
+        """Process a Polars DataFrame row-wise (DataFrame-only API).
+
+        Rows that fail coercion for any declared field are omitted from the
+        returned DataFrame and recorded in ``self._df_errors`` as
+        ``(original_row_dict, Exception)`` tuples.
+        """
+        if not self._specs or df.height == 0:
+            self._df_errors = []  # type: ignore[attr-defined]
+            return df
+        kept_rows: List[Dict[str, Any]] = []
+        self._df_errors: List[tuple[dict, Exception]] = []  # type: ignore[attr-defined]
+        for row in df.to_dicts():
+            try:
+                out_row: Dict[str, Any] = {}
+                for field_name, value in row.items():
+                    declared_type = self._specs.get(field_name)
+                    # Null / blank handling & null tokens
+                    val = value
+                    if isinstance(val, str):
+                        val_stripped = val.strip()
+                    else:
+                        val_stripped = val
+                    if field_name in self.nulls and val_stripped in self.nulls[field_name]:
+                        out_row[field_name] = None
+                        continue
+                    if val_stripped in (None, ""):
+                        out_row[field_name] = None
+                        continue
+                    if not declared_type:
+                        # Pass through untouched
+                        out_row[field_name] = value
+                        continue
+                    # Coercion per type
+                    if declared_type == "number":
+                        if isinstance(val, str):
+                            out_row[field_name] = _coerce_number(val)
+                        else:
+                            out_row[field_name] = float(val)
+                    elif declared_type == "integer":
+                        if isinstance(val, str):
+                            out_row[field_name] = _coerce_integer(val)
+                        else:
+                            out_row[field_name] = int(val)
+                    elif declared_type == "date":
+                        if isinstance(val, str):
+                            out_row[field_name] = coerce_date(val)
+                        else:
+                            raise ValueError("non-string date")
+                    elif declared_type == "datetime":
+                        if isinstance(val, str):
+                            out_row[field_name] = coerce_datetime(val)
+                        elif isinstance(val, datetime):
+                            out_row[field_name] = val
+                        else:
+                            raise ValueError("unsupported datetime value")
+                    elif declared_type == "boolean":
+                        out_row[field_name] = _coerce_bool(val)
+                    elif declared_type == "string":
+                        out_row[field_name] = str(val)
+                    elif declared_type == "decimal":
+                        if isinstance(val, (int, float, Decimal)):
+                            dec_val = Decimal(str(val))
+                        elif isinstance(val, str):
+                            dec_val = _coerce_decimal(val, self._meta.get(field_name, {}).get("scale"))
+                        else:
+                            raise ValueError("unsupported decimal value")
+                        scale_meta = self._meta.get(field_name, {}).get("scale")
+                        if scale_meta is not None and isinstance(val, (int, float, Decimal)):
+                            quant = Decimal(1).scaleb(-scale_meta)
+                            dec_val = dec_val.quantize(quant, rounding=ROUND_HALF_UP)
+                        out_row[field_name] = dec_val
+                    elif declared_type == "binary":
+                        if isinstance(val, bytes):
+                            out_row[field_name] = val
+                        elif isinstance(val, str):
+                            out_row[field_name] = _coerce_binary(val)
+                        else:
+                            raise ValueError("unsupported binary value")
+                    else:
+                        out_row[field_name] = value
+                kept_rows.append(out_row)
+            except Exception as exc:
+                # retain original row for diagnostics
+                self._df_errors.append((row, exc))
+        return pl.DataFrame(kept_rows) if kept_rows else pl.DataFrame([])

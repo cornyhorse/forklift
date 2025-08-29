@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime
 from decimal import Decimal
+import polars as pl
 
 from forklift.preprocessors.type_coercion import (
     TypeCoercion,
@@ -27,17 +28,14 @@ def test_coerce_bool_variants_and_error():
 
 def test_strip_numeric_and_number_integer_decimal_paths():
     tok, neg = _strip_numeric_artifacts("(1,234.50)")
-    # Comma should be removed by currency/sep regex
     assert tok == "1234.50" and neg is True
     assert _coerce_number("(123.4)") == -123.4
     assert _coerce_integer("(1,234.0)") == -1234
-    # scale quantization + negative parentheses
     dec = _coerce_decimal("(12.345)", scale=2)
     assert dec == Decimal("-12.35")
-    # no-scale path
     assert _coerce_decimal("12.34") == Decimal("12.34")
     with pytest.raises(ValueError):
-        _strip_numeric_artifacts("")  # empty number
+        _strip_numeric_artifacts("")
     with pytest.raises(ValueError):
         _coerce_decimal("not-a-decimal")
 
@@ -68,14 +66,14 @@ def test_normalize_type_string_and_dict_variants():
     assert _normalize_type({"type": "integer"})[0] == "integer"
     assert _normalize_type({"type": "weird"}) == (None, {})
 
-# ---- TypeCoercion.apply branch coverage ----
+# ---- TypeCoercion vectorized coverage ----
 
-def test_type_coercion_apply_all_declared_types_and_paths():
+def test_type_coercion_vectorized_all_declared_types_and_paths():
     tc = TypeCoercion(types={
         "num": "number",
         "int": "integer",
         "d": {"type": "decimal", "scale": 2},
-        "d2": {"type": "decimal"},  # non-string decimal no scale
+        "d2": {"type": "decimal"},
         "b": "boolean",
         "s": "string",
         "dt": {"type": "string", "format": "date-time"},
@@ -85,84 +83,101 @@ def test_type_coercion_apply_all_declared_types_and_paths():
         "unknown": "not-supported",
     })
     now_iso = "2024-03-02T01:02:03Z"
-    row = {
-        "num": -1234.5,  # numeric (non-string) branch
-        "int": -1234,    # integer (non-string) branch
-        "d": "12.345",
-        "d2": Decimal("1.2300"),  # decimal instance path
-        "b": 1,  # boolean numeric branch
-        "s": 123,  # non-string becomes str
-        "dt": now_iso,
-        "date_only": "2024/03/02",
-        "bin_hex": "0x4869",
-        "bin_b64": "SGk=",
-        "unknown": "keep-me",
-    }
-    out = tc.apply(row)
-    assert out["num"] == -1234.5
-    assert out["int"] == -1234
-    assert out["d"] == Decimal("12.35")
-    assert out["d2"] == Decimal("1.2300")
-    assert out["b"] is True
-    assert out["s"] == "123"
-    assert isinstance(out["dt"], datetime)
-    assert out["date_only"] == "2024-03-02"
-    assert out["bin_hex"] == b"Hi"
-    assert out["bin_b64"] == b"Hi"
-    assert out["unknown"] == "keep-me"
+    df = pl.DataFrame([
+        {
+            "num": -1234.5,
+            "int": -1234,
+            "d": "12.345",
+            "d2": Decimal("1.2300"),
+            "b": 1,
+            "s": 123,
+            "dt": now_iso,
+            "date_only": "2024/03/02",
+            "bin_hex": "0x4869",
+            "bin_b64": "SGk=",
+            "unknown": "keep-me",
+        }
+    ])
+    out = tc.process_dataframe(df)
+    assert out.height == 1
+    row = out.to_dicts()[0]
+    assert row["num"] == -1234.5
+    assert row["int"] == -1234
+    assert row["d"] == Decimal("12.35")
+    assert row["d2"] == Decimal("1.2300")
+    assert row["b"] is True
+    assert row["s"] == "123"
+    assert isinstance(row["dt"], datetime)
+    assert row["date_only"] == "2024-03-02"
+    assert row["bin_hex"] == b"Hi"
+    assert row["bin_b64"] == b"Hi"
+    assert row["unknown"] == "keep-me"
 
-
-def test_decimal_non_string_input_quantization_and_error_branch():
-    # Non-string decimal input gets quantized if scale meta present
+def test_decimal_quantization_and_invalid_row_filtered():
     tc = TypeCoercion(types={"d": {"type": "decimal", "scale": 2}, "bad": {"type": "decimal"}})
-    out = tc.apply({"d": 1.239, "bad": "1.2"})
-    assert out["d"] == Decimal("1.24")
-    # Trigger unsupported decimal value error path
-    tc_err = TypeCoercion(types={"d": {"type": "decimal"}})
-    with pytest.raises(ValueError) as exc:
-        tc_err.apply({"d": [1,2,3]})  # list is unsupported
-    assert "unsupported decimal value" in str(exc.value)
+    df = pl.DataFrame([
+        {"d": 1.239, "bad": "1.2"},  # good row
+    ])
+    out = tc.process_dataframe(df)
+    assert out.height == 1
+    row = out.to_dicts()[0]
+    assert row["d"] == Decimal("1.24")
+    assert row["bad"] == Decimal("1.2")
+    # Invalid decimal row
+    df_err = pl.DataFrame([
+        {"d": [1,2,3]},
+    ])
+    out_err = tc.process_dataframe(df_err)
+    assert out_err.height == 0
+    assert len(tc._df_errors) >= 1
 
 
-def test_binary_bytes_passthrough_and_boolean_error():
+def test_binary_passthrough_and_boolean_invalid_filtered():
     tc = TypeCoercion(types={"bin": "binary", "flag": "boolean", "badbin": "binary"})
-    out = tc.apply({"bin": b"Hi", "flag": "y", "badbin": "0x4869"})
-    assert out["bin"] == b"Hi"
-    assert out["flag"] is True
-    # unsupported binary value (non-bytes, non-str)
-    with pytest.raises(ValueError):
-        tc.apply({"badbin": 123})
-    with pytest.raises(ValueError):
-        tc.apply({"flag": "???"})
+    df = pl.DataFrame([
+        {"bin": b"Hi", "flag": "y", "badbin": "0x4869"},          # good row
+        {"bin": b"Hi", "flag": "???", "badbin": 123},               # bad boolean & binary
+    ])
+    out = tc.process_dataframe(df)
+    # One good row retained
+    assert out.height == 1
+    row = out.to_dicts()[0]
+    assert row["bin"] == b"Hi"
+    assert row["flag"] is True
+    # Errors recorded
+    assert len(tc._df_errors) >= 1
 
 
-def test_date_non_string_and_datetime_non_string_error():
+def test_date_and_datetime_invalid_filtered():
     tc = TypeCoercion(types={"d": {"type": "string", "format": "date"}, "dt": {"type": "string", "format": "date-time"}})
-    with pytest.raises(ValueError):
-        tc.apply({"d": 20240302})  # non-string date
-    with pytest.raises(ValueError):
-        tc.apply({"dt": 123})  # unsupported datetime value
+    df = pl.DataFrame([
+        {"d": 20240302},  # invalid date (non-string)
+        {"dt": 123},      # invalid datetime
+    ])
+    out = tc.process_dataframe(df)
+    assert out.height == 0
+    assert len(tc._df_errors) == 2
 
 
-def test_process_wrapper_captures_error():
-    tc = TypeCoercion(types={"i": "integer"})
-    result = tc.process({"i": "abc"})  # not an int
-    assert result["row"] == {"i": "abc"}
-    assert isinstance(result["error"], Exception)
-
-
-def test_null_tokens_and_blank_to_none():
+def test_null_tokens_and_blank_to_none_vectorized():
     tc = TypeCoercion(types={"i": "integer"}, nulls={"i": ["N/A"]})
-    out = tc.apply({"i": "N/A"})
-    assert out["i"] is None
-    out2 = tc.apply({"i": "   "})
-    assert out2["i"] is None
+    df = pl.DataFrame([
+        {"i": "N/A"},
+        {"i": "   "},
+    ])
+    out = tc.process_dataframe(df)
+    assert out.height == 2
+    vals = [r["i"] for r in out.to_dicts()]
+    assert vals == [None, None]
 
 
-def test_datetime_pass_through():
+def test_datetime_pass_through_vectorized():
     import datetime as _dt
     dt_obj = _dt.datetime(2024, 3, 2, 1, 2, 3)
     tc = TypeCoercion(types={"dt": {"type": "string", "format": "date-time"}})
-    out = tc.apply({"dt": dt_obj})
-    assert out["dt"] is dt_obj  # pass-through branch
-
+    df = pl.DataFrame([
+        {"dt": dt_obj}
+    ])
+    out = tc.process_dataframe(df)
+    assert out.height == 1
+    assert out.to_dicts()[0]["dt"] == dt_obj

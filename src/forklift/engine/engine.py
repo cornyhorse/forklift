@@ -1,9 +1,11 @@
 from __future__ import annotations
-from typing import Iterable, Any, Dict, Tuple
+from typing import Iterable, Any, Dict, Tuple, List
 
 from .registry import get_input_cls, get_output_cls, get_preprocessors
 from ..utils.sql_include import derive_sql_include_patterns
 from ..types import Row, RowResult
+
+import polars as pl  # mandatory now
 
 
 class Engine:
@@ -14,6 +16,7 @@ class Engine:
             schema: Dict[str, Any] | None = None,
             preprocessors: list[str] | None = None,
             header_mode: str = "auto",  # "present", "absent", "auto"
+            processing_chunk_size: int = 50_000,
             **input_opts: Any,
     ) -> None:
         """Initialize the data processing engine.
@@ -55,6 +58,7 @@ class Engine:
         self.deduplication_key_fields = self.dedupe_keys  # alias
         self.validator = None  # placeholder for potential future validator object
         self.allow_required_nulls = bool((xcsv_extension_block.get("nulls") or {}))
+        self.processing_chunk_size = processing_chunk_size
 
     def _required_ok(self, row: Row) -> bool:
         """Check whether required columns are satisfied.
@@ -79,29 +83,58 @@ class Engine:
                 return False
         return True
 
-    def _process(self, input_rows: Iterable[Row]) -> Iterable[RowResult]:
-        """Apply preprocessors, required-field checks, and optional dedupe.
+    def _apply_preprocessors_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Apply preprocessors in order on a Polars DataFrame.
 
-        :param input_rows: Iterable of raw row dicts.
-        :yield: ``RowResult`` containing either a clean row or an error.
+        Row-level preprocessors (without process_dataframe) are applied by iterating rows
+        then re-materializing a DataFrame to keep pipeline generic, though current design
+        expects TypeCoercion only (DataFrame path).
         """
-        seen_deduplication_key_tuples = set()
-        for current_row in input_rows:
+        self._row_level_errors = {}
+        self._vectorized_errors = []  # list[(row_dict, exc)] from vectorized preprocessors
+        for pre in self.preprocessors:
+            if hasattr(pre, "process_dataframe"):
+                df = pre.process_dataframe(df)  # type: ignore[attr-defined]
+                if hasattr(pre, "_df_errors"):
+                    self._vectorized_errors.extend(getattr(pre, "_df_errors"))  # type: ignore[arg-type]
+            else:
+                new_rows: List[Dict[str, Any]] = []
+                for idx, row in enumerate(df.to_dicts()):
+                    try:
+                        new_rows.append(pre.apply(row))  # type: ignore[attr-defined]
+                    except Exception as exc:
+                        new_rows.append(row)
+                        self._row_level_errors[idx] = exc
+                df = pl.DataFrame(new_rows)
+        return df
+
+    def _process_dataframe_rows(self, df: pl.DataFrame, table_name: str, seen_keys: set) -> Iterable[RowResult]:
+        # First emit vectorized errors (dropped rows)
+        if hasattr(self, "_vectorized_errors"):
+            for orig_row, exc in getattr(self, "_vectorized_errors"):
+                # ensure _table for quarantine context
+                r = dict(orig_row)
+                r["_table"] = table_name
+                yield RowResult(row=r, error=exc)
+        for idx, row in enumerate(df.to_dicts()):
+            row["_table"] = table_name
+            # If a row-level preprocessor error recorded, emit quarantine directly
+            if hasattr(self, "_row_level_errors") and idx in self._row_level_errors:
+                yield RowResult(row=row, error=self._row_level_errors[idx])
+                continue
             try:
-                for preprocessor in self.preprocessors:
-                    current_row = preprocessor.apply(current_row)
-                if not self._required_ok(current_row):
+                if not self._required_ok(row):
                     raise ValueError("missing required field")
                 if self.deduplication_key_fields:
-                    deduplication_key_tuple = tuple(current_row.get(key) for key in self.deduplication_key_fields)
-                    if deduplication_key_tuple in seen_deduplication_key_tuples:
-                        current_row["__forklift_skip__"] = True
-                        yield RowResult(row=current_row, error=None)
+                    key_tuple = tuple(row.get(k) for k in self.deduplication_key_fields)
+                    if key_tuple in seen_keys:
+                        row["__forklift_skip__"] = True
+                        yield RowResult(row=row, error=None)
                         continue
-                    seen_deduplication_key_tuples.add(deduplication_key_tuple)
-                yield RowResult(row=current_row, error=None)
-            except Exception as exc:  # pragma: no cover - defensive
-                yield RowResult(row=current_row, error=exc)
+                    seen_keys.add(key_tuple)
+                yield RowResult(row=row, error=None)
+            except Exception as exc:
+                yield RowResult(row=row, error=exc)
 
     def run(self, source: str, dest: str) -> None:
         """Execute ingest → preprocess → output pipeline.
@@ -126,11 +159,26 @@ class Engine:
         try:
             for table_descriptor in input_plugin.get_tables():
                 table_name = table_descriptor["name"]
-                for row_result in self._process(
-                        (dict(row, _table=table_name) for row in table_descriptor["rows"])):
-                    if row_result.error is None:
-                        output_plugin.write(row_result.row)
-                    else:
-                        output_plugin.quarantine(row_result)
+                buffer: List[Dict[str, Any]] = []
+                seen_keys: set = set()
+                for row in table_descriptor["rows"]:
+                    buffer.append(dict(row))
+                    if len(buffer) >= self.processing_chunk_size:
+                        df = pl.DataFrame(buffer)
+                        df = self._apply_preprocessors_dataframe(df)
+                        for rr in self._process_dataframe_rows(df, table_name, seen_keys):
+                            if rr.error is None:
+                                output_plugin.write(rr.row)
+                            else:
+                                output_plugin.quarantine(rr)
+                        buffer.clear()
+                if buffer:
+                    df = pl.DataFrame(buffer)
+                    df = self._apply_preprocessors_dataframe(df)
+                    for rr in self._process_dataframe_rows(df, table_name, seen_keys):
+                        if rr.error is None:
+                            output_plugin.write(rr.row)
+                        else:
+                            output_plugin.quarantine(rr)
         finally:
             output_plugin.close()

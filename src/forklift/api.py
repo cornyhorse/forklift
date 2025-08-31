@@ -20,12 +20,19 @@ class ForkliftFrame:
         return self._pl
 
 
-def read_csv(path: str | bytes | Any, **options: Any) -> pl.DataFrame:
+def read_csv(path: str | bytes | Any, *, schema_mode: str = "accept", **options: Any) -> pl.DataFrame:
     """Read a CSV file returning a polars DataFrame.
 
-    Currently returns the raw polars DataFrame (not wrapped) for simplicity.
+    Parameters
+    ----------
+    path : str | bytes | Any
+        Path (or file-like object accepted by Polars) to the CSV file.
+    schema_mode : {"accept", "infer", "enforce"}, default "accept"
+        Placeholder schema handling mode forwarded to the engine layer.
+    **options : Any
+        Additional keyword arguments forwarded to the engine reader.
     """
-    return _engine_read_csv(str(path), **options)
+    return _engine_read_csv(str(path), schema_mode=schema_mode, **options)
 
 
 def read_fwf(*_, **__):  # pragma: no cover - placeholder
@@ -46,4 +53,3 @@ __all__ = [
     "read_excel",
     "read_sql",
 ]
-

@@ -10,7 +10,7 @@ SAMPLE_PATH = Path("/Users/matt/PycharmProjects/forklift/tests/test-files/largec
 def main() -> None:
     if not SAMPLE_PATH.exists():
         raise FileNotFoundError(f"Sample file not found: {SAMPLE_PATH}")
-    df = read_csv(SAMPLE_PATH)
+    df = read_csv(SAMPLE_PATH, schema_mode='accept', delimiter=',')
     # Show first few rows using underlying polars DataFrame
     print(df.head())
 

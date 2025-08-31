@@ -25,16 +25,35 @@ pl.DataFrame
     A populated Polars DataFrame.
 """
 
+WriterFunction = Callable[[pl.DataFrame, str, Dict[str, Any]], Any]
+"""Callable signature for writer implementations.
+
+Parameters
+----------
+pl.DataFrame
+    The Polars DataFrame to write.
+str
+    Destination path / identifier.
+Dict[str, Any]
+    Options dictionary supplied by the public ``write`` interface.
+
+Returns
+-------
+Any
+    Writer-specific return value (often ``None``).
+"""
+
 
 class Engine:
-    """Registry of reader functions keyed by a short kind string.
+    """Registry of reader and writer functions keyed by a short kind string.
 
     Starts empty; no implicit defaults are registered to ensure the caller
-    intentionally configures available input formats.
+    intentionally configures available input/output formats.
     """
 
     def __init__(self) -> None:
         self._registered_readers: Dict[str, ReaderFunction] = {}
+        self._registered_writers: Dict[str, WriterFunction] = {}
 
     # ---------------------------------------------------------------------
     def register_reader(
@@ -59,3 +78,27 @@ class Engine:
                 f"Registered kinds: {sorted(self._registered_readers.keys()) or 'NONE'}"
             ) from e
         return reader(source_path, options)
+
+    # ---------------------------------------------------------------------
+    def register_writer(
+        self,
+        writer_kind: str,
+        writer_function: WriterFunction,
+        override: bool = False,
+    ) -> None:
+        normalized_kind = writer_kind.lower()
+        if not override and normalized_kind in self._registered_writers:  # pragma: no cover - defensive
+            raise ValueError(f"Writer already registered for kind '{normalized_kind}'")
+        self._registered_writers[normalized_kind] = writer_function
+
+    # ---------------------------------------------------------------------
+    def write(self, writer_kind: str, destination_path: str, df: pl.DataFrame, **options: Any):
+        normalized_kind = writer_kind.lower()
+        try:
+            writer = self._registered_writers[normalized_kind]
+        except KeyError as e:  # pragma: no cover - defensive
+            raise ValueError(
+                f"No writer registered for kind '{normalized_kind}'. "
+                f"Registered kinds: {sorted(self._registered_writers.keys()) or 'NONE'}"
+            ) from e
+        return writer(df, destination_path, options)

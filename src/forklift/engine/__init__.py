@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .forklift_core import Engine, ReaderFunction, WriterFunction
-from typing import Any, Optional, Sequence
+from typing import Any, Optional
 from importlib import import_module
 import polars as pl
 
@@ -45,7 +45,8 @@ def read_csv(
     *,
     schema_mode: str = "accept",
     header_comment_detection_mode: str = "off",
-    header_detection_rows: int = 100,
+    processing_mode: str = "atomic",
+    chunk_size: int = 50000,
     **options: Any,
 ):
     """Read a CSV file with optional schema + header comment detection placeholders.
@@ -56,16 +57,21 @@ def read_csv(
         Path to CSV file.
     schema_mode : {"accept", "infer", "enforce"}, default "accept"
         Placeholder schema behavior mode.
-    header_comment_detection_mode : {"header", "nrows", "firstcol", "regex", "off"}, default "off"
-        Strategy for detecting header comment lines (placeholder, not yet implemented).
-    header_detection_rows : int, default 100
-        Number of initial rows considered for header comment detection when applicable.
+    header_comment_detection_mode : {"header", "firstcol", "regex", "off"}, default "off"
+        Strategy for detecting header comment lines (placeholder, active only in enforce mode).
+    processing_mode : {"atomic", "chunk"}, default "atomic"
+        Execution mode. ``atomic`` reads/processes the entire file at once. ``chunk`` (placeholder)
+        would process the file in segments of ``chunk_size`` rows.
+    chunk_size : int, default 50000
+        Target number of rows per chunk in chunk processing mode (ignored for atomic).
     **options : Any
-        Additional options forwarded to the CSV reader implementation.
+        Additional options forwarded to the CSV reader implementation. Use Polars' native
+        ``skip_rows`` if you need to drop a fixed number of initial lines.
     """
     options["schema_mode"] = schema_mode
     options["header_comment_detection_mode"] = header_comment_detection_mode
-    options["header_detection_rows"] = header_detection_rows
+    options["processing_mode"] = processing_mode
+    options["chunk_size"] = chunk_size
     return _read("csv", source_path, **options)
 
 # ----------------- Writer registration & use (private helpers) -----------------

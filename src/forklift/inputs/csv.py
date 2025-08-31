@@ -86,6 +86,7 @@ class CsvReader:
         else:
             self.last_forklift_schema = None
 
+        provided_header_cols = options.pop("_provided_header_columns", None)
         # delimiter alias -> separator (non-destructive if separator already set)
         delimiter = options.pop("delimiter", None)
         if delimiter and "separator" not in options:
@@ -147,19 +148,46 @@ class CsvReader:
         if schema_mode in ("accept", "infer") and header_mode != "off":
             raise ValueError("header_comment_detection_mode only supported with schema_mode='enforce'")
 
+        # --- ATOMIC REGEX HEADER DETECTION INSERTION START ---
+        if processing_mode == "atomic" and schema_mode == "enforce" and header_mode == "regex" and header_regex is not None and has_header:
+            # Scan file to determine skip_rows (lines before header) similar to chunk logic
+            skip_rows_calc = 0
+            try:
+                with open(source_path, "r", encoding=encoding) as fscan:
+                    while True:
+                        line = fscan.readline()
+                        if not line:
+                            break
+                        candidate = line.rstrip("\n")
+                        first_field = candidate.split(separator, 1)[0]
+                        if header_regex.search(first_field):
+                            # Found header; stop — do not skip this line
+                            break
+                        else:
+                            skip_rows_calc += 1
+                if skip_rows_calc > 0:
+                    options["skip_rows"] = skip_rows_calc
+            except OSError:
+                pass
+        # --- ATOMIC REGEX HEADER DETECTION INSERTION END ---
         if processing_mode == "atomic":
             if schema_mode == "accept":
-                return self._schema_accept(source_path, options)
-            if schema_mode == "infer":
-                return self._schema_infer(source_path, options)
-            if schema_mode == "enforce":
-                return self._schema_enforce(source_path, options, has_header=has_header, header_mode=header_mode)
-            raise ValueError(f"Unknown schema_mode '{schema_mode}'. Expected one of: accept, infer, enforce")
-
-        # Streaming chunk mode
-        return self._read_chunked_stream(
+                df = self._schema_accept(source_path, options)
+            elif schema_mode == "infer":
+                df = self._schema_infer(source_path, options)
+            elif schema_mode == "enforce":
+                df = self._schema_enforce(source_path, options, has_header=has_header, header_mode=header_mode)
+            else:
+                raise ValueError(f"Unknown schema_mode '{schema_mode}'. Expected one of: accept, infer, enforce")
+            if provided_header_cols:
+                df = self._apply_provided_header(df, provided_header_cols)
+            return df
+        # Prepare base_options for streaming: remove has_header to avoid duplicate kw
+        base_options = dict(options)
+        base_options.pop("has_header", None)
+        df = self._read_chunked_stream(
             source_path=source_path,
-            base_options=options,
+            base_options=base_options,
             schema_mode=schema_mode,
             has_header=has_header,
             header_mode=header_mode,
@@ -169,6 +197,9 @@ class CsvReader:
             header_regex=header_regex,
             encoding=encoding,
         )
+        if provided_header_cols:
+            df = self._apply_provided_header(df, provided_header_cols)
+        return df
 
     # ------------------------------------------------------------------
     def _read_chunked_stream(
@@ -232,12 +263,12 @@ class CsvReader:
                 if dtype_map is None and schema_mode == "infer":
                     dtype_map = {c: dt for c, dt in zip(df.columns, df.dtypes)}
                 elif dtype_map is not None and schema_mode == "infer":
-                    # Cast columns to stabilized dtypes
+                    # Cast columns to stabilized dtypes (lenient to avoid hard failures)
                     casts = []
                     for c, dt in dtype_map.items():
                         if c in df.columns and df[c].dtype != dt:
                             try:
-                                casts.append(pl.col(c).cast(dt))
+                                casts.append(pl.col(c).cast(dt, strict=False))
                             except Exception:
                                 pass
                     if casts:
@@ -309,6 +340,17 @@ class CsvReader:
                 f"Unknown header detection mode '{header_mode}'. Expected one of: header, firstcol, regex, off"
             )
         return pl.read_csv(source_path, infer_schema=False, **options)
+
+    def _apply_provided_header(self, df: pl.DataFrame, provided_cols: List[str]) -> pl.DataFrame:
+        # Rename first n columns and drop extras beyond provided count
+        if len(df.columns) < len(provided_cols):
+            raise ValueError("Parsed columns fewer than provided header columns")
+        rename_map = {df.columns[i]: provided_cols[i] for i in range(len(provided_cols))}
+        df = df.rename(rename_map)
+        if len(df.columns) > len(provided_cols):
+            extras = df.columns[len(provided_cols):]
+            df = df.drop(extras)
+        return df
 
     # Deprecated placeholder retained
     def _detect_header_comments(self, mode: HeaderDetectionMode, path: str, options: Dict[str, Any]) -> None:  # pragma: no cover

@@ -61,7 +61,8 @@ class CsvReader:
         options["encoding"] = encoding
 
         schema_mode: SchemaMode = options.pop("schema_mode", "accept")  # type: ignore[assignment]
-        header_mode: HeaderDetectionMode = options.pop("header_comment_detection_mode", "off")  # type: ignore[assignment]
+        header_mode: HeaderDetectionMode = options.pop("header_comment_detection_mode",
+                                                       "off")  # type: ignore[assignment]
         header_rows: int = int(options.pop("header_detection_rows", 100))
 
         # Execute (no-op) detection placeholders; header detection only if file has header
@@ -80,17 +81,18 @@ class CsvReader:
         )
 
     # --- Placeholder detection strategy hooks ---------------------------
-    def _detect_header_comments(self, mode: HeaderDetectionMode, rows: int, path: str, options: Dict[str, Any]) -> None:  # pragma: no cover - placeholder
+    def _detect_header_comments(self, mode: HeaderDetectionMode, rows: int, path: str,
+                                options: Dict[str, Any]) -> None:  # pragma: no cover - placeholder
         return None
 
     # --- Schema mode handlers -------------------------------------------
     def _schema_accept(self, source_path: str, options: Dict[str, Any]) -> pl.DataFrame:
         # Infer schema is set to false to so that when dtypes are enforced, we can make a 'bad rows' file.
-        return pl.read_csv(source_path, **options)
+        return pl.read_csv(source_path, infer_schema=False, **options)
 
-    def _schema_infer(self, source_path: str, options: Dict[str, Any]) -> pl.DataFrame:  # pragma: no cover - placeholder
-        raise NotImplementedError("schema_mode='infer' not implemented yet")
-
+    def _schema_infer(self, source_path: str,
+                      options: Dict[str, Any]) -> pl.DataFrame:  # pragma: no cover - placeholder
+        return pl.read_csv(source_path, infer_schema=True, **options)
 
     def _schema_enforce(self, source_path: str,
                         options: Dict[str, Any]) -> pl.DataFrame:  # pragma: no cover - placeholder

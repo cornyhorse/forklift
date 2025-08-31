@@ -45,12 +45,10 @@ def read_csv(
     *,
     schema_mode: str = "accept",
     header_comment_detection_mode: str = "off",
-    footer_comment_detection_mode: str = "off",
     header_detection_rows: int = 100,
-    footer_detection_rows: int = 100,
     **options: Any,
 ):
-    """Read a CSV file with optional schema + header/footer comment detection placeholders.
+    """Read a CSV file with optional schema + header comment detection placeholders.
 
     Parameters
     ----------
@@ -60,20 +58,14 @@ def read_csv(
         Placeholder schema behavior mode.
     header_comment_detection_mode : {"header", "nrows", "firstcol", "regex", "off"}, default "off"
         Strategy for detecting header comment lines (placeholder, not yet implemented).
-    footer_comment_detection_mode : {"nrows", "regex", "word", "column"}, default "off"
-        Strategy for detecting footer comment lines (placeholder, not yet implemented).
     header_detection_rows : int, default 100
         Number of initial rows considered for header comment detection when applicable.
-    footer_detection_rows : int, default 100
-        Number of final rows considered for footer comment detection when applicable.
     **options : Any
         Additional options forwarded to the CSV reader implementation.
     """
     options["schema_mode"] = schema_mode
     options["header_comment_detection_mode"] = header_comment_detection_mode
-    options["footer_comment_detection_mode"] = footer_comment_detection_mode
     options["header_detection_rows"] = header_detection_rows
-    options["footer_detection_rows"] = footer_detection_rows
     return _read("csv", source_path, **options)
 
 # ----------------- Writer registration & use (private helpers) -----------------

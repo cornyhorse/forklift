@@ -206,5 +206,38 @@
         "description": "Replace with ranges or categories to maintain analytical utility while protecting privacy"
       }
     }
+  },
+  "x-primaryKey": {
+    "description": "Global primary key configuration for SQL data sources",
+    "tables": {
+      "employees": {
+        "columns": ["id"],
+        "type": "single",
+        "enforceUniqueness": true,
+        "allowNulls": false,
+        "description_detail": "Single column primary key on employees.id"
+      },
+      "orders": {
+        "columns": ["order_id", "customer_id"],
+        "type": "composite",
+        "enforceUniqueness": true,
+        "allowNulls": false,
+        "description_detail": "Composite primary key on orders table combining order_id and customer_id"
+      },
+      "products": {
+        "columns": ["product_code"],
+        "type": "single",
+        "enforceUniqueness": true,
+        "allowNulls": false,
+        "description_detail": "Single column primary key on products.product_code"
+      }
+    },
+    "defaultBehavior": {
+      "autoDetect": true,
+      "fallbackColumn": "id",
+      "enforceUniqueness": true,
+      "allowNulls": false,
+      "description": "Default behavior for tables without explicit primary key configuration"
+    }
   }
 }

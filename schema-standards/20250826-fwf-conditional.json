@@ -18,6 +18,15 @@
   "required": ["id"],
   "additionalProperties": false,
 
+  "x-primaryKey": {
+    "description": "Primary key configuration for data uniqueness and referential integrity",
+    "columns": ["id"],
+    "type": "single",
+    "enforceUniqueness": true,
+    "allowNulls": false,
+    "description_detail": "Single column primary key on 'id' field ensuring row uniqueness across all conditional schemas"
+  },
+
   "x-fwf": {
     "encoding": "utf-8",
     "trim": { "lstrip": false, "rstrip": true },

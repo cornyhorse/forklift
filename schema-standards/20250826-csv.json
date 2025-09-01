@@ -24,6 +24,15 @@
   "required": ["id", "name"],
   "additionalProperties": false,
 
+  "x-primaryKey": {
+    "description": "Primary key configuration for data uniqueness and referential integrity",
+    "columns": ["id"],
+    "type": "single",
+    "enforceUniqueness": true,
+    "allowNulls": false,
+    "description_detail": "Single column primary key on 'id' field ensuring row uniqueness"
+  },
+
   "x-csv": {
     "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
     "delimiter": "auto",

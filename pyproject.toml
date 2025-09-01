@@ -13,9 +13,10 @@ readme = "README.md"
 license = {file = "LICENSE"}
 requires-python = ">=3.8"
 dependencies = [
-    "polars",
+    "pyarrow>=12.0.0",
     "jsonschema",
     "click",
+    "pandas",  # for some compatibility features
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

@@ -1,4 +1,9 @@
-"""Data processors for validation, transformation, and quality checks."""
+"""Data processors for validation, transformation, and quality checks.
+
+This module provides processor classes for validating, transforming, and
+performing quality checks on data during the import process. Processors can
+be chained together in pipelines for complex data processing workflows.
+"""
 
 from __future__ import annotations
 from typing import Dict, List, Tuple, Any, Optional, Callable
@@ -13,7 +18,15 @@ import json
 
 @dataclass
 class ValidationResult:
-    """Result of data validation."""
+    """Result of data validation operation.
+
+    Attributes:
+        is_valid: Whether the validation passed
+        error_message: Human-readable error message (if validation failed)
+        error_code: Machine-readable error code for categorization
+        row_index: Index of the row that failed validation (if applicable)
+        column_name: Name of the column that failed validation (if applicable)
+    """
     is_valid: bool
     error_message: Optional[str] = None
     error_code: Optional[str] = None
@@ -22,23 +35,70 @@ class ValidationResult:
 
 
 class BaseProcessor(ABC):
-    """Base class for all data processors."""
+    """Base class for all data processors.
+
+    This abstract base class defines the interface that all data processors
+    must implement. Processors take PyArrow RecordBatch objects and return
+    processed data along with validation results.
+    """
 
     @abstractmethod
     def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Process a batch and return valid data and validation results."""
+        """Process a batch and return valid data and validation results.
+
+        Args:
+            batch: PyArrow RecordBatch containing data to process
+
+        Returns:
+            Tuple of (processed_batch, validation_results)
+
+        Note:
+            Implementations should handle both data transformation and validation,
+            returning the processed data and any validation issues encountered.
+        """
         pass
 
 
 class SchemaValidator(BaseProcessor):
-    """Validates data against a PyArrow schema."""
+    """Validates data against a PyArrow schema.
+
+    This processor validates incoming data against a predefined schema,
+    checking data types, null constraints, and performing type coercion
+    where possible.
+
+    Args:
+        schema: PyArrow schema to validate against
+        strict_mode: Whether to enforce strict validation (default: True)
+
+    Attributes:
+        schema: The PyArrow schema used for validation
+        strict_mode: Whether strict validation is enabled
+    """
 
     def __init__(self, schema: pa.Schema, strict_mode: bool = True):
+        """Initialize the schema validator.
+
+        Args:
+            schema: PyArrow schema defining expected data structure and types
+            strict_mode: If True, enforce strict type checking; if False, attempt coercion
+        """
         self.schema = schema
         self.strict_mode = strict_mode
 
     def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Validate batch against schema."""
+        """Validate batch against schema.
+
+        Performs comprehensive schema validation including type checking,
+        null constraint validation, and type coercion where appropriate.
+
+        Args:
+            batch: PyArrow RecordBatch to validate
+
+        Returns:
+            Tuple of (valid_batch, validation_results) where valid_batch contains
+            only rows that passed validation and validation_results contains
+            details about any validation failures
+        """
         validation_results = []
         valid_mask = pc.true()  # Start with all rows valid
 
@@ -58,7 +118,18 @@ class SchemaValidator(BaseProcessor):
         return valid_batch, validation_results
 
     def _validate_column(self, column: pa.Array, field: pa.Field, validation_results: List[ValidationResult]) -> pa.Array:
-        """Validate a single column against field definition."""
+        """Validate a single column against field definition.
+
+        Performs type validation, null checking, and type coercion for a single column.
+
+        Args:
+            column: PyArrow Array containing column data
+            field: PyArrow Field definition for this column
+            validation_results: List to append validation results to
+
+        Returns:
+            PyArrow Array mask indicating which rows are valid for this column
+        """
         # Check for nulls in required fields
         if not field.nullable:
             null_mask = pc.is_null(column)
@@ -88,7 +159,20 @@ class SchemaValidator(BaseProcessor):
 
     def _find_castable_values(self, column: pa.Array, target_type: pa.DataType,
                              validation_results: List[ValidationResult], field_name: str) -> pa.Array:
-        """Find which values can be safely cast to target type."""
+        """Find which values can be safely cast to target type.
+
+        Tests each value in the column to determine which ones can be
+        successfully cast to the target data type.
+
+        Args:
+            column: PyArrow Array to test for castability
+            target_type: Target data type for casting
+            validation_results: List to append validation failures to
+            field_name: Name of the field being validated
+
+        Returns:
+            PyArrow Array mask indicating which values can be cast
+        """
         valid_mask = []
 
         for i in range(len(column)):
@@ -111,13 +195,42 @@ class SchemaValidator(BaseProcessor):
 
 
 class DataQualityProcessor(BaseProcessor):
-    """Performs data quality checks and cleaning."""
+    """Performs data quality checks and cleaning.
+
+    This processor applies configurable data quality rules to validate
+    and clean data, including length validation, pattern matching, and
+    range checking for different data types.
+
+    Args:
+        rules: Dictionary containing quality rules organized by column name
+
+    Attributes:
+        rules: Dictionary of data quality rules to apply
+    """
 
     def __init__(self, rules: Dict[str, Any]):
+        """Initialize the data quality processor.
+
+        Args:
+            rules: Dictionary containing quality rules organized by column name.
+                   Each column can have rules like min_length, max_length, pattern, etc.
+        """
         self.rules = rules
 
     def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Apply data quality rules to batch."""
+        """Apply data quality rules to batch.
+
+        Evaluates all configured quality rules against the batch data,
+        generating validation results for any failures while preserving
+        the original data structure.
+
+        Args:
+            batch: PyArrow RecordBatch to validate
+
+        Returns:
+            Tuple of (original_batch, validation_results) where validation_results
+            contains any quality rule violations found
+        """
         validation_results = []
 
         # Apply column-specific rules
@@ -134,7 +247,17 @@ class DataQualityProcessor(BaseProcessor):
 
     def _apply_column_rules(self, column: pa.Array, rules: Dict[str, Any],
                            column_name: str, validation_results: List[ValidationResult]):
-        """Apply rules to a specific column."""
+        """Apply rules to a specific column.
+
+        Evaluates all configured rules for a single column, adding validation
+        results for any violations found.
+
+        Args:
+            column: PyArrow Array containing column data
+            rules: Dictionary of rules to apply to this column
+            column_name: Name of the column being validated
+            validation_results: List to append validation results to
+        """
         # Length validation
         if "min_length" in rules or "max_length" in rules:
             self._validate_string_length(column, rules, column_name, validation_results)
@@ -149,7 +272,16 @@ class DataQualityProcessor(BaseProcessor):
 
     def _validate_string_length(self, column: pa.Array, rules: Dict[str, Any],
                                column_name: str, validation_results: List[ValidationResult]):
-        """Validate string length constraints."""
+        """Validate string length constraints.
+
+        Checks minimum and maximum length constraints for string columns.
+
+        Args:
+            column: PyArrow Array containing string data
+            rules: Dictionary containing min_length and/or max_length constraints
+            column_name: Name of the column being validated
+            validation_results: List to append validation results to
+        """
         if not pa.types.is_string(column.type):
             return
 
@@ -182,7 +314,16 @@ class DataQualityProcessor(BaseProcessor):
 
     def _validate_pattern(self, column: pa.Array, pattern: str,
                          column_name: str, validation_results: List[ValidationResult]):
-        """Validate string pattern constraints."""
+        """Validate string pattern constraints.
+
+        Checks that string values match a specified regular expression pattern.
+
+        Args:
+            column: PyArrow Array containing string data
+            pattern: Regular expression pattern to match against
+            column_name: Name of the column being validated
+            validation_results: List to append validation results to
+        """
         if not pa.types.is_string(column.type):
             return
 
@@ -202,7 +343,16 @@ class DataQualityProcessor(BaseProcessor):
 
     def _validate_numeric_range(self, column: pa.Array, rules: Dict[str, Any],
                                column_name: str, validation_results: List[ValidationResult]):
-        """Validate numeric range constraints."""
+        """Validate numeric range constraints.
+
+        Checks minimum and maximum value constraints for numeric columns.
+
+        Args:
+            column: PyArrow Array containing numeric data
+            rules: Dictionary containing min_value and/or max_value constraints
+            column_name: Name of the column being validated
+            validation_results: List to append validation results to
+        """
         if not pa.types.is_numeric(column.type):
             return
 
@@ -233,13 +383,42 @@ class DataQualityProcessor(BaseProcessor):
 
 
 class ColumnTransformer(BaseProcessor):
-    """Transforms column data (standardization, cleaning, etc.)."""
+    """Transforms column data (standardization, cleaning, etc.).
+
+    This processor applies configurable transformations to column data,
+    such as trimming whitespace, changing case, or applying custom
+    transformation functions.
+
+    Args:
+        transformations: Dictionary mapping column names to lists of transformation functions
+
+    Attributes:
+        transformations: Dictionary of column transformations to apply
+    """
 
     def __init__(self, transformations: Dict[str, List[Callable]]):
+        """Initialize the column transformer.
+
+        Args:
+            transformations: Dictionary where keys are column names and values are
+                           lists of transformation functions to apply in order
+        """
         self.transformations = transformations
 
     def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Apply transformations to batch columns."""
+        """Apply transformations to batch columns.
+
+        Applies all configured transformations to their respective columns,
+        returning the transformed batch along with any errors encountered.
+
+        Args:
+            batch: PyArrow RecordBatch to transform
+
+        Returns:
+            Tuple of (transformed_batch, validation_results) where transformed_batch
+            contains the data with transformations applied and validation_results
+            contains any transformation errors
+        """
         validation_results = []
 
         # Apply transformations to each configured column
@@ -262,7 +441,17 @@ class ColumnTransformer(BaseProcessor):
         return batch, validation_results
 
     def _apply_transforms(self, column: pa.Array, transforms: List[Callable]) -> pa.Array:
-        """Apply a list of transformations to a column."""
+        """Apply a list of transformations to a column.
+
+        Applies transformation functions in sequence to the column data.
+
+        Args:
+            column: PyArrow Array to transform
+            transforms: List of transformation functions to apply
+
+        Returns:
+            PyArrow Array with transformations applied
+        """
         result = column
         for transform in transforms:
             result = transform(result)
@@ -270,13 +459,40 @@ class ColumnTransformer(BaseProcessor):
 
 
 class ProcessorPipeline:
-    """Pipeline for chaining multiple processors."""
+    """Pipeline for chaining multiple processors.
+
+    This class allows multiple processors to be chained together in a
+    pipeline, with data flowing through each processor in sequence.
+
+    Args:
+        processors: List of BaseProcessor instances to chain together
+
+    Attributes:
+        processors: List of processors in the pipeline
+    """
 
     def __init__(self, processors: List[BaseProcessor]):
+        """Initialize the processor pipeline.
+
+        Args:
+            processors: List of BaseProcessor instances that will process data in order
+        """
         self.processors = processors
 
     def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Process batch through all processors in sequence."""
+        """Process batch through all processors in sequence.
+
+        Passes the batch through each processor in the pipeline, accumulating
+        validation results and applying transformations sequentially.
+
+        Args:
+            batch: PyArrow RecordBatch to process through the pipeline
+
+        Returns:
+            Tuple of (final_batch, all_validation_results) where final_batch
+            is the result of all transformations and all_validation_results
+            contains validation results from all processors
+        """
         current_batch = batch
         all_validation_results = []
 
@@ -289,21 +505,42 @@ class ProcessorPipeline:
 
 # Common transformation functions
 def trim_whitespace(column: pa.Array) -> pa.Array:
-    """Remove leading and trailing whitespace from string column."""
+    """Remove leading and trailing whitespace from string column.
+
+    Args:
+        column: PyArrow Array containing string data
+
+    Returns:
+        PyArrow Array with whitespace trimmed from string values
+    """
     if pa.types.is_string(column.type):
         return pc.utf8_trim_whitespace(column)
     return column
 
 
 def uppercase(column: pa.Array) -> pa.Array:
-    """Convert string column to uppercase."""
+    """Convert string column to uppercase.
+
+    Args:
+        column: PyArrow Array containing string data
+
+    Returns:
+        PyArrow Array with string values converted to uppercase
+    """
     if pa.types.is_string(column.type):
         return pc.utf8_upper(column)
     return column
 
 
 def lowercase(column: pa.Array) -> pa.Array:
-    """Convert string column to lowercase."""
+    """Convert string column to lowercase.
+
+    Args:
+        column: PyArrow Array containing string data
+
+    Returns:
+        PyArrow Array with string values converted to lowercase
+    """
     if pa.types.is_string(column.type):
         return pc.utf8_lower(column)
     return column

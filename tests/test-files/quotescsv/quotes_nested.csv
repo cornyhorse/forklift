@@ -1,0 +1,7 @@
+name,message,status,details
+"John","He said ""Hello ""World"" to everyone""",active,"Complex ""nested"" quotes"
+"Jane","She replied ""I said """"Hi"""" yesterday""",inactive,"Multiple ""quote"" levels"
+"Bob","The config was ""key"": ""value""",active,"JSON-like ""structure"" embedded"
+"Alice","Path is ""C:\\Program Files\\""App""""",active,"Windows ""path"" with quotes"
+"Charlie","Query: ""SELECT * FROM ""table"" WHERE x=1""",active,"SQL ""query"" with quotes"
+

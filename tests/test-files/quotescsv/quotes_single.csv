@@ -1,0 +1,7 @@
+name,description,price,notes
+'John Doe','Software Engineer, Senior',75000,'Enjoys ''coding'' and coffee'
+'Jane Smith','Data Scientist, ML Engineer',85000,'Specializes in ''machine learning'''
+'Bob Johnson','Product Manager, Lead',90000,'Manages the ''core platform'' team'
+'Alice Brown','UX Designer, Principal',80000,'Focuses on ''user experience'' design'
+'Charlie Wilson','DevOps Engineer, Senior',82000,'Handles ''infrastructure'' and deployment'
+

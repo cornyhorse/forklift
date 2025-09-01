@@ -1,0 +1,12 @@
+name,age,city,salary
+John Doe,30,New York,75000
+Jane Smith,25,San Francisco,85000
+Bob Johnson,35,Chicago,65000
+Alice Brown,28,Austin,70000
+--- SUMMARY SECTION ---
+Total Count,4
+Average Salary,73750
+Max Salary,85000
+Min Salary,65000
+--- END OF REPORT ---
+

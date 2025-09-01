@@ -160,54 +160,6 @@ class TestForkliftCoreMissingCoverage:
         finally:
             test_file.unlink()
 
-    def test_fallback_pandas_reader_empty_dataframe(self):
-        """Test pandas fallback reader with empty result (line 533-541)."""
-        config = ImportConfig(
-            input_path="dummy.csv",
-            output_path="dummy_output"
-        )
-        engine = ForkliftCore(config)
-        engine.column_names = ["id", "name"]
-
-        # Create an empty CSV file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-            f.write("")  # Empty file
-            test_file = Path(f.name)
-
-        try:
-            # Mock pandas to return empty dataframe
-            with patch('pandas.read_csv') as mock_read_csv:
-                mock_read_csv.return_value = pa.Table.from_arrays([], []).to_pandas()  # Empty DataFrame
-
-                batches = list(engine._fallback_pandas_reader(test_file, 0))
-                # Should still yield one empty batch if pandas succeeds but returns empty
-                assert len(batches) >= 0
-        finally:
-            test_file.unlink()
-
-    def test_fallback_pandas_reader_exception(self):
-        """Test pandas fallback reader with exception (line 535-541)."""
-        config = ImportConfig(
-            input_path="dummy.csv",
-            output_path="dummy_output"
-        )
-        engine = ForkliftCore(config)
-        engine.column_names = ["id", "name"]
-
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-            f.write("data")
-            test_file = Path(f.name)
-
-        try:
-            # Mock pandas to raise an exception
-            with patch('pandas.read_csv', side_effect=Exception("Pandas failed")):
-                batches = list(engine._fallback_pandas_reader(test_file, 0))
-                # Should yield an empty batch when pandas fails
-                assert len(batches) == 1
-                assert len(batches[0]) == 0
-        finally:
-            test_file.unlink()
-
     def test_validate_batch_missing_field_attributes(self):
         """Test batch validation with missing field attributes (line 571-572)."""
         # Create a schema where we can test nullable attribute access

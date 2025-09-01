@@ -1,0 +1,6 @@
+﻿id,name,description
+1,Test,UTF-8 with BOM
+2,Sample,Data file
+3,Example,Content here
+4,Unicode,Special chars: café
+5,Final,Last row data

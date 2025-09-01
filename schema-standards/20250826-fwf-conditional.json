@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-fwf-conditional.json",
+  "title": "Forklift FWF Row - Conditional Schema Support",
+  "description": "Enhanced schema for Fixed Width File processing with conditional schema support based on flag columns. Allows different field layouts depending on flag values.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "age": { "type": "integer", "minimum": 0, "maximum": 150 },
+    "salary": { "type": "number", "minimum": 0 },
+    "is_active": { "type": "boolean" },
+    "birth_date": { "type": "string", "format": "date" },
+    "foo": { "type": "string" },
+    "bar": { "type": "integer" },
+    "baz": { "type": "string" }
+  },
+  "required": ["id"],
+  "additionalProperties": false,
+
+  "x-fwf": {
+    "encoding": "utf-8",
+    "trim": { "lstrip": false, "rstrip": true },
+    "conditionalSchemas": {
+      "flagColumn": {
+        "name": "record_type",
+        "start": 1,
+        "length": 1,
+        "parquetType": "string"
+      },
+      "schemas": [
+        {
+          "flagValue": "F",
+          "description": "Format F: Standard employee record",
+          "fields": [
+            { "name": "record_type", "start": 1, "length": 1, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "id", "start": 4, "length": 3, "align": "right", "pad": "0", "parquetType": "int64" },
+            { "name": "foo", "start": 7, "length": 4, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "baz", "start": 11, "length": 5, "align": "left", "pad": " ", "parquetType": "string" }
+          ]
+        },
+        {
+          "flagValue": "G",
+          "description": "Format G: Compact employee record",
+          "fields": [
+            { "name": "record_type", "start": 1, "length": 1, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "id", "start": 4, "length": 2, "align": "right", "pad": "0", "parquetType": "int64" },
+            { "name": "foo", "start": 6, "length": 2, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "bar", "start": 8, "length": 3, "align": "right", "pad": "0", "parquetType": "int32" }
+          ]
+        }
+      ]
+    },
+    "nulls": {
+      "global": ["", "NULL", "N/A"],
+      "perColumn": {
+        "salary": ["", "          "],
+        "foo": ["", "    "],
+        "baz": ["", "     "]
+      }
+    },
+    "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
+  },
+
+  "x-pii": {
+    "description": "Personally Identifiable Information (PII) field marking for data privacy and masking applications with conditional schema support",
+    "fields": {
+      "id": {
+        "isPII": true,
+        "category": "direct_identifier",
+        "description": "Employee ID is direct PII requiring masking",
+        "conditionalPositions": {
+          "F": { "start": 4, "length": 3 },
+          "G": { "start": 4, "length": 2 }
+        }
+      },
+      "foo": {
+        "isPII": true,
+        "category": "quasi_identifier",
+        "description": "Field foo may contain identifying information",
+        "conditionalPositions": {
+          "F": { "start": 7, "length": 4 },
+          "G": { "start": 6, "length": 2 }
+        }
+      },
+      "bar": {
+        "isPII": false,
+        "category": "identifier",
+        "description": "Numeric identifier, not personally identifying",
+        "conditionalPositions": {
+          "G": { "start": 8, "length": 3 }
+        }
+      },
+      "baz": {
+        "isPII": true,
+        "category": "sensitive",
+        "description": "Field baz contains sensitive information",
+        "conditionalPositions": {
+          "F": { "start": 11, "length": 5 }
+        }
+      }
+    },
+    "maskingRules": {
+      "direct_identifier": {
+        "method": "hash",
+        "preserveFormat": false,
+        "description": "Hash direct identifiers to protect individual privacy"
+      },
+      "quasi_identifier": {
+        "method": "generalize",
+        "preserveFormat": true,
+        "description": "Generalize quasi-identifiers to reduce re-identification risk"
+      },
+      "sensitive": {
+        "method": "suppress",
+        "preserveFormat": false,
+        "description": "Suppress sensitive fields entirely for maximum protection"
+      }
+    }
+  }
+}

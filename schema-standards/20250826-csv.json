@@ -58,5 +58,48 @@
       "uuid": "string",
       "decimal_amount": "decimal128(10,2)"
     }
+  },
+
+  "x-pii": {
+    "description": "Personally Identifiable Information (PII) field marking for data privacy and masking applications",
+    "fields": {
+      "name": {
+        "isPII": true,
+        "category": "direct_identifier",
+        "description": "Full name is direct PII requiring masking"
+      },
+      "birth_date": {
+        "isPII": true,
+        "category": "quasi_identifier",
+        "description": "Birth date can be used to identify individuals when combined with other data"
+      },
+      "salary": {
+        "isPII": true,
+        "category": "sensitive",
+        "description": "Financial information requiring protection"
+      },
+      "uuid": {
+        "isPII": false,
+        "category": "identifier",
+        "description": "System-generated UUID, not personally identifying but may link records"
+      }
+    },
+    "maskingRules": {
+      "direct_identifier": {
+        "method": "hash",
+        "preserveFormat": false,
+        "description": "Hash direct identifiers to protect individual privacy"
+      },
+      "quasi_identifier": {
+        "method": "generalize",
+        "preserveFormat": true,
+        "description": "Generalize quasi-identifiers (e.g., birth year only)"
+      },
+      "sensitive": {
+        "method": "range",
+        "preserveFormat": true,
+        "description": "Replace with ranges or categories to maintain utility while protecting privacy"
+      }
+    }
   }
 }

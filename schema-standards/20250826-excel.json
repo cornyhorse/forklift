@@ -91,5 +91,52 @@
       "struct": "Nested object/record structure",
       "dictionary<values=type, indices=type>": "Dictionary encoding for categorical data"
     }
+  },
+
+  "x-pii": {
+    "description": "Personally Identifiable Information (PII) field marking for data privacy and masking applications",
+    "fields": {
+      "name": {
+        "isPII": true,
+        "category": "direct_identifier",
+        "description": "Full name is direct PII requiring masking",
+        "excelPosition": "B"
+      },
+      "birth_date": {
+        "isPII": true,
+        "category": "quasi_identifier",
+        "description": "Birth date can be used to identify individuals when combined with other data",
+        "excelPosition": "F"
+      },
+      "salary": {
+        "isPII": true,
+        "category": "sensitive",
+        "description": "Financial information requiring protection",
+        "excelPosition": "D"
+      },
+      "uuid": {
+        "isPII": false,
+        "category": "identifier",
+        "description": "System-generated UUID, not personally identifying but may link records",
+        "excelPosition": "N"
+      }
+    },
+    "maskingRules": {
+      "direct_identifier": {
+        "method": "hash",
+        "preserveFormat": false,
+        "description": "Hash direct identifiers to protect individual privacy"
+      },
+      "quasi_identifier": {
+        "method": "generalize",
+        "preserveFormat": true,
+        "description": "Generalize quasi-identifiers (e.g., birth year only)"
+      },
+      "sensitive": {
+        "method": "range",
+        "preserveFormat": true,
+        "description": "Replace with ranges or categories to maintain utility while protecting privacy"
+      }
+    }
   }
 }

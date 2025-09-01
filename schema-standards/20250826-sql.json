@@ -109,5 +109,102 @@
       "additionalProperties": false
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+
+  "x-pii": {
+    "description": "Personally Identifiable Information (PII) field marking for data privacy and masking applications across SQL tables and schemas",
+    "globalRules": {
+      "description": "Global PII rules that apply to column names matching patterns across all tables",
+      "patterns": {
+        "name": {
+          "isPII": true,
+          "category": "direct_identifier",
+          "description": "Any column named 'name' is considered direct PII",
+          "sqlTypes": ["VARCHAR", "TEXT", "CHAR"]
+        },
+        "email": {
+          "isPII": true,
+          "category": "direct_identifier",
+          "description": "Email addresses are direct identifiers",
+          "sqlTypes": ["VARCHAR", "TEXT"]
+        },
+        "ssn|social_security": {
+          "isPII": true,
+          "category": "direct_identifier",
+          "description": "Social Security Numbers are highly sensitive direct identifiers",
+          "sqlTypes": ["VARCHAR", "CHAR"]
+        },
+        "birth_date|dob": {
+          "isPII": true,
+          "category": "quasi_identifier",
+          "description": "Birth dates can identify individuals when combined with other data",
+          "sqlTypes": ["DATE", "TIMESTAMP", "DATETIME"]
+        },
+        "salary|wage|income": {
+          "isPII": true,
+          "category": "sensitive",
+          "description": "Financial information requiring protection",
+          "sqlTypes": ["DECIMAL", "NUMERIC", "FLOAT", "DOUBLE"]
+        },
+        "address|street|zip|postal": {
+          "isPII": true,
+          "category": "quasi_identifier",
+          "description": "Address information can be identifying",
+          "sqlTypes": ["VARCHAR", "TEXT"]
+        }
+      }
+    },
+    "tableSpecific": {
+      "description": "Table-specific PII configuration that overrides global rules",
+      "tables": {
+        "employees": {
+          "schema": "hr",
+          "fields": {
+            "employee_id": {
+              "isPII": true,
+              "category": "direct_identifier",
+              "description": "Employee ID is a direct identifier"
+            },
+            "manager_id": {
+              "isPII": false,
+              "category": "identifier",
+              "description": "Manager ID links to other employees but isn't directly identifying"
+            }
+          }
+        },
+        "customers": {
+          "schema": "sales",
+          "fields": {
+            "customer_id": {
+              "isPII": true,
+              "category": "direct_identifier",
+              "description": "Customer ID is a direct identifier"
+            },
+            "phone": {
+              "isPII": true,
+              "category": "direct_identifier",
+              "description": "Phone numbers are direct identifiers"
+            }
+          }
+        }
+      }
+    },
+    "maskingRules": {
+      "direct_identifier": {
+        "method": "hash",
+        "preserveFormat": false,
+        "description": "Hash direct identifiers using SHA-256 to protect individual privacy"
+      },
+      "quasi_identifier": {
+        "method": "generalize",
+        "preserveFormat": true,
+        "description": "Generalize quasi-identifiers (e.g., birth year only, zip code prefix)"
+      },
+      "sensitive": {
+        "method": "range",
+        "preserveFormat": true,
+        "description": "Replace with ranges or categories to maintain analytical utility while protecting privacy"
+      }
+    }
+  }
 }

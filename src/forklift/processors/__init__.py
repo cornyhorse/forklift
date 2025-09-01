@@ -100,7 +100,7 @@ class SchemaValidator(BaseProcessor):
             details about any validation failures
         """
         validation_results = []
-        valid_mask = pc.true()  # Start with all rows valid
+        valid_mask = pa.array([True] * batch.num_rows)  # Start with all rows valid
 
         # Check each column
         for i, field in enumerate(self.schema):
@@ -112,8 +112,8 @@ class SchemaValidator(BaseProcessor):
             valid_mask = pc.and_(valid_mask, field_valid_mask)
 
         # Split batch into valid and invalid
-        valid_indices = pc.filter(pc.list_indices(valid_mask), valid_mask)
-        valid_batch = pc.take(batch, valid_indices)
+        valid_indices = pc.filter(pa.array(range(batch.num_rows)), valid_mask)
+        valid_batch = batch.take(valid_indices)
 
         return valid_batch, validation_results
 
@@ -134,19 +134,20 @@ class SchemaValidator(BaseProcessor):
         if not field.nullable:
             null_mask = pc.is_null(column)
             if pc.any(null_mask).as_py():
-                null_indices = pc.filter(pc.list_indices(null_mask), null_mask)
-                for idx in null_indices.to_pylist():
-                    validation_results.append(ValidationResult(
-                        is_valid=False,
-                        error_message=f"Null value in required field '{field.name}'",
-                        error_code="NULL_IN_REQUIRED_FIELD",
-                        row_index=idx,
-                        column_name=field.name
-                    ))
+                # Find indices where values are null
+                for i in range(len(column)):
+                    if not column[i].is_valid:
+                        validation_results.append(ValidationResult(
+                            is_valid=False,
+                            error_message=f"Null value in required field '{field.name}'",
+                            error_code="NULL_IN_REQUIRED_FIELD",
+                            row_index=i,
+                            column_name=field.name
+                        ))
 
         # Type validation and casting
-        valid_mask = pc.true()
-        if not pa.types.is_compatible(column.type, field.type):
+        valid_mask = pa.array([True] * len(column))
+        if column.type != field.type:
             try:
                 # Try to cast the column
                 casted_column = pc.cast(column, field.type, safe=False)
@@ -353,7 +354,8 @@ class DataQualityProcessor(BaseProcessor):
             column_name: Name of the column being validated
             validation_results: List to append validation results to
         """
-        if not pa.types.is_numeric(column.type):
+        # Check if column type is numeric (integer or floating point)
+        if not (pa.types.is_integer(column.type) or pa.types.is_floating(column.type)):
             return
 
         min_val = rules.get("min_value")

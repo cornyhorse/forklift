@@ -11,24 +11,27 @@ The module is organized with separate files for each responsibility:
 """
 
 # Import configuration
-from .config import CsvInputConfig
+from .config import CsvInputConfig, FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
 
 # Import core input handlers
 from .csv import CsvInputHandler
+from .fwf import FwfInputHandler
 
 # Import future/placeholder handlers
-from .future_handlers import FwfInputHandler, ExcelInputHandler, JsonInputHandler
+from .future_handlers import ExcelInputHandler
 
 # Define public API
 __all__ = [
-    # Configuration
-    "CsvInputConfig",
-
     # Core handlers
     "CsvInputHandler",
+    "FwfInputHandler",
 
     # Future handlers
-    "FwfInputHandler",
     "ExcelInputHandler",
-    "JsonInputHandler",
+
+    # Configuration
+    "CsvInputConfig",
+    "FwfInputConfig",
+    "FwfFieldSpec",
+    "FwfConditionalSchema",
 ]

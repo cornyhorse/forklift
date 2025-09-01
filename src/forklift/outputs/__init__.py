@@ -10,10 +10,10 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from datetime import datetime
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pandas as pd
 
 
 @dataclass
@@ -138,7 +138,7 @@ class ManifestGenerator:
                 }
                 for f in files
             ],
-            "created_at": pd.Timestamp.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
             "total_files": len(files),
             "total_size": sum(Path(f).stat().st_size if Path(f).exists() else 0 for f in files),
         }
@@ -199,73 +199,34 @@ class MetadataGenerator:
         # Add column-level statistics if data files exist
         column_stats = {}
         if processing_stats.get("output_files"):
-            column_stats = MetadataGenerator._generate_column_stats(
-                processing_stats["output_files"][0]  # Main data file
-            )
+            for file_path in processing_stats["output_files"]:
+                if Path(file_path).exists() and file_path.endswith('.parquet'):
+                    try:
+                        # Read parquet file to get column statistics
+                        table = pq.read_table(file_path)
+                        column_stats[str(Path(file_path).name)] = {
+                            "num_columns": table.num_columns,
+                            "num_rows": table.num_rows,
+                            "column_names": table.column_names,
+                            "column_types": [str(field.type) for field in table.schema],
+                        }
+                    except Exception:
+                        # If we can't read the file, skip column stats
+                        pass
 
         metadata = {
             "processing_summary": processing_stats.get("processing_summary", {}),
             "input_config": processing_stats.get("input_config", {}),
             "output_files": processing_stats.get("output_files", []),
             "column_statistics": column_stats,
-            "created_at": pd.Timestamp.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
+            "metadata_version": "1.0",
         }
 
         with open(metadata_path, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, indent=2)
 
         return str(metadata_path)
-
-    @staticmethod
-    def _generate_column_stats(data_file: str) -> Dict[str, Any]:
-        """Generate column-level statistics from parquet file.
-
-        Analyzes the data in the Parquet file to generate comprehensive
-        column-level statistics including data types, null counts, and
-        type-specific metrics like min/max values and unique counts.
-
-        Args:
-            data_file: Path to the Parquet file to analyze
-
-        Returns:
-            Dictionary containing column statistics or error information
-
-        Note:
-            Statistics include data types, null counts, min/max values for
-            numeric columns, and unique counts for string columns.
-        """
-        try:
-            # Read a sample of the data for statistics
-            table = pq.read_table(data_file)
-            df = table.to_pandas()
-
-            stats = {}
-            for column in df.columns:
-                col_stats = {
-                    "dtype": str(df[column].dtype),
-                    "null_count": int(df[column].isnull().sum()),
-                    "non_null_count": int(df[column].count()),
-                }
-
-                # Add type-specific statistics
-                if df[column].dtype in ['int64', 'float64']:
-                    col_stats.update({
-                        "min": float(df[column].min()) if pd.notna(df[column].min()) else None,
-                        "max": float(df[column].max()) if pd.notna(df[column].max()) else None,
-                        "mean": float(df[column].mean()) if pd.notna(df[column].mean()) else None,
-                    })
-                elif df[column].dtype == 'object':
-                    col_stats.update({
-                        "unique_count": int(df[column].nunique()),
-                        "most_common": df[column].value_counts().head().to_dict() if len(df[column]) > 0 else {},
-                    })
-
-                stats[column] = col_stats
-
-            return stats
-
-        except Exception as e:
-            return {"error": f"Could not generate column statistics: {str(e)}"}
 
 
 class IcebergOutputHandler:

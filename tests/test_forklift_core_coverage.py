@@ -12,6 +12,7 @@ from src.forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
+    ExcessColumnMode,
     import_csv,
     import_fwf,
     import_excel
@@ -89,6 +90,75 @@ class TestForkliftCoreMissingCoverage:
         # Test row with mix but more numbers than text
         result = engine._looks_like_header(["1", "2", "name"])
         assert result is False
+
+    def test_column_mismatch_reader_empty_result(self):
+        """Test column mismatch reader with empty result."""
+        config = ImportConfig(
+            input_path="dummy.csv",
+            output_path="dummy_output"
+        )
+        engine = ForkliftCore(config)
+        engine.column_names = ["id", "name"]
+
+        # Create an empty CSV file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
+            f.write("")  # Empty file
+            test_file = Path(f.name)
+
+        try:
+            batches = list(engine._handle_column_mismatch_reader(test_file, 0))
+            # Should handle empty files gracefully
+            assert len(batches) == 0
+        finally:
+            test_file.unlink()
+
+    def test_column_mismatch_reader_excess_columns_truncate(self):
+        """Test column mismatch reader with excess columns in truncate mode."""
+        config = ImportConfig(
+            input_path="dummy.csv",
+            output_path="dummy_output",
+            excess_column_mode=ExcessColumnMode.TRUNCATE
+        )
+        engine = ForkliftCore(config)
+        engine.column_names = ["id", "name"]
+
+        # Create CSV with excess columns
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
+            f.write("1,John,Extra,Data\n2,Jane,More,Extra\n")
+            test_file = Path(f.name)
+
+        try:
+            batches = list(engine._handle_column_mismatch_reader(test_file, 0))
+            assert len(batches) >= 1
+            # Should truncate excess columns
+            batch = batches[0]
+            assert batch.num_columns == 2
+            assert len(batch) == 2
+        finally:
+            test_file.unlink()
+
+    def test_column_mismatch_reader_excess_columns_reject(self):
+        """Test column mismatch reader with excess columns in reject mode."""
+        config = ImportConfig(
+            input_path="dummy.csv",
+            output_path="dummy_output",
+            excess_column_mode=ExcessColumnMode.REJECT
+        )
+        engine = ForkliftCore(config)
+        engine.column_names = ["id", "name"]
+
+        # Create CSV with excess columns
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
+            f.write("1,John,Extra\n2,Jane\n")  # First row has excess, second is normal
+            test_file = Path(f.name)
+
+        try:
+            batches = list(engine._handle_column_mismatch_reader(test_file, 0))
+            # Should only process the second row
+            total_rows = sum(len(batch) for batch in batches)
+            assert total_rows == 1  # Only the row without excess columns
+        finally:
+            test_file.unlink()
 
     def test_fallback_pandas_reader_empty_dataframe(self):
         """Test pandas fallback reader with empty result (line 533-541)."""

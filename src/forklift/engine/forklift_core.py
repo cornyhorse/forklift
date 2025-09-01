@@ -18,7 +18,6 @@ import pyarrow as pa
 import pyarrow.csv as pv_csv
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
-import pandas as pd
 
 
 class HeaderMode(Enum):
@@ -32,6 +31,17 @@ class HeaderMode(Enum):
     PRESENT = "present"  # File has header row
     ABSENT = "absent"   # No header, use schema or default names
     AUTO = "auto"       # Auto-detect header location
+
+
+class ExcessColumnMode(Enum):
+    """Modes for handling excess columns beyond expected schema.
+
+    Attributes:
+        TRUNCATE: Remove excess columns and keep the row (default)
+        REJECT: Reject the entire row if it has excess columns
+    """
+    TRUNCATE = "truncate"  # Remove excess data, keep row
+    REJECT = "reject"      # Reject entire row with excess data
 
 
 @dataclass
@@ -57,6 +67,7 @@ class ImportConfig:
         create_manifest: Whether to create manifest file
         create_metadata: Whether to create metadata file
         compression: Compression type for output files (default: snappy)
+        excess_column_mode: How to handle rows with excess columns (default: TRUNCATE)
     """
     input_path: Union[str, Path]
     output_path: Union[str, Path]
@@ -73,6 +84,9 @@ class ImportConfig:
     delimiter: str = ","
     quote_char: str = '"'
     escape_char: Optional[str] = None
+
+    # Row handling options
+    excess_column_mode: ExcessColumnMode = ExcessColumnMode.TRUNCATE
 
     # Validation options
     validate_schema: bool = True
@@ -480,8 +494,8 @@ class ForkliftCore:
                         # Handle empty CSV files gracefully
                         return iter([])
                     elif "Expected" in str(e) and "columns, got" in str(e):
-                        # Handle column count mismatches by falling back to pandas
-                        yield from self._fallback_pandas_reader(actual_file_path, skip_rows)
+                        # Handle column count mismatches with new row handling
+                        yield from self._handle_column_mismatch_reader(actual_file_path, skip_rows)
                     else:
                         raise
         finally:
@@ -492,11 +506,11 @@ class ForkliftCore:
                 except:
                     pass
 
-    def _fallback_pandas_reader(self, file_path: Path, skip_rows: int) -> Iterator[pa.RecordBatch]:
-        """Fallback CSV reader using pandas for malformed files.
+    def _handle_column_mismatch_reader(self, file_path: Path, skip_rows: int) -> Iterator[pa.RecordBatch]:
+        """Handle column mismatch by processing rows with different column counts.
 
-        When PyArrow's strict parser fails, use pandas which is more tolerant
-        of malformed CSV files, then convert to PyArrow batches.
+        When some rows have more or fewer columns than expected, this method
+        processes them according to the excess_column_mode configuration.
 
         Args:
             file_path: Path to the CSV file
@@ -505,40 +519,83 @@ class ForkliftCore:
         Yields:
             PyArrow RecordBatch objects
         """
-        try:
-            # Use pandas to read the malformed CSV
-            df = pd.read_csv(
-                file_path,
-                delimiter=self.config.delimiter,
-                quotechar=self.config.quote_char,
-                encoding=self.config.encoding,
-                skiprows=skip_rows,
-                names=self.column_names,
-                header=None,
-                on_bad_lines='skip',  # Skip malformed lines
-                engine='python',  # More tolerant than C engine
-                keep_default_na=False,  # Don't convert to NaN automatically
+        if not self.column_names:
+            return iter([])
+
+        expected_columns = len(self.column_names)
+        rows_buffer = []
+        rejected_rows = []
+        batch_size = self.config.batch_size
+
+        with open(file_path, 'r', encoding=self.config.encoding) as f:
+            reader = csv.reader(f, delimiter=self.config.delimiter, quotechar=self.config.quote_char)
+
+            # Skip the specified number of rows
+            for _ in range(skip_rows):
+                try:
+                    next(reader)
+                except StopIteration:
+                    break
+
+            for row in reader:
+                # Stop if footer detected
+                if self._should_stop_for_footer(row):
+                    break
+
+                # Handle excess columns according to configuration
+                if len(row) > expected_columns:
+                    if self.config.excess_column_mode == ExcessColumnMode.REJECT:
+                        # Reject the entire row if it has excess columns
+                        rejected_rows.append(row)
+                        continue
+                    else:  # TRUNCATE mode (default)
+                        # Remove excess columns and keep the row
+                        row = row[:expected_columns]
+                elif len(row) < expected_columns:
+                    # Pad with empty strings for missing columns
+                    row = row + [''] * (expected_columns - len(row))
+
+                rows_buffer.append(row)
+
+                # Yield batch when buffer is full
+                if len(rows_buffer) >= batch_size:
+                    yield self._convert_rows_to_batch(rows_buffer, expected_columns)
+                    rows_buffer = []
+
+            # Yield any remaining rows in buffer
+            if rows_buffer:
+                yield self._convert_rows_to_batch(rows_buffer, expected_columns)
+
+            # Note: rejected_rows could be logged or handled separately in future versions
+
+    def _convert_rows_to_batch(self, rows: List[List[str]], num_columns: int) -> pa.RecordBatch:
+        """Convert a list of rows to a PyArrow RecordBatch.
+
+        Args:
+            rows: List of rows, each row is a list of string values
+            num_columns: Expected number of columns in each row
+
+        Returns:
+            PyArrow RecordBatch object containing the data
+        """
+        if not rows:
+            # Return empty batch with proper schema
+            schema = pa.schema([pa.field(name, pa.string()) for name in self.column_names])
+            return pa.RecordBatch.from_arrays(
+                [pa.array([], type=pa.string()) for _ in self.column_names],
+                schema=schema
             )
 
-            # Convert to PyArrow table and yield in batches
-            if not df.empty:
-                table = pa.Table.from_pandas(df)
+        # Convert rows to column arrays
+        columns = []
+        for col_idx in range(num_columns):
+            column_data = [row[col_idx] if col_idx < len(row) else '' for row in rows]
+            columns.append(pa.array(column_data, type=pa.string()))
 
-                # Yield in batches
-                batch_size = self.config.batch_size
-                for i in range(0, len(table), batch_size):
-                    batch = table.slice(i, min(batch_size, len(table) - i)).to_batches()[0]
-                    yield batch
+        # Create schema with proper column names
+        schema = pa.schema([pa.field(name, pa.string()) for name in self.column_names])
 
-        except Exception as e:
-            # If even pandas fails, create an empty batch with the expected schema
-            if self.column_names:
-                schema = pa.schema([pa.field(name, pa.string()) for name in self.column_names])
-                empty_batch = pa.RecordBatch.from_arrays(
-                    [pa.array([], type=pa.string()) for _ in self.column_names],
-                    schema=schema
-                )
-                yield empty_batch
+        return pa.RecordBatch.from_arrays(columns, schema=schema)
 
     def _create_filtered_file(self, file_path: Path, skip_rows: int) -> Path:
         """Create a temporary file with footer content removed.
@@ -664,6 +721,8 @@ class ForkliftCore:
         Returns:
             Path to the created manifest file
         """
+        from datetime import datetime
+
         manifest_path = output_dir / "manifest.json"
 
         manifest = {
@@ -675,7 +734,7 @@ class ForkliftCore:
                 }
                 for f in files
             ],
-            "created_at": pd.Timestamp.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
         }
 
         with open(manifest_path, 'w', encoding='utf-8') as f:
@@ -696,6 +755,8 @@ class ForkliftCore:
         Returns:
             Path to the created metadata file
         """
+        from datetime import datetime
+
         metadata_path = output_dir / "metadata.json"
 
         # Handle header_mode value properly (could be enum or string)
@@ -717,7 +778,7 @@ class ForkliftCore:
                 "batch_size": self.config.batch_size,
             },
             "output_files": results.output_files,
-            "created_at": pd.Timestamp.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
         }
 
         with open(metadata_path, 'w', encoding='utf-8') as f:

@@ -17,6 +17,7 @@ dependencies = [
     "jsonschema",
     "click",
     "pandas",  # for some compatibility features
+    "boto3>=1.26.0",  # for S3 streaming support
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

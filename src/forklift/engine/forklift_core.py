@@ -2,7 +2,7 @@
 
 This module provides the core functionality for importing CSV files with PyArrow
 streaming capabilities, including header detection, footer detection, validation,
-and output generation.
+and output generation. Now supports S3 streaming for both input and output.
 """
 
 from __future__ import annotations
@@ -18,6 +18,9 @@ import pyarrow as pa
 import pyarrow.csv as pv_csv
 import pyarrow.parquet as pq
 import pyarrow.compute as pc
+
+# Import S3 streaming capabilities
+from ..io import UnifiedIOHandler, S3StreamingClient, is_s3_path, S3Path, create_parquet_writer
 
 
 class HeaderMode(Enum):
@@ -150,6 +153,9 @@ class ForkliftCore:
         self.header_row_index: Optional[int] = None
         self.column_names: Optional[List[str]] = None
 
+        # Initialize unified I/O handler for S3 and local file support
+        self.io_handler = UnifiedIOHandler()
+
         # Convert string header_mode to enum if needed
         if isinstance(self.config.header_mode, str):
             self.config.header_mode = HeaderMode(self.config.header_mode)
@@ -166,11 +172,11 @@ class ForkliftCore:
         if not self.config.schema_file:
             return None
 
-        schema_path = Path(self.config.schema_file)
-        if not schema_path.exists():
-            raise FileNotFoundError(f"Schema file not found: {schema_path}")
+        # Use unified I/O handler to support S3 schema files
+        if not self.io_handler.exists(self.config.schema_file):
+            raise FileNotFoundError(f"Schema file not found: {self.config.schema_file}")
 
-        with open(schema_path, 'r', encoding='utf-8') as f:
+        with self.io_handler.open_for_read(self.config.schema_file, encoding='utf-8') as f:
             schema_dict = json.load(f)
 
         # Convert JSON schema to PyArrow schema
@@ -222,14 +228,14 @@ class ForkliftCore:
 
         return type_mapping.get(json_type, pa.string())
 
-    def _detect_header_row(self, file_path: Path) -> Tuple[int, List[str]]:
+    def _detect_header_row(self, input_path: Union[str, Path]) -> Tuple[int, List[str]]:
         """Detect header row location and extract column names.
 
         Uses the configured header mode to determine how to find and extract
-        column names from the input file.
+        column names from the input file (local or S3).
 
         Args:
-            file_path: Path to the input CSV file
+            input_path: Path to the input CSV file (local or S3 URI)
 
         Returns:
             Tuple of (header_row_index, column_names)
@@ -247,58 +253,60 @@ class ForkliftCore:
 
         elif self.config.header_mode == HeaderMode.PRESENT:
             # Header is expected at first non-comment row
-            header_idx, columns = self._find_first_data_row(file_path)
+            header_idx, columns = self._find_first_data_row(input_path)
             return header_idx, columns
 
         else:  # AUTO mode
-            return self._auto_detect_header(file_path)
+            return self._auto_detect_header(input_path)
 
-    def _find_first_data_row(self, file_path: Path) -> Tuple[int, List[str]]:
+    def _find_first_data_row(self, input_path: Union[str, Path]) -> Tuple[int, List[str]]:
         """Find the first non-comment row and extract columns.
 
         Searches through the file to find the first row that is not a comment
-        or blank line, treating it as the header row.
+        or blank line, treating it as the header row. Works with local files and S3.
 
         Args:
-            file_path: Path to the input CSV file
+            input_path: Path to the input CSV file (local or S3 URI)
 
         Returns:
             Tuple of (row_index, column_names). Returns (-1, []) for empty files.
         """
-        with open(file_path, 'r', encoding=self.config.encoding) as f:
-            reader = csv.reader(f, delimiter=self.config.delimiter)
+        # Use unified I/O handler for S3 and local file support
+        for idx, row in enumerate(self.io_handler.csv_reader(
+            input_path,
+            delimiter=self.config.delimiter,
+            encoding=self.config.encoding
+        )):
+            if idx >= self.config.header_search_rows:
+                break
 
-            for idx, row in enumerate(reader):
-                if idx >= self.config.header_search_rows:
-                    break
+            # Skip completely empty rows
+            if not row:
+                continue
 
-                # Skip completely empty rows
-                if not row:
-                    continue
+            # Check for comment rows (lines starting with #)
+            if row and row[0].strip().startswith('#'):
+                continue
 
-                # Check for comment rows (lines starting with #)
-                if row and row[0].strip().startswith('#'):
-                    continue
+            if self._is_comment_row(row):
+                continue
 
-                if self._is_comment_row(row):
-                    continue
+            if self.config.skip_blank_lines and not any(cell.strip() for cell in row):
+                continue
 
-                if self.config.skip_blank_lines and not any(cell.strip() for cell in row):
-                    continue
-
-                return idx, [col.strip() for col in row]
+            return idx, [col.strip() for col in row]
 
         # Handle empty files gracefully
         return -1, []
 
-    def _auto_detect_header(self, file_path: Path) -> Tuple[int, List[str]]:
+    def _auto_detect_header(self, input_path: Union[str, Path]) -> Tuple[int, List[str]]:
         """Auto-detect header row by looking for text patterns.
 
         Analyzes the first several rows to identify which one looks most like
-        a header based on the ratio of text to numeric content.
+        a header based on the ratio of text to numeric content. Works with local files and S3.
 
         Args:
-            file_path: Path to the input CSV file
+            input_path: Path to the input CSV file (local or S3 URI)
 
         Returns:
             Tuple of (header_row_index, column_names)
@@ -306,18 +314,21 @@ class ForkliftCore:
         Raises:
             ValueError: If no suitable header row can be detected
         """
-        with open(file_path, 'r', encoding=self.config.encoding) as f:
-            reader = csv.reader(f, delimiter=self.config.delimiter)
-            rows = []
+        rows = []
 
-            for idx, row in enumerate(reader):
-                if idx >= self.config.header_search_rows:
-                    break
+        # Use unified I/O handler for S3 and local file support
+        for idx, row in enumerate(self.io_handler.csv_reader(
+            input_path,
+            delimiter=self.config.delimiter,
+            encoding=self.config.encoding
+        )):
+            if idx >= self.config.header_search_rows:
+                break
 
-                if self._is_comment_row(row):
-                    continue
+            if self._is_comment_row(row):
+                continue
 
-                rows.append((idx, row))
+            rows.append((idx, row))
 
         # Look for a row that looks like headers (mostly text, few numbers)
         for idx, row in rows:
@@ -791,6 +802,7 @@ class ForkliftCore:
 
         Main processing method that orchestrates the entire CSV import workflow
         including header detection, streaming processing, validation, and output generation.
+        Now supports S3 streaming for both input and output.
 
         Returns:
             ProcessingResults object containing processing statistics and output paths
@@ -808,37 +820,49 @@ class ForkliftCore:
             # Load schema if provided
             self.schema = self._load_schema()
 
-            # Detect header
-            input_path = Path(self.config.input_path)
-            self.header_row_index, self.column_names = self._detect_header_row(input_path)
+            # Detect header - now works with S3 inputs
+            self.header_row_index, self.column_names = self._detect_header_row(self.config.input_path)
 
-            # Prepare output paths
-            output_dir = Path(self.config.output_path)
-            output_dir.mkdir(parents=True, exist_ok=True)
+            # Prepare output paths - support both local and S3 outputs
+            if is_s3_path(self.config.output_path):
+                # S3 output path
+                output_s3_path = S3Path(str(self.config.output_path))
+                good_file = str(output_s3_path.join("data.parquet"))
+                bad_file = str(output_s3_path.join("bad_rows.parquet"))
 
-            good_file = output_dir / "data.parquet"
-            bad_file = output_dir / "bad_rows.parquet"
+                # For S3 outputs, we'll use temporary local storage during processing
+                # and upload at the end for optimal performance
+                use_s3_output = True
+            else:
+                # Local output path
+                output_dir = Path(self.config.output_path)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                good_file = str(output_dir / "data.parquet")
+                bad_file = str(output_dir / "bad_rows.parquet")
+                use_s3_output = False
 
-            # Initialize parquet writers
+            # Initialize parquet writers using unified I/O
             good_writer = None
             bad_writer = None
 
-            # Process batches
-            for batch in self._create_batch_reader(input_path):
+            # Process batches using S3-aware batch reader
+            for batch in self._create_s3_batch_reader(self.config.input_path):
                 # Validate and split batch
                 valid_batch, invalid_batch = self._validate_batch(batch)
 
                 # Initialize writers on first batch (to get schema)
                 if good_writer is None:
-                    good_writer = pq.ParquetWriter(
+                    good_writer = create_parquet_writer(
                         good_file,
                         valid_batch.schema,
+                        s3_client=self.io_handler.s3_client if use_s3_output else None,
                         compression=self.config.compression
                     )
                 if bad_writer is None and len(invalid_batch) > 0:
-                    bad_writer = pq.ParquetWriter(
+                    bad_writer = create_parquet_writer(
                         bad_file,
                         invalid_batch.schema,
+                        s3_client=self.io_handler.s3_client if use_s3_output else None,
                         compression=self.config.compression
                     )
 
@@ -849,9 +873,10 @@ class ForkliftCore:
 
                 if len(invalid_batch) > 0:
                     if bad_writer is None:
-                        bad_writer = pq.ParquetWriter(
+                        bad_writer = create_parquet_writer(
                             bad_file,
                             invalid_batch.schema,
+                            s3_client=self.io_handler.s3_client if use_s3_output else None,
                             compression=self.config.compression
                         )
                     self._write_batch_to_parquet(invalid_batch, bad_writer)
@@ -862,18 +887,18 @@ class ForkliftCore:
             # Close writers
             if good_writer:
                 good_writer.close()
-                results.output_files.append(str(good_file))
+                results.output_files.append(good_file)
 
             if bad_writer:
                 bad_writer.close()
-                results.output_files.append(str(bad_file))
+                results.output_files.append(bad_file)
 
-            # Create manifest and metadata
+            # Create manifest and metadata (support S3 outputs)
             if self.config.create_manifest:
-                results.manifest_file = self._create_manifest(output_dir, results.output_files)
+                results.manifest_file = self._create_s3_manifest(self.config.output_path, results.output_files)
 
             if self.config.create_metadata:
-                results.metadata_file = self._create_metadata(output_dir, results)
+                results.metadata_file = self._create_s3_metadata(self.config.output_path, results)
 
             results.execution_time = time.time() - start_time
 
@@ -884,102 +909,164 @@ class ForkliftCore:
 
         return results
 
+    def _create_s3_batch_reader(self, input_path: Union[str, Path]) -> Iterator[pa.RecordBatch]:
+        """Create a streaming batch reader that works with both local files and S3.
 
-# Public API functions
-def import_csv(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
-) -> ProcessingResults:
-    """Import CSV file with streaming and validation.
+        Args:
+            input_path: Path to input file (local or S3 URI)
 
-    High-level API function for importing CSV files using PyArrow streaming.
-    Supports header detection, footer detection, schema validation, and various
-    output formats including parquet files and metadata.
+        Yields:
+            PyArrow RecordBatch objects containing data from the CSV
+        """
+        if is_s3_path(input_path):
+            # S3 input - use fallback to row-by-row processing since PyArrow CSV
+            # doesn't directly stream from S3
+            yield from self._create_s3_csv_batches(input_path)
+        else:
+            # Local file - use existing PyArrow streaming
+            yield from self._create_batch_reader(Path(input_path))
 
-    Args:
-        input_path: Path to input CSV file to process
-        output_path: Directory where output files will be created
-        schema_file: Optional path to JSON schema file for validation
-        **kwargs: Additional configuration options passed to ImportConfig
+    def _create_s3_csv_batches(self, s3_path: Union[str, S3Path]) -> Iterator[pa.RecordBatch]:
+        """Create batches from S3 CSV by processing rows and converting to RecordBatch.
 
-    Returns:
-        ProcessingResults object containing statistics and output file paths
+        Args:
+            s3_path: S3 path to CSV file
 
-    Examples:
-        Basic CSV import::
+        Yields:
+            PyArrow RecordBatch objects
+        """
+        if not self.column_names:
+            return iter([])
 
-            results = import_csv("data.csv", "output/")
+        rows_buffer = []
+        batch_size = self.config.batch_size
+        expected_columns = len(self.column_names)
 
-        With schema validation::
+        # Skip header rows if needed
+        rows_to_skip = 0
+        if self.header_row_index is not None and self.header_row_index >= 0:
+            rows_to_skip = self.header_row_index + 1
 
-            results = import_csv(
-                input_path="data.csv",
-                output_path="output/",
-                schema_file="schema.json"
-            )
+        row_count = 0
+        for row in self.io_handler.csv_reader(
+            s3_path,
+            delimiter=self.config.delimiter,
+            quotechar=self.config.quote_char,
+            encoding=self.config.encoding
+        ):
+            # Skip header rows
+            if row_count < rows_to_skip:
+                row_count += 1
+                continue
 
-        With footer detection::
+            # Stop if footer detected
+            if self._should_stop_for_footer(row):
+                break
 
-            results = import_csv(
-                input_path="data.csv",
-                output_path="output/",
-                footer_detection={"stop_on_blank": True}
-            )
-    """
-    config = ImportConfig(
-        input_path=input_path,
-        output_path=output_path,
-        schema_file=schema_file,
-        **kwargs
-    )
+            # Handle column count mismatches
+            if len(row) > expected_columns:
+                if self.config.excess_column_mode == ExcessColumnMode.REJECT:
+                    continue  # Skip this row
+                else:  # TRUNCATE mode
+                    row = row[:expected_columns]
+            elif len(row) < expected_columns:
+                # Pad with empty strings
+                row = row + [''] * (expected_columns - len(row))
 
-    engine = ForkliftCore(config)
-    return engine.process_csv()
+            rows_buffer.append(row)
+            row_count += 1
 
+            # Yield batch when buffer is full
+            if len(rows_buffer) >= batch_size:
+                yield self._convert_rows_to_batch(rows_buffer, expected_columns)
+                rows_buffer = []
 
-def import_fwf(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
-) -> ProcessingResults:
-    """Import Fixed Width File (placeholder for future implementation).
+        # Yield any remaining rows in buffer
+        if rows_buffer:
+            yield self._convert_rows_to_batch(rows_buffer, expected_columns)
 
-    Args:
-        input_path: Path to input FWF file
-        output_path: Directory for output files
-        schema_file: Optional JSON schema file
-        **kwargs: Additional configuration options
+    def _create_s3_manifest(self, output_path: Union[str, Path], files: List[str]) -> str:
+        """Create manifest file supporting S3 output locations.
 
-    Returns:
-        ProcessingResults object
+        Args:
+            output_path: Output directory (local or S3)
+            files: List of output file paths
 
-    Raises:
-        NotImplementedError: This function is not yet implemented
-    """
-    raise NotImplementedError("FWF import not yet implemented")
+        Returns:
+            Path to created manifest file
+        """
+        from datetime import datetime
 
+        manifest = {
+            "format_version": "1.0",
+            "files": [
+                {
+                    "file_path": str(Path(f).name) if not is_s3_path(f) else S3Path(f).name,
+                    "file_size": self.io_handler.get_size(f) if self.io_handler.exists(f) else 0,
+                }
+                for f in files
+            ],
+            "created_at": datetime.now().isoformat(),
+        }
 
-def import_excel(
-    input_path: Union[str, Path],
-    output_path: Union[str, Path],
-    schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
-) -> ProcessingResults:
-    """Import Excel file (placeholder for future implementation).
+        if is_s3_path(output_path):
+            # S3 output
+            manifest_path = S3Path(str(output_path)).join("manifest.json")
+            with self.io_handler.open_for_write(manifest_path, encoding='utf-8') as f:
+                json.dump(manifest, f, indent=2)
+            return str(manifest_path)
+        else:
+            # Local output
+            output_dir = Path(output_path)
+            manifest_path = output_dir / "manifest.json"
+            with open(manifest_path, 'w', encoding='utf-8') as f:
+                json.dump(manifest, f, indent=2)
+            return str(manifest_path)
 
-    Args:
-        input_path: Path to input Excel file
-        output_path: Directory for output files
-        schema_file: Optional JSON schema file
-        **kwargs: Additional configuration options
+    def _create_s3_metadata(self, output_path: Union[str, Path], results: ProcessingResults) -> str:
+        """Create metadata file supporting S3 output locations.
 
-    Returns:
-        ProcessingResults object
+        Args:
+            output_path: Output directory (local or S3)
+            results: ProcessingResults with statistics
 
-    Raises:
-        NotImplementedError: This function is not yet implemented
-    """
-    raise NotImplementedError("Excel import not yet implemented")
+        Returns:
+            Path to created metadata file
+        """
+        from datetime import datetime
+
+        # Handle header_mode value properly
+        header_mode_value = self.config.header_mode
+        if hasattr(header_mode_value, 'value'):
+            header_mode_value = header_mode_value.value
+
+        metadata = {
+            "processing_summary": {
+                "total_rows": results.total_rows,
+                "valid_rows": results.valid_rows,
+                "invalid_rows": results.invalid_rows,
+                "execution_time_seconds": results.execution_time,
+            },
+            "input_config": {
+                "input_path": str(self.config.input_path),
+                "schema_file": str(self.config.schema_file) if self.config.schema_file else None,
+                "header_mode": header_mode_value,
+                "batch_size": self.config.batch_size,
+            },
+            "output_files": results.output_files,
+            "created_at": datetime.now().isoformat(),
+        }
+
+        if is_s3_path(output_path):
+            # S3 output
+            metadata_path = S3Path(str(output_path)).join("metadata.json")
+            with self.io_handler.open_for_write(metadata_path, encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2)
+            return str(metadata_path)
+        else:
+            # Local output
+            output_dir = Path(output_path)
+            metadata_path = output_dir / "metadata.json"
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2)
+            return str(metadata_path)

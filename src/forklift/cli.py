@@ -1,6 +1,7 @@
 from __future__ import annotations
 import argparse
 from .engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
+from .io import is_s3_path
 
 
 def main() -> None:
@@ -8,10 +9,10 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     ingest = sub.add_parser("ingest", help="Clean & write to Parquet")
-    ingest.add_argument("source")
-    ingest.add_argument("--dest", required=True)
+    ingest.add_argument("source", help="Input path (local file or S3 URI: s3://bucket/key)")
+    ingest.add_argument("--dest", required=True, help="Output path (local directory or S3 URI: s3://bucket/prefix/)")
     ingest.add_argument("--input-kind", choices=["csv","fwf","excel"], required=True)
-    ingest.add_argument("--schema", help="Path to JSON Schema file")
+    ingest.add_argument("--schema", help="Path to JSON Schema file (local or S3)")
     ingest.add_argument("--pre", nargs="*", default=[], help="Preprocessors by name")
     # common input args
     ingest.add_argument("--encoding-priority", nargs="*", default=["utf-8-sig","utf-8","latin-1"])
@@ -28,6 +29,15 @@ def main() -> None:
     args = p.parse_args()
 
     if args.cmd == "ingest":
+        # Check for S3 paths and provide user feedback
+        input_is_s3 = is_s3_path(args.source)
+        output_is_s3 = is_s3_path(args.dest)
+
+        if input_is_s3:
+            print(f"Reading from S3: {args.source}")
+        if output_is_s3:
+            print(f"Writing to S3: {args.dest}")
+
         # Create ImportConfig from CLI arguments
         config = ImportConfig(
             input_path=args.source,
@@ -60,5 +70,9 @@ def main() -> None:
             print(f"Valid rows: {results.valid_rows}, Invalid rows: {results.invalid_rows}")
             if results.output_files:
                 print(f"Output files: {', '.join(results.output_files)}")
+            if results.manifest_file:
+                print(f"Manifest file: {results.manifest_file}")
+            if results.metadata_file:
+                print(f"Metadata file: {results.metadata_file}")
         else:
             print(f"Error: Input kind '{args.input_kind}' not yet implemented in new ForkliftCore. Only 'csv' is currently supported.")

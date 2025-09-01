@@ -1070,3 +1070,112 @@ class ForkliftCore:
             with open(metadata_path, 'w', encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2)
             return str(metadata_path)
+
+
+# Public API functions
+def import_csv(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
+    schema_file: Optional[Union[str, Path]] = None,
+    **kwargs
+) -> ProcessingResults:
+    """Import CSV file with streaming and validation.
+
+    High-level API function for importing CSV files using PyArrow streaming.
+    Supports header detection, footer detection, schema validation, and various
+    output formats including parquet files and metadata. Now supports S3 streaming
+    for both input and output.
+
+    Args:
+        input_path: Path to input CSV file to process (local or S3 URI)
+        output_path: Directory where output files will be created (local or S3 URI)
+        schema_file: Optional path to JSON schema file for validation (local or S3 URI)
+        **kwargs: Additional configuration options passed to ImportConfig
+
+    Returns:
+        ProcessingResults object containing statistics and output file paths
+
+    Examples:
+        Basic CSV import::
+
+            results = import_csv("data.csv", "output/")
+
+        With schema validation::
+
+            results = import_csv(
+                input_path="data.csv",
+                output_path="output/",
+                schema_file="schema.json"
+            )
+
+        S3 to S3 processing::
+
+            results = import_csv(
+                input_path="s3://bucket/data.csv",
+                output_path="s3://bucket/output/",
+                schema_file="s3://bucket/schema.json"
+            )
+
+        With footer detection::
+
+            results = import_csv(
+                input_path="data.csv",
+                output_path="output/",
+                footer_detection={"stop_on_blank": True}
+            )
+    """
+    config = ImportConfig(
+        input_path=input_path,
+        output_path=output_path,
+        schema_file=schema_file,
+        **kwargs
+    )
+
+    engine = ForkliftCore(config)
+    return engine.process_csv()
+
+
+def import_fwf(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
+    schema_file: Optional[Union[str, Path]] = None,
+    **kwargs
+) -> ProcessingResults:
+    """Import Fixed Width File (placeholder for future implementation).
+
+    Args:
+        input_path: Path to input FWF file (local or S3 URI)
+        output_path: Directory for output files (local or S3 URI)
+        schema_file: Optional JSON schema file (local or S3 URI)
+        **kwargs: Additional configuration options
+
+    Returns:
+        ProcessingResults object
+
+    Raises:
+        NotImplementedError: This function is not yet implemented
+    """
+    raise NotImplementedError("FWF import not yet implemented")
+
+
+def import_excel(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
+    schema_file: Optional[Union[str, Path]] = None,
+    **kwargs
+) -> ProcessingResults:
+    """Import Excel file (placeholder for future implementation).
+
+    Args:
+        input_path: Path to input Excel file (local or S3 URI)
+        output_path: Directory for output files (local or S3 URI)
+        schema_file: Optional JSON schema file (local or S3 URI)
+        **kwargs: Additional configuration options
+
+    Returns:
+        ProcessingResults object
+
+    Raises:
+        NotImplementedError: This function is not yet implemented
+    """
+    raise NotImplementedError("Excel import not yet implemented")

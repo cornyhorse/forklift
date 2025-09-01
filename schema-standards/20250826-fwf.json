@@ -1,13 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-fwf.json",
-  "title": "Forklift FWF Row",
+  "title": "Forklift FWF Row - Comprehensive Parquet Data Types",
+  "description": "Schema for Fixed Width File processing demonstrating all supported Parquet data types with field positioning, alignment, padding, and data type validation for Parquet output.",
   "type": "object",
   "properties": {
-    "id":    { "type": "integer", "minimum": 1 },
-    "name":  { "type": "string",  "minLength": 1 },
-    "amt":   { "type": "string",  "pattern": "^-?\\d+(\\.\\d{1,2})?$" },
-    "event_date": { "type": "string", "format": "date" }
+    "id": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "age": { "type": "integer", "minimum": 0, "maximum": 150 },
+    "salary": { "type": "number", "minimum": 0 },
+    "is_active": { "type": "boolean" },
+    "birth_date": { "type": "string", "format": "date" },
+    "created_timestamp": { "type": "string", "format": "date-time" },
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "score": { "type": "number", "multipleOf": 0.01 },
+    "category": { "type": "string", "enum": ["A", "B", "C"] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "metadata": { "type": "object", "additionalProperties": true },
+    "binary_data": { "type": "string", "contentEncoding": "base64" },
+    "uuid": { "type": "string", "format": "uuid" },
+    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" }
   },
   "required": ["id", "name"],
   "additionalProperties": false,
@@ -16,12 +28,30 @@
     "encoding": "utf-8",
     "trim": { "lstrip": false, "rstrip": true },
     "fields": [
-      { "name": "id",   "start": 1,  "length": 10, "align": "right", "pad": " " },
-      { "name": "name", "start": 11, "length": 30, "align": "left",  "pad": " " },
-      { "name": "amt",  "start": 41, "length": 12, "align": "right", "pad": " " },
-      { "name": "event_date", "start": 53, "length": 10, "align": "left", "pad": " " }
+      { "name": "id", "start": 1, "length": 10, "align": "right", "pad": " ", "parquetType": "int64" },
+      { "name": "name", "start": 11, "length": 30, "align": "left", "pad": " ", "parquetType": "string" },
+      { "name": "age", "start": 41, "length": 3, "align": "right", "pad": " ", "parquetType": "int32" },
+      { "name": "salary", "start": 44, "length": 12, "align": "right", "pad": " ", "parquetType": "double" },
+      { "name": "is_active", "start": 56, "length": 5, "align": "left", "pad": " ", "parquetType": "bool" },
+      { "name": "birth_date", "start": 61, "length": 10, "align": "left", "pad": " ", "parquetType": "date32" },
+      { "name": "created_timestamp", "start": 71, "length": 19, "align": "left", "pad": " ", "parquetType": "timestamp[us]" },
+      { "name": "duration_seconds", "start": 90, "length": 8, "align": "right", "pad": " ", "parquetType": "duration[s]" },
+      { "name": "score", "start": 98, "length": 8, "align": "right", "pad": " ", "parquetType": "float32" },
+      { "name": "category", "start": 106, "length": 3, "align": "left", "pad": " ", "parquetType": "dictionary<values=string, indices=int32>" },
+      { "name": "tags", "start": 109, "length": 100, "align": "left", "pad": " ", "parquetType": "list<string>" },
+      { "name": "metadata", "start": 209, "length": 200, "align": "left", "pad": " ", "parquetType": "struct" },
+      { "name": "binary_data", "start": 409, "length": 100, "align": "left", "pad": " ", "parquetType": "binary" },
+      { "name": "uuid", "start": 509, "length": 36, "align": "left", "pad": " ", "parquetType": "string" },
+      { "name": "decimal_amount", "start": 545, "length": 15, "align": "right", "pad": " ", "parquetType": "decimal128(10,2)" }
     ],
-    "nulls": { "perColumn": { "amt": ["", "          "] } },
+    "nulls": {
+      "global": ["", "NULL", "N/A"],
+      "perColumn": {
+        "salary": ["", "          "],
+        "tags": ["", "[]"],
+        "metadata": ["", "{}"]
+      }
+    },
     "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
   }
 }

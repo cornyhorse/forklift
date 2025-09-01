@@ -1,30 +1,62 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-csv.json",
-  "title": "Forklift CSV Row",
+  "title": "Forklift CSV Row - Comprehensive Parquet Data Types",
+  "description": "Schema for CSV file processing demonstrating all supported Parquet data types with delimiter handling, encoding detection, header scanning, and data type validation for Parquet output.",
   "type": "object",
   "properties": {
     "id": { "type": "integer", "minimum": 1 },
     "name": { "type": "string", "minLength": 1 },
-    "dob": { "type": "string", "format": "date" },
-    "email": { "type": "string", "format": "email", "x-private": true },
-    "amount": { "type": "number", "minimum": 0 }
+    "age": { "type": "integer", "minimum": 0, "maximum": 150 },
+    "salary": { "type": "number", "minimum": 0 },
+    "is_active": { "type": "boolean" },
+    "birth_date": { "type": "string", "format": "date" },
+    "created_timestamp": { "type": "string", "format": "date-time" },
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "score": { "type": "number", "multipleOf": 0.01 },
+    "category": { "type": "string", "enum": ["A", "B", "C"] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "metadata": { "type": "object", "additionalProperties": true },
+    "binary_data": { "type": "string", "contentEncoding": "base64" },
+    "uuid": { "type": "string", "format": "uuid" },
+    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" }
   },
-  "required": ["id", "name", "amount"],
+  "required": ["id", "name"],
   "additionalProperties": false,
 
   "x-csv": {
     "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
     "delimiter": "auto",
     "quotechar": "\"",
-    "escapechar": "\\\\",
+    "escapechar": "\\",
     "multiline": true,
-    "header": { "mode": "stability_scan", "keywords": ["id", "name", "amount"] },
+    "header": { "mode": "stability_scan", "keywords": ["id", "name", "age", "salary"] },
     "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" },
     "nulls": {
-      "global": ["", "NA", "N/A", "-"],
-      "perColumn": { "amount": ["", "NA"] }
+      "global": ["", "NA", "N/A", "-", "NULL"],
+      "perColumn": {
+        "salary": ["", "0.00"],
+        "tags": ["", "[]"],
+        "metadata": ["", "{}"]
+      }
     },
-    "case": { "standardizeNames": "postgres", "dedupeNames": "suffix" }
+    "case": { "standardizeNames": "postgres", "dedupeNames": "suffix" },
+    "parquetTypeMapping": {
+      "id": "int64",
+      "name": "string",
+      "age": "int32",
+      "salary": "double",
+      "is_active": "bool",
+      "birth_date": "date32",
+      "created_timestamp": "timestamp[us]",
+      "duration_seconds": "duration[s]",
+      "score": "float32",
+      "category": "dictionary<values=string, indices=int32>",
+      "tags": "list<string>",
+      "metadata": "struct",
+      "binary_data": "binary",
+      "uuid": "string",
+      "decimal_amount": "decimal128(10,2)"
+    }
   }
 }

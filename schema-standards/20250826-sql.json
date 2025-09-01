@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-sql.json",
-  "title": "Forklift SQL Input Glob / Table Schema Standard",
-  "description": "Specify which schemas/tables to include from the SQL source using glob-like patterns OR extended x-sql configuration. Patterns supported: '*.*' (all schemas/tables), 'table_name' (table in default schema), 'schema.table' (specific schema/table), 'schema.*' (all tables/views in schema). Optional x-sql block allows richer configuration including per-table selection and column schema.",
+  "title": "Forklift SQL Input - Comprehensive Parquet Data Types Schema Standard",
+  "description": "Schema for SQL database processing demonstrating all supported Parquet data types. Specify which schemas/tables to include from the SQL source using glob-like patterns OR extended x-sql configuration. Patterns supported: '*.*' (all schemas/tables), 'table_name' (table in default schema), 'schema.table' (specific schema/table), 'schema.*' (all tables/views in schema). Optional x-sql block allows richer configuration including per-table selection and column schema.",
   "type": "object",
   "properties": {
     "include": {
@@ -38,7 +38,24 @@
               },
               "columns": {
                 "type": "object",
-                "description": "Optional per-table column schema: each property is a column with standard JSON Schema spec.",
+                "description": "Per-table column schema with Parquet type mapping: each property is a column with standard JSON Schema spec and parquetType.",
+                "properties": {
+                  "id": { "type": "integer", "minimum": 1, "parquetType": "int64" },
+                  "name": { "type": "string", "minLength": 1, "parquetType": "string" },
+                  "age": { "type": "integer", "minimum": 0, "maximum": 150, "parquetType": "int32" },
+                  "salary": { "type": "number", "minimum": 0, "parquetType": "double" },
+                  "is_active": { "type": "boolean", "parquetType": "bool" },
+                  "birth_date": { "type": "string", "format": "date", "parquetType": "date32" },
+                  "created_timestamp": { "type": "string", "format": "date-time", "parquetType": "timestamp[us]" },
+                  "duration_seconds": { "type": "integer", "minimum": 0, "parquetType": "duration[s]" },
+                  "score": { "type": "number", "multipleOf": 0.01, "parquetType": "float32" },
+                  "category": { "type": "string", "enum": ["A", "B", "C"], "parquetType": "dictionary<values=string, indices=int32>" },
+                  "tags": { "type": "array", "items": { "type": "string" }, "parquetType": "list<string>" },
+                  "metadata": { "type": "object", "additionalProperties": true, "parquetType": "struct" },
+                  "binary_data": { "type": "string", "contentEncoding": "base64", "parquetType": "binary" },
+                  "uuid": { "type": "string", "format": "uuid", "parquetType": "string" },
+                  "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$", "parquetType": "decimal128(10,2)" }
+                },
                 "additionalProperties": { "type": "object" }
               },
               "required": {
@@ -51,6 +68,42 @@
             "additionalProperties": false
           },
           "description": "Per-table configuration blocks. Each produces an include pattern derived from select (schema+name, name, or explicit pattern)."
+        },
+        "parquetTypeMapping": {
+          "type": "object",
+          "description": "SQL to Parquet type mapping reference for all supported data types.",
+          "properties": {
+            "sqlToParquet": {
+              "type": "object",
+              "properties": {
+                "INTEGER": "int64",
+                "BIGINT": "int64",
+                "SMALLINT": "int32",
+                "TINYINT": "int8",
+                "DECIMAL": "decimal128(precision,scale)",
+                "NUMERIC": "decimal128(precision,scale)",
+                "FLOAT": "float32",
+                "DOUBLE": "double",
+                "REAL": "float32",
+                "BOOLEAN": "bool",
+                "VARCHAR": "string",
+                "TEXT": "string",
+                "CHAR": "string",
+                "DATE": "date32",
+                "TIMESTAMP": "timestamp[us]",
+                "DATETIME": "timestamp[us]",
+                "TIME": "duration[us]",
+                "INTERVAL": "duration[us]",
+                "BINARY": "binary",
+                "VARBINARY": "binary",
+                "BLOB": "binary",
+                "ARRAY": "list<type>",
+                "JSON": "struct",
+                "JSONB": "struct",
+                "UUID": "string"
+              }
+            }
+          }
         }
       },
       "additionalProperties": false

@@ -1,28 +1,95 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-excel.json",
-  "title": "Forklift Excel Row",
+  "title": "Forklift Excel Row - Comprehensive Parquet Data Types",
+  "description": "Schema for Excel file processing demonstrating all supported Parquet data types with sheet selection, column mapping, and Excel-specific configuration options including header detection, data type validation, and cell positioning.",
   "type": "object",
 
   "properties": {
-    "id":        { "type": "integer" },
-    "name":      { "type": "string" },
-    "event_date":{ "type": "string", "format": "date" },
-    "amount":    { "type": "number" }
+    "id": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "age": { "type": "integer", "minimum": 0, "maximum": 150 },
+    "salary": { "type": "number", "minimum": 0 },
+    "is_active": { "type": "boolean" },
+    "birth_date": { "type": "string", "format": "date" },
+    "created_timestamp": { "type": "string", "format": "date-time" },
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "score": { "type": "number", "multipleOf": 0.01 },
+    "category": { "type": "string", "enum": ["A", "B", "C"] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "metadata": { "type": "object", "additionalProperties": true },
+    "binary_data": { "type": "string", "contentEncoding": "base64" },
+    "uuid": { "type": "string", "format": "uuid" },
+    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" }
   },
   "required": ["id", "name"],
   "additionalProperties": false,
 
   "x-excel": {
-    "valuesOnly": true,          // read computed values, not formulas
-    "dateSystem": "1900",        // default; per-sheet override allowed
-    "nulls": { "global": ["", "NA", "N/A"] },
-
+    "valuesOnly": true,
+    "dateSystem": "1900",
+    "encoding": "utf-8",
+    "nulls": {
+      "global": ["", "NA", "N/A", "-", "NULL"],
+      "perColumn": {
+        "salary": ["", "0.00"],
+        "tags": ["", "[]"],
+        "metadata": ["", "{}"]
+      }
+    },
     "sheets": [
       {
-        "select": { "name": "Sheet1" }   // OR { "index": 0 } OR { "regex": "^Data_\\d{4}$" }
+        "select": { "name": "Sheet1" },
+        "columns": [
+          { "name": "id", "position": "A", "type": "integer", "required": true, "parquetType": "int64" },
+          { "name": "name", "position": "B", "type": "string", "required": true, "trim": true, "parquetType": "string" },
+          { "name": "age", "position": "C", "type": "integer", "required": false, "parquetType": "int32" },
+          { "name": "salary", "position": "D", "type": "number", "required": false, "parquetType": "double" },
+          { "name": "is_active", "position": "E", "type": "boolean", "required": false, "parquetType": "bool" },
+          { "name": "birth_date", "position": "F", "type": "string", "format": "date", "required": false, "parquetType": "date32" },
+          { "name": "created_timestamp", "position": "G", "type": "string", "format": "date-time", "required": false, "parquetType": "timestamp[us]" },
+          { "name": "duration_seconds", "position": "H", "type": "integer", "required": false, "parquetType": "duration[s]" },
+          { "name": "score", "position": "I", "type": "number", "required": false, "parquetType": "float32" },
+          { "name": "category", "position": "J", "type": "string", "required": false, "parquetType": "dictionary<values=string, indices=int32>" },
+          { "name": "tags", "position": "K", "type": "array", "required": false, "parquetType": "list<string>" },
+          { "name": "metadata", "position": "L", "type": "object", "required": false, "parquetType": "struct" },
+          { "name": "binary_data", "position": "M", "type": "string", "required": false, "parquetType": "binary" },
+          { "name": "uuid", "position": "N", "type": "string", "format": "uuid", "required": false, "parquetType": "string" },
+          { "name": "decimal_amount", "position": "O", "type": "string", "required": false, "parquetType": "decimal128(10,2)" }
+        ],
+        "header": { "row": 1, "mode": "present" },
+        "dataStartRow": 2,
+        "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
       }
-      // ... add more sheet blocks as needed
-    ]
+    ],
+    "parquetTypeMapping": {
+      "int8": "8-bit signed integer",
+      "int16": "16-bit signed integer",
+      "int32": "32-bit signed integer",
+      "int64": "64-bit signed integer",
+      "uint8": "8-bit unsigned integer",
+      "uint16": "16-bit unsigned integer",
+      "uint32": "32-bit unsigned integer",
+      "uint64": "64-bit unsigned integer",
+      "float32": "32-bit floating point",
+      "double": "64-bit floating point",
+      "bool": "Boolean true/false",
+      "string": "Variable-length string",
+      "binary": "Variable-length binary data",
+      "date32": "Date as days since epoch",
+      "date64": "Date as milliseconds since epoch",
+      "timestamp[s]": "Timestamp with second precision",
+      "timestamp[ms]": "Timestamp with millisecond precision",
+      "timestamp[us]": "Timestamp with microsecond precision",
+      "timestamp[ns]": "Timestamp with nanosecond precision",
+      "duration[s]": "Duration in seconds",
+      "duration[ms]": "Duration in milliseconds",
+      "duration[us]": "Duration in microseconds",
+      "duration[ns]": "Duration in nanoseconds",
+      "decimal128(precision,scale)": "High precision decimal",
+      "list<type>": "Array/list of specified type",
+      "struct": "Nested object/record structure",
+      "dictionary<values=type, indices=type>": "Dictionary encoding for categorical data"
+    }
   }
 }

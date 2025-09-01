@@ -2,43 +2,318 @@ import json
 import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
-from forklift.schema.csv_schema_importer import CsvSchemaImporter
+from forklift.schema.csv_schema_importer import CsvSchemaImporter, SchemaValidationError
 
 
 class TestCsvSchemaImporter:
-    """Unit tests for CsvSchemaImporter class."""
+    """Unit tests for CsvSchemaImporter class with comprehensive validation."""
 
-    def test_init_with_dict(self):
-        """Test initialization with a dictionary schema."""
-        schema = {
+    @property
+    def valid_base_schema(self):
+        """Valid base schema structure that meets JSON Schema 2020-12 requirements."""
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test-schema.json",
+            "title": "Test Schema",
             "type": "object",
-            "properties": {"id": {"type": "integer"}},
+            "properties": {
+                "id": {"type": "integer", "minimum": 1},
+                "name": {"type": "string", "minLength": 1}
+            },
             "required": ["id"],
-            "additionalProperties": True,
+            "additionalProperties": False,
             "x-csv": {
                 "delimiter": ",",
-                "case": {"standardizeNames": "postgres", "dedupeNames": "suffix"}
+                "encodingPriority": ["utf-8"],
+                "parquetTypeMapping": {
+                    "id": "int64",
+                    "name": "string"
+                }
             }
         }
+
+    def test_valid_schema_passes_validation(self):
+        """Test that a valid schema passes comprehensive validation."""
+        schema = self.valid_base_schema
         importer = CsvSchemaImporter(schema)
 
         assert importer.schema == schema
         assert importer.csv_ext == schema["x-csv"]
-        assert importer.field_map == {"id": {"type": "integer"}}
+        assert importer.field_map == schema["properties"]
         assert importer.required == ["id"]
-        assert importer.additional_properties is True
-        assert importer.standardize_names == "postgres"
-        assert importer.dedupe_names == "suffix"
+        assert importer.additional_properties is False
 
-    def test_init_with_file_path(self):
-        """Test initialization with a file path."""
+    def test_missing_schema_field_validation(self):
+        """Test validation fails when $schema field is missing."""
+        schema = {**self.valid_base_schema}
+        del schema["$schema"]
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Missing required '$schema' field" in str(exc_info.value)
+
+    def test_invalid_schema_version_validation(self):
+        """Test validation fails with invalid schema version."""
+        schema = {**self.valid_base_schema}
+        schema["$schema"] = "https://json-schema.org/draft-07/schema"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Schema must reference JSON Schema 2020-12 standard" in str(exc_info.value)
+
+    def test_missing_id_field_validation(self):
+        """Test validation fails when $id field is missing."""
+        schema = {**self.valid_base_schema}
+        del schema["$id"]
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Missing required '$id' field" in str(exc_info.value)
+
+    def test_invalid_id_pattern_validation(self):
+        """Test validation fails with invalid $id pattern."""
+        schema = {**self.valid_base_schema}
+        schema["$id"] = "https://example.com/invalid-pattern.json"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Schema $id must follow the standard GitHub URL pattern" in str(exc_info.value)
+
+    def test_missing_title_validation(self):
+        """Test validation fails when title is missing."""
+        schema = {**self.valid_base_schema}
+        del schema["title"]
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Missing required 'title' field" in str(exc_info.value)
+
+    def test_invalid_type_validation(self):
+        """Test validation fails with invalid type."""
+        schema = {**self.valid_base_schema}
+        schema["type"] = "array"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Schema type must be 'object'" in str(exc_info.value)
+
+    def test_missing_csv_extension_validation(self):
+        """Test validation fails when x-csv extension is missing."""
+        schema = {**self.valid_base_schema}
+        del schema["x-csv"]
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Missing required 'x-csv' extension" in str(exc_info.value)
+
+    def test_invalid_encoding_priority_validation(self):
+        """Test validation fails with invalid encoding priority."""
+        schema = {**self.valid_base_schema}
+        schema["x-csv"]["encodingPriority"] = "utf-8"  # Should be list
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "x-csv.encodingPriority must be a list" in str(exc_info.value)
+
+    def test_invalid_encoding_value_validation(self):
+        """Test validation fails with invalid encoding value."""
+        schema = {**self.valid_base_schema}
+        schema["x-csv"]["encodingPriority"] = ["invalid-encoding"]
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Invalid encoding 'invalid-encoding' in encodingPriority" in str(exc_info.value)
+
+    def test_invalid_delimiter_validation(self):
+        """Test validation fails with invalid delimiter."""
+        schema = {**self.valid_base_schema}
+        schema["x-csv"]["delimiter"] = "toolongdelimiter"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Invalid delimiter specification" in str(exc_info.value)
+
+    def test_invalid_quotechar_validation(self):
+        """Test validation fails with invalid quote character."""
+        schema = {**self.valid_base_schema}
+        schema["x-csv"]["quotechar"] = "too_long"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "quotechar must be a single character" in str(exc_info.value)
+
+    def test_invalid_parquet_type_validation(self):
+        """Test validation fails with invalid Parquet type."""
+        schema = {**self.valid_base_schema}
+        schema["x-csv"]["parquetTypeMapping"]["id"] = "invalid_type"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Invalid Parquet type 'invalid_type' for field 'id'" in str(exc_info.value)
+
+    def test_parquet_mapping_unknown_field_validation(self):
+        """Test validation fails with Parquet mapping for unknown field."""
+        schema = {**self.valid_base_schema}
+        schema["x-csv"]["parquetTypeMapping"]["unknown_field"] = "string"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Parquet type mapping for unknown field 'unknown_field'" in str(exc_info.value)
+
+    def test_invalid_field_type_validation(self):
+        """Test validation fails with invalid field type."""
+        schema = {**self.valid_base_schema}
+        schema["properties"]["name"]["type"] = "invalid_type"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Invalid type 'invalid_type' for field 'name'" in str(exc_info.value)
+
+    def test_invalid_integer_constraints_validation(self):
+        """Test validation fails with invalid integer constraints."""
+        schema = {**self.valid_base_schema}
+        schema["properties"]["id"]["minimum"] = "not_a_number"
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Invalid minimum value for integer field 'id'" in str(exc_info.value)
+
+    def test_invalid_string_constraints_validation(self):
+        """Test validation fails with invalid string constraints."""
+        schema = {**self.valid_base_schema}
+        schema["properties"]["name"]["minLength"] = -1
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Invalid minLength for string field 'name'" in str(exc_info.value)
+
+    def test_invalid_regex_pattern_validation(self):
+        """Test validation fails with invalid regex pattern."""
+        schema = {**self.valid_base_schema}
+        schema["properties"]["name"]["pattern"] = "[invalid"  # Unclosed bracket
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        assert "Invalid regex pattern for field 'name'" in str(exc_info.value)
+
+    def test_multiple_validation_errors(self):
+        """Test that comprehensive validation reports multiple errors at once."""
         schema = {
-            "type": "object",
-            "properties": {"name": {"type": "string"}},
-            "x-csv": {"delimiter": "|"}
+            "$schema": "invalid-version",  # Error 1
+            "$id": "invalid-pattern",      # Error 2
+            "type": "array",               # Error 3
+            "properties": {"test": {"type": "invalid"}},  # Error 4
+            "x-csv": {
+                "encodingPriority": "invalid",  # Error 5
+                "delimiter": "toolongdelimiter"  # Error 6
+            }
         }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            CsvSchemaImporter(schema)
+
+        error_msg = str(exc_info.value)
+        # Should contain multiple errors, not just the first one
+        assert "Schema must reference JSON Schema 2020-12 standard" in error_msg
+        assert "Schema $id must follow the standard GitHub URL pattern" in error_msg
+        assert "Schema type must be 'object'" in error_msg
+        assert "Invalid type 'invalid' for field 'test'" in error_msg
+        assert "x-csv.encodingPriority must be a list" in error_msg
+        assert "Invalid delimiter specification" in error_msg
+
+    def test_comprehensive_valid_schema(self):
+        """Test a comprehensive valid schema with all supported features."""
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/comprehensive-test.json",
+            "title": "Comprehensive Test Schema",
+            "description": "A test schema with all supported features",
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 999999
+                },
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100,
+                    "pattern": "^[A-Za-z\\s]+$"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": True
+                }
+            },
+            "required": ["id", "name"],
+            "additionalProperties": False,
+            "x-csv": {
+                "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
+                "delimiter": ",",
+                "quotechar": "\"",
+                "escapechar": "\\",
+                "header": {
+                    "mode": "stability_scan",
+                    "keywords": ["id", "name", "email"]
+                },
+                "footer": {
+                    "mode": "regex",
+                    "pattern": "^TOTAL"
+                },
+                "nulls": {
+                    "global": ["", "NA", "NULL"],
+                    "perColumn": {
+                        "email": ["", "no-email"]
+                    }
+                },
+                "case": {
+                    "standardizeNames": "postgres",
+                    "dedupeNames": "suffix"
+                },
+                "parquetTypeMapping": {
+                    "id": "int64",
+                    "name": "string",
+                    "email": "string",
+                    "tags": "list<string>",
+                    "metadata": "struct"
+                }
+            }
+        }
+
+        # Should not raise any validation errors
+        importer = CsvSchemaImporter(schema)
+        assert importer.schema == schema
+
+    def test_file_path_initialization(self):
+        """Test initialization with file path using valid schema."""
+        schema = self.valid_base_schema
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(schema, f)
@@ -47,13 +322,12 @@ class TestCsvSchemaImporter:
         try:
             importer = CsvSchemaImporter(temp_path)
             assert importer.schema == schema
-            assert importer.csv_ext == {"delimiter": "|"}
         finally:
             Path(temp_path).unlink()
 
-    def test_init_with_pathlib_path(self):
-        """Test initialization with a pathlib.Path object."""
-        schema = {"type": "object", "x-csv": {"delimiter": "\\t"}}
+    def test_pathlib_path_initialization(self):
+        """Test initialization with pathlib.Path using valid schema."""
+        schema = self.valid_base_schema
 
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             json.dump(schema, f)
@@ -65,464 +339,178 @@ class TestCsvSchemaImporter:
         finally:
             temp_path.unlink()
 
-    def test_init_with_invalid_type(self):
+    def test_invalid_input_type(self):
         """Test initialization with invalid input type."""
         with pytest.raises(TypeError, match="schema must be path-like or dict"):
             CsvSchemaImporter(123)
 
-    def test_init_with_missing_extensions(self):
-        """Test initialization with schema missing optional extensions."""
-        schema = {"type": "object"}
+    def test_skip_validation(self):
+        """Test that validation can be skipped during initialization."""
+        invalid_schema = {"invalid": "schema"}
+
+        # Should not raise error when validation is disabled
+        importer = CsvSchemaImporter(invalid_schema, validate=False)
+        assert importer.schema == invalid_schema
+
+    def test_accessor_methods(self):
+        """Test all accessor methods work correctly."""
+        schema = self.valid_base_schema
         importer = CsvSchemaImporter(schema)
 
-        assert importer.csv_ext == {}
-        assert importer.field_map == {}
-        assert importer.required == []
-        assert importer.additional_properties is True
-        assert importer.standardize_names is None
-        assert importer.dedupe_names is None
-
-    def test_init_with_invalid_case_config(self):
-        """Test initialization with invalid case configuration."""
-        schema = {
-            "type": "object",
-            "x-csv": {"case": "invalid"}  # Not a dict
-        }
-        importer = CsvSchemaImporter(schema)
-
-        assert importer.standardize_names is None
-        assert importer.dedupe_names is None
-
-    def test_as_dict(self):
-        """Test as_dict method returns the original schema."""
-        schema = {"type": "object", "properties": {"id": {"type": "integer"}}}
-        importer = CsvSchemaImporter(schema)
+        # Test basic accessors
         assert importer.as_dict() == schema
-
-    def test_get_field_map(self):
-        """Test get_field_map method."""
-        schema = {
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"}
-            }
-        }
-        importer = CsvSchemaImporter(schema)
         assert importer.get_field_map() == schema["properties"]
+        assert importer.get_csv_extension() == schema["x-csv"]
+        assert importer.get_parquet_type_mapping() == schema["x-csv"]["parquetTypeMapping"]
+        assert importer.get_encoding_priority() == ["utf-8"]
+        assert importer.get_delimiter() == ","
+        assert importer.get_null_values() == [""]
 
-    def test_standardize_column_name_postgres(self):
-        """Test column name standardization with postgres mode."""
+    def test_column_name_standardization(self):
+        """Test column name standardization functionality."""
         schema = {
-            "x-csv": {"case": {"standardizeNames": "postgres"}}
-        }
-        importer = CsvSchemaImporter(schema)
-
-        assert importer._standardize_column_name("User ID") == "user_id"
-        assert importer._standardize_column_name("FIRST_NAME") == "first_name"
-        assert importer._standardize_column_name("email@domain") == "email_domain"
-
-    def test_standardize_column_name_no_mode(self):
-        """Test column name standardization with no standardization mode."""
-        schema = {"x-csv": {}}
-        importer = CsvSchemaImporter(schema)
-
-        original_name = "User ID"
-        assert importer._standardize_column_name(original_name) == original_name
-
-    def test_standardize_and_dedupe_with_suffix(self):
-        """Test standardize_and_dedupe with suffix deduplication."""
-        schema = {
+            **self.valid_base_schema,
             "x-csv": {
+                **self.valid_base_schema["x-csv"],
                 "case": {
                     "standardizeNames": "postgres",
                     "dedupeNames": "suffix"
                 }
             }
         }
+
         importer = CsvSchemaImporter(schema)
 
-        columns = ["User ID", "USER_ID", "user-id", "Name"]
-        result = importer.standardize_and_dedupe(columns)
+        # Test standardization
+        test_names = ["User ID", "FIRST_NAME", "email-address"]
+        result = importer.standardize_column_names(test_names)
 
-        # All three variations of "user_id" should be deduplicated
-        assert result == ["user_id", "user_id_1", "user_id_2", "name"]
+        # Should be standardized to postgres naming convention
+        expected = ["user_id", "first_name", "email_address"]
+        assert result == expected
 
-    def test_standardize_and_dedupe_no_dedupe(self):
-        """Test standardize_and_dedupe without deduplication."""
+    def test_column_name_deduplication_modes(self):
+        """Test column name deduplication with different modes."""
         schema = {
+            **self.valid_base_schema,
             "x-csv": {
-                "case": {"standardizeNames": "postgres"}
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        columns = ["User ID", "USER_ID", "Name"]
-        result = importer.standardize_and_dedupe(columns)
-
-        # Should standardize but not deduplicate
-        assert result == ["user_id", "user_id", "name"]
-
-    def test_derive_reader_options_empty_extension(self):
-        """Test derive_reader_options with empty CSV extension."""
-        schema = {"x-csv": {}}
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options == {}
-
-    def test_derive_reader_options_encoding_priority(self):
-        """Test derive_reader_options with encoding priority."""
-        schema = {
-            "x-csv": {
-                "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"]
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["encoding"] == "utf-8-sig"
-
-    def test_derive_reader_options_encoding_priority_empty(self):
-        """Test derive_reader_options with empty encoding priority."""
-        schema = {
-            "x-csv": {
-                "encodingPriority": []
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "encoding" not in options
-
-    def test_derive_reader_options_delimiter_simple(self):
-        """Test derive_reader_options with simple delimiter."""
-        schema = {
-            "x-csv": {
-                "delimiter": ","
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["delimiter"] == ","
-
-    def test_derive_reader_options_delimiter_auto(self):
-        """Test derive_reader_options with auto delimiter."""
-        schema = {
-            "x-csv": {
-                "delimiter": "auto"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "delimiter" not in options
-
-    def test_derive_reader_options_delimiter_escape_tab(self):
-        """Test derive_reader_options with escaped tab delimiter."""
-        schema = {
-            "x-csv": {
-                "delimiter": "\\t"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["delimiter"] == "\t"
-
-    def test_derive_reader_options_delimiter_escape_newline(self):
-        """Test derive_reader_options with escaped newline delimiter."""
-        schema = {
-            "x-csv": {
-                "delimiter": "\\n"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["delimiter"] == "\n"
-
-    def test_derive_reader_options_delimiter_unicode_escape(self):
-        """Test derive_reader_options with unicode escape delimiter."""
-        schema = {
-            "x-csv": {
-                "delimiter": "\\u001f"  # Unit separator
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["delimiter"] == "\u001f"
-
-    def test_derive_reader_options_delimiter_invalid_unicode(self):
-        """Test derive_reader_options with invalid unicode escape."""
-        schema = {
-            "x-csv": {
-                "delimiter": "\\uZZZZ"  # Invalid hex
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        # Should fallback to original string
-        assert options["delimiter"] == "\\uZZZZ"
-
-    def test_derive_reader_options_delimiter_escape_exception(self):
-        """Test derive_reader_options with delimiter that causes decode exception."""
-        schema = {
-            "x-csv": {
-                "delimiter": "\\x"  # Incomplete escape
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        # Should fallback to original string
-        assert options["delimiter"] == "\\x"
-
-    def test_derive_reader_options_quote_char(self):
-        """Test derive_reader_options with quote character."""
-        schema = {
-            "x-csv": {
-                "quotechar": "'"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["quote_char"] == "'"
-
-    def test_derive_reader_options_null_values_global(self):
-        """Test derive_reader_options with global null values."""
-        schema = {
-            "x-csv": {
-                "nulls": {
-                    "global": ["", "NA", "N/A", "-"]
+                **self.valid_base_schema["x-csv"],
+                "case": {
+                    "standardizeNames": "postgres",
+                    "dedupeNames": "prefix"
                 }
             }
         }
         importer = CsvSchemaImporter(schema)
 
-        options = importer.derive_reader_options()
-        assert options["null_values"] == ["", "NA", "N/A", "-"]
+        # Test prefix mode
+        test_names = ["id", "name", "name", "id"]
+        result = importer.standardize_column_names(test_names)
+        expected = ["id", "name", "1_name", "1_id"]
+        assert result == expected
 
-    def test_derive_reader_options_null_values_empty_list(self):
-        """Test derive_reader_options with empty global null values."""
-        schema = {
-            "x-csv": {
-                "nulls": {
-                    "global": []
+        # Test error mode
+        schema["x-csv"]["case"]["dedupeNames"] = "error"
+        importer = CsvSchemaImporter(schema)
+        with pytest.raises(ValueError, match="Duplicate column name detected: name"):
+            importer.standardize_column_names(test_names)
+
+
+class TestSchemaValidationFeatures:
+    """Test specific validation features and edge cases."""
+
+    def test_valid_parquet_types(self):
+        """Test validation of various valid Parquet types."""
+        valid_types = [
+            "int8", "int16", "int32", "int64",
+            "uint8", "uint16", "uint32", "uint64",
+            "float32", "double", "bool", "string", "binary",
+            "date32", "date64",
+            "timestamp[s]", "timestamp[ms]", "timestamp[us]", "timestamp[ns]",
+            "duration[s]", "duration[ms]", "duration[us]", "duration[ns]",
+            "decimal128(10,2)", "list<string>", "struct",
+            "dictionary<values=string, indices=int32>"
+        ]
+
+        base_schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {},
+            "x-csv": {"parquetTypeMapping": {}}
+        }
+
+        for parquet_type in valid_types:
+            schema = {
+                **base_schema,
+                "properties": {"test_field": {"type": "string"}},
+                "x-csv": {
+                    "parquetTypeMapping": {"test_field": parquet_type}
                 }
             }
+
+            # Should not raise validation error
+            importer = CsvSchemaImporter(schema)
+            assert importer.schema == schema
+
+    def test_header_mode_validation(self):
+        """Test validation of header modes."""
+        valid_modes = ["present", "absent", "auto", "stability_scan"]
+
+        base_schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {"id": {"type": "integer"}},
+            "x-csv": {}
         }
-        importer = CsvSchemaImporter(schema)
 
-        options = importer.derive_reader_options()
-        assert "null_values" not in options
-
-    def test_derive_reader_options_null_values_invalid(self):
-        """Test derive_reader_options with invalid null values."""
-        schema = {
-            "x-csv": {
-                "nulls": {
-                    "global": "invalid"  # Not a list
+        for mode in valid_modes:
+            schema = {
+                **base_schema,
+                "x-csv": {
+                    "header": {"mode": mode}
                 }
             }
+
+            if mode == "stability_scan":
+                schema["x-csv"]["header"]["keywords"] = ["id"]
+
+            # Should not raise validation error
+            importer = CsvSchemaImporter(schema)
+            assert importer.schema == schema
+
+    def test_case_configuration_validation(self):
+        """Test validation of case configuration options."""
+        valid_standardize = ["postgres", "snake_case", "camelCase"]
+        valid_dedupe = ["suffix", "prefix", "error"]
+
+        base_schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {"id": {"type": "integer"}},
+            "x-csv": {}
         }
-        importer = CsvSchemaImporter(schema)
 
-        options = importer.derive_reader_options()
-        assert "null_values" not in options
-
-    def test_derive_reader_options_nulls_not_dict(self):
-        """Test derive_reader_options with nulls not being a dict."""
-        schema = {
-            "x-csv": {
-                "nulls": "invalid"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "null_values" not in options
-
-    def test_derive_reader_options_header_provided_mode(self):
-        """Test derive_reader_options with provided header mode."""
-        schema = {
-            "x-csv": {
-                "header": {
-                    "mode": "provided",
-                    "columns": ["id", "name", "email"]
+        for standardize in valid_standardize:
+            for dedupe in valid_dedupe:
+                schema = {
+                    **base_schema,
+                    "x-csv": {
+                        "case": {
+                            "standardizeNames": standardize,
+                            "dedupeNames": dedupe
+                        }
+                    }
                 }
-            }
-        }
-        importer = CsvSchemaImporter(schema)
 
-        options = importer.derive_reader_options()
-        assert options["has_header"] is False
-        assert options["_provided_header_columns"] == ["id", "name", "email"]
-
-    def test_derive_reader_options_header_provided_mode_cols_key(self):
-        """Test derive_reader_options with provided header mode using 'cols' key."""
-        schema = {
-            "x-csv": {
-                "header": {
-                    "mode": "provided",
-                    "cols": ["id", "name", "email"]
-                }
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["has_header"] is False
-        assert options["_provided_header_columns"] == ["id", "name", "email"]
-
-    def test_derive_reader_options_header_provided_mode_no_columns(self):
-        """Test derive_reader_options with provided header mode but no columns."""
-        schema = {
-            "x-csv": {
-                "header": {
-                    "mode": "provided"
-                }
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "has_header" not in options
-        assert "_provided_header_columns" not in options
-
-    def test_derive_reader_options_header_provided_mode_empty_columns(self):
-        """Test derive_reader_options with provided header mode and empty columns."""
-        schema = {
-            "x-csv": {
-                "header": {
-                    "mode": "provided",
-                    "columns": []
-                }
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "has_header" not in options
-        assert "_provided_header_columns" not in options
-
-    def test_derive_reader_options_header_other_mode(self):
-        """Test derive_reader_options with non-provided header mode."""
-        schema = {
-            "x-csv": {
-                "header": {
-                    "mode": "stability_scan",
-                    "keywords": ["id", "name"]
-                }
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "has_header" not in options
-        assert "_provided_header_columns" not in options
-
-    def test_derive_reader_options_header_not_dict(self):
-        """Test derive_reader_options with header not being a dict."""
-        schema = {
-            "x-csv": {
-                "header": "invalid"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "has_header" not in options
-        assert "_provided_header_columns" not in options
-
-    def test_derive_reader_options_extra_columns_drop(self):
-        """Test derive_reader_options with extraColumns drop policy."""
-        schema = {
-            "x-csv": {
-                "extraColumns": "drop"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert options["truncate_ragged_lines"] is True
-
-    def test_derive_reader_options_extra_columns_other(self):
-        """Test derive_reader_options with non-drop extraColumns policy."""
-        schema = {
-            "x-csv": {
-                "extraColumns": "keep"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-        assert "truncate_ragged_lines" not in options
-
-    def test_derive_reader_options_comprehensive(self):
-        """Test derive_reader_options with all options configured."""
-        schema = {
-            "x-csv": {
-                "encodingPriority": ["utf-8", "latin-1"],
-                "delimiter": "\\t",
-                "quotechar": "'",
-                "nulls": {
-                    "global": ["", "NULL"]
-                },
-                "header": {
-                    "mode": "provided",
-                    "columns": ["col1", "col2"]
-                },
-                "extraColumns": "drop"
-            }
-        }
-        importer = CsvSchemaImporter(schema)
-
-        options = importer.derive_reader_options()
-
-        expected = {
-            "encoding": "utf-8",
-            "delimiter": "\t",
-            "quote_char": "'",
-            "null_values": ["", "NULL"],
-            "has_header": False,
-            "_provided_header_columns": ["col1", "col2"],
-            "truncate_ragged_lines": True
-        }
-
-        assert options == expected
-
-    def test_derive_reader_options_real_world_schema(self):
-        """Test derive_reader_options with a real-world schema example."""
-        # Using the badcsv1.json schema structure
-        schema = {
-            "x-csv": {
-                "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
-                "delimiter": ",",
-                "quotechar": "\"",
-                "escapechar": "\\\\",
-                "multiline": True,
-                "header": {"mode": "stability_scan", "keywords": ["id","email","amount"]},
-                "footer": {"mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b"},
-                "nulls": {"global": ["", "NA", "N/A", "-"]},
-                "case": {"standardizeNames": "postgres", "dedupeNames": "suffix"}
-            }
-        }
-
-        importer = CsvSchemaImporter(schema)
-        options = importer.derive_reader_options()
-
-        expected = {
-            "encoding": "utf-8-sig",
-            "delimiter": ",",
-            "quote_char": "\"",
-            "null_values": ["", "NA", "N/A", "-"]
-        }
-
-        assert options == expected
+                # Should not raise validation error
+                importer = CsvSchemaImporter(schema)
+                assert importer.schema == schema
 
 
 if __name__ == "__main__":

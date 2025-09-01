@@ -44,6 +44,8 @@ import polars as pl
 import io, re
 
 from ..schema.csv_schema_importer import CsvSchemaImporter
+from .csv_header import stability_scan_skip_rows, atomic_regex_skip_rows
+from .csv_chunk import parse_chunk_text
 
 SchemaMode = Literal["accept", "infer", "enforce"]
 HeaderDetectionMode = Literal["header", "firstcol", "regex", "off"]
@@ -65,70 +67,130 @@ class CsvReader:
 
     # ------------------------------------------------------------------
     def read(self, source_path: str, options: Dict[str, Any]) -> pl.DataFrame:
-        # Extract forklift schema if provided
-        forklift_schema_obj = options.pop("forklift_schema", None)
-        derived_schema_options: Dict[str, Any] = {}
-        importer = None
-        if forklift_schema_obj is not None:
-            importer = CsvSchemaImporter(forklift_schema_obj)
-            self.last_forklift_schema = importer.as_dict()
-            derived_schema_options = importer.derive_reader_options()
-            # Conflict detection: user-specified structural params
-            conflict_keys = {k for k in options.keys() if k in {"columns", "new_columns", "dtypes", "schema"}}
-            if conflict_keys:
-                raise ValueError(
-                    "Cannot supply both forklift_schema and explicit column structure arguments: "
-                    + ", ".join(sorted(conflict_keys))
-                )
-            # Merge: importer derived first, then user overrides (user precedence)
-            merged: Dict[str, Any] = {**derived_schema_options, **options}
-            options = merged
-        else:
-            self.last_forklift_schema = None
+        """Public entrypoint – orchestrates read flow (atomic or chunk).
 
+        Behavior preserved from original monolithic implementation; logic is now
+        decomposed into focused helpers for schema integration, option prep,
+        mode validation, optional pre-scans, and final dispatch.
+        """
+        # 1. Forklift schema integration & merge
+        importer, options = self._integrate_forklift_schema(options)
+
+        # 2. Provided header columns (from schema importer) retained separately
         provided_header_cols = options.pop("_provided_header_columns", None)
-        # delimiter alias -> separator (non-destructive if separator already set)
+
+        # 3. Normalize delimiter alias & establish encoding early
+        separator = self._apply_delimiter_alias(options)
+        encoding = options.get("encoding", self.default_encoding)
+
+        # 4. Stability scan (special schema extension) may set skip_rows
+        self._maybe_apply_stability_scan(importer, source_path, encoding, options)
+
+        # 5. Extract core modes & parameters
+        (processing_mode,
+         chunk_size,
+         schema_mode,
+         header_mode,
+         collect_bad,
+         has_header,
+         encoding,
+         header_regex) = self._extract_core_parameters(options, encoding)
+
+        # 6. Validate mode combinations
+        self._validate_mode_combinations(schema_mode, header_mode)
+
+        # 7. Atomic regex header prescan (sets skip_rows) if needed
+        self._maybe_atomic_regex_prescan(
+            processing_mode=processing_mode,
+            schema_mode=schema_mode,
+            header_mode=header_mode,
+            header_regex=header_regex,
+            has_header=has_header,
+            source_path=source_path,
+            encoding=encoding,
+            separator=separator,
+            options=options,
+        )
+
+        # 8. Dispatch by processing mode
+        if processing_mode == "atomic":
+            df = self._read_atomic(
+                source_path=source_path,
+                options=options,
+                schema_mode=schema_mode,
+                has_header=has_header,
+                header_mode=header_mode,
+            )
+        else:
+            # Prepare base_options for streaming (avoid duplicate has_header)
+            base_options = dict(options)
+            base_options.pop("has_header", None)
+            df = self._read_chunked_stream(
+                source_path=source_path,
+                base_options=base_options,
+                schema_mode=schema_mode,
+                has_header=has_header,
+                header_mode=header_mode,
+                chunk_size=chunk_size,
+                separator=separator,
+                collect_bad_rows=collect_bad,
+                header_regex=header_regex,
+                encoding=encoding,
+            )
+
+        # 9. Apply provided header column rename/drop if present
+        if provided_header_cols:
+            df = self._apply_provided_header(df, provided_header_cols)
+        return df
+
+    # ------------------------------------------------------------------
+    # Helper decomposition of original read logic
+    def _integrate_forklift_schema(self, options: Dict[str, Any]):
+        """Handle forklift_schema option merge & conflict detection.
+
+        Returns (importer_or_None, merged_options)
+        """
+        forklift_schema_obj = options.pop("forklift_schema", None)
+        if forklift_schema_obj is None:
+            self.last_forklift_schema = None
+            return None, options
+        importer = CsvSchemaImporter(forklift_schema_obj)
+        self.last_forklift_schema = importer.as_dict()
+        derived_schema_options: Dict[str, Any] = importer.derive_reader_options()
+        # Conflict detection with user explicit structural params
+        conflict_keys = {k for k in options.keys() if k in {"columns", "new_columns", "dtypes", "schema"}}
+        if conflict_keys:
+            raise ValueError(
+                "Cannot supply both forklift_schema and explicit column structure arguments: "
+                + ", ".join(sorted(conflict_keys))
+            )
+        # Merge: importer derived first, then user overrides (user precedence)
+        merged: Dict[str, Any] = {**derived_schema_options, **options}
+        return importer, merged
+
+    def _apply_delimiter_alias(self, options: Dict[str, Any]) -> str:
         delimiter = options.pop("delimiter", None)
         if delimiter and "separator" not in options:
             options["separator"] = delimiter
-        separator = options.get("separator", ",")
+        return options.get("separator", ",")
 
-        # Establish encoding early (may be needed for header scan)
-        encoding = options.get("encoding", self.default_encoding)
+    def _maybe_apply_stability_scan(self, importer, source_path: str, encoding: str, options: Dict[str, Any]) -> None:
+        if importer is None:
+            return
+        header_cfg = importer.csv_ext.get("header") if isinstance(importer.csv_ext, dict) else None
+        if (
+            isinstance(header_cfg, dict)
+            and header_cfg.get("mode") == "stability_scan"
+            and "skip_rows" not in options
+        ):
+            options["skip_rows"] = stability_scan_skip_rows(
+                source_path, encoding=encoding, keywords=header_cfg.get("keywords")
+            ) or options.get("skip_rows", 0)
 
-        # Header stability scan (schema extension header.mode == 'stability_scan')
-        if importer is not None:
-            header_cfg = importer.csv_ext.get("header") if isinstance(importer.csv_ext, dict) else None
-            if isinstance(header_cfg, dict) and header_cfg.get("mode") == "stability_scan" and "skip_rows" not in options:
-                keywords = header_cfg.get("keywords") or []
-                lowered_keywords = [k.lower() for k in keywords if isinstance(k, str)]
-                skip_rows_calc = 0
-                try:
-                    with open(source_path, "r", encoding=encoding) as fscan:
-                        while True:
-                            pos = fscan.tell()
-                            line = fscan.readline()
-                            if not line:
-                                break
-                            stripped = line.strip("\n")
-                            if stripped.startswith("#"):
-                                skip_rows_calc += 1
-                                continue
-                            # Determine if this looks like header: either contains all keywords or first non-comment line if no keywords
-                            header_line_lower = stripped.lower()
-                            if not lowered_keywords or all(kw in header_line_lower for kw in lowered_keywords):
-                                # Found header line; do not skip it (polars will parse it as header)
-                                break
-                            else:
-                                # Not a header yet; treat as comment/skip (defensive)
-                                skip_rows_calc += 1
-                    if skip_rows_calc > 0:
-                        options["skip_rows"] = skip_rows_calc
-                except OSError:
-                    pass  # If file can't be read, fall back silently
-
+    def _extract_core_parameters(self, options: Dict[str, Any], encoding: str):
         has_header = options.pop("has_header", self.default_has_header)
         options["has_header"] = has_header
+        # Normalize encoding handling (pop to ensure explicit entry preserved)
         encoding = options.pop("encoding", encoding)
         options["encoding"] = encoding
 
@@ -143,62 +205,74 @@ class CsvReader:
         header_mode: HeaderDetectionMode = options.pop("header_comment_detection_mode", "off")  # type: ignore[assignment]
         collect_bad = bool(options.pop("collect_bad_rows", False))
         header_regex_pattern: Optional[str] = options.pop("header_regex", None)
-        header_regex = re.compile(header_regex_pattern) if header_regex_pattern and header_mode == "regex" else None
+        header_regex = (
+            re.compile(header_regex_pattern)
+            if header_regex_pattern and header_mode == "regex"
+            else None
+        )
+        return (
+            processing_mode,
+            chunk_size,
+            schema_mode,
+            header_mode,
+            collect_bad,
+            has_header,
+            encoding,
+            header_regex,
+        )
 
+    def _validate_mode_combinations(self, schema_mode: SchemaMode, header_mode: HeaderDetectionMode) -> None:
         if schema_mode in ("accept", "infer") and header_mode != "off":
             raise ValueError("header_comment_detection_mode only supported with schema_mode='enforce'")
 
-        # --- ATOMIC REGEX HEADER DETECTION INSERTION START ---
-        if processing_mode == "atomic" and schema_mode == "enforce" and header_mode == "regex" and header_regex is not None and has_header:
-            # Scan file to determine skip_rows (lines before header) similar to chunk logic
-            skip_rows_calc = 0
-            try:
-                with open(source_path, "r", encoding=encoding) as fscan:
-                    while True:
-                        line = fscan.readline()
-                        if not line:
-                            break
-                        candidate = line.rstrip("\n")
-                        first_field = candidate.split(separator, 1)[0]
-                        if header_regex.search(first_field):
-                            # Found header; stop — do not skip this line
-                            break
-                        else:
-                            skip_rows_calc += 1
-                if skip_rows_calc > 0:
-                    options["skip_rows"] = skip_rows_calc
-            except OSError:
-                pass
-        # --- ATOMIC REGEX HEADER DETECTION INSERTION END ---
-        if processing_mode == "atomic":
-            if schema_mode == "accept":
-                df = self._schema_accept(source_path, options)
-            elif schema_mode == "infer":
-                df = self._schema_infer(source_path, options)
-            elif schema_mode == "enforce":
-                df = self._schema_enforce(source_path, options, has_header=has_header, header_mode=header_mode)
-            else:
-                raise ValueError(f"Unknown schema_mode '{schema_mode}'. Expected one of: accept, infer, enforce")
-            if provided_header_cols:
-                df = self._apply_provided_header(df, provided_header_cols)
-            return df
-        # Prepare base_options for streaming: remove has_header to avoid duplicate kw
-        base_options = dict(options)
-        base_options.pop("has_header", None)
-        df = self._read_chunked_stream(
-            source_path=source_path,
-            base_options=base_options,
-            schema_mode=schema_mode,
-            has_header=has_header,
-            header_mode=header_mode,
-            chunk_size=chunk_size,
-            separator=separator,
-            collect_bad_rows=collect_bad,
-            header_regex=header_regex,
-            encoding=encoding,
-        )
-        if provided_header_cols:
-            df = self._apply_provided_header(df, provided_header_cols)
+    def _maybe_atomic_regex_prescan(
+        self,
+        *,
+        processing_mode: ProcessingMode,
+        schema_mode: SchemaMode,
+        header_mode: HeaderDetectionMode,
+        header_regex,
+        has_header: bool,
+        source_path: str,
+        encoding: str,
+        separator: str,
+        options: Dict[str, Any],
+    ) -> None:
+        if (
+            processing_mode == "atomic"
+            and schema_mode == "enforce"
+            and header_mode == "regex"
+            and header_regex is not None
+            and has_header
+            and "skip_rows" not in options
+        ):
+            skip_found = atomic_regex_skip_rows(
+                source_path, encoding=encoding, regex=header_regex, separator=separator
+            )
+            if skip_found:
+                options["skip_rows"] = skip_found
+
+    def _read_atomic(
+        self,
+        *,
+        source_path: str,
+        options: Dict[str, Any],
+        schema_mode: SchemaMode,
+        has_header: bool,
+        header_mode: HeaderDetectionMode,
+    ) -> pl.DataFrame:
+        if schema_mode == "accept":
+            df = self._schema_accept(source_path, options)
+        elif schema_mode == "infer":
+            df = self._schema_infer(source_path, options)
+        elif schema_mode == "enforce":
+            df = self._schema_enforce(
+                source_path, options, has_header=has_header, header_mode=header_mode
+            )
+        else:  # Defensive (already validated elsewhere)
+            raise ValueError(
+                f"Unknown schema_mode '{schema_mode}'. Expected one of: accept, infer, enforce"
+            )
         return df
 
     # ------------------------------------------------------------------
@@ -238,52 +312,30 @@ class CsvReader:
             buffer_lines: List[str] = []
             data_rows_in_buffer = 0
 
-            def flush_chunk(final=False):
+            def flush_chunk():
                 nonlocal buffer_lines, data_rows_in_buffer, dtype_map, header_columns
                 if data_rows_in_buffer == 0:
                     buffer_lines = []
                     return
                 text = "".join(buffer_lines)
-                sio = io.StringIO(text)
-                # Determine parsing flags
-                if header_columns is None:
-                    # First chunk with header line included if has_header
-                    parse_has_header = has_header and header_found
-                    parse_new_columns = None
-                else:
-                    parse_has_header = False
-                    parse_new_columns = header_columns
-                df = pl.read_csv(
-                    sio,
-                    has_header=parse_has_header,
-                    new_columns=parse_new_columns,
-                    infer_schema=(schema_mode == "infer" and dtype_map is None),
-                    **base_options,
+                df_chunk, dtype_map = parse_chunk_text(
+                    text,
+                    schema_mode=schema_mode,
+                    dtype_map=dtype_map,
+                    header_columns=header_columns,
+                    has_header=has_header,
+                    header_found=header_found,
+                    base_options=base_options,
                 )
-                if dtype_map is None and schema_mode == "infer":
-                    dtype_map = {c: dt for c, dt in zip(df.columns, df.dtypes)}
-                elif dtype_map is not None and schema_mode == "infer":
-                    # Cast columns to stabilized dtypes (lenient to avoid hard failures)
-                    casts = []
-                    for c, dt in dtype_map.items():
-                        if c in df.columns and df[c].dtype != dt:
-                            try:
-                                casts.append(pl.col(c).cast(dt, strict=False))
-                            except Exception:
-                                pass
-                    if casts:
-                        df = df.with_columns(casts)
-                dataframes.append(df)
+                dataframes.append(df_chunk)
                 buffer_lines = []
                 data_rows_in_buffer = 0
 
-            line_number = 0
             while True:
                 line = f.readline()
                 if not line:  # EOF
-                    flush_chunk(final=True)
+                    flush_chunk()
                     break
-                line_number += 1
                 if not header_found:
                     # Header detection phase (only first segment until header discovered)
                     candidate = line.rstrip("\n")

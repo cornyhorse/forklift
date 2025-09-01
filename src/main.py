@@ -4,7 +4,7 @@ from pathlib import Path
 # Use the public high-level API
 from forklift import read_csv
 
-SAMPLE_PATH = Path("/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.csv")
+SAMPLE_PATH = Path("/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt")
 
 
 def main() -> None:

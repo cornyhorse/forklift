@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 import polars as pl
 from forklift import read_csv
+from forklift.inputs import csv as csv_module
 
 # Helper to write a temporary file
 
@@ -99,3 +100,55 @@ def test_chunk_enforce_regex_header_detection(tmp_path):
     assert df.shape[0] == 2
 
 
+# Additional tests for uncovered branches
+
+def test_enforce_firstcol_atomic(tmp_path):
+    p = write(tmp_path, 'firstcol.csv', 'col1,col2\n1,2\n')
+    df = read_csv(str(p), schema_mode='enforce', header_comment_detection_mode='firstcol')
+    assert df.shape == (1,2)
+
+
+def test_enforce_invalid_header_mode_atomic(tmp_path):
+    p = write(tmp_path, 'invalid_header.csv', 'a,b\n1,2\n')
+    with pytest.raises(ValueError):
+        read_csv(str(p), schema_mode='enforce', header_comment_detection_mode='notreal')
+
+
+def test_provided_header_too_many_columns_error(tmp_path):
+    p = write(tmp_path, 'fewcols.csv', '1,2\n')
+    bad_schema = {
+        'type': 'object', 'properties': {},
+        'x-csv': {'header': {'mode': 'provided', 'columns': ['c1','c2','c3']}, 'delimiter': ','}
+    }
+    with pytest.raises(ValueError):
+        read_csv(str(p), forklift_schema=bad_schema)
+
+
+def test_empty_atomic_with_header(tmp_path):
+    p = write(tmp_path, 'empty_header.csv', 'a,b\n')
+    df = read_csv(str(p))
+    assert df.shape == (0,2)
+
+
+def test_empty_chunk_file(tmp_path):
+    p = write(tmp_path, 'empty_chunk.csv', '')
+    df = read_csv(str(p), processing_mode='chunk', chunk_size=2)
+    assert df.shape == (0,0)
+
+
+def test_chunk_regex_collect_bad_rows(tmp_path):
+    content = 'junk1,x\njunk2,y\nHDR,a,b\n1,2,3\n'  # first_field matches only HDR
+    p = write(tmp_path, 'badrows.csv', content)
+    df = read_csv(str(p), schema_mode='enforce', processing_mode='chunk', header_comment_detection_mode='regex', header_regex='^HDR', collect_bad_rows=True)
+    # Expect two data rows (1,2,3) and header columns
+    assert df.shape[0] == 1  # only one data row after header line? Actually lines after header is one
+    bad = csv_module._csv_reader.get_bad_rows()
+    assert len(bad) == 2
+
+
+def test_atomic_regex_skip_preheader(tmp_path):
+    content = 'xx1,x\nxx2,y\nHDR,c\nval,1\n'
+    p = write(tmp_path, 'atomic_regex.csv', content)
+    df = read_csv(str(p), schema_mode='enforce', header_comment_detection_mode='regex', header_regex='^HDR')
+    assert df.columns[0] == 'HDR'
+    assert df.shape[0] == 1

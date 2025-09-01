@@ -1,4 +1,4 @@
-"""Integration tests for S3 streaming with real S3 operations using mattstash configuration."""
+"""Integration tests for S3 streaming with real S3 operations using .env file configuration."""
 
 import pytest
 import tempfile
@@ -7,12 +7,6 @@ import csv
 from pathlib import Path
 from typing import Dict, Any
 import time
-
-# Import mattstash for S3 connection configuration
-try:
-    from mattstash import Stash
-except ImportError:
-    pytest.skip("mattstash not available", allow_module_level=True)
 
 from forklift.io.s3_streaming import S3StreamingClient, S3Path
 from forklift.io.unified_io import UnifiedIOHandler
@@ -26,18 +20,36 @@ class TestS3StreamingIntegration:
 
     @pytest.fixture(scope="class")
     def s3_config(self):
-        """Get S3 configuration from mattstash."""
-        stash = Stash()
+        """Get S3 configuration from .env file."""
         config = {
-            'aws_access_key_id': stash.get('AWS_ACCESS_KEY_ID'),
-            'aws_secret_access_key': stash.get('AWS_SECRET_ACCESS_KEY'),
-            'region_name': stash.get('AWS_DEFAULT_REGION', 'us-east-1'),
-            'test_bucket': stash.get('S3_TEST_BUCKET', 'cornyhorse-data')
+            'aws_access_key_id': None,
+            'aws_secret_access_key': None,
+            'region_name': 'us-east-1',
+            'test_bucket': 'cornyhorse-data',
+            'endpoint_url': None
         }
+
+        # Load from environment variables or .env file
+        from dotenv import load_dotenv
+        import os
+        from pathlib import Path
+
+        # Load from ~/.credentials/.env first, then fallback to local .env
+        credentials_path = Path.home() / '.credentials' / '.env'
+        if credentials_path.exists():
+            load_dotenv(credentials_path)
+        else:
+            load_dotenv()  # fallback to local .env
+
+        config['aws_access_key_id'] = os.getenv('AWS_ACCESS_KEY_ID')
+        config['aws_secret_access_key'] = os.getenv('AWS_SECRET_ACCESS_KEY')
+        config['region_name'] = os.getenv('AWS_DEFAULT_REGION', 'eu-north-1')
+        config['test_bucket'] = os.getenv('S3_TEST_BUCKET', 'cornyhorse-data')
+        config['endpoint_url'] = os.getenv('AWS_ENDPOINT_URL')
 
         # Skip if no credentials are configured
         if not config['aws_access_key_id'] or not config['aws_secret_access_key']:
-            pytest.skip("AWS credentials not configured in mattstash")
+            pytest.skip("AWS credentials not configured")
 
         return config
 
@@ -47,7 +59,8 @@ class TestS3StreamingIntegration:
         return S3StreamingClient(
             aws_access_key_id=s3_config['aws_access_key_id'],
             aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name']
+            region_name=s3_config['region_name'],
+            endpoint_url=s3_config['endpoint_url']
         )
 
     @pytest.fixture
@@ -80,7 +93,8 @@ class TestS3StreamingIntegration:
             client = S3StreamingClient(
                 aws_access_key_id=s3_config['aws_access_key_id'],
                 aws_secret_access_key=s3_config['aws_secret_access_key'],
-                region_name=s3_config['region_name']
+                region_name=s3_config['region_name'],
+                endpoint_url=s3_config['endpoint_url']
             )
 
             for s3_path in objects_to_cleanup:
@@ -266,7 +280,8 @@ class TestS3StreamingIntegration:
         client = S3StreamingClient(
             aws_access_key_id=s3_config['aws_access_key_id'],
             aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name']
+            region_name=s3_config['region_name'],
+            endpoint_url=s3_config['endpoint_url']
         )
 
         nonexistent_path = "s3://this-bucket-should-not-exist-12345/test.csv"

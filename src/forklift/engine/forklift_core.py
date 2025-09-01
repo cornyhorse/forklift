@@ -1012,7 +1012,7 @@ class ForkliftCore:
         if is_s3_path(output_path):
             # S3 output
             manifest_path = S3Path(str(output_path)).join("manifest.json")
-            with self.io_handler.open_for_write(manifest_path, encoding='utf-8') as f:
+            with self.io_handler.open_for_write(str(manifest_path), encoding='utf-8') as f:
                 json.dump(manifest, f, indent=2)
             return str(manifest_path)
         else:
@@ -1060,7 +1060,7 @@ class ForkliftCore:
         if is_s3_path(output_path):
             # S3 output
             metadata_path = S3Path(str(output_path)).join("metadata.json")
-            with self.io_handler.open_for_write(metadata_path, encoding='utf-8') as f:
+            with self.io_handler.open_for_write(str(metadata_path), encoding='utf-8') as f:
                 json.dump(metadata, f, indent=2)
             return str(metadata_path)
         else:

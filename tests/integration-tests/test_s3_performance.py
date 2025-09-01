@@ -6,11 +6,7 @@ import tempfile
 from pathlib import Path
 import csv
 import io
-
-try:
-    from mattstash import Stash
-except ImportError:
-    pytest.skip("mattstash not available", allow_module_level=True)
+import os
 
 from forklift.io.s3_streaming import S3StreamingClient
 from forklift.io.unified_io import UnifiedIOHandler
@@ -24,17 +20,16 @@ class TestS3StreamingPerformance:
 
     @pytest.fixture(scope="class")
     def s3_config(self):
-        """Get S3 configuration from mattstash."""
-        stash = Stash()
+        """Get S3 configuration from environment variables."""
         config = {
-            'aws_access_key_id': stash.get('AWS_ACCESS_KEY_ID'),
-            'aws_secret_access_key': stash.get('AWS_SECRET_ACCESS_KEY'),
-            'region_name': stash.get('AWS_DEFAULT_REGION', 'us-east-1'),
-            'test_bucket': stash.get('S3_TEST_BUCKET', 'forklift-test-bucket')
+            'aws_access_key_id': os.getenv('AWS_ACCESS_KEY_ID'),
+            'aws_secret_access_key': os.getenv('AWS_SECRET_ACCESS_KEY'),
+            'region_name': os.getenv('AWS_DEFAULT_REGION', 'us-east-1'),
+            'test_bucket': os.getenv('S3_TEST_BUCKET', 'forklift-test-bucket')
         }
 
         if not config['aws_access_key_id'] or not config['aws_secret_access_key']:
-            pytest.skip("AWS credentials not configured in mattstash")
+            pytest.skip("AWS credentials not configured")
 
         return config
 
@@ -233,7 +228,11 @@ class TestS3StreamingPerformance:
 
     def test_memory_efficiency_large_file(self, s3_config, large_csv_data):
         """Test memory efficiency with large files."""
-        import psutil
+        try:
+            import psutil
+        except ImportError:
+            pytest.skip("psutil not available - skipping memory efficiency test")
+
         import os
 
         # Get current process

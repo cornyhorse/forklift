@@ -96,7 +96,7 @@ class UnifiedIOHandler:
         if is_s3_path(path):
             return self.s3_client.open_for_write(path, encoding=encoding)
         else:
-            # Ensure parent directory exists for local files
+            # Ensure parent directory exists for local files only
             Path(path).parent.mkdir(parents=True, exist_ok=True)
             return open(path, 'w', encoding=encoding, **kwargs)
 
@@ -339,3 +339,18 @@ def create_parquet_writer(path: Union[str, Path], schema: pa.Schema,
         # Ensure parent directory exists for local files
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         return pq.ParquetWriter(path, schema, compression=compression, **kwargs)
+
+
+def get_s3_client(**kwargs) -> S3StreamingClient:
+    """Get S3 streaming client with default configuration.
+
+    This function is used by tests for mocking purposes.
+
+    Args:
+        **kwargs: Additional configuration for S3StreamingClient
+
+    Returns:
+        Configured S3StreamingClient instance
+    """
+    from .s3_streaming import get_s3_client as _get_s3_client
+    return _get_s3_client(**kwargs)

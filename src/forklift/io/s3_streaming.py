@@ -76,6 +76,7 @@ class S3StreamingClient:
                  aws_secret_access_key: Optional[str] = None,
                  aws_session_token: Optional[str] = None,
                  region_name: Optional[str] = None,
+                 endpoint_url: Optional[str] = None,
                  **kwargs):
         """Initialize S3 streaming client.
 
@@ -84,6 +85,7 @@ class S3StreamingClient:
             aws_secret_access_key: AWS secret access key (optional)
             aws_session_token: AWS session token (optional, for temporary credentials)
             region_name: AWS region name (optional, uses boto3 default)
+            endpoint_url: Custom S3 endpoint URL (optional, for S3-compatible services like Hetzner)
             **kwargs: Additional boto3 client parameters
         """
         self._session = boto3.Session(
@@ -92,6 +94,11 @@ class S3StreamingClient:
             aws_session_token=aws_session_token,
             region_name=region_name
         )
+
+        # Add endpoint_url to kwargs if provided
+        if endpoint_url:
+            kwargs['endpoint_url'] = endpoint_url
+
         self._s3_client = self._session.client('s3', **kwargs)
 
     def exists(self, s3_path: Union[str, S3Path]) -> bool:
@@ -296,6 +303,14 @@ class S3StreamingWriter:
             )
         except Exception:
             # Abort upload on failure
+            self._abort_upload()
+            raise
+        finally:
+            self._closed = True
+
+    def _abort_upload(self):
+        """Abort the multipart upload (cleanup method)."""
+        if not self._closed:
             try:
                 self._s3_client.abort_multipart_upload(
                     Bucket=self._s3_path.bucket,
@@ -304,9 +319,8 @@ class S3StreamingWriter:
                 )
             except Exception:
                 pass  # Best effort cleanup
-            raise
-        finally:
-            self._closed = True
+            finally:
+                self._closed = True
 
     def __enter__(self):
         return self

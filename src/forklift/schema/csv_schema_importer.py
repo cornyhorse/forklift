@@ -112,7 +112,6 @@ class CsvSchemaImporter:
                 cols = header_cfg.get("columns") or header_cfg.get("cols")
                 if isinstance(cols, list) and cols:
                     derived["has_header"] = False
-                    # store for post-read renaming instead of relying on Polars new_columns (ignored when has_header=False)
                     derived["_provided_header_columns"] = cols
         # Extra columns handling
         extra_policy = ext.get("extraColumns")

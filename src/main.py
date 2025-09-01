@@ -1,18 +1,14 @@
 from __future__ import annotations
 from pathlib import Path
-
-# Use the public high-level API
-from forklift import read_csv
-
-SAMPLE_PATH = Path("/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt")
-
+from pprint import pprint
 
 def main() -> None:
-    if not SAMPLE_PATH.exists():
-        raise FileNotFoundError(f"Sample file not found: {SAMPLE_PATH}")
-    df = read_csv(SAMPLE_PATH, schema_mode='accept', delimiter=',')
-    # Show first few rows using underlying polars DataFrame
-    print(df.head())
+
+    schema = '/Users/matthewkingsbury/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.json'
+    from forklift.schema.csv_schema_importer import CsvSchemaImporter
+    importer = CsvSchemaImporter(schema)
+    print("Schema as dict:")
+    pprint(importer.as_dict())
 
 
 if __name__ == "__main__":  # simple manual smoke test

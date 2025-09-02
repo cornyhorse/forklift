@@ -83,33 +83,65 @@ class TestS3StreamingIntegration:
 
     @pytest.fixture
     def cleanup_s3_objects(self, s3_config):
-        """Fixture to clean up S3 objects after tests."""
+        """Fixture to clean up S3 objects before tests (to ensure clean state) but preserve after tests for investigation."""
         objects_to_cleanup = []
+
+        # Create client for cleanup operations
+        client = S3StreamingClient(
+            aws_access_key_id=s3_config['aws_access_key_id'],
+            aws_secret_access_key=s3_config['aws_secret_access_key'],
+            region_name=s3_config['region_name'],
+            endpoint_url=s3_config['endpoint_url']
+        )
 
         yield objects_to_cleanup
 
-        # Cleanup after test
-        if objects_to_cleanup:
-            client = S3StreamingClient(
-                aws_access_key_id=s3_config['aws_access_key_id'],
-                aws_secret_access_key=s3_config['aws_secret_access_key'],
-                region_name=s3_config['region_name'],
-                endpoint_url=s3_config['endpoint_url']
-            )
+        # Note: We intentionally do NOT clean up after tests to allow investigation
+        # Files are left in place for debugging purposes
+        print(f"\nTest completed. Files left in S3 for investigation:")
+        for s3_path in objects_to_cleanup:
+            print(f"  {s3_path}")
 
-            for s3_path in objects_to_cleanup:
-                try:
-                    s3_path_obj = S3Path(s3_path) if isinstance(s3_path, str) else s3_path
-                    client._s3_client.delete_object(
-                        Bucket=s3_path_obj.bucket,
-                        Key=s3_path_obj.key
-                    )
-                except Exception:
-                    pass  # Best effort cleanup
+    @pytest.fixture(autouse=True)
+    def cleanup_before_test(self, s3_config):
+        """Clean up any existing test files before running tests to ensure clean state."""
+        client = S3StreamingClient(
+            aws_access_key_id=s3_config['aws_access_key_id'],
+            aws_secret_access_key=s3_config['aws_secret_access_key'],
+            region_name=s3_config['region_name'],
+            endpoint_url=s3_config['endpoint_url']
+        )
+
+        # Define test prefixes to clean up
+        test_prefixes = [
+            "forklift/integration-test/",
+            "forklift/performance-test/",
+            "forklift/test-files-upload/",
+            "forklift/pipeline-test/"
+        ]
+
+        # Clean up any existing test files
+        for prefix in test_prefixes:
+            try:
+                response = client._s3_client.list_objects_v2(
+                    Bucket=s3_config['test_bucket'],
+                    Prefix=prefix
+                )
+
+                if 'Contents' in response:
+                    objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                    if objects_to_delete:
+                        client._s3_client.delete_objects(
+                            Bucket=s3_config['test_bucket'],
+                            Delete={'Objects': objects_to_delete}
+                        )
+                        print(f"Cleaned up {len(objects_to_delete)} existing objects with prefix: {prefix}")
+            except Exception as e:
+                print(f"Warning: Could not clean up prefix {prefix}: {e}")
 
     def test_s3_upload_download_roundtrip(self, s3_client, s3_config, test_data, cleanup_s3_objects):
         """Test uploading and downloading data to/from S3."""
-        test_key = f"forklift/integration-test/test-{int(time.time())}.csv"
+        test_key = f"forklift/integration-test/roundtrip-test.csv"
         s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
         cleanup_s3_objects.append(s3_path)
 
@@ -128,7 +160,7 @@ class TestS3StreamingIntegration:
 
     def test_large_file_multipart_upload(self, s3_client, s3_config, cleanup_s3_objects):
         """Test multipart upload with large file."""
-        test_key = f"forklift/integration-test/large-test-{int(time.time())}.csv"
+        test_key = f"forklift/integration-test/large-multipart-test.csv"
         s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
         cleanup_s3_objects.append(s3_path)
 
@@ -155,7 +187,7 @@ class TestS3StreamingIntegration:
         """Test UnifiedIOHandler with real S3 operations."""
         io_handler = UnifiedIOHandler()
 
-        test_key = f"forklift/integration-test/unified-test-{int(time.time())}.csv"
+        test_key = f"forklift/integration-test/unified-handler-test.csv"
         s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
         cleanup_s3_objects.append(s3_path)
 
@@ -179,10 +211,10 @@ class TestS3StreamingIntegration:
 
     def test_forklift_core_s3_to_s3_processing(self, s3_config, test_data, cleanup_s3_objects):
         """Test ForkliftCore processing S3 input to S3 output."""
-        timestamp = int(time.time())
-        input_key = f"forklift/integration-test/input-{timestamp}.csv"
-        schema_key = f"forklift/integration-test/schema-{timestamp}.json"
-        output_prefix = f"forklift/integration-test/output-{timestamp}/"
+        # Use consistent paths instead of timestamps
+        input_key = f"forklift/integration-test/core-processing-input.csv"
+        schema_key = f"forklift/integration-test/core-processing-schema.json"
+        output_prefix = f"forklift/integration-test/core-processing-output/"
 
         input_s3_path = f"s3://{s3_config['test_bucket']}/{input_key}"
         schema_s3_path = f"s3://{s3_config['test_bucket']}/{schema_key}"
@@ -191,12 +223,11 @@ class TestS3StreamingIntegration:
         cleanup_s3_objects.extend([input_s3_path, schema_s3_path])
 
         # Upload test data and schema to S3
-        io_handler = UnifiedIOHandler()
 
-        with io_handler.open_for_write(input_s3_path, encoding='utf-8') as writer:
+        with UnifiedIOHandler().open_for_write(input_s3_path, encoding='utf-8') as writer:
             writer.write(test_data['csv_content'])
 
-        with io_handler.open_for_write(schema_s3_path, encoding='utf-8') as writer:
+        with UnifiedIOHandler().open_for_write(schema_s3_path, encoding='utf-8') as writer:
             json.dump(test_data['schema_content'], writer, indent=2)
 
         # Configure ForkliftCore for S3 to S3 processing
@@ -219,22 +250,22 @@ class TestS3StreamingIntegration:
 
         # Verify output files exist in S3
         for output_file in results.output_files:
-            assert io_handler.exists(output_file)
+            assert UnifiedIOHandler().exists(output_file)
             cleanup_s3_objects.append(output_file)
 
         # Verify manifest and metadata files
         if results.manifest_file:
-            assert io_handler.exists(results.manifest_file)
+            assert UnifiedIOHandler().exists(results.manifest_file)
             cleanup_s3_objects.append(results.manifest_file)
 
         if results.metadata_file:
-            assert io_handler.exists(results.metadata_file)
+            assert UnifiedIOHandler().exists(results.metadata_file)
             cleanup_s3_objects.append(results.metadata_file)
 
     def test_mixed_local_s3_processing(self, s3_config, test_data, cleanup_s3_objects):
         """Test processing with local input and S3 output."""
-        timestamp = int(time.time())
-        output_prefix = f"forklift/integration-test/mixed-output-{timestamp}/"
+        # Use consistent path instead of timestamp
+        output_prefix = f"forklift/integration-test/mixed-output/"
         output_s3_path = f"s3://{s3_config['test_bucket']}/{output_prefix}"
 
         # Create temporary local input file

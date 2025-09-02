@@ -109,36 +109,58 @@ class TestS3FileUpload:
 
     @pytest.fixture
     def cleanup_s3_objects(self, s3_config):
-        """Fixture to clean up S3 objects after tests."""
+        """Fixture to clean up S3 objects before tests but preserve after tests for investigation."""
         objects_to_cleanup = []
 
         yield objects_to_cleanup
 
-        # Cleanup after test
-        if objects_to_cleanup:
-            client = S3StreamingClient(
-                aws_access_key_id=s3_config['aws_access_key_id'],
-                aws_secret_access_key=s3_config['aws_secret_access_key'],
-                region_name=s3_config['region_name'],
-                endpoint_url=s3_config['endpoint_url']
-            )
+        # Note: We intentionally do NOT clean up after tests to allow investigation
+        # Files are left in place for debugging purposes
+        print(f"\nTest completed. Files left in S3 for investigation:")
+        for s3_path in objects_to_cleanup:
+            print(f"  {s3_path}")
 
-            for s3_path in objects_to_cleanup:
-                try:
-                    s3_path_obj = S3Path(s3_path) if isinstance(s3_path, str) else s3_path
-                    client._s3_client.delete_object(
-                        Bucket=s3_path_obj.bucket,
-                        Key=s3_path_obj.key
-                    )
-                except Exception:
-                    pass  # Best effort cleanup
+    @pytest.fixture(autouse=True)
+    def cleanup_before_test(self, s3_config):
+        """Clean up any existing test files before running tests to ensure clean state."""
+        client = S3StreamingClient(
+            aws_access_key_id=s3_config['aws_access_key_id'],
+            aws_secret_access_key=s3_config['aws_secret_access_key'],
+            region_name=s3_config['region_name'],
+            endpoint_url=s3_config['endpoint_url']
+        )
+
+        # Define test prefixes to clean up
+        test_prefixes = [
+            "forklift/test-files-upload/",
+            "forklift/pipeline-test/"
+        ]
+
+        # Clean up any existing test files
+        for prefix in test_prefixes:
+            try:
+                response = client._s3_client.list_objects_v2(
+                    Bucket=s3_config['test_bucket'],
+                    Prefix=prefix
+                )
+
+                if 'Contents' in response:
+                    objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                    if objects_to_delete:
+                        client._s3_client.delete_objects(
+                            Bucket=s3_config['test_bucket'],
+                            Delete={'Objects': objects_to_delete}
+                        )
+                        print(f"Cleaned up {len(objects_to_delete)} existing objects with prefix: {prefix}")
+            except Exception as e:
+                print(f"Warning: Could not clean up prefix {prefix}: {e}")
 
     def test_upload_all_csv_files(self, s3_client, s3_config, csv_files, cleanup_s3_objects):
         """Test uploading all CSV test files to S3."""
         if not csv_files:
             pytest.skip("No CSV files found in test-files directory")
 
-        timestamp = int(time.time())
+        # Use consistent path instead of timestamp
         upload_results = []
 
         print(f"\nUploading {len(csv_files)} CSV files to S3...")
@@ -146,7 +168,7 @@ class TestS3FileUpload:
         for csv_file in csv_files:
             # Create S3 key preserving directory structure
             relative_path = csv_file.relative_to(csv_file.parents[2] / "test-files")
-            s3_key = f"forklift/test-files-upload/{timestamp}/csv/{relative_path}"
+            s3_key = f"forklift/test-files-upload/csv/{relative_path}"
             s3_path = f"s3://{s3_config['test_bucket']}/{s3_key}"
 
             cleanup_s3_objects.append(s3_path)
@@ -217,14 +239,12 @@ class TestS3FileUpload:
         success_rate = len(successful_uploads) / len(csv_files)
         assert success_rate >= 0.9, f"Upload success rate too low: {success_rate:.1%}"
 
-        return upload_results
-
     def test_upload_all_tsv_files(self, s3_client, s3_config, tsv_files, cleanup_s3_objects):
         """Test uploading all TSV test files to S3."""
         if not tsv_files:
             pytest.skip("No TSV files found in test-files directory")
 
-        timestamp = int(time.time())
+        # Use consistent path instead of timestamp
         upload_results = []
 
         print(f"\nUploading {len(tsv_files)} TSV files to S3...")
@@ -232,7 +252,7 @@ class TestS3FileUpload:
         for tsv_file in tsv_files:
             # Create S3 key preserving directory structure
             relative_path = tsv_file.relative_to(tsv_file.parents[2] / "test-files")
-            s3_key = f"forklift/test-files-upload/{timestamp}/tsv/{relative_path}"
+            s3_key = f"forklift/test-files-upload/tsv/{relative_path}"
             s3_path = f"s3://{s3_config['test_bucket']}/{s3_key}"
 
             cleanup_s3_objects.append(s3_path)
@@ -284,8 +304,6 @@ class TestS3FileUpload:
         success_rate = len(successful_uploads) / len(tsv_files)
         assert success_rate >= 0.9, f"Upload success rate too low: {success_rate:.1%}"
 
-        return upload_results
-
     def test_upload_batch_all_files(self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects):
         """Test uploading all CSV and TSV files in a single batch operation."""
         all_files = csv_files + tsv_files
@@ -293,7 +311,7 @@ class TestS3FileUpload:
         if not all_files:
             pytest.skip("No CSV or TSV files found in test-files directory")
 
-        timestamp = int(time.time())
+        # Use consistent path instead of timestamp
         upload_results = []
 
         print(f"\nBatch uploading {len(all_files)} files ({len(csv_files)} CSV, {len(tsv_files)} TSV) to S3...")
@@ -303,7 +321,7 @@ class TestS3FileUpload:
             file_type = "tsv" if any("tsv" in str(file_path) for x in ["tsv"]) or file_path.suffix == ".tsv" else "csv"
 
             relative_path = file_path.relative_to(file_path.parents[2] / "test-files")
-            s3_key = f"forklift/test-files-upload/{timestamp}/batch/{file_type}/{relative_path}"
+            s3_key = f"forklift/test-files-upload/batch/{file_type}/{relative_path}"
             s3_path = f"s3://{s3_config['test_bucket']}/{s3_key}"
 
             cleanup_s3_objects.append(s3_path)
@@ -389,8 +407,6 @@ class TestS3FileUpload:
             assert len(csv_uploads) > 0, "No CSV files were uploaded successfully"
             assert len(tsv_uploads) > 0, "No TSV files were uploaded successfully"
 
-        return upload_results
-
     def test_verify_uploaded_files_content(self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects):
         """Test that uploaded files can be read back and content matches original."""
         # Upload a few sample files and verify content
@@ -405,15 +421,14 @@ class TestS3FileUpload:
         if not sample_files:
             pytest.skip("No test files available for content verification")
 
-        timestamp = int(time.time())
-
+        # Use consistent path instead of timestamp
         print(f"\nVerifying content of {len(sample_files)} uploaded files...")
 
         for file_path in sample_files:
             file_type = "tsv" if "tsv" in str(file_path) else "csv"
 
             relative_path = file_path.relative_to(file_path.parents[2] / "test-files")
-            s3_key = f"forklift/test-files-upload/{timestamp}/verify/{file_type}/{relative_path}"
+            s3_key = f"forklift/test-files-upload/verify/{file_type}/{relative_path}"
             s3_path = f"s3://{s3_config['test_bucket']}/{s3_key}"
 
             cleanup_s3_objects.append(s3_path)
@@ -442,8 +457,7 @@ class TestS3FileUpload:
         if not csv_files and not tsv_files:
             pytest.skip("No CSV or TSV files found for processing pipeline test")
 
-        timestamp = int(time.time())
-
+        # Use consistent path instead of timestamp
         # First, upload some test files to S3 as source data
         source_files = []
         processed_results = []
@@ -470,7 +484,7 @@ class TestS3FileUpload:
         for file_path in test_files:
             file_type = "tsv" if "tsv" in str(file_path) else "csv"
             relative_path = file_path.relative_to(file_path.parents[2] / "test-files")
-            source_s3_key = f"forklift/pipeline-test/{timestamp}/source/{file_type}/{relative_path}"
+            source_s3_key = f"forklift/pipeline-test/source/{file_type}/{relative_path}"
             source_s3_path = f"s3://{s3_config['test_bucket']}/{source_s3_key}"
 
             cleanup_s3_objects.append(source_s3_path)
@@ -513,7 +527,7 @@ class TestS3FileUpload:
 
         for source_file in source_files:
             input_s3_path = source_file['s3_path']
-            output_s3_prefix = f"forklift/pipeline-test/{timestamp}/processed/{source_file['file_type']}/{source_file['name'].replace('.', '_')}-output/"
+            output_s3_prefix = f"forklift/pipeline-test/processed/{source_file['file_type']}/{source_file['name'].replace('.', '_')}-output/"
             output_s3_path = f"s3://{s3_config['test_bucket']}/{output_s3_prefix}"
 
             try:
@@ -637,10 +651,3 @@ class TestS3FileUpload:
         assert success_rate >= 0.8, f"Processing success rate too low: {success_rate:.1%}"
 
         print(f"✓ S3 to S3 processing pipeline completed successfully!")
-
-        return {
-            'source_files': source_files,
-            'processed_results': processed_results,
-            'success_rate': success_rate,
-            'total_output_files': total_output_files
-        }

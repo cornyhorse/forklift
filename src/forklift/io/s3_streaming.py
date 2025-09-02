@@ -141,16 +141,17 @@ class S3StreamingClient:
 
     def open_for_read(self, s3_path: Union[str, S3Path],
                       encoding: str = 'utf-8',
-                      chunk_size: int = 8192) -> TextIO:
+                      chunk_size: int = 8192, mode: str = 'r') -> Union[TextIO, BinaryIO]:
         """Open S3 object for streaming read.
 
         Args:
             s3_path: S3 path to read from
-            encoding: Text encoding for the file
+            encoding: Text encoding for the file (ignored for binary mode)
             chunk_size: Size of chunks to read at a time
+            mode: Read mode - 'r' for text, 'rb' for binary
 
         Returns:
-            Text stream for reading
+            Text stream for reading in text mode, binary stream for binary mode
 
         Raises:
             ClientError: If object doesn't exist or access is denied
@@ -159,18 +160,22 @@ class S3StreamingClient:
             s3_path = S3Path(s3_path)
 
         response = self._s3_client.get_object(Bucket=s3_path.bucket, Key=s3_path.key)
-
-        # Wrap the StreamingBody in a TextIOWrapper for text operations
         binary_stream = response['Body']
-        return io.TextIOWrapper(binary_stream, encoding=encoding)
+
+        # Return binary stream for binary mode, text wrapper for text mode
+        if 'b' in mode:
+            return binary_stream
+        else:
+            return io.TextIOWrapper(binary_stream, encoding=encoding)
 
     def open_for_write(self, s3_path: Union[str, S3Path],
-                       encoding: str = 'utf-8') -> 'S3StreamingWriter':
+                       encoding: str = 'utf-8', mode: str = 'w') -> 'S3StreamingWriter':
         """Open S3 object for streaming write using multipart upload.
 
         Args:
             s3_path: S3 path to write to
             encoding: Text encoding for the file
+            mode: Write mode - 'w' for text, 'wb' for binary
 
         Returns:
             S3StreamingWriter for writing data
@@ -178,7 +183,7 @@ class S3StreamingClient:
         if isinstance(s3_path, str):
             s3_path = S3Path(s3_path)
 
-        return S3StreamingWriter(self._s3_client, s3_path, encoding=encoding)
+        return S3StreamingWriter(self._s3_client, s3_path, encoding=encoding, mode=mode)
 
     def list_objects(self, s3_prefix: Union[str, S3Path],
                      max_keys: Optional[int] = None) -> Iterator[Dict[str, Any]]:
@@ -211,19 +216,22 @@ class S3StreamingWriter:
     """Streaming writer for S3 using multipart upload."""
 
     def __init__(self, s3_client, s3_path: S3Path, encoding: str = 'utf-8',
-                 part_size: int = 100 * 1024 * 1024):  # 100MB default
+                 part_size: int = 100 * 1024 * 1024, mode: str = 'w'):  # 100MB default
         """Initialize S3 streaming writer.
 
         Args:
             s3_client: boto3 S3 client
             s3_path: S3 path to write to
-            encoding: Text encoding
+            encoding: Text encoding (ignored for binary mode)
             part_size: Size of each multipart upload part (minimum 5MB for S3)
+            mode: Write mode - 'w' for text, 'wb' for binary
         """
         self._s3_client = s3_client
         self._s3_path = s3_path
         self._encoding = encoding
         self._part_size = max(part_size, 5 * 1024 * 1024)  # Minimum 5MB
+        self._mode = mode
+        self._is_binary = 'b' in mode
 
         # Initialize multipart upload
         self._upload_id = self._s3_client.create_multipart_upload(
@@ -236,27 +244,38 @@ class S3StreamingWriter:
         self._buffer = io.BytesIO()
         self._closed = False
 
-    def write(self, data: str) -> int:
-        """Write text data to S3 stream.
+    def write(self, data) -> int:
+        """Write data to S3 stream.
 
         Args:
-            data: Text data to write
+            data: Text data (str) for text mode, binary data (bytes) for binary mode
 
         Returns:
-            Number of characters written
+            Number of characters/bytes written
         """
         if self._closed:
             raise ValueError("Cannot write to closed stream")
 
-        # Convert to bytes and write to buffer
-        data_bytes = data.encode(self._encoding)
+        # Handle both text and binary data
+        if isinstance(data, str):
+            if self._is_binary:
+                raise ValueError("Cannot write string data in binary mode")
+            data_bytes = data.encode(self._encoding)
+            return_count = len(data)
+        elif isinstance(data, bytes):
+            data_bytes = data
+            return_count = len(data)
+        else:
+            raise TypeError(f"Unsupported data type: {type(data)}. Expected str or bytes.")
+
+        # Write to buffer
         bytes_written = self._buffer.write(data_bytes)
 
         # Upload part if buffer is large enough
         if self._buffer.tell() >= self._part_size:
             self._upload_part()
 
-        return len(data)
+        return return_count
 
     def _upload_part(self):
         """Upload current buffer as a part."""

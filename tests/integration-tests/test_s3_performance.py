@@ -68,10 +68,51 @@ class TestS3StreamingPerformance:
 
         return generate_data
 
-    def test_large_file_upload_performance(self, s3_client, s3_config, large_csv_data):
+    @pytest.fixture
+    def cleanup_s3_objects(self, s3_config):
+        """Fixture to clean up S3 objects before tests but preserve after tests for investigation."""
+        objects_to_cleanup = []
+
+        yield objects_to_cleanup
+
+        # Note: We intentionally do NOT clean up after tests to allow investigation
+        # Files are left in place for debugging purposes
+        print(f"\nPerformance test completed. Files left in S3 for investigation:")
+        for s3_path in objects_to_cleanup:
+            print(f"  {s3_path}")
+
+    @pytest.fixture(autouse=True)
+    def cleanup_before_test(self, s3_config):
+        """Clean up any existing performance test files before running tests."""
+        client = S3StreamingClient(
+            aws_access_key_id=s3_config['aws_access_key_id'],
+            aws_secret_access_key=s3_config['aws_secret_access_key'],
+            region_name=s3_config['region_name']
+        )
+
+        # Clean up any existing performance test files
+        try:
+            response = client._s3_client.list_objects_v2(
+                Bucket=s3_config['test_bucket'],
+                Prefix="forklift/performance-test/"
+            )
+
+            if 'Contents' in response:
+                objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                if objects_to_delete:
+                    client._s3_client.delete_objects(
+                        Bucket=s3_config['test_bucket'],
+                        Delete={'Objects': objects_to_delete}
+                    )
+                    print(f"Cleaned up {len(objects_to_delete)} existing performance test objects")
+        except Exception as e:
+            print(f"Warning: Could not clean up performance test objects: {e}")
+
+    def test_large_file_upload_performance(self, s3_client, s3_config, large_csv_data, cleanup_s3_objects):
         """Test performance of uploading large files to S3."""
-        test_key = f"forklift/performance-test/large-upload-{int(time.time())}.csv"
+        test_key = f"forklift/performance-test/large-upload-test.csv"
         s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
+        cleanup_s3_objects.append(s3_path)
 
         # Generate 100K rows (~10MB file)
         data = large_csv_data(100000)
@@ -150,9 +191,9 @@ class TestS3StreamingPerformance:
 
     def test_end_to_end_processing_performance(self, s3_config, large_csv_data):
         """Test end-to-end processing performance with S3."""
-        timestamp = int(time.time())
-        input_key = f"forklift/performance-test/e2e-input-{timestamp}.csv"
-        output_prefix = f"forklift/performance-test/e2e-output-{timestamp}/"
+        # Use consistent paths instead of timestamps
+        input_key = f"forklift/performance-test/e2e-input.csv"
+        output_prefix = f"forklift/performance-test/e2e-output/"
 
         input_s3_path = f"s3://{s3_config['test_bucket']}/{input_key}"
         output_s3_path = f"s3://{s3_config['test_bucket']}/{output_prefix}"
@@ -243,9 +284,9 @@ class TestS3StreamingPerformance:
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
-        timestamp = int(time.time())
-        input_key = f"forklift/performance-test/memory-test-{timestamp}.csv"
-        output_prefix = f"forklift/performance-test/memory-output-{timestamp}/"
+        # Use consistent paths instead of timestamps
+        input_key = f"forklift/performance-test/memory-test.csv"
+        output_prefix = f"forklift/performance-test/memory-output/"
 
         input_s3_path = f"s3://{s3_config['test_bucket']}/{input_key}"
         output_s3_path = f"s3://{s3_config['test_bucket']}/{output_prefix}"

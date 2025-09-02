@@ -1,13 +1,12 @@
 from __future__ import annotations
 from pathlib import Path
-from pprint import pprint
 import forklift as fl
 
 def main() -> None:
-    # Define paths
-    schema_file = '/Users/matthewkingsbury/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.json'
-    csv_file = '/Users/matthewkingsbury/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt'
-    output_dir = '/Users/matthewkingsbury/PycharmProjects/forklift/output/largecsv'
+    # Hardcoded absolute paths for your demo
+    schema_file = '/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.json'
+    csv_file = '/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt'
+    output_dir = '/Users/matt/PycharmProjects/forklift/output/largecsv'
 
     print("=== Forklift Large CSV Processing ===")
     print(f"Input CSV: {csv_file}")

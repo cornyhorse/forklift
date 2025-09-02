@@ -1,7 +1,6 @@
 """SQL database input handler for reading data from databases via ODBC."""
 
 from __future__ import annotations
-import re
 from typing import List, Optional, Iterator, Tuple
 import pyarrow as pa
 import logging
@@ -139,55 +138,63 @@ class SqlInputHandler:
 
         return tables
 
-    def filter_tables(self, include_patterns: List[str]) -> List[Tuple[str, str]]:
-        """Filter tables based on include patterns.
+    def get_specified_tables(self, table_specifications: List[str]) -> List[Tuple[str, str]]:
+        """Get tables based on explicit specifications.
 
         Args:
-            include_patterns: List of glob-like patterns (e.g., ['*.*', 'schema.table'])
+            table_specifications: List of table specifications in format:
+                - "table_name" (uses default schema)
+                - "schema.table_name" (fully qualified)
+                - For SQLite: "table_name" only
+                - For MySQL: "database.table_name" where database acts as schema
 
         Returns:
-            List of matching (schema_name, table_name) tuples
+            List of validated (schema_name, table_name) tuples
+
+        Raises:
+            ValueError: If table specification format is invalid
         """
-        all_tables = self.get_table_list()
+        if not self.connection:
+            raise ConnectionError("Not connected to database")
 
-        if not include_patterns or include_patterns == ['*.*']:
-            return all_tables
+        available_tables = self.get_table_list()
+        specified_tables = []
 
-        matched_tables = []
+        for spec in table_specifications:
+            schema_name, table_name = self._parse_table_specification(spec)
 
-        for pattern in include_patterns:
-            if '.' in pattern:
-                schema_pattern, table_pattern = pattern.split('.', 1)
+            # Validate that the table exists
+            if (schema_name, table_name) in available_tables:
+                specified_tables.append((schema_name, table_name))
             else:
-                schema_pattern = '*'
-                table_pattern = pattern
+                # Try with default schema if not found
+                default_matches = [(s, t) for s, t in available_tables if t == table_name]
+                if default_matches:
+                    specified_tables.append(default_matches[0])
+                    logger.info(f"Using {default_matches[0]} for specification '{spec}'")
+                else:
+                    logger.warning(f"Table not found: {spec}")
 
-            # Convert glob patterns to regex
-            schema_regex = self._glob_to_regex(schema_pattern)
-            table_regex = self._glob_to_regex(table_pattern)
+        return specified_tables
 
-            for schema_name, table_name in all_tables:
-                if (re.match(schema_regex, schema_name, re.IGNORECASE) and
-                    re.match(table_regex, table_name, re.IGNORECASE)):
-                    if (schema_name, table_name) not in matched_tables:
-                        matched_tables.append((schema_name, table_name))
-
-        return matched_tables
-
-    def _glob_to_regex(self, pattern: str) -> str:
-        """Convert glob pattern to regex pattern.
+    def _parse_table_specification(self, spec: str) -> Tuple[str, str]:
+        """Parse a table specification into schema and table name.
 
         Args:
-            pattern: Glob pattern with * and ? wildcards
+            spec: Table specification string
 
         Returns:
-            Regex pattern string
+            Tuple of (schema_name, table_name)
         """
-        # Escape special regex characters except * and ?
-        pattern = re.escape(pattern)
-        # Convert glob wildcards to regex
-        pattern = pattern.replace(r'\*', '.*').replace(r'\?', '.')
-        return f'^{pattern}$'
+        if '.' in spec:
+            parts = spec.split('.', 1)
+            schema_name = parts[0].strip()
+            table_name = parts[1].strip()
+        else:
+            schema_name = 'default'  # Will be resolved to actual default schema
+            table_name = spec.strip()
+
+        return schema_name, table_name
 
     def get_table_schema(self, schema_name: str, table_name: str) -> pa.Schema:
         """Get PyArrow schema for a table.

@@ -51,8 +51,14 @@ class SqlSchemaImporter:
         # Extract core schema components
         self.sql_ext: Dict[str, Any] = self.schema.get("x-sql", {})
 
-        # Extract SQL-specific configurations (simplified - no more glob patterns)
-        self.tables: List[Dict[str, Any]] = self.sql_ext.get("tables", [])
+        # Extract SQL-specific configurations with type safety
+        tables_raw = self.sql_ext.get("tables", [])
+        if isinstance(tables_raw, list):
+            self.tables: List[Dict[str, Any]] = tables_raw
+        else:
+            # Invalid type - will be caught during validation
+            self.tables = []
+
         self.parquet_type_mapping: Dict[str, Any] = self.sql_ext.get("parquetTypeMapping", {})
 
         # Validate schema if requested
@@ -128,9 +134,10 @@ class SqlSchemaImporter:
 
         # x-sql extension is optional, but if present must be valid
         if self.sql_ext:
-            # Validate tables array - this is now the primary configuration
+            # Validate tables array - check the original raw value, not the processed self.tables
             if "tables" in self.sql_ext:
-                if not isinstance(self.tables, list):
+                tables_raw = self.sql_ext["tables"]
+                if not isinstance(tables_raw, list):
                     errors.append("x-sql.tables must be an array")
 
             # Validate parquetTypeMapping
@@ -258,6 +265,10 @@ class SqlSchemaImporter:
         errors = []
 
         for i, table in enumerate(self.tables):
+            # Skip invalid table entries (they'll be caught by _validate_tables)
+            if not isinstance(table, dict):
+                continue
+
             columns = table.get("columns", {})
             for col_name, col_def in columns.items():
                 if isinstance(col_def, dict):

@@ -51,3 +51,12 @@ include = [
     "LICENSE",
     "CHANGELOG.md",
 ]
+
+[tool.pytest.ini_options]
+# Suppress NumPy re-import warnings that occur during pandas initialization in test environments.
+# This warning appears when pandas is imported multiple times across different test modules,
+# causing NumPy to be reloaded. The warning is informational only and doesn't affect functionality.
+# See: https://github.com/pandas-dev/pandas/issues/52831
+filterwarnings = [
+    "ignore:.*NumPy module was reloaded.*:UserWarning",
+]

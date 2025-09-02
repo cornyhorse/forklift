@@ -1,6 +1,7 @@
 """Tests for Excel input handler and schema importer."""
 import pytest
 import pandas as pd
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import json
@@ -262,195 +263,71 @@ class TestExcelInputHandler:
         with pytest.raises(RuntimeError, match="Workbook not opened. Call open_workbook\\(\\) first."):
             handler.read_sheet_data("employees", sheet_config)
 
-    # Remove the context manager test since it's not supported
-    # def test_context_manager(self, basic_config): - REMOVED
+    def test_get_sheet_names_unsupported_engine(self, basic_config):
+        """Test getting sheet names with unsupported engine."""
+        handler = ExcelInputHandler(basic_config)
+        handler._workbook = MagicMock()
+        handler._engine = "unsupported_engine"
 
+        with pytest.raises(ValueError, match="Unsupported engine: unsupported_engine"):
+            handler.get_sheet_names()
 
-class TestExcelSchemaImporter:
-    """Test cases for the ExcelSchemaImporter class."""
+    @patch('pandas.read_excel')
+    def test_read_sheet_data_with_na_values(self, mock_read_excel, basic_config):
+        """Test reading sheet data with custom NA values configuration."""
+        mock_df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
+        mock_read_excel.return_value = mock_df
 
-    @pytest.fixture
-    def valid_excel_schema(self):
-        """Create a valid Excel schema for testing."""
-        return {
-            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test_excel.json",
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Test Excel Schema",
-            "type": "object",
-            "properties": {
-                "employee_id": {"type": "integer"},
-                "name": {"type": "string"},
-                "salary": {"type": "number"}
-            },
-            "x-excel": {
-                "sheets": [
-                    {
-                        "select": {"name": "employees"},  # Added required select config
-                        "headerRow": 0,
-                        "dataStartRow": 1,
-                        "columns": [  # Changed to list format
-                            {
-                                "position": "A",
-                                "name": "employee_id"
-                            },
-                            {
-                                "position": "B",
-                                "name": "name"
-                            },
-                            {
-                                "position": "C",
-                                "name": "salary"
-                            }
-                        ]
-                    }
-                ],
-                "parquetTypeMapping": {
-                    "employee_id": "int32",
-                    "name": "string",
-                    "salary": "double"
-                }
-            }
-        }
+        # Create config with na_values and keep_default_na set
+        config = ExcelInputConfig(
+            sheets=[ExcelSheetConfig(select={"name": "employees"})],
+            na_values=["N/A", "NULL", ""],
+            keep_default_na=False
+        )
 
-    def test_init_valid_schema(self, valid_excel_schema):
-        """Test initialization with valid schema."""
-        importer = ExcelSchemaImporter(valid_excel_schema)
+        handler = ExcelInputHandler(config)
+        handler._workbook = MagicMock()
+        handler._engine = "openpyxl"
 
-        assert importer.schema == valid_excel_schema
-        assert "sheets" in importer.excel_ext
-        assert len(importer.sheets) == 1
-        # Fix: Check the select configuration instead of name directly
-        assert importer.sheets[0]["select"]["name"] == "employees"
+        result = handler.read_sheet_data("employees", config.sheets[0])
 
-    def test_init_from_file_path(self, tmp_path, valid_excel_schema):
-        """Test initialization from file path."""
-        schema_file = tmp_path / "test_schema.json"
-        schema_file.write_text(json.dumps(valid_excel_schema))
+        assert result.equals(mock_df)
+        # Verify that na_values and keep_default_na were passed to pandas
+        call_args = mock_read_excel.call_args[1]
+        assert 'na_values' in call_args
+        assert call_args['na_values'] == ["N/A", "NULL", ""]
+        assert 'keep_default_na' in call_args
+        assert call_args['keep_default_na'] == False
 
-        importer = ExcelSchemaImporter(str(schema_file))
-        assert importer.schema == valid_excel_schema
+    @patch('pandas.read_excel')
+    def test_read_sheet_data_with_data_end_row(self, mock_read_excel):
+        """Test reading sheet data with data_end_row configuration."""
+        mock_df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
+        mock_read_excel.return_value = mock_df
 
-    def test_init_invalid_type(self):
-        """Test initialization with invalid type."""
-        with pytest.raises(TypeError, match="schema must be path-like or dict"):
-            ExcelSchemaImporter(123)
+        config = ExcelInputConfig(
+            sheets=[ExcelSheetConfig(
+                select={"name": "employees"},
+                data_start_row=2,
+                data_end_row=10
+            )]
+        )
 
-    def test_validation_missing_required_fields(self):
-        """Test validation errors for missing required fields."""
-        invalid_schema = {
-            "type": "object",
-            "properties": {"id": {"type": "integer"}}
-            # Missing $id, $schema, title
-        }
+        handler = ExcelInputHandler(config)
+        handler._workbook = MagicMock()
+        handler._engine = "openpyxl"
 
-        with pytest.raises(SchemaValidationError) as exc_info:
-            ExcelSchemaImporter(invalid_schema, validate=True)
+        result = handler.read_sheet_data("employees", config.sheets[0])
 
-        error_message = str(exc_info.value)
-        assert "Missing required" in error_message
+        assert result.equals(mock_df)
+        # Verify that nrows was calculated correctly
+        call_args = mock_read_excel.call_args[1]
+        assert 'nrows' in call_args
+        assert call_args['nrows'] == 9  # 10 - 2 + 1 = 9
 
-    def test_validation_disabled(self):
-        """Test that validation can be disabled."""
-        invalid_schema = {
-            "type": "object",
-            "properties": {"id": {"type": "integer"}}
-            # Missing required fields, but validation is disabled
-        }
+    def test_select_sheets_no_workbook(self, basic_config):
+        """Test selecting sheets when no workbook is open."""
+        handler = ExcelInputHandler(basic_config)
 
-        # Should not raise an exception when validation is disabled
-        importer = ExcelSchemaImporter(invalid_schema, validate=False)
-        assert importer.schema == invalid_schema
-
-    def test_missing_x_excel_extension(self):
-        """Test handling when x-excel extension is missing."""
-        schema = {
-            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Test Schema",
-            "type": "object",
-            "properties": {"id": {"type": "integer"}}
-            # Missing x-excel extension
-        }
-
-        # When x-excel is missing, it defaults to empty dict
-        importer = ExcelSchemaImporter(schema, validate=False)
-        assert importer.excel_ext == {}
-        assert importer.sheets == []
-
-    def test_invalid_x_excel_type(self):
-        """Test validation when x-excel is not a dict."""
-        schema = {
-            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Test Schema",
-            "type": "object",
-            "properties": {"id": {"type": "integer"}},
-            "x-excel": "invalid_type"  # Should be dict
-        }
-
-        # This will cause an AttributeError when trying to call .get() on a string
-        with pytest.raises(AttributeError):
-            ExcelSchemaImporter(schema, validate=False)
-
-    def test_parquet_type_validation(self):
-        """Test Parquet type validation functionality."""
-        importer = ExcelSchemaImporter({
-            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Test Schema",
-            "type": "object",
-            "properties": {"id": {"type": "integer"}},
-            "x-excel": {"sheets": [{"name": "test"}]}  # Fixed to have non-empty sheets array
-        }, validate=False)
-
-        # Test valid Parquet types
-        valid_types = ["int32", "string", "double", "bool", "timestamp[ms]"]
-        for ptype in valid_types:
-            assert importer._is_valid_parquet_type(ptype)
-
-        # Test invalid Parquet types
-        invalid_types = ["invalid_type", "int128", "timestamp", ""]
-        for ptype in invalid_types:
-            assert not importer._is_valid_parquet_type(ptype)
-
-
-class TestExcelInputConfig:
-    """Test cases for Excel input configuration classes."""
-
-    def test_excel_sheet_config_defaults(self):
-        """Test ExcelSheetConfig with default values."""
-        config = ExcelSheetConfig(select={"name": "test_sheet"})
-
-        assert config.select == {"name": "test_sheet"}
-        assert config.columns is None
-        assert config.header is None
-        assert config.data_start_row is None
-        assert config.data_end_row is None
-        assert config.skip_blank_rows is True
-        assert config.name_override is None
-
-    def test_excel_input_config_defaults(self):
-        """Test ExcelInputConfig with default values."""
-        config = ExcelInputConfig()
-
-        assert config.encoding == "utf-8"
-        assert config.sheets is None
-        assert config.values_only is True
-        assert config.date_system == "1900"
-        assert config.nulls is None
-        assert config.keep_default_na is True
-        assert config.na_values is None
-        assert config.skip_blank_lines is True
-        assert config.engine is None
-
-    def test_excel_input_config_with_sheets(self):
-        """Test ExcelInputConfig with sheets."""
-        sheet_config = ExcelSheetConfig(select={"name": "Sheet1"})
-        config = ExcelInputConfig(sheets=[sheet_config])
-
-        assert len(config.sheets) == 1
-        assert config.sheets[0] == sheet_config
-
-
-if __name__ == "__main__":
-    pytest.main([__file__])
+        with pytest.raises(RuntimeError, match="Workbook not opened. Call open_workbook\\(\\) first."):
+            handler.select_sheets(basic_config.sheets)

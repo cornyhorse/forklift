@@ -9,7 +9,6 @@ The module is organized with separate files for each responsibility:
 - parquet.py: Parquet file output handling
 - manifest.py: Data catalog manifest generation
 - metadata.py: Processing statistics and metadata
-- future_handlers.py: Placeholder handlers for future implementations
 """
 
 # Import configuration
@@ -20,9 +19,6 @@ from .parquet import ParquetOutputHandler
 from .manifest import ManifestGenerator
 from .metadata import MetadataGenerator
 
-# Import future/placeholder handlers
-from .future_handlers import IcebergOutputHandler, DeltaOutputHandler
-
 # Define public API
 __all__ = [
     # Configuration
@@ -32,8 +28,4 @@ __all__ = [
     "ParquetOutputHandler",
     "ManifestGenerator",
     "MetadataGenerator",
-
-    # Future handlers
-    "IcebergOutputHandler",
-    "DeltaOutputHandler",
 ]

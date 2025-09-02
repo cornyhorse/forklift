@@ -129,6 +129,10 @@ class FwfInputHandler:
         if field.trim or self.config.trim_whitespace:
             raw_value = raw_value.strip()
 
+        # For right-aligned fields with zero padding, also strip leading zeros unless it's all zeros
+        if field.align == "right" and field.pad == "0" and raw_value and raw_value != "0" * len(raw_value):
+            raw_value = raw_value.lstrip("0") or "0"
+
         return raw_value
 
     def determine_schema(self, line: str) -> Optional[FwfConditionalSchema]:
@@ -216,6 +220,42 @@ class FwfInputHandler:
 
         return value if value else None
 
+    def convert_field_value(self, raw_value: str, field: FwfFieldSpec) -> Any:
+        """Convert field value to the appropriate data type.
+
+        Args:
+            raw_value: Raw string value extracted from the field
+            field: Field specification with data type information
+
+        Returns:
+            Converted value in the appropriate data type
+        """
+        if raw_value is None or raw_value == '':
+            return None
+
+        try:
+            if field.parquet_type == 'int64':
+                return int(raw_value)
+            elif field.parquet_type == 'int32':
+                return int(raw_value)
+            elif field.parquet_type == 'int16':
+                return int(raw_value)
+            elif field.parquet_type == 'int8':
+                return int(raw_value)
+            elif field.parquet_type == 'float32':
+                return float(raw_value)
+            elif field.parquet_type == 'double' or field.parquet_type == 'float64':
+                return float(raw_value)
+            elif field.parquet_type == 'bool':
+                return raw_value.upper() in ('Y', 'YES', 'TRUE', '1', 'T')
+            elif field.parquet_type.startswith('decimal128'):
+                return float(raw_value)  # Convert to float for now, could be enhanced for exact decimal handling
+            else:
+                return raw_value  # Keep as string for string types
+        except ValueError:
+            # If conversion fails, return as string or None based on null handling
+            return raw_value if raw_value else None
+
     def parse_line(self, line: str) -> Optional[Dict[str, Any]]:
         """Parse a single line into a dictionary of field values.
 
@@ -255,7 +295,9 @@ class FwfInputHandler:
         for field in fields:
             raw_value = self.extract_field_value(line, field)
             processed_value = self.process_null_values(raw_value, field.name)
-            result[field.name] = processed_value
+            # Convert to appropriate data type
+            converted_value = self.convert_field_value(processed_value, field)
+            result[field.name] = converted_value
 
         return result
 
@@ -403,10 +445,69 @@ class FwfInputHandler:
         # Collect all rows
         rows = list(self.read_file(file_path))
 
+        # Get the schema
+        schema = self.get_arrow_schema()
+
         if not rows:
             # Return empty table with correct schema
-            schema = self.get_arrow_schema()
-            return pa.table([], schema=schema)
+            # Create empty arrays for each field in schema
+            empty_arrays = []
+            for field in schema:
+                empty_arrays.append(pa.array([], type=field.type))
+            return pa.table(empty_arrays, schema=schema)
 
-        # Convert to PyArrow table
-        return pa.table(rows, schema=self.get_arrow_schema())
+        # Convert rows to columnar format for PyArrow with proper type conversion
+        columns = {}
+        for field in schema:
+            columns[field.name] = []
+
+        # Fill columns with data and convert types
+        for row in rows:
+            for field in schema:
+                value = row.get(field.name)
+
+                # Convert string values to appropriate types for PyArrow
+                if value is not None and field.type != pa.string():
+                    try:
+                        if field.type == pa.int64():
+                            value = int(value) if value else None
+                        elif field.type == pa.int32():
+                            value = int(value) if value else None
+                        elif field.type == pa.float32() or field.type == pa.float64():
+                            value = float(value) if value else None
+                        elif field.type == pa.bool_():
+                            value = bool(value) if value else None
+                        elif isinstance(field.type, pa.Decimal128Type):
+                            # Convert to Python Decimal for PyArrow decimal types
+                            from decimal import Decimal
+                            if value is not None:
+                                # Handle both string and numeric values
+                                if isinstance(value, str):
+                                    if value.strip():
+                                        value = Decimal(value.strip())
+                                    else:
+                                        value = None
+                                else:
+                                    # Already a number, convert to Decimal
+                                    value = Decimal(str(value))
+                            else:
+                                value = None
+                    except (ValueError, TypeError):
+                        # If conversion fails, keep as None or original value
+                        value = None
+
+                columns[field.name].append(value)
+
+        # Create PyArrow arrays with proper type handling
+        arrays = []
+        for field in schema:
+            try:
+                arrays.append(pa.array(columns[field.name], type=field.type))
+            except pa.ArrowInvalid:
+                # If type conversion fails, convert to string first
+                if field.type != pa.string():
+                    arrays.append(pa.array(columns[field.name], type=pa.string()))
+                else:
+                    arrays.append(pa.array(columns[field.name]))
+
+        return pa.table(arrays, schema=schema)

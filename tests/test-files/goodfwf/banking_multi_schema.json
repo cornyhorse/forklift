@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Banking Multi-Schema FWF",
+  "description": "Banking transaction file with Header, Detail, Summary, and Trailer records",
+  "type": "object",
+  "x-fwf": {
+    "encoding": "utf-8",
+    "trim": {
+      "rstrip": true
+    },
+    "conditionalSchemas": {
+      "flagColumn": {
+        "name": "record_type",
+        "start": 1,
+        "length": 1,
+        "parquetType": "string"
+      },
+      "schemas": [
+        {
+          "flagValue": "H",
+          "description": "Header records - batch information",
+          "fields": [
+            {
+              "name": "record_type",
+              "start": 1,
+              "length": 1,
+              "parquetType": "string"
+            },
+            {
+              "name": "batch_date",
+              "start": 2,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "batch_id",
+              "start": 10,
+              "length": 6,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "batch_name",
+              "start": 16,
+              "length": 16,
+              "parquetType": "string",
+              "trim": true
+            },
+            {
+              "name": "institution_name",
+              "start": 32,
+              "length": 32,
+              "parquetType": "string",
+              "trim": true
+            }
+          ]
+        },
+        {
+          "flagValue": "D",
+          "description": "Detail records - transaction data",
+          "fields": [
+            {
+              "name": "record_type",
+              "start": 1,
+              "length": 1,
+              "parquetType": "string"
+            },
+            {
+              "name": "transaction_id",
+              "start": 2,
+              "length": 6,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "account_number",
+              "start": 8,
+              "length": 5,
+              "parquetType": "string"
+            },
+            {
+              "name": "transaction_type",
+              "start": 13,
+              "length": 12,
+              "parquetType": "string",
+              "trim": true
+            },
+            {
+              "name": "amount_cents",
+              "start": 25,
+              "length": 10,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "currency",
+              "start": 35,
+              "length": 3,
+              "parquetType": "string"
+            },
+            {
+              "name": "transaction_date",
+              "start": 38,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "transaction_time",
+              "start": 46,
+              "length": 6,
+              "parquetType": "string"
+            },
+            {
+              "name": "channel",
+              "start": 52,
+              "length": 10,
+              "parquetType": "string",
+              "trim": true
+            }
+          ]
+        },
+        {
+          "flagValue": "S",
+          "description": "Summary records - batch totals",
+          "fields": [
+            {
+              "name": "record_type",
+              "start": 1,
+              "length": 1,
+              "parquetType": "string"
+            },
+            {
+              "name": "summary_date",
+              "start": 2,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "transaction_count",
+              "start": 10,
+              "length": 6,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "total_amount_cents",
+              "start": 16,
+              "length": 10,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "currency",
+              "start": 26,
+              "length": 3,
+              "parquetType": "string"
+            },
+            {
+              "name": "summary_notes",
+              "start": 29,
+              "length": 32,
+              "parquetType": "string",
+              "trim": true
+            }
+          ]
+        },
+        {
+          "flagValue": "T",
+          "description": "Trailer records - end of file marker",
+          "fields": [
+            {
+              "name": "record_type",
+              "start": 1,
+              "length": 1,
+              "parquetType": "string"
+            },
+            {
+              "name": "trailer_date",
+              "start": 2,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "total_records",
+              "start": 10,
+              "length": 6,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "grand_total_cents",
+              "start": 16,
+              "length": 10,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "currency",
+              "start": 26,
+              "length": 3,
+              "parquetType": "string"
+            },
+            {
+              "name": "process_date",
+              "start": 29,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "status_message",
+              "start": 37,
+              "length": 25,
+              "parquetType": "string",
+              "trim": true
+            }
+          ]
+        }
+      ]
+    },
+    "nulls": {
+      "global": ["", "NULL", "N/A", "   "]
+    },
+    "footer": {
+      "mode": "regex",
+      "pattern": "^T.*End of Processing.*$"
+    }
+  }
+}
+

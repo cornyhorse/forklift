@@ -493,7 +493,7 @@ class SqlInputHandler:
         Returns:
             List of include patterns
         """
-        if self.config.include_patterns:
+        if hasattr(self.config, 'include_patterns') and self.config.include_patterns:
             return self.config.include_patterns
 
         if self.schema_importer:

@@ -334,12 +334,56 @@ class TestCsvInputHandlerEdgeCases:
     """Test edge cases and error conditions."""
 
     def test_find_header_row_empty_file(self):
-        """Test finding header row in an empty file."""
+        """Test exception when file is completely empty."""
         config = CsvInputConfig()
         handler = CsvInputHandler(config)
 
-        # Create an empty temporary file
+        # Create a completely empty temporary CSV file
         with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+            # Write nothing to the file
+            temp_path = Path(f.name)
+
+        try:
+            with pytest.raises(ValueError, match="No valid header row found"):
+                handler.find_header_row(temp_path)
+        finally:
+            temp_path.unlink()
+
+    def test_find_header_row_only_blank_lines_with_skip(self):
+        """Test exception when file only contains blank lines and skip_blank_lines is True."""
+        config = CsvInputConfig(skip_blank_lines=True, header_search_rows=3)
+        handler = CsvInputHandler(config)
+
+        # Create a temporary CSV file with only blank lines
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+            f.write("\n")
+            f.write("   \n")  # Blank line with spaces
+            f.write("\t\n")   # Blank line with tab
+            temp_path = Path(f.name)
+
+        try:
+            with pytest.raises(ValueError, match="No valid header row found"):
+                handler.find_header_row(temp_path)
+        finally:
+            temp_path.unlink()
+
+    def test_find_header_row_comments_and_blanks_only(self):
+        """Test exception when file only contains comments and blank lines within search limit."""
+        config = CsvInputConfig(
+            comment_patterns=["^#", "^//"],
+            skip_blank_lines=True,
+            header_search_rows=5
+        )
+        handler = CsvInputHandler(config)
+
+        # Create a temporary CSV file with only comments and blank lines within search limit
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+            f.write("# First comment\n")
+            f.write("\n")  # Blank line
+            f.write("// Second comment\n")
+            f.write("   \n")  # Blank line with spaces
+            f.write("# Third comment\n")
+            f.write("name,age,email\n")  # This is beyond search limit of 5 (0-indexed, so rows 0-4)
             temp_path = Path(f.name)
 
         try:

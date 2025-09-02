@@ -93,3 +93,52 @@ class FwfInputConfig:
     comment_patterns: Optional[List[str]] = None
     footer_detection: Optional[Dict[str, Any]] = None
     null_values: Optional[Dict[str, List[str]]] = None
+
+
+@dataclass
+class ExcelSheetConfig:
+    """Configuration for a single Excel sheet.
+
+    Args:
+        select: Sheet selection criteria (name, index, or regex)
+        columns: List of column mappings for this sheet
+        header: Header configuration for this sheet
+        data_start_row: Row number where data starts (1-based)
+        data_end_row: Row number where data ends (1-based, optional)
+        skip_blank_rows: Whether to skip blank rows
+        name_override: Override name for this sheet in output
+    """
+    select: Dict[str, Any]
+    columns: Optional[List[Dict[str, Any]]] = None
+    header: Optional[Dict[str, Any]] = None
+    data_start_row: Optional[int] = None
+    data_end_row: Optional[int] = None
+    skip_blank_rows: bool = True
+    name_override: Optional[str] = None
+
+
+@dataclass
+class ExcelInputConfig:
+    """Configuration for Excel input processing.
+
+    Args:
+        encoding: Text encoding to use for string conversion (default: utf-8)
+        sheets: List of sheet configurations to process
+        values_only: Whether to read only cell values (ignoring formulas)
+        date_system: Excel date system ('1900' or '1904')
+        nulls: Null value configuration (global and per-column)
+        keep_default_na: Whether to keep default pandas NA values
+        na_values: Additional values to treat as NA/null
+        skip_blank_lines: Whether to skip completely blank lines
+        engine: Excel engine to use ('openpyxl' for .xlsx, 'xlrd' for .xls)
+    """
+    encoding: str = "utf-8"
+    sheets: List[ExcelSheetConfig] = None
+    values_only: bool = True
+    date_system: str = "1900"  # 1900 or 1904
+    nulls: Optional[Dict[str, Any]] = None
+    keep_default_na: bool = True
+    na_values: Optional[List[str]] = None
+    skip_blank_lines: bool = True
+    engine: Optional[str] = None  # Auto-detect based on file extension
+

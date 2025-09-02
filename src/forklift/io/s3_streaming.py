@@ -243,6 +243,37 @@ class S3StreamingWriter:
         self._part_number = 1
         self._buffer = io.BytesIO()
         self._closed = False
+        self._position = 0  # Track current position for tell()
+
+    @property
+    def closed(self):
+        """Return whether the file is closed."""
+        return self._closed
+
+    @property
+    def mode(self):
+        """Return the file mode."""
+        return self._mode
+
+    def tell(self):
+        """Return current position in the stream."""
+        return self._position
+
+    def flush(self):
+        """Flush write buffers (no-op for S3 streaming)."""
+        pass
+
+    def seekable(self):
+        """Return whether object supports random access (always False for S3 streaming)."""
+        return False
+
+    def writable(self):
+        """Return whether object was opened for writing."""
+        return True
+
+    def readable(self):
+        """Return whether object was opened for reading."""
+        return False
 
     def write(self, data) -> int:
         """Write data to S3 stream.
@@ -254,7 +285,7 @@ class S3StreamingWriter:
             Number of characters/bytes written
         """
         if self._closed:
-            raise ValueError("Cannot write to closed stream")
+            raise ValueError("I/O operation on closed file")
 
         # Handle both text and binary data
         if isinstance(data, str):
@@ -270,6 +301,7 @@ class S3StreamingWriter:
 
         # Write to buffer
         bytes_written = self._buffer.write(data_bytes)
+        self._position += return_count
 
         # Upload part if buffer is large enough
         if self._buffer.tell() >= self._part_size:

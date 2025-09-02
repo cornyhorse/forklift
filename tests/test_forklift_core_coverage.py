@@ -415,9 +415,9 @@ class TestPublicAPIFunctions:
         with pytest.raises(NotImplementedError, match="FWF import not yet implemented"):
             import_fwf("input.fwf", "output/")
 
-    def test_import_excel_not_implemented(self):
-        """Test import_excel raises NotImplementedError (line 924)."""
-        with pytest.raises(NotImplementedError, match="Excel import not yet implemented"):
+    def test_import_excel_file_not_found(self):
+        """Test import_excel raises FileNotFoundError when file doesn't exist."""
+        with pytest.raises(FileNotFoundError, match="Input file not found"):
             import_excel("input.xlsx", "output/")
 
     def test_metadata_creation_with_enum_header_mode(self):

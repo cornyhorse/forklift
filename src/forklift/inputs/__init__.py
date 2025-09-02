@@ -7,26 +7,24 @@ Excel, and JSON files.
 The module is organized with separate files for each responsibility:
 - config.py: Configuration classes for input processing
 - csv.py: CSV file input handling with header detection and preprocessing
+- excel.py: Excel file input handling with multi-sheet support
+- fwf.py: Fixed Width File input handling
 - future_handlers.py: Placeholder handlers for future file format implementations
 """
 
 # Import configuration
-from .config import CsvInputConfig, FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
+from .config import CsvInputConfig, FwfInputConfig, FwfFieldSpec, FwfConditionalSchema, ExcelInputConfig, ExcelSheetConfig
 
 # Import core input handlers
 from .csv import CsvInputHandler
 from .fwf import FwfInputHandler
-
-# Import future/placeholder handlers
-from .future_handlers import ExcelInputHandler
+from .excel import ExcelInputHandler
 
 # Define public API
 __all__ = [
     # Core handlers
     "CsvInputHandler",
     "FwfInputHandler",
-
-    # Future handlers
     "ExcelInputHandler",
 
     # Configuration
@@ -34,4 +32,6 @@ __all__ = [
     "FwfInputConfig",
     "FwfFieldSpec",
     "FwfConditionalSchema",
+    "ExcelInputConfig",
+    "ExcelSheetConfig",
 ]

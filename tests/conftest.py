@@ -35,6 +35,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "slow: mark test as slow running"
     )
+    config.addinivalue_line(
+        "markers", "s3: mark test as requiring S3 access (real or mocked)"
+    )
 
 
 def pytest_collection_modifyitems(config, items):

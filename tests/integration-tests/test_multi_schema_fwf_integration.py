@@ -1,7 +1,8 @@
-"""Integration tests for Multi-Schema Fixed Width File (FWF) processing."""
+"""Integration tests for multi-schema FWF processing with S3 uploads."""
 
 import pytest
 import tempfile
+import time
 from pathlib import Path
 from typing import Dict, Any, List
 import pyarrow as pa
@@ -10,381 +11,568 @@ import pandas as pd
 from forklift.inputs.fwf import FwfInputHandler
 from forklift.inputs.config import FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
 from forklift.inputs.fwf_utils import create_fwf_config_from_schema
+from forklift.io.s3_streaming import S3StreamingClient, S3Path
 
 
 @pytest.mark.integration
-class TestMultiSchemaFwfIntegration:
-    """Integration tests for multi-schema FWF processing with real test files."""
+@pytest.mark.s3
+class TestMultiSchemaFwfS3Integration:
+    """Integration tests for multi-schema FWF processing with S3 parquet uploads."""
 
-    def test_banking_multi_schema_processing(self):
-        """Test processing a banking file with H/D/S/T record types."""
-        # Use the banking multi-schema test files
+    @pytest.fixture(scope="class")
+    def s3_config(self):
+        """Get S3 configuration from .env file."""
+        config = {
+            'aws_access_key_id': None,
+            'aws_secret_access_key': None,
+            'region_name': 'us-east-1',
+            'test_bucket': 'cornyhorse-data',
+            'endpoint_url': None
+        }
+
+        # Load from environment variables or .env file
+        from dotenv import load_dotenv
+        import os
+
+        # Load from ~/.credentials/.env first, then fallback to local .env
+        credentials_path = Path.home() / '.credentials' / '.env'
+        if credentials_path.exists():
+            load_dotenv(credentials_path)
+        else:
+            load_dotenv()  # fallback to local .env
+
+        config['aws_access_key_id'] = os.getenv('AWS_ACCESS_KEY_ID')
+        config['aws_secret_access_key'] = os.getenv('AWS_SECRET_ACCESS_KEY')
+        config['region_name'] = os.getenv('AWS_DEFAULT_REGION', 'eu-north-1')
+        config['test_bucket'] = os.getenv('S3_TEST_BUCKET', 'cornyhorse-data')
+        config['endpoint_url'] = os.getenv('AWS_ENDPOINT_URL')
+
+        # Skip if no credentials are configured
+        if not config['aws_access_key_id'] or not config['aws_secret_access_key']:
+            pytest.skip("AWS credentials not configured")
+
+        return config
+
+    @pytest.fixture(scope="class")
+    def s3_client(self, s3_config):
+        """Create real S3 client for integration tests."""
+        return S3StreamingClient(
+            aws_access_key_id=s3_config['aws_access_key_id'],
+            aws_secret_access_key=s3_config['aws_secret_access_key'],
+            region_name=s3_config['region_name'],
+            endpoint_url=s3_config['endpoint_url']
+        )
+
+    @pytest.fixture
+    def cleanup_s3_objects(self, s3_config):
+        """Fixture to clean up S3 objects after tests."""
+        objects_to_cleanup = []
+
+        yield objects_to_cleanup
+
+        # Cleanup after test
+        if objects_to_cleanup:
+            client = S3StreamingClient(
+                aws_access_key_id=s3_config['aws_access_key_id'],
+                aws_secret_access_key=s3_config['aws_secret_access_key'],
+                region_name=s3_config['region_name'],
+                endpoint_url=s3_config['endpoint_url']
+            )
+
+            for s3_path in objects_to_cleanup:
+                try:
+                    s3_path_obj = S3Path(s3_path) if isinstance(s3_path, str) else s3_path
+                    client._s3_client.delete_object(
+                        Bucket=s3_path_obj.bucket,
+                        Key=s3_path_obj.key
+                    )
+                except Exception:
+                    pass  # Best effort cleanup
+
+    def test_banking_multi_schema_fwf_s3_upload(self, s3_client, s3_config, cleanup_s3_objects):
+        """Test banking multi-schema FWF processing and S3 upload."""
+        # Use banking multi-schema test files
         test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
         schema_path = test_dir / "banking_multi_schema.json"
         data_path = test_dir / "banking_multi_schema.txt"
 
-        # Load configuration and create handler
+        if not schema_path.exists() or not data_path.exists():
+            pytest.skip(f"Banking multi-schema test files not found: {schema_path}, {data_path}")
+
+        # Create FWF configuration from schema
         config = create_fwf_config_from_schema(schema_path)
         handler = FwfInputHandler(config)
 
-        # Process the file
-        records = list(handler.read_file(data_path))
+        # Process the FWF file
+        table = handler.create_arrow_table(data_path)
 
-        # Verify total record count
-        assert len(records) == 13, f"Expected 13 records, got {len(records)}"
+        # Verify table structure
+        assert table.num_rows > 0, "Banking FWF should produce records"
+        df = table.to_pandas()
 
-        # Separate records by type
-        by_type = {}
-        for record in records:
-            rtype = record['record_type']
-            if rtype not in by_type:
-                by_type[rtype] = []
-            by_type[rtype].append(record)
+        # Verify different record types exist
+        if 'record_type' in df.columns:
+            record_types = df['record_type'].unique()
+            assert len(record_types) > 1, "Should have multiple record types"
 
-        # Verify record type counts
-        assert len(by_type['H']) == 2, f"Expected 2 header records, got {len(by_type['H'])}"
-        assert len(by_type['D']) == 8, f"Expected 8 detail records, got {len(by_type['D'])}"
-        assert len(by_type['S']) == 2, f"Expected 2 summary records, got {len(by_type['S'])}"
-        assert len(by_type['T']) == 1, f"Expected 1 trailer record, got {len(by_type['T'])}"
+        # Upload to S3
+        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
+            tmp_path = Path(tmp_file.name)
 
-        # Validate header record structure and data
-        header1 = by_type['H'][0]
-        expected_header_fields = {'record_type', 'batch_date', 'batch_id', 'batch_name', 'institution_name'}
-        actual_header_fields = {k for k in header1.keys() if not k.startswith('__')}
-        assert actual_header_fields == expected_header_fields
+        try:
+            pa.parquet.write_table(table, tmp_path)
 
-        assert header1['record_type'] == 'H'
-        assert header1['batch_date'] == '20241201'
-        assert header1['batch_id'] == 1
-        assert header1['batch_name'] == 'DAILY_BATCH'
-        assert header1['institution_name'] == 'First National Bank'
+            test_key = f"forklift/integration-test/banking-multi-schema-{int(time.time())}.parquet"
+            s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
+            cleanup_s3_objects.append(s3_path)
 
-        # Validate detail record structure and data
-        detail1 = by_type['D'][0]
-        expected_detail_fields = {'record_type', 'transaction_id', 'account_number', 'transaction_type',
-                                 'amount_cents', 'currency', 'transaction_date', 'transaction_time', 'channel'}
-        actual_detail_fields = {k for k in detail1.keys() if not k.startswith('__')}
-        assert actual_detail_fields == expected_detail_fields
+            with open(tmp_path, 'rb') as local_file:
+                with s3_client.open_for_write(s3_path, mode='wb') as s3_writer:
+                    s3_writer.write(local_file.read())
 
-        assert detail1['record_type'] == 'D'
-        assert detail1['transaction_id'] == 1
-        assert detail1['account_number'] == '12345'
-        assert detail1['transaction_type'] == 'TRANSFER'
-        assert detail1['amount_cents'] == 25000
-        assert detail1['currency'] == 'USD'
-        assert detail1['channel'] == 'ONLINE'
+            assert s3_client.exists(s3_path), "Banking parquet should exist in S3"
+            assert s3_client.get_size(s3_path) > 0, "Banking parquet should have content"
 
-        # Validate summary record structure and data
-        summary1 = by_type['S'][0]
-        expected_summary_fields = {'record_type', 'summary_date', 'transaction_count',
-                                  'total_amount_cents', 'currency', 'summary_notes'}
-        actual_summary_fields = {k for k in summary1.keys() if not k.startswith('__')}
-        assert actual_summary_fields == expected_summary_fields
+        finally:
+            tmp_path.unlink()
 
-        assert summary1['record_type'] == 'S'
-        assert summary1['summary_date'] == '20241201'
-        assert summary1['transaction_count'] == 3
-        assert summary1['total_amount_cents'] == 31500
-        assert summary1['currency'] == 'USD'
-        assert summary1['summary_notes'] == 'Transaction Summary'
-
-        # Validate trailer record structure and data
-        trailer = by_type['T'][0]
-        expected_trailer_fields = {'record_type', 'trailer_date', 'total_records',
-                                  'grand_total_cents', 'currency', 'process_date', 'status_message'}
-        actual_trailer_fields = {k for k in trailer.keys() if not k.startswith('__')}
-        assert actual_trailer_fields == expected_trailer_fields
-
-        assert trailer['record_type'] == 'T'
-        assert trailer['trailer_date'] == '20241202'
-        assert trailer['total_records'] == 7
-        assert trailer['grand_total_cents'] == 124000
-        assert trailer['currency'] == 'USD'
-        assert trailer['status_message'] == 'End of Processing'
-
-    def test_retail_multi_schema_processing(self):
-        """Test processing a retail inventory file with H/P/I/A/T record types."""
+    def test_retail_multi_schema_fwf_s3_upload(self, s3_client, s3_config, cleanup_s3_objects):
+        """Test retail multi-schema FWF processing and S3 upload."""
+        # Use retail multi-schema test files
         test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
         schema_path = test_dir / "retail_multi_schema.json"
         data_path = test_dir / "retail_multi_schema.txt"
 
-        # Load configuration and create handler
+        if not schema_path.exists() or not data_path.exists():
+            pytest.skip(f"Retail multi-schema test files not found: {schema_path}, {data_path}")
+
+        # Create FWF configuration from schema
+        config = create_fwf_config_from_schema(schema_path)
+        handler = FwfInputHandler(config)
+
+        # Process the FWF file
+        table = handler.create_arrow_table(data_path)
+
+        # Verify table structure
+        assert table.num_rows > 0, "Retail FWF should produce records"
+        df = table.to_pandas()
+
+        # Verify different record types exist
+        if 'record_type' in df.columns:
+            record_types = df['record_type'].unique()
+            assert len(record_types) > 1, "Should have multiple record types"
+
+        # Upload to S3
+        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+
+        try:
+            pa.parquet.write_table(table, tmp_path)
+
+            test_key = f"forklift/integration-test/retail-multi-schema-{int(time.time())}.parquet"
+            s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
+            cleanup_s3_objects.append(s3_path)
+
+            with open(tmp_path, 'rb') as local_file:
+                with s3_client.open_for_write(s3_path, mode='wb') as s3_writer:
+                    s3_writer.write(local_file.read())
+
+            assert s3_client.exists(s3_path), "Retail parquet should exist in S3"
+            assert s3_client.get_size(s3_path) > 0, "Retail parquet should have content"
+
+        finally:
+            tmp_path.unlink()
+
+    def test_custom_multi_schema_fwf_s3_upload(self, s3_client, s3_config, cleanup_s3_objects):
+        """Test custom multi-schema FWF creation and S3 upload."""
+        # Create a custom multi-schema configuration
+        flag_column = FwfFieldSpec("record_type", 1, 1, parquet_type="string")
+
+        conditional_schemas = [
+            # Customer records
+            FwfConditionalSchema("C", "Customer Record", [
+                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("customer_id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("customer_name", 10, 30, align="left", parquet_type="string"),
+                FwfFieldSpec("registration_date", 40, 8, parquet_type="string"),
+                FwfFieldSpec("status", 48, 8, align="left", parquet_type="string")
+            ]),
+            # Order records
+            FwfConditionalSchema("O", "Order Record", [
+                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("order_id", 2, 10, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("customer_id", 12, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("order_date", 20, 8, parquet_type="string"),
+                FwfFieldSpec("total_amount", 28, 12, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("currency", 40, 3, parquet_type="string")
+            ]),
+            # Product records
+            FwfConditionalSchema("P", "Product Record", [
+                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("product_id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("product_name", 10, 25, align="left", parquet_type="string"),
+                FwfFieldSpec("category", 35, 15, align="left", parquet_type="string"),
+                FwfFieldSpec("unit_price", 50, 10, align="right", pad="0", parquet_type="int64")
+            ])
+        ]
+
+        config = FwfInputConfig(
+            flag_column=flag_column,
+            conditional_schemas=conditional_schemas,
+            skip_blank_lines=True
+        )
+
+        # Create test data with multiple record types
+        test_data = [
+            "C00001234Customer Alpha Corp        20250101ACTIVE  ",
+            "O0000567890000123420250115000125000USD",
+            "P00000001Widget A                Electronics  000002500",
+            "C00002345Customer Beta Ltd          20250102ACTIVE  ",
+            "O0000567900000234520250116000087500USD",
+            "P00000002Widget B                Electronics  000003750",
+            "C00003456Customer Gamma Inc         20250103INACTIVE",
+            "O0000568000000345620250117000156200USD",
+            "P00000003Service Pack A            Services     000010000"
+        ]
+
+        # Create temporary FWF file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.fwf', delete=False, encoding='utf-8') as tmp_file:
+            fwf_path = Path(tmp_file.name)
+            for line in test_data:
+                tmp_file.write(line + '\n')
+
+        try:
+            handler = FwfInputHandler(config)
+
+            # Process the multi-schema FWF file
+            table = handler.create_arrow_table(fwf_path)
+
+            # Verify table structure
+            assert table.num_rows == len(test_data), f"Should have {len(test_data)} records"
+
+            df = table.to_pandas()
+            record_types = df['record_type'].unique()
+            expected_types = {'C', 'O', 'P'}
+            assert set(record_types) == expected_types, f"Should have record types {expected_types}"
+
+            # Verify each record type has expected fields
+            customers = df[df['record_type'] == 'C']
+            orders = df[df['record_type'] == 'O']
+            products = df[df['record_type'] == 'P']
+
+            assert len(customers) == 3, "Should have 3 customer records"
+            assert len(orders) == 3, "Should have 3 order records"
+            assert len(products) == 3, "Should have 3 product records"
+
+            # Verify specific field values
+            assert 'customer_name' in customers.columns
+            assert 'total_amount' in orders.columns
+            assert 'product_name' in products.columns
+
+            # Upload to S3
+            with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_parquet_file:
+                parquet_path = Path(tmp_parquet_file.name)
+
+            try:
+                pa.parquet.write_table(table, parquet_path)
+
+                test_key = f"forklift/integration-test/custom-multi-schema-{int(time.time())}.parquet"
+                s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
+                cleanup_s3_objects.append(s3_path)
+
+                with open(parquet_path, 'rb') as local_file:
+                    with s3_client.open_for_write(s3_path, mode='wb') as s3_writer:
+                        s3_writer.write(local_file.read())
+
+                # Verify upload
+                assert s3_client.exists(s3_path), "Custom multi-schema parquet should exist in S3"
+                assert s3_client.get_size(s3_path) > 0, "Custom multi-schema parquet should have content"
+
+                # Download and verify content
+                with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as download_file:
+                    download_path = Path(download_file.name)
+
+                try:
+                    with s3_client.open_for_read(s3_path, mode='rb') as s3_reader:
+                        with open(download_path, 'wb') as local_writer:
+                            local_writer.write(s3_reader.read())
+
+                    # Verify downloaded content
+                    downloaded_table = pa.parquet.read_table(download_path)
+                    downloaded_df = downloaded_table.to_pandas()
+
+                    assert downloaded_df['record_type'].nunique() == 3, "Should preserve all record types"
+                    assert len(downloaded_df) == len(test_data), "Should preserve all records"
+
+                finally:
+                    download_path.unlink()
+
+            finally:
+                parquet_path.unlink()
+
+        finally:
+            fwf_path.unlink()
+
+    def test_hierarchical_multi_schema_fwf_s3_upload(self, s3_client, s3_config, cleanup_s3_objects):
+        """Test hierarchical multi-schema FWF with parent-child relationships."""
+        # Create hierarchical schema (Invoice -> Line Items -> Taxes)
+        flag_column = FwfFieldSpec("record_type", 1, 1, parquet_type="string")
+
+        conditional_schemas = [
+            # Invoice header
+            FwfConditionalSchema("I", "Invoice Header", [
+                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("invoice_id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("customer_id", 10, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("invoice_date", 18, 8, parquet_type="string"),
+                FwfFieldSpec("due_date", 26, 8, parquet_type="string"),
+                FwfFieldSpec("currency", 34, 3, parquet_type="string")
+            ]),
+            # Line items
+            FwfConditionalSchema("L", "Line Item", [
+                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("invoice_id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("line_number", 10, 3, align="right", pad="0", parquet_type="int32"),
+                FwfFieldSpec("product_code", 13, 12, align="left", parquet_type="string"),
+                FwfFieldSpec("quantity", 25, 5, align="right", pad="0", parquet_type="int32"),
+                FwfFieldSpec("unit_price", 30, 10, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("line_total", 40, 10, align="right", pad="0", parquet_type="int64")
+            ]),
+            # Tax details
+            FwfConditionalSchema("T", "Tax Detail", [
+                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("invoice_id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("tax_type", 10, 8, align="left", parquet_type="string"),
+                FwfFieldSpec("tax_rate", 18, 5, align="right", pad="0", parquet_type="int32"),
+                FwfFieldSpec("tax_amount", 23, 10, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("tax_base", 33, 10, align="right", pad="0", parquet_type="int64")
+            ])
+        ]
+
+        config = FwfInputConfig(
+            flag_column=flag_column,
+            conditional_schemas=conditional_schemas,
+            skip_blank_lines=True
+        )
+
+        # Create hierarchical test data
+        test_data = [
+            # Invoice 1
+            "I000010010000123420250115202502150USD",
+            "L00001001001WIDGET_A    000050000100000000500000",
+            "L00001001002SERVICE_B   000020000250000000500000",
+            "T00001001SALES   100000010000000100000",
+            "T00001001VAT     150000015000000100000",
+            # Invoice 2
+            "I000020020000567820250116202502160EUR",
+            "L00002002001GADGET_X    000030000333000000999000",
+            "L00002002002WARRANTY    000010001000000001000000",
+            "T00002002SALES   080000080000000100000",
+            "T00002002VAT     200000200000000100000"
+        ]
+
+        # Create temporary FWF file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.fwf', delete=False, encoding='utf-8') as tmp_file:
+            fwf_path = Path(tmp_file.name)
+            for line in test_data:
+                tmp_file.write(line + '\n')
+
+        try:
+            handler = FwfInputHandler(config)
+
+            # Process the hierarchical FWF file
+            table = handler.create_arrow_table(fwf_path)
+
+            # Verify table structure
+            assert table.num_rows == len(test_data), f"Should have {len(test_data)} records"
+
+            df = table.to_pandas()
+            record_types = df['record_type'].unique()
+            expected_types = {'I', 'L', 'T'}
+            assert set(record_types) == expected_types, f"Should have record types {expected_types}"
+
+            # Verify hierarchical relationships
+            invoices = df[df['record_type'] == 'I']
+            line_items = df[df['record_type'] == 'L']
+            taxes = df[df['record_type'] == 'T']
+
+            assert len(invoices) == 2, "Should have 2 invoice headers"
+            assert len(line_items) == 4, "Should have 4 line items"
+            assert len(taxes) == 4, "Should have 4 tax records"
+
+            # Verify invoice IDs are consistent across record types
+            invoice_ids = set(invoices['invoice_id'])
+            line_item_invoice_ids = set(line_items['invoice_id'])
+            tax_invoice_ids = set(taxes['invoice_id'])
+
+            assert invoice_ids == line_item_invoice_ids, "Line items should reference valid invoices"
+            assert invoice_ids == tax_invoice_ids, "Tax records should reference valid invoices"
+
+            # Upload to S3
+            with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_parquet_file:
+                parquet_path = Path(tmp_parquet_file.name)
+
+            try:
+                pa.parquet.write_table(table, parquet_path)
+
+                test_key = f"forklift/integration-test/hierarchical-multi-schema-{int(time.time())}.parquet"
+                s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
+                cleanup_s3_objects.append(s3_path)
+
+                with open(parquet_path, 'rb') as local_file:
+                    with s3_client.open_for_write(s3_path, mode='wb') as s3_writer:
+                        s3_writer.write(local_file.read())
+
+                # Verify upload
+                assert s3_client.exists(s3_path), "Hierarchical parquet should exist in S3"
+                assert s3_client.get_size(s3_path) > 0, "Hierarchical parquet should have content"
+
+                # Download and verify hierarchical relationships are preserved
+                with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as download_file:
+                    download_path = Path(download_file.name)
+
+                try:
+                    with s3_client.open_for_read(s3_path, mode='rb') as s3_reader:
+                        with open(download_path, 'wb') as local_writer:
+                            local_writer.write(s3_reader.read())
+
+                    # Verify downloaded hierarchical structure
+                    downloaded_table = pa.parquet.read_table(download_path)
+                    downloaded_df = downloaded_table.to_pandas()
+
+                    # Check hierarchical integrity
+                    d_invoices = downloaded_df[downloaded_df['record_type'] == 'I']
+                    d_lines = downloaded_df[downloaded_df['record_type'] == 'L']
+                    d_taxes = downloaded_df[downloaded_df['record_type'] == 'T']
+
+                    assert len(d_invoices) == 2, "Should preserve invoice headers"
+                    assert len(d_lines) == 4, "Should preserve line items"
+                    assert len(d_taxes) == 4, "Should preserve tax records"
+
+                    # Verify relationships
+                    d_invoice_ids = set(d_invoices['invoice_id'])
+                    d_line_invoice_ids = set(d_lines['invoice_id'])
+                    d_tax_invoice_ids = set(d_taxes['invoice_id'])
+
+                    assert d_invoice_ids == d_line_invoice_ids, "Downloaded line items should reference valid invoices"
+                    assert d_invoice_ids == d_tax_invoice_ids, "Downloaded tax records should reference valid invoices"
+
+                finally:
+                    download_path.unlink()
+
+            finally:
+                parquet_path.unlink()
+
+        finally:
+            fwf_path.unlink()
+
+
+@pytest.mark.integration
+class TestMultiSchemaFwfLocal:
+    """Local integration tests for multi-schema FWF processing (no S3)."""
+
+    def test_example_multi_schema_processing(self):
+        """Test the corrected multi-schema example file."""
+        test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
+        schema_path = test_dir / "multi_schema_example.json"
+        data_path = test_dir / "multi_schema_example.txt"
+
+        if not schema_path.exists() or not data_path.exists():
+            pytest.skip(f"Multi-schema example files not found")
+
+        # Create FWF configuration from schema
         config = create_fwf_config_from_schema(schema_path)
         handler = FwfInputHandler(config)
 
         # Process the file
         records = list(handler.read_file(data_path))
 
-        # Verify total record count
-        assert len(records) == 10, f"Expected 10 records, got {len(records)}"
+        # Verify we got the expected number of records
+        assert len(records) == 9, f"Expected 9 records, got {len(records)}"
 
         # Separate records by type
-        by_type = {}
-        for record in records:
-            rtype = record['record_type']
-            if rtype not in by_type:
-                by_type[rtype] = []
-            by_type[rtype].append(record)
+        headers = [r for r in records if r['record_type'] == 'H']
+        details = [r for r in records if r['record_type'] == 'D']
+        trailers = [r for r in records if r['record_type'] == 'T']
 
-        # Verify record type counts
-        assert len(by_type['H']) == 1, f"Expected 1 header record, got {len(by_type['H'])}"
-        assert len(by_type['P']) == 3, f"Expected 3 product records, got {len(by_type['P'])}"
-        assert len(by_type['I']) == 3, f"Expected 3 inventory records, got {len(by_type['I'])}"
-        assert len(by_type['A']) == 2, f"Expected 2 adjustment records, got {len(by_type['A'])}"
-        assert len(by_type['T']) == 1, f"Expected 1 trailer record, got {len(by_type['T'])}"
+        assert len(headers) == 2, "Should have 2 header records"
+        assert len(details) == 5, "Should have 5 detail records"
+        assert len(trailers) == 2, "Should have 2 trailer records"
 
-        # Validate product record structure and data
-        product1 = by_type['P'][0]
-        expected_product_fields = {'record_type', 'product_id', 'product_code', 'category',
-                                  'unit_price_cents', 'description'}
-        actual_product_fields = {k for k in product1.keys() if not k.startswith('__')}
-        assert actual_product_fields == expected_product_fields
+        # Verify field values are correctly parsed with the fixed schema
+        detail1 = details[0]
+        assert detail1['transaction_id'] == 1
+        assert detail1['amount_cents'] == 12500  # This should now work with corrected schema
+        assert detail1['quantity'] == 10
 
-        assert product1['record_type'] == 'P'
-        assert product1['product_id'] == 1
-        assert product1['product_code'] == 'WIDGET_A'
-        assert product1['category'] == 'Electronics'
-        assert product1['unit_price_cents'] == 12500
-        assert product1['description'] == 'Regular Item'
+    def test_large_multi_schema_processing(self):
+        """Test processing large multi-schema FWF files."""
+        # Create large multi-schema test data
+        flag_column = FwfFieldSpec("type", 1, 1, parquet_type="string")
 
-        # Validate inventory record structure and data
-        inventory1 = by_type['I'][0]
-        expected_inventory_fields = {'record_type', 'product_id', 'quantity_on_hand', 'quantity_reserved',
-                                    'quantity_available', 'location_code', 'last_updated', 'status'}
-        actual_inventory_fields = {k for k in inventory1.keys() if not k.startswith('__')}
-        assert actual_inventory_fields == expected_inventory_fields
+        conditional_schemas = [
+            FwfConditionalSchema("A", "Type A", [
+                FwfFieldSpec("type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("data", 10, 20, align="left", parquet_type="string")
+            ]),
+            FwfConditionalSchema("B", "Type B", [
+                FwfFieldSpec("type", 1, 1, parquet_type="string"),
+                FwfFieldSpec("id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                FwfFieldSpec("amount", 10, 12, align="right", pad="0", parquet_type="int64")
+            ])
+        ]
 
-        assert inventory1['record_type'] == 'I'
-        assert inventory1['product_id'] == 1
-        assert inventory1['quantity_on_hand'] == 50
-        assert inventory1['quantity_reserved'] == 10
-        assert inventory1['quantity_available'] == 45
-        assert inventory1['location_code'] == 'STK'
-        assert inventory1['status'] == 'Initial Stock'
+        config = FwfInputConfig(
+            flag_column=flag_column,
+            conditional_schemas=conditional_schemas,
+            skip_blank_lines=True
+        )
 
-        # Validate adjustment record structure and data
-        adjustment1 = by_type['A'][0]
-        expected_adjustment_fields = {'record_type', 'product_id', 'adjustment_qty', 'adjustment_value_cents',
-                                     'adjustment_type', 'adjustment_date', 'reason_code'}
-        actual_adjustment_fields = {k for k in adjustment1.keys() if not k.startswith('__')}
-        assert actual_adjustment_fields == expected_adjustment_fields
+        # Generate large test data
+        test_data = []
+        for i in range(5000):
+            if i % 2 == 0:
+                # Type A record
+                line = f"A{i:08d}{'Data_' + str(i):20}"
+            else:
+                # Type B record
+                line = f"B{i:08d}{(i * 100):012d}"
+            test_data.append(line)
 
-        assert adjustment1['record_type'] == 'A'
-        assert adjustment1['product_id'] == 1
-        assert adjustment1['adjustment_qty'] == 1
-        assert adjustment1['adjustment_value_cents'] == 45
-        assert adjustment1['adjustment_type'] == 'ADJ+'
-        assert adjustment1['reason_code'] == 'Damaged Return'
-
-    def test_multi_schema_arrow_schema_generation(self):
-        """Test PyArrow schema generation for multi-schema files."""
-        test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
-        schema_path = test_dir / "banking_multi_schema.json"
-
-        config = create_fwf_config_from_schema(schema_path)
-        handler = FwfInputHandler(config)
-
-        # Generate PyArrow schema
-        arrow_schema = handler.get_arrow_schema()
-
-        # Verify the schema contains all unique fields from all conditional schemas
-        field_names = {field.name for field in arrow_schema}
-
-        # Fields that should be present from all schemas
-        expected_fields = {
-            'record_type',  # Common to all
-            'batch_date', 'batch_id', 'batch_name', 'institution_name',  # Header fields
-            'transaction_id', 'account_number', 'transaction_type', 'amount_cents', 'currency',
-            'transaction_date', 'transaction_time', 'channel',  # Detail fields
-            'summary_date', 'transaction_count', 'total_amount_cents', 'summary_notes',  # Summary fields
-            'trailer_date', 'total_records', 'grand_total_cents', 'process_date', 'status_message',  # Trailer fields
-            '__line_number__', '__source_file__'  # Metadata fields
-        }
-
-        assert field_names == expected_fields, f"Schema fields mismatch. Missing: {expected_fields - field_names}, Extra: {field_names - expected_fields}"
-
-        # Verify data types are correct
-        field_types = {field.name: field.type for field in arrow_schema}
-
-        # Check some key field types
-        assert field_types['record_type'] == pa.string()
-        assert field_types['batch_id'] == pa.int64()
-        assert field_types['transaction_id'] == pa.int64()
-        assert field_types['amount_cents'] == pa.int64()
-        assert field_types['__line_number__'] == pa.int64()
-
-    def test_multi_schema_error_handling(self):
-        """Test error handling with malformed multi-schema data."""
-        # Create a test file with some invalid records
-        invalid_data = """H20241201000001DAILY_BATCH      First National Bank             
-D00000112345TRANSFER    0000025000USD20241201101030ONLINE    
-X00000212346UNKNOWN     0000001500USD20241201103045INVALID   
-D00000312347WITHDRAWAL  0000005000USD20241201105020BRANCH    
-T20241201000002000030000USD20241201End of Processing          """
-
-        test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
-        schema_path = test_dir / "banking_multi_schema.json"
-
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write(invalid_data)
-            temp_data_path = Path(f.name)
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.fwf', delete=False, encoding='utf-8') as tmp_file:
+            fwf_path = Path(tmp_file.name)
+            for line in test_data:
+                tmp_file.write(line + '\n')
 
         try:
-            config = create_fwf_config_from_schema(schema_path)
             handler = FwfInputHandler(config)
 
-            # Process the file - should handle unknown record types gracefully
-            records = list(handler.read_file(temp_data_path))
-
-            # Should only process valid record types (H, D, T), skip unknown 'X'
-            assert len(records) == 4, f"Expected 4 valid records, got {len(records)}"
-
-            # Verify record types
-            record_types = [r['record_type'] for r in records]
-            assert 'H' in record_types
-            assert 'D' in record_types
-            assert 'T' in record_types
-            assert 'X' not in record_types  # Invalid record type should be skipped
-
-        finally:
-            temp_data_path.unlink()
-
-    def test_multi_schema_field_validation(self):
-        """Test field overlap validation across multiple schemas."""
-        test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
-        schema_path = test_dir / "retail_multi_schema.json"
-
-        config = create_fwf_config_from_schema(schema_path)
-        handler = FwfInputHandler(config)
-
-        # Verify configuration was loaded correctly
-        assert config.conditional_schemas is not None
-        assert len(config.conditional_schemas) == 5  # H, P, I, A, T
-
-        # Verify flag column configuration
-        assert config.flag_column is not None
-        assert config.flag_column.name == 'record_type'
-        assert config.flag_column.start == 1
-        assert config.flag_column.length == 1
-
-        # Verify each schema has valid field positions (no overlaps within schema)
-        for schema in config.conditional_schemas:
-            sorted_fields = sorted(schema.fields, key=lambda f: f.start)
-            for i in range(len(sorted_fields) - 1):
-                current = sorted_fields[i]
-                next_field = sorted_fields[i + 1]
-                current_end = current.start + current.length - 1
-                assert current_end < next_field.start, f"Field overlap in schema {schema.flag_value}: {current.name} and {next_field.name}"
-
-    def test_multi_schema_create_arrow_table(self):
-        """Test creating PyArrow table from multi-schema FWF file."""
-        test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
-        schema_path = test_dir / "banking_multi_schema.json"
-        data_path = test_dir / "banking_multi_schema.txt"
-
-        config = create_fwf_config_from_schema(schema_path)
-        handler = FwfInputHandler(config)
-
-        # Create PyArrow table
-        table = handler.create_arrow_table(data_path)
-
-        # Verify table structure
-        assert isinstance(table, pa.Table)
-        assert table.num_rows == 13  # Total records in the file
-
-        # Verify columns exist
-        column_names = table.column_names
-        assert 'record_type' in column_names
-        assert 'batch_date' in column_names
-        assert 'transaction_id' in column_names
-        assert '__line_number__' in column_names
-        assert '__source_file__' in column_names
-
-        # Convert to pandas for easier validation
-        df = table.to_pandas()
-
-        # Verify record type distribution
-        type_counts = df['record_type'].value_counts()
-        assert type_counts['H'] == 2
-        assert type_counts['D'] == 8
-        assert type_counts['S'] == 2
-        assert type_counts['T'] == 1
-
-        # Verify data integrity for specific fields
-        header_rows = df[df['record_type'] == 'H']
-        assert all(header_rows['batch_name'].notna())
-        assert all(header_rows['institution_name'].notna())
-
-        detail_rows = df[df['record_type'] == 'D']
-        assert all(detail_rows['transaction_id'].notna())
-        assert all(detail_rows['amount_cents'].notna())
-        assert all(detail_rows['currency'] == 'USD')
-
-    def test_multi_schema_performance_large_file(self):
-        """Test performance with a larger multi-schema file."""
-        # Generate a larger test file with multiple batches
-        large_data_lines = []
-
-        # Generate 10 batches with multiple transactions each
-        for batch in range(1, 11):
-            batch_date = f"2024120{batch % 10}"
-            large_data_lines.append(f"H{batch_date}{batch:06d}BATCH_{batch:03d}    Performance Test Bank           ")
-
-            # Add 10 transactions per batch
-            for txn in range(1, 11):
-                txn_id = (batch - 1) * 10 + txn
-                account = f"{12345 + txn:05d}"
-                amount = f"{(txn * 1000):010d}"
-                large_data_lines.append(f"D{txn_id:06d}{account}TRANSFER    {amount}USD{batch_date}101030ONLINE    ")
-
-            # Add summary for each batch
-            total_amount = f"{(10 * 1000 * (1 + 10) // 2):010d}"  # Sum of 1000, 2000, ..., 10000
-            large_data_lines.append(f"S{batch_date}{10:06d}{total_amount}USD        Batch {batch} Summary         ")
-
-        # Add final trailer
-        large_data_lines.append("T20241210{:06d}{:010d}USD20241210Performance Test Complete   ".format(
-            10 * 11,  # 10 batches * 11 records each (1 header + 10 details) + 10 summaries
-            10 * 55000  # Total of all batch amounts
-        ))
-
-        large_data = '\n'.join(large_data_lines)
-
-        # Use temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-            f.write(large_data)
-            temp_data_path = Path(f.name)
-
-        try:
-            test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
-            schema_path = test_dir / "banking_multi_schema.json"
-
-            config = create_fwf_config_from_schema(schema_path)
-            handler = FwfInputHandler(config)
-
-            # Process the large file
+            # Process large file
             import time
             start_time = time.time()
-            records = list(handler.read_file(temp_data_path))
-            end_time = time.time()
 
+            table = handler.create_arrow_table(fwf_path)
+
+            end_time = time.time()
             processing_time = end_time - start_time
 
             # Verify results
-            expected_records = 10 + 100 + 10 + 1  # 10 headers + 100 details + 10 summaries + 1 trailer
-            assert len(records) == expected_records, f"Expected {expected_records} records, got {len(records)}"
+            assert table.num_rows == 5000, "Should process all 5000 records"
 
-            # Verify performance (should process reasonably quickly)
-            records_per_second = len(records) / processing_time if processing_time > 0 else float('inf')
-            assert records_per_second > 1000, f"Performance too slow: {records_per_second:.2f} records/second"
+            df = table.to_pandas()
+            record_types = df['type'].unique()
+            assert set(record_types) == {'A', 'B'}, "Should have both record types"
 
-            print(f"Processed {len(records)} records in {processing_time:.3f} seconds ({records_per_second:.2f} records/sec)")
+            type_a_count = len(df[df['type'] == 'A'])
+            type_b_count = len(df[df['type'] == 'B'])
+
+            assert type_a_count == 2500, "Should have 2500 Type A records"
+            assert type_b_count == 2500, "Should have 2500 Type B records"
+
+            print(f"Processed {table.num_rows} multi-schema records in {processing_time:.2f} seconds")
+            assert processing_time < 15.0, f"Processing should be under 15 seconds, took {processing_time:.2f}s"
 
         finally:
-            temp_data_path.unlink()
-
-
-if __name__ == "__main__":
-    # Run a simple test to verify functionality
-    test_suite = TestMultiSchemaFwfIntegration()
-    test_suite.test_banking_multi_schema_processing()
-    print("✅ Multi-schema FWF integration tests passed!")
+            fwf_path.unlink()

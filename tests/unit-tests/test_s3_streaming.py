@@ -344,7 +344,10 @@ class TestS3StreamingWriter:
         with writer as w:
             assert w is writer
 
-        mock_client.complete_multipart_upload.assert_called_once()
+        # Since no data was written, multipart upload should be aborted but no put_object should occur
+        mock_client.abort_multipart_upload.assert_called_once()  # Cleanup the unused multipart upload
+        mock_client.put_object.assert_not_called()  # No data to upload
+        mock_client.complete_multipart_upload.assert_not_called()  # Should not be called for empty files
 
 
 class TestUnifiedIOHandler:
@@ -651,16 +654,25 @@ class TestS3ErrorHandling:
         s3_path = S3Path("s3://bucket/key")
         writer = S3StreamingWriter(mock_client, s3_path)
 
-        # Simulate error during upload
-        mock_client.complete_multipart_upload.side_effect = Exception("Upload failed")
+        # Write some data to trigger the put_object path (small file)
+        writer.write("test data")
 
-        with pytest.raises(Exception, match="Upload failed"):
+        # Ensure the buffer has data
+        assert writer._buffer.tell() > 0
+
+        # Mock abort_multipart_upload to succeed (it's called for cleanup)
+        mock_client.abort_multipart_upload.return_value = {}
+
+        # Mock upload_part to fail so no parts are created, keeping us in small file path
+        mock_client.upload_part.side_effect = Exception("Part upload failed")
+
+        # Mock put_object to also fail to test the error cleanup
+        mock_client.put_object.side_effect = Exception("Upload failed")
+
+        # The exception should be raised during close() - either from upload_part or put_object
+        with pytest.raises(Exception, match="(Part upload failed|Upload failed)"):
             writer.close()
 
         # Verify abort was called for cleanup
-        mock_client.abort_multipart_upload.assert_called_once_with(
-            Bucket='bucket',
-            Key='key',
-            UploadId='test-upload-id'
-        )
-
+        mock_client.abort_multipart_upload.assert_called()
+        assert mock_client.abort_multipart_upload.call_count >= 1

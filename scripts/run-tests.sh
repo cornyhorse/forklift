@@ -9,6 +9,9 @@ pip install -e . && pytest --cache-clear &&  pytest -q --cov=forklift --cov-repo
 # Run tests with real S3 for unit tests AND integration tests
 pip install -e . && pytest --cache-clear &&  pytest -q --cov=forklift --cov-report=html --no-s3-mock --integration
 
+# Run integration tests WITH S3 mocking (fast, no AWS credentials needed)
+# pip install -e . && pytest --cache-clear &&  pytest -q --cov=forklift --cov-report=html --integration
+
 # OR OMIT integration tests entirely (with S3 mocking)
 # pip install -e . \
 #   && pytest --cache-clear \

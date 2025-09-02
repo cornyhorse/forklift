@@ -292,15 +292,32 @@ class S3StreamingWriter:
 
         try:
             # Upload any remaining data
-            self._upload_part()
+            if self._buffer.tell() > 0:
+                self._upload_part()
 
-            # Complete multipart upload
-            self._s3_client.complete_multipart_upload(
-                Bucket=self._s3_path.bucket,
-                Key=self._s3_path.key,
-                UploadId=self._upload_id,
-                MultipartUpload={'Parts': self._parts}
-            )
+            # Handle different upload scenarios
+            if not self._parts:
+                # No parts uploaded - use simple put_object instead
+                # This happens with small files that don't reach the part size threshold
+                self._abort_upload()  # Clean up the multipart upload
+
+                # Get all data and upload as single object
+                self._buffer.seek(0)
+                data = self._buffer.read()
+                if data:  # Only upload if there's actually data
+                    self._s3_client.put_object(
+                        Bucket=self._s3_path.bucket,
+                        Key=self._s3_path.key,
+                        Body=data
+                    )
+            else:
+                # Complete multipart upload with valid parts
+                self._s3_client.complete_multipart_upload(
+                    Bucket=self._s3_path.bucket,
+                    Key=self._s3_path.key,
+                    UploadId=self._upload_id,
+                    MultipartUpload={'Parts': self._parts}
+                )
         except Exception:
             # Abort upload on failure
             self._abort_upload()
@@ -310,17 +327,14 @@ class S3StreamingWriter:
 
     def _abort_upload(self):
         """Abort the multipart upload (cleanup method)."""
-        if not self._closed:
-            try:
-                self._s3_client.abort_multipart_upload(
-                    Bucket=self._s3_path.bucket,
-                    Key=self._s3_path.key,
-                    UploadId=self._upload_id
-                )
-            except Exception:
-                pass  # Best effort cleanup
-            finally:
-                self._closed = True
+        try:
+            self._s3_client.abort_multipart_upload(
+                Bucket=self._s3_path.bucket,
+                Key=self._s3_path.key,
+                UploadId=self._upload_id
+            )
+        except Exception:
+            pass  # Best effort cleanup
 
     def __enter__(self):
         return self

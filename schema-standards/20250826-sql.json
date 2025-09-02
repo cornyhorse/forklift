@@ -1,27 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-sql.json",
-  "title": "Forklift SQL Input - Comprehensive Parquet Data Types Schema Standard",
-  "description": "Schema for SQL database processing demonstrating all supported Parquet data types. Specify which schemas/tables to include from the SQL source using glob-like patterns OR extended x-sql configuration. Patterns supported: '*.*' (all schemas/tables), 'table_name' (table in default schema), 'schema.table' (specific schema/table), 'schema.*' (all tables/views in schema). Optional x-sql block allows richer configuration including per-table selection and column schema.",
+  "title": "Forklift SQL Input - One Schema Per Table Schema Standard",
+  "description": "Schema for SQL database processing with simplified one-to-one schema/table mapping. Each table is explicitly specified with its schema and table name, eliminating glob patterns and making configuration predictable.",
   "type": "object",
   "properties": {
-    "include": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "description": "Glob pattern for schema and table. Examples: '*.*', 'table_name', 'schema.table', 'schema.*'"
-      },
-      "minItems": 1,
-      "description": "List of glob patterns specifying which schemas/tables to include. If omitted and no x-sql.include/tables present, defaults to ['*.*'] (all)."
-    },
     "x-sql": {
       "type": "object",
       "properties": {
-        "include": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Additional include patterns merged with root-level include (order preserved, duplicates removed)."
-        },
         "tables": {
           "type": "array",
           "items": {
@@ -30,11 +16,21 @@
               "select": {
                 "type": "object",
                 "properties": {
-                  "schema": { "type": "string" },
-                  "name": { "type": "string" },
-                  "pattern": { "type": "string", "description": "Explicit include pattern override (e.g. sales.*)." }
+                  "schema": {
+                    "type": "string",
+                    "description": "Database schema name (e.g., 'public', 'sales', 'main'). Use 'default' or omit for default schema."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Exact table name to import"
+                  }
                 },
+                "required": ["name"],
                 "additionalProperties": false
+              },
+              "outputName": {
+                "type": "string",
+                "description": "Optional custom name for the output parquet file (without extension). If omitted, uses 'schema_tablename' or just 'tablename' if no schema."
               },
               "columns": {
                 "type": "object",
@@ -67,7 +63,8 @@
             "required": ["select"],
             "additionalProperties": false
           },
-          "description": "Per-table configuration blocks. Each produces an include pattern derived from select (schema+name, name, or explicit pattern)."
+          "minItems": 1,
+          "description": "List of tables to import. Each table must be explicitly specified with schema and table name."
         },
         "parquetTypeMapping": {
           "type": "object",
@@ -99,145 +96,60 @@
                 "BLOB": "binary",
                 "ARRAY": "list<type>",
                 "JSON": "struct",
-                "JSONB": "struct",
                 "UUID": "string"
               }
             }
           }
         }
       },
+      "required": ["tables"],
       "additionalProperties": false
     }
   },
+  "required": ["x-sql"],
   "additionalProperties": false,
-
-  "x-pii": {
-    "description": "Personally Identifiable Information (PII) field marking for data privacy and masking applications across SQL tables and schemas",
-    "globalRules": {
-      "description": "Global PII rules that apply to column names matching patterns across all tables",
-      "patterns": {
-        "name": {
-          "isPII": true,
-          "category": "direct_identifier",
-          "description": "Any column named 'name' is considered direct PII",
-          "sqlTypes": ["VARCHAR", "TEXT", "CHAR"]
-        },
-        "email": {
-          "isPII": true,
-          "category": "direct_identifier",
-          "description": "Email addresses are direct identifiers",
-          "sqlTypes": ["VARCHAR", "TEXT"]
-        },
-        "ssn|social_security": {
-          "isPII": true,
-          "category": "direct_identifier",
-          "description": "Social Security Numbers are highly sensitive direct identifiers",
-          "sqlTypes": ["VARCHAR", "CHAR"]
-        },
-        "birth_date|dob": {
-          "isPII": true,
-          "category": "quasi_identifier",
-          "description": "Birth dates can identify individuals when combined with other data",
-          "sqlTypes": ["DATE", "TIMESTAMP", "DATETIME"]
-        },
-        "salary|wage|income": {
-          "isPII": true,
-          "category": "sensitive",
-          "description": "Financial information requiring protection",
-          "sqlTypes": ["DECIMAL", "NUMERIC", "FLOAT", "DOUBLE"]
-        },
-        "address|street|zip|postal": {
-          "isPII": true,
-          "category": "quasi_identifier",
-          "description": "Address information can be identifying",
-          "sqlTypes": ["VARCHAR", "TEXT"]
-        }
-      }
-    },
-    "tableSpecific": {
-      "description": "Table-specific PII configuration that overrides global rules",
-      "tables": {
-        "employees": {
-          "schema": "hr",
-          "fields": {
-            "employee_id": {
-              "isPII": true,
-              "category": "direct_identifier",
-              "description": "Employee ID is a direct identifier"
+  "examples": [
+    {
+      "x-sql": {
+        "tables": [
+          {
+            "select": {
+              "schema": "public",
+              "name": "users"
             },
-            "manager_id": {
-              "isPII": false,
-              "category": "identifier",
-              "description": "Manager ID links to other employees but isn't directly identifying"
+            "outputName": "users_data",
+            "columns": {
+              "id": { "type": "integer", "parquetType": "int64" },
+              "name": { "type": "string", "parquetType": "string" },
+              "email": { "type": "string", "format": "email", "parquetType": "string" },
+              "created_at": { "type": "string", "format": "date-time", "parquetType": "timestamp[us]" }
+            },
+            "required": ["id", "name"]
+          },
+          {
+            "select": {
+              "schema": "sales",
+              "name": "orders"
+            },
+            "columns": {
+              "order_id": { "type": "integer", "parquetType": "int64" },
+              "customer_id": { "type": "integer", "parquetType": "int64" },
+              "amount": { "type": "number", "parquetType": "decimal128(10,2)" },
+              "order_date": { "type": "string", "format": "date", "parquetType": "date32" }
+            }
+          },
+          {
+            "select": {
+              "name": "products"
+            },
+            "columns": {
+              "product_id": { "type": "integer", "parquetType": "int64" },
+              "name": { "type": "string", "parquetType": "string" },
+              "price": { "type": "number", "parquetType": "double" }
             }
           }
-        },
-        "customers": {
-          "schema": "sales",
-          "fields": {
-            "customer_id": {
-              "isPII": true,
-              "category": "direct_identifier",
-              "description": "Customer ID is a direct identifier"
-            },
-            "phone": {
-              "isPII": true,
-              "category": "direct_identifier",
-              "description": "Phone numbers are direct identifiers"
-            }
-          }
-        }
-      }
-    },
-    "maskingRules": {
-      "direct_identifier": {
-        "method": "hash",
-        "preserveFormat": false,
-        "description": "Hash direct identifiers using SHA-256 to protect individual privacy"
-      },
-      "quasi_identifier": {
-        "method": "generalize",
-        "preserveFormat": true,
-        "description": "Generalize quasi-identifiers (e.g., birth year only, zip code prefix)"
-      },
-      "sensitive": {
-        "method": "range",
-        "preserveFormat": true,
-        "description": "Replace with ranges or categories to maintain analytical utility while protecting privacy"
+        ]
       }
     }
-  },
-  "x-primaryKey": {
-    "description": "Global primary key configuration for SQL data sources",
-    "tables": {
-      "employees": {
-        "columns": ["id"],
-        "type": "single",
-        "enforceUniqueness": true,
-        "allowNulls": false,
-        "description_detail": "Single column primary key on employees.id"
-      },
-      "orders": {
-        "columns": ["order_id", "customer_id"],
-        "type": "composite",
-        "enforceUniqueness": true,
-        "allowNulls": false,
-        "description_detail": "Composite primary key on orders table combining order_id and customer_id"
-      },
-      "products": {
-        "columns": ["product_code"],
-        "type": "single",
-        "enforceUniqueness": true,
-        "allowNulls": false,
-        "description_detail": "Single column primary key on products.product_code"
-      }
-    },
-    "defaultBehavior": {
-      "autoDetect": true,
-      "fallbackColumn": "id",
-      "enforceUniqueness": true,
-      "allowNulls": false,
-      "description": "Default behavior for tables without explicit primary key configuration"
-    }
-  }
+  ]
 }

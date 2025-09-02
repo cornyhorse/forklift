@@ -142,3 +142,34 @@ class ExcelInputConfig:
     skip_blank_lines: bool = True
     engine: Optional[str] = None  # Auto-detect based on file extension
 
+
+@dataclass
+class SqlInputConfig:
+    """Configuration for SQL database input processing.
+
+    Args:
+        connection_string: Database connection string (ODBC format)
+        batch_size: Number of rows to fetch per batch (default: 10000)
+        query_timeout: Query timeout in seconds (default: 300)
+        connection_timeout: Connection timeout in seconds (default: 30)
+        fetch_size: Database cursor fetch size for memory management
+        null_values: Values to treat as NULL/None
+        date_formats: Custom date format strings for parsing
+        timestamp_formats: Custom timestamp format strings for parsing
+        use_quoted_identifiers: Whether to quote table/column names in queries
+        schema_name: Default schema name if not specified in patterns
+        enable_streaming: Whether to use streaming cursor for large result sets
+        connection_params: Additional connection parameters as key-value pairs
+    """
+    connection_string: str
+    batch_size: int = 10000
+    query_timeout: int = 300
+    connection_timeout: int = 30
+    fetch_size: Optional[int] = None
+    null_values: Optional[List[str]] = None
+    date_formats: Optional[List[str]] = None
+    timestamp_formats: Optional[List[str]] = None
+    use_quoted_identifiers: bool = False
+    schema_name: Optional[str] = None
+    enable_streaming: bool = True
+    connection_params: Optional[Dict[str, Any]] = None

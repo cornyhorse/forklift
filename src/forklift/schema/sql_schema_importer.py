@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 class SchemaValidationError(Exception):
@@ -50,69 +50,33 @@ class SqlSchemaImporter:
 
         # Extract core schema components
         self.sql_ext: Dict[str, Any] = self.schema.get("x-sql", {})
-        self.include_patterns: List[str] = self.schema.get("include", [])
 
-        # Extract SQL-specific configurations
-        self.sql_include: List[str] = self.sql_ext.get("include", [])
+        # Extract SQL-specific configurations (simplified - no more glob patterns)
         self.tables: List[Dict[str, Any]] = self.sql_ext.get("tables", [])
         self.parquet_type_mapping: Dict[str, Any] = self.sql_ext.get("parquetTypeMapping", {})
-
-        # Merge include patterns
-        self.all_include_patterns = self._merge_include_patterns()
 
         # Validate schema if requested
         self.validation_errors: List[str] = []
         if validate:
             self.validate_schema()
 
-    def _merge_include_patterns(self) -> List[str]:
-        """Merge root-level and x-sql include patterns, removing duplicates while preserving order."""
-        merged = []
-        seen = set()
+    def get_table_list(self) -> List[Tuple[str, str, Optional[str]]]:
+        """Get list of tables to process from schema configuration.
 
-        # Add root-level includes first
-        for pattern in self.include_patterns:
-            if pattern not in seen:
-                merged.append(pattern)
-                seen.add(pattern)
-
-        # Add x-sql includes
-        for pattern in self.sql_include:
-            if pattern not in seen:
-                merged.append(pattern)
-                seen.add(pattern)
-
-        # Add patterns derived from table configurations
+        Returns:
+            List of tuples (schema_name, table_name, output_name)
+        """
+        table_list = []
         for table in self.tables:
-            pattern = self._derive_table_pattern(table)
-            if pattern and pattern not in seen:
-                merged.append(pattern)
-                seen.add(pattern)
+            select = table.get("select", {})
+            schema_name = select.get("schema", "default")
+            table_name = select.get("name")
+            output_name = table.get("outputName")
 
-        # Default to all tables if no patterns specified
-        if not merged:
-            merged = ["*.*"]
+            if table_name:
+                table_list.append((schema_name, table_name, output_name))
 
-        return merged
-
-    def _derive_table_pattern(self, table: Dict[str, Any]) -> Optional[str]:
-        """Derive an include pattern from a table configuration."""
-        select = table.get("select", {})
-
-        # Check for explicit pattern override
-        if "pattern" in select:
-            return select["pattern"]
-
-        # Derive from schema and name
-        schema = select.get("schema")
-        name = select.get("name")
-
-        if schema and name:
-            return f"{schema}.{name}"
-        elif name:
-            return name
-
-        return None
+        return table_list
 
     def validate_schema(self) -> None:
         """Perform comprehensive schema validation and collect all errors."""
@@ -123,9 +87,6 @@ class SqlSchemaImporter:
 
         # Validate SQL-specific extension
         errors.extend(self._validate_sql_extension())
-
-        # Validate include patterns
-        errors.extend(self._validate_include_patterns())
 
         # Validate table configurations
         errors.extend(self._validate_tables())
@@ -167,16 +128,7 @@ class SqlSchemaImporter:
 
         # x-sql extension is optional, but if present must be valid
         if self.sql_ext:
-            # Validate include array
-            if "include" in self.sql_ext:
-                if not isinstance(self.sql_include, list):
-                    errors.append("x-sql.include must be an array")
-                else:
-                    for i, pattern in enumerate(self.sql_include):
-                        if not isinstance(pattern, str):
-                            errors.append(f"x-sql.include[{i}] must be a string")
-
-            # Validate tables array
+            # Validate tables array - this is now the primary configuration
             if "tables" in self.sql_ext:
                 if not isinstance(self.tables, list):
                     errors.append("x-sql.tables must be an array")
@@ -185,23 +137,6 @@ class SqlSchemaImporter:
             if "parquetTypeMapping" in self.sql_ext:
                 if not isinstance(self.parquet_type_mapping, dict):
                     errors.append("x-sql.parquetTypeMapping must be an object")
-
-        return errors
-
-    def _validate_include_patterns(self) -> List[str]:
-        """Validate include pattern formats."""
-        errors = []
-
-        # Validate root-level include patterns
-        if self.include_patterns:
-            if not isinstance(self.include_patterns, list):
-                errors.append("include must be an array")
-            else:
-                for i, pattern in enumerate(self.include_patterns):
-                    if not isinstance(pattern, str):
-                        errors.append(f"include[{i}] must be a string")
-                    elif not self._is_valid_include_pattern(pattern):
-                        errors.append(f"Invalid include pattern '{pattern}' at index {i}")
 
         return errors
 
@@ -391,8 +326,9 @@ class SqlSchemaImporter:
         return self.sql_ext
 
     def get_include_patterns(self) -> List[str]:
-        """Get all resolved include patterns."""
-        return self.all_include_patterns
+        """Get all resolved include patterns - deprecated, returns empty list."""
+        # No longer used since we use explicit table lists instead of glob patterns
+        return []
 
     def get_tables(self) -> List[Dict[str, Any]]:
         """Get the table configurations."""
@@ -428,35 +364,15 @@ class SqlSchemaImporter:
         return []
 
     def matches_include_pattern(self, schema_name: Optional[str], table_name: str) -> bool:
-        """Check if a schema/table matches any include pattern."""
-        full_name = f"{schema_name}.{table_name}" if schema_name else table_name
-
-        for pattern in self.all_include_patterns:
-            if self._matches_pattern(full_name, pattern, schema_name, table_name):
-                return True
-
-        return False
+        """Check if a schema/table matches any include pattern - deprecated."""
+        # Since we use explicit table lists now, this always returns True
+        # Individual tables are explicitly listed in the schema
+        return True
 
     def _matches_pattern(self, full_name: str, pattern: str, schema_name: Optional[str], table_name: str) -> bool:
-        """Check if a table matches a specific pattern."""
-        if pattern == "*.*":
-            return True
-
-        if pattern == table_name:
-            return True
-
-        if "." in pattern:
-            pattern_schema, pattern_table = pattern.split(".", 1)
-
-            if pattern_schema == "*":
-                return pattern_table == "*" or pattern_table == table_name
-
-            if pattern_table == "*":
-                return pattern_schema == schema_name
-
-            return pattern_schema == schema_name and pattern_table == table_name
-
-        return pattern == table_name
+        """Check if a table matches a specific pattern - deprecated."""
+        # No longer used since we use explicit table lists instead of glob patterns
+        return True
 
     def get_sql_to_parquet_mapping(self) -> Dict[str, str]:
         """Get the SQL to Parquet type mapping."""

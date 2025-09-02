@@ -13,12 +13,13 @@ The module is organized with separate files for each responsibility:
 """
 
 # Import configuration
-from .config import CsvInputConfig, FwfInputConfig, FwfFieldSpec, FwfConditionalSchema, ExcelInputConfig, ExcelSheetConfig
+from .config import CsvInputConfig, FwfInputConfig, FwfFieldSpec, FwfConditionalSchema, ExcelInputConfig, ExcelSheetConfig, SqlInputConfig
 
 # Import core input handlers
 from .csv import CsvInputHandler
 from .fwf import FwfInputHandler
 from .excel import ExcelInputHandler
+from .sql import SqlInputHandler
 
 # Define public API
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "CsvInputHandler",
     "FwfInputHandler",
     "ExcelInputHandler",
+    "SqlInputHandler",
 
     # Configuration
     "CsvInputConfig",
@@ -34,4 +36,5 @@ __all__ = [
     "FwfConditionalSchema",
     "ExcelInputConfig",
     "ExcelSheetConfig",
+    "SqlInputConfig",
 ]

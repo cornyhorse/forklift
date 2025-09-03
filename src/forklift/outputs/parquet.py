@@ -48,7 +48,6 @@ class ParquetOutputHandler:
             file_path,
             schema,
             compression=self.config.compression,
-            row_group_size=self.config.row_group_size,
         )
         self.writers[str(file_path)] = writer
         return writer
@@ -58,6 +57,7 @@ class ParquetOutputHandler:
 
         Converts the RecordBatch to a Table and writes it using the provided writer.
         Only writes non-empty batches to avoid creating empty row groups.
+        Uses the configured row_group_size to control row group sizing.
 
         Args:
             writer: ParquetWriter instance for the target file
@@ -65,7 +65,7 @@ class ParquetOutputHandler:
         """
         if len(batch) > 0:
             table = pa.Table.from_batches([batch])
-            writer.write_table(table)
+            writer.write_table(table, row_group_size=self.config.row_group_size)
 
     def close_all_writers(self):
         """Close all open Parquet writers and clear the writers dictionary.

@@ -588,6 +588,17 @@ class TestExcelSchemaImporterParquetTypes:
         for ptype in invalid_types:
             assert not importer._is_valid_parquet_type(ptype), f"Type {ptype} should be invalid"
 
+    def test_parquet_type_basic_supported_types_coverage(self):
+        """Test basic supported Parquet types to ensure 100% coverage of line 326."""
+        schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
+        importer = ExcelSchemaImporter(schema, validate=False)
+
+        # Explicitly test types that are definitely in SUPPORTED_PARQUET_TYPES to cover line 326
+        # These should trigger the first return True statement
+        basic_supported_types = ["int32", "string", "double", "bool", "binary"]
+        for ptype in basic_supported_types:
+            result = importer._is_valid_parquet_type(ptype)
+            assert result is True, f"Type {ptype} should be valid and trigger early return"
 
 class TestExcelSchemaImporterAccessorMethods:
     """Test accessor methods in Excel schema importer."""
@@ -892,3 +903,158 @@ class TestExcelSchemaImporterEdgeCases:
 
         # Should catch the duplicate position
         assert "duplicate position 2" in str(exc_info.value)
+
+    def test_edge_case_parquet_type_validation(self):
+        """Test edge cases in Parquet type validation to achieve 100% coverage."""
+        schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
+        importer = ExcelSchemaImporter(schema, validate=False)
+
+        # Test edge cases that might not be covered
+        edge_case_types = [
+            "decimal128(",  # Invalid decimal format - missing closing parenthesis
+            "timestamp[",   # Invalid timestamp format - missing closing bracket
+            "duration[",    # Invalid duration format - missing closing bracket
+            "list<",        # Invalid list format - missing closing bracket
+            "dictionary<",  # Invalid dictionary format - missing closing bracket
+            "unknown_type", # Completely unknown type
+            "",             # Empty string
+        ]
+
+        for ptype in edge_case_types:
+            assert not importer._is_valid_parquet_type(ptype), f"Type '{ptype}' should be invalid"
+
+    def test_column_mapping_edge_cases(self):
+        """Test edge cases in column mapping to achieve 100% coverage."""
+        # Test with no sheets
+        schema_no_sheets = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {},
+            "x-excel": {"sheets": []}
+        }
+        importer_no_sheets = ExcelSchemaImporter(schema_no_sheets, validate=False)
+        mapping = importer_no_sheets.get_column_mapping()
+        assert mapping == {}
+
+        # Test with sheet that has no columns
+        schema_no_columns = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {},
+            "x-excel": {
+                "sheets": [
+                    {
+                        "select": {"name": "Sheet1"}
+                        # No columns defined
+                    }
+                ]
+            }
+        }
+        importer_no_columns = ExcelSchemaImporter(schema_no_columns, validate=False)
+        mapping = importer_no_columns.get_column_mapping()
+        assert mapping == {}
+
+    def test_validation_with_null_field_properties(self):
+        """Test validation with null field properties to achieve 100% coverage."""
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {
+                "test_field": None  # Null field definition
+            },
+            "x-excel": {
+                "sheets": [
+                    {
+                        "select": {"name": "Sheet1"},
+                        "columns": [
+                            {"name": "test", "position": "A"}
+                        ]
+                    }
+                ]
+            }
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            ExcelSchemaImporter(schema, validate=True)
+
+        assert "Field 'test_field' definition must be a dictionary" in str(exc_info.value)
+
+    def test_sheet_select_non_dictionary(self):
+        """Test validation when sheet select is not a dictionary to achieve 100% coverage."""
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {},
+            "x-excel": {
+                "sheets": [
+                    {
+                        "select": "not_a_dictionary"  # Should be dictionary - this covers line 165
+                    }
+                ]
+            }
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            ExcelSchemaImporter(schema, validate=True)
+
+        assert "Sheet 0 select must be a dictionary" in str(exc_info.value)
+
+    def test_column_format_validation_with_string_type(self):
+        """Test column format validation when type is string to achieve 100% coverage."""
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test",
+            "type": "object",
+            "properties": {},
+            "x-excel": {
+                "sheets": [
+                    {
+                        "select": {"name": "Sheet1"},
+                        "columns": [
+                            {
+                                "name": "test_column",
+                                "position": "A",
+                                "type": "string",
+                                "format": "invalid_format"  # Invalid format with string type - this covers line 243
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            ExcelSchemaImporter(schema, validate=True)
+
+        assert "Sheet 0 column 0 invalid format 'invalid_format'" in str(exc_info.value)
+
+    def test_parquet_type_validation_early_return(self):
+        """Test Parquet type validation early return path to achieve 100% coverage."""
+        schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
+        importer = ExcelSchemaImporter(schema, validate=False)
+
+        # Test a type that's in the SUPPORTED_PARQUET_TYPES set to trigger early return (line 326)
+        # Using a simple test that directly checks if the first condition is met
+        result = importer._is_valid_parquet_type("int8")  # This should definitely be in SUPPORTED_PARQUET_TYPES
+        assert result is True, "Type 'int8' should be valid and trigger early return on line 326"
+
+    def test_parquet_type_duration_validation_coverage(self):
+        """Test duration type validation to achieve 100% coverage of line 326."""
+        schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
+        importer = ExcelSchemaImporter(schema, validate=False)
+
+        # Test duration types that should trigger the duration validation path (line 326)
+        duration_types = ["duration[s]", "duration[ms]", "duration[us]", "duration[ns]"]
+        for dtype in duration_types:
+            result = importer._is_valid_parquet_type(dtype)
+            assert result is True, f"Duration type '{dtype}' should be valid and trigger line 326"
+

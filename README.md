@@ -235,6 +235,52 @@ To include sample data, explicitly request it:
 }
 ```
 
+#### `x-transformations` - Data Transformation Configuration
+⚠️ **New Feature**: Comprehensive data cleaning and transformation capabilities.
+
+**🛡️ Safety-First Approach: "Suggested but Disabled by Default"**
+
+When Forklift analyzes your data, it intelligently detects patterns and suggests appropriate transformations, but **all suggestions are disabled by default** for maximum safety:
+
+- **🔍 Smart Detection**: Automatically identifies money formats, HTML tags, numeric separators, etc.
+- **🛡️ No Auto-Changes**: Your data is never modified without explicit permission
+- **✅ Easy Activation**: Simply change `"enabled": false` to `"enabled": true` when ready
+- **🚀 Production Safe**: Generated schemas won't accidentally transform data in production
+
+**Example: Money Detection**
+```json
+// Schema generator detects: "$1,234.56", "(500.00)", "€99.99"
+{
+  "price": {
+    "money_conversion": {
+      "enabled": false,  // ← SAFE: Detected but won't run automatically
+      "currency_symbols": ["$", "€"],
+      "parentheses_negative": true,
+      "thousands_separator": ","
+      // All parameters pre-configured based on your actual data!
+    }
+  }
+}
+```
+
+**To Use the Transformation:**
+```json
+{
+  "price": {
+    "money_conversion": {
+      "enabled": true,   // ← NOW it will convert "$100" to 100.0
+      "currency_symbols": ["$", "€"],
+      "parentheses_negative": true
+    }
+  }
+}
+```
+
+This approach gives you **intelligent assistance without risk** - like having a smart assistant that says *"I noticed your data has these patterns and prepared transformations for you, but I won't apply them unless you explicitly say so."*
+
+```json
+````
+
 ## Configuration Options
 
 ### Schema Generation Configuration

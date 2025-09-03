@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
+import re
 
 import pyarrow as pa
 import pyarrow.csv as pv_csv
@@ -248,6 +249,9 @@ class SchemaGenerator:
         elif self.config.file_type == FileType.EXCEL:
             schema["x-excel"] = self._generate_excel_extension()
 
+        # Add data transformation extensions
+        schema["x-transformations"] = self._generate_transformation_extension(table)
+
         # Add sample data if requested
         if self.config.include_sample_data:
             schema["x-sample"] = self._generate_sample_data(table)
@@ -432,6 +436,175 @@ class SchemaGenerator:
             "description": f"Sample data from first {sample_size} rows",
             "rows": records
         }
+
+    def _generate_transformation_extension(self, table: pa.Table) -> Dict[str, Any]:
+        """Generate comprehensive data transformation extension configuration.
+
+        This generates the x-transformations schema extension with all the
+        data cleaning and transformation capabilities you requested.
+        """
+        # Analyze columns to suggest appropriate transformations
+        column_transformations = {}
+
+        for i, field in enumerate(table.schema):
+            column_name = field.name
+            arrow_type = field.type
+            column_data = table.column(i)
+
+            # Analyze column data to suggest transformations
+            suggestions = self._analyze_column_for_transformations(column_name, column_data, arrow_type)
+            if suggestions:
+                column_transformations[column_name] = suggestions
+
+        return {
+            "description": "Data transformation configurations for cleaning and standardizing data",
+            "version": "1.0.0",
+            "global_settings": {
+                "nan_handling": {
+                    "allow_nan": True,
+                    "nan_values": ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!", "None"],
+                    "convert_to_null": True,
+                    "error_on_nan": False
+                },
+                "error_handling": {
+                    "on_transformation_error": "log",  # "log", "skip", "fail"
+                    "max_errors": 1000,
+                    "continue_on_error": True
+                }
+            },
+            "column_transformations": column_transformations,
+            "transformation_types": {
+                "regex_replace": {
+                    "description": "Apply regex pattern replacements",
+                    "parameters": {
+                        "pattern": "string",
+                        "replacement": "string",
+                        "flags": "int (re module flags)"
+                    }
+                },
+                "string_replace": {
+                    "description": "Simple string replacement (like Python str.replace)",
+                    "parameters": {
+                        "old": "string",
+                        "new": "string",
+                        "count": "int (-1 for all)"
+                    }
+                },
+                "money_conversion": {
+                    "description": "Convert money strings to decimal values",
+                    "parameters": {
+                        "currency_symbols": "array",
+                        "thousands_separator": "string",
+                        "decimal_separator": "string",
+                        "parentheses_negative": "boolean",
+                        "strip_whitespace": "boolean"
+                    }
+                },
+                "numeric_cleaning": {
+                    "description": "Clean numeric fields with separator handling",
+                    "parameters": {
+                        "thousands_separator": "string",
+                        "decimal_separator": "string",
+                        "allow_nan": "boolean",
+                        "target_type": "string (int64, double, etc.)"
+                    }
+                },
+                "string_padding": {
+                    "description": "Pad strings (lpad/rpad)",
+                    "parameters": {
+                        "width": "int",
+                        "fillchar": "string",
+                        "side": "string (left, right, both)"
+                    }
+                },
+                "string_trimming": {
+                    "description": "Trim strings (lstrip/rstrip/strip)",
+                    "parameters": {
+                        "side": "string (left, right, both)",
+                        "chars": "string (null for whitespace)"
+                    }
+                },
+                "html_xml_cleaning": {
+                    "description": "Remove HTML/XML tags and decode entities",
+                    "parameters": {
+                        "strip_tags": "boolean",
+                        "decode_entities": "boolean",
+                        "preserve_whitespace": "boolean"
+                    }
+                }
+            }
+        }
+
+    def _analyze_column_for_transformations(self, column_name: str, column_data: pa.Array, arrow_type: pa.DataType) -> Optional[Dict[str, Any]]:
+        """Analyze a column to suggest appropriate transformations based on data patterns."""
+        suggestions = {}
+
+        # Convert to pandas for analysis
+        pandas_series = column_data.to_pandas()
+        sample_values = pandas_series.dropna().head(10).astype(str).tolist()
+
+        if not sample_values:
+            return None
+
+        # Check for money patterns
+        money_patterns = [r'\$', r'€', r'£', r'¥', r'₹', r'₽', r'\(.*\)', r'\d+,\d+', r'\d+\.\d{2}$']
+        if any(re.search(pattern, str(val)) for pattern in money_patterns for val in sample_values[:5]):
+            suggestions["money_conversion"] = {
+                "enabled": False,  # User can enable as needed
+                "currency_symbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
+                "thousands_separator": ",",
+                "decimal_separator": ".",
+                "parentheses_negative": True,
+                "strip_whitespace": True
+            }
+
+        # Check for numeric fields with separators
+        if pa.types.is_string(arrow_type):
+            numeric_with_separators = any(re.search(r'\d+[,\.]\d+', str(val)) for val in sample_values[:5])
+            if numeric_with_separators:
+                suggestions["numeric_cleaning"] = {
+                    "enabled": False,  # User can enable as needed
+                    "thousands_separator": ",",
+                    "decimal_separator": ".",
+                    "allow_nan": True,
+                    "target_type": "double"
+                }
+
+        # Check for HTML/XML content
+        html_patterns = [r'<[^>]+>', r'&\w+;']
+        if any(re.search(pattern, str(val)) for pattern in html_patterns for val in sample_values[:5]):
+            suggestions["html_xml_cleaning"] = {
+                "enabled": False,  # User can enable as needed
+                "strip_tags": True,
+                "decode_entities": True,
+                "preserve_whitespace": False
+            }
+
+        # Check for excessive whitespace
+        if any(re.search(r'^\s+|\s+$|\s{2,}', str(val)) for val in sample_values[:5]):
+            suggestions["string_trimming"] = {
+                "enabled": False,  # User can enable as needed
+                "side": "both",
+                "chars": None
+            }
+            suggestions["regex_replace"] = {
+                "enabled": False,  # User can enable as needed
+                "pattern": r'\s+',
+                "replacement": " ",
+                "flags": 0
+            }
+
+        # Add standard string operations for string columns
+        if pa.types.is_string(arrow_type) and len(sample_values) > 0:
+            # Add common string cleaning suggestions
+            if "string_trimming" not in suggestions:
+                suggestions["string_trimming"] = {
+                    "enabled": False,
+                    "side": "both",
+                    "chars": None
+                }
+
+        return suggestions if suggestions else None
 
     def output_schema(self, schema: Dict[str, Any]) -> None:
         """Output the schema to the configured target."""

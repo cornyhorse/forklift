@@ -1,421 +1,491 @@
-# forklift
-![FORKLIFT.png](FORKLIFT.png)
+# Forklift
 
-A high-performance data processing tool that standardizes ingestion and cleanup of messy tabular files (CSV, Excel, FWF, SQL) into optimized Parquet format using PyArrow streaming.
+A powerful data import and schema generation tool with PyArrow streaming, validation, and S3 support.
+
+![Forklift Logo](FORKLIFT.png)
 
 ## Overview
 
-Forklift is designed to handle real-world data processing challenges including:
-- 🧹 **Data Cleaning**: Automatic header detection, encoding detection, prologue/footer handling
-- 🚀 **High Performance**: PyArrow streaming for memory-efficient processing of large files
-- 🔧 **Schema Validation**: JSON Schema-based validation with comprehensive error reporting
-- ☁️ **Cloud Native**: S3 streaming support for input and output
-- 📊 **Multiple Formats**: Support for CSV, Excel (XLS/XLSX), Fixed-Width Files (FWF), and SQL databases
-- 🛡️ **Robust Processing**: Advanced error handling and data quality validation
-- 🐻‍❄️ **Ad-hoc Analysis**: Direct integration with Polars and Pandas for immediate DataFrame usage
+Forklift is a comprehensive data processing tool that provides:
 
-## Install
+- **High-performance data import** with PyArrow streaming for CSV, Excel, FWF, and SQL sources
+- **Intelligent schema generation** that analyzes your data and creates standardized schema definitions
+- **Robust validation** with configurable error handling and reporting
+- **S3 streaming support** for both input and output operations
+- **Multiple output formats** including Parquet, with comprehensive metadata and manifests
+
+## Key Features
+
+### 🚀 **Data Import & Processing**
+- Stream large files efficiently with PyArrow
+- Support for CSV, Excel, Fixed-Width Files (FWF), and SQL sources
+- Configurable batch processing with memory optimization
+- Comprehensive validation with detailed error reporting
+- S3 integration for cloud-native workflows
+
+### 🔍 **Schema Generation**
+- **Intelligent schema inference** from sample data (default: 1000 rows)
+- **Privacy-first approach** - no sensitive sample data included by default
+- **Multiple file format support** - CSV, Excel, Parquet
+- **Flexible output options** - stdout, file, or clipboard
+- **Standards-compliant schemas** following Forklift schema-standards format
+
+### 🛡️ **Validation & Quality**
+- JSON Schema validation with custom extensions
+- Primary key inference and enforcement
+- Data type validation and conversion
+- Configurable null handling and error thresholds
+- Detailed processing reports and manifests
+
+## Installation
 
 ```bash
 pip install forklift
+```
 
-# For ad-hoc DataFrame usage, install the desired DataFrame library:
-pip install polars  # For high-performance Rust-based DataFrames
-pip install pandas  # For traditional Python DataFrames
+### Optional Dependencies
+
+```bash
+# For Excel support
+pip install openpyxl
+
+# For clipboard functionality
+pip install pyperclip
 ```
 
 ## Quick Start
 
-### Command Line Interface
+### Data Import
+
+```python
+import forklift
+
+# Import CSV to Parquet with validation
+results = forklift.import_csv(
+    input_path="data.csv",
+    output_path="./output/",
+    schema_file="schema.json"
+)
+
+print(f"Processed {results.total_rows} rows")
+print(f"Valid: {results.valid_rows}, Invalid: {results.invalid_rows}")
+```
+
+### Schema Generation
+
+```python
+import forklift
+
+# Generate schema from CSV (analyzes first 1000 rows by default)
+schema = forklift.generate_schema_from_csv("data.csv")
+
+# Save schema to file
+forklift.generate_and_save_schema(
+    input_path="data.csv",
+    output_path="schema.json",
+    file_type="csv"
+)
+
+# Generate with sample data for development (opt-in for privacy)
+schema = forklift.generate_schema_from_csv(
+    "data.csv", 
+    include_sample_data=True
+)
+```
+
+## CLI Usage
+
+### Data Import
 
 ```bash
-# Basic CSV processing
-forklift ingest input.csv --dest output/ --input-kind csv --schema schema.json
+# Import CSV with schema validation
+forklift ingest data.csv --dest ./output/ --input-kind csv --schema schema.json
 
-# Excel processing with specific sheet
-forklift ingest data.xlsx --dest output/ --input-kind excel --sheet "Sales Data"
-
-# Fixed-width file processing
-forklift ingest data.txt --dest output/ --input-kind fwf --fwf-spec fwf_schema.json
+# Import from S3
+forklift ingest s3://bucket/data.csv --dest s3://bucket/output/ --input-kind csv
 ```
 
-### Python API
+### Schema Generation
 
-#### ETL Pipeline (Parquet Output)
-```python
-import forklift as fl
+```bash
+# Generate schema (1000 rows, no sample data - privacy-safe default)
+forklift generate-schema data.csv --file-type csv
 
-# CSV processing to Parquet files
-results = fl.import_csv(
-    input_path="data.csv",
-    output_path="output/",
-    schema_file="schema.json"
-)
+# Generate with custom row limit
+forklift generate-schema data.csv --file-type csv --nrows 5000
 
-# Excel processing to Parquet files
-results = fl.import_excel(
-    input_path="data.xlsx",
-    output_path="output/",
-    schema_file="schema.json"
-)
+# Save to file
+forklift generate-schema data.csv --file-type csv --output file --output-path schema.json
 
-# Fixed-width file processing
-results = fl.import_fwf(
-    input_path="data.txt",
-    output_path="output/",
-    schema_file="schema.json"
-)
+# Include sample data for development (explicit opt-in)
+forklift generate-schema data.csv --file-type csv --include-sample
 
-# SQL database processing
-results = fl.import_sql(
-    input_path="postgresql://user:pass@host/db",
-    output_path="output/",
-    schema_file="schema.json"
-)
-```
+# Copy to clipboard
+forklift generate-schema data.csv --file-type csv --output clipboard
 
-#### Ad-Hoc DataFrame Loading
-```python
-import forklift as fl
+# Excel files
+forklift generate-schema data.xlsx --file-type excel --sheet "Sheet1"
 
-# Load directly to Polars (fastest for large datasets)
-df = fl.read_csv("data.csv").as_polars()
-df = fl.read_excel("data.xlsx").as_polars()
-
-# Load directly to Pandas (for compatibility)
-df = fl.read_csv("data.csv").as_pandas()
-df = fl.read_excel("data.xlsx").as_pandas()
-
-# Lazy evaluation for memory efficiency with large files
-lazy_df = fl.read_csv("huge_dataset.csv").as_polars(lazy=True)
-result = lazy_df.filter(pl.col("amount") > 1000).collect()
-
-# PyArrow Tables for columnar processing
-table = fl.read_csv("data.csv").as_pyarrow()
-
-# All formats support schema validation and data cleaning
-df = fl.read_csv("messy_data.csv", schema_file="schema.json").as_polars()
-```
-
-## Core Architecture
-
-### Engine (`src/forklift/engine/`)
-- **ForkliftCore**: Main processing engine with PyArrow streaming
-- **ImportConfig**: Comprehensive configuration management
-- **HeaderMode/ExcessColumnMode**: Enums for processing behavior control
-
-### Input Processors (`src/forklift/inputs/`)
-- **CSV**: Advanced CSV processing with encoding detection and header analysis
-- **Excel**: Multi-sheet Excel processing (XLS/XLSX) via Pandas
-- **FWF**: Fixed-width file processing with position-based parsing
-- **SQL**: Live database connectivity with glob-based table selection
-
-### Data Processors (`src/forklift/processors/`)
-- **Schema Validation**: PyArrow schema validation and type coercion
-- **Data Quality**: Configurable quality checks and validation rules
-- **Transformations**: Column transformations and data cleaning
-- **Pipeline**: Chaining multiple processors for complex workflows
-
-### Schema Management (`src/forklift/schema/`)
-- **JSON Schema 2020-12**: Standards-compliant schema validation
-- **Format-specific importers**: CSV, Excel, FWF, and SQL schema processors
-- **Validation**: Comprehensive schema and data validation with detailed error reporting
-
-### Output Generation (`src/forklift/outputs/`)
-- **Parquet**: Optimized Parquet file generation with metadata
-- **Manifest**: Processing manifests for auditability
-- **Metadata**: Rich metadata generation for downstream processing
-
-### Utilities (`src/forklift/utils/`)
-- **Encoding Detection**: Automatic encoding detection for text files
-- **Date Parsing**: Intelligent date/time parsing and normalization
-- **Column Utilities**: Column name deduplication and standardization
-- **Row Validation**: Advanced row-level validation and error handling
-
-### I/O Layer (`src/forklift/io/`)
-- **S3 Streaming**: Native S3 support for input and output
-- **Unified I/O**: Consistent interface for local and cloud storage
-
-## Input Format Support
-
-### CSV Input
-- **Features**:
-  - Prologue/footer detection and skipping
-  - Automatic header detection with configurable search depth
-  - Encoding auto-detection (UTF-8, Latin-1, etc.)
-  - Column name deduplication
-  - Comment row filtering
-  - Excess column handling (truncate or reject)
-- **Schema**: JSON Schema with `x-csv` extensions
-- **Use Cases**: Log files, exports, data dumps with headers/footers
-
-### Excel Input  
-- **Features**:
-  - Multi-sheet processing with Pandas backend
-  - Header modes: auto-detect, present, absent
-  - Per-sheet header overrides
-  - Column name deduplication
-  - Legacy XLS and modern XLSX support
-- **Schema**: JSON Schema with `x-excel` extensions
-- **Use Cases**: Financial reports, operational data, multi-table workbooks
-
-### Fixed-Width Files (FWF)
-- **Features**:
-  - Schema-driven parsing with exact column positions
-  - Variable and fixed-width column support
-  - Type conversion and validation
-  - Configurable null value handling
-- **Schema**: JSON Schema with `x-fwf` position specifications
-- **Use Cases**: Mainframe exports, legacy system data, formatted reports
-
-### SQL Database Input
-- **Features**:
-  - Live database connectivity (PostgreSQL, MySQL, SQLite, SQL Server, Oracle)
-  - Explicit table specification (`schema.table_name`, `table_name`)
-  - Streaming extraction for large tables
-  - Connection pooling and optimization
-  - Support for different database naming conventions
-- **Schema**: JSON Schema with `x-sql` table specifications
-- **Use Cases**: Data warehouse extraction, database migration, ETL pipelines
-
-## Processing Features
-
-### Header Detection
-```python
-from forklift.engine.forklift_core import HeaderMode
-
-# Auto-detect header location
-config.header_mode = HeaderMode.AUTO
-
-# Explicit header handling
-config.header_mode = HeaderMode.PRESENT  # File has header
-config.header_mode = HeaderMode.ABSENT   # No header, use schema
-```
-
-### Data Validation
-- JSON Schema 2020-12 compliance
-- PyArrow-based type validation and coercion
-- Range and format validation
-- Custom validation rules via processors
-- Detailed error reporting with row/column context
-
-### Performance Optimization
-- PyArrow streaming for memory efficiency
-- Configurable batch processing
-- Optimized Parquet output with compression
-- Lazy evaluation support for large datasets
-
-### Cloud Integration
-```python
-# S3 input and output
-results = fl.import_csv(
-    input_path="s3://bucket/data.csv",
-    output_path="s3://bucket/processed/",
-    schema_file="s3://bucket/schemas/schema.json"
-)
+# Parquet files
+forklift generate-schema data.parquet --file-type parquet
 ```
 
 ## Schema Standards
 
-Forklift uses JSON Schema 2020-12 with format-specific extensions:
+Forklift generates schemas that follow a standardized format with powerful extensions:
 
-### Required Schema Structure
+### Base JSON Schema Structure
+
 ```json
 {
-  "$id": "https://github.com/cornyhorse/forklift/schema-standards/example.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Example Schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250903-csv.json",
+  "title": "Forklift CSV Schema - Generated",
   "type": "object",
   "properties": {
-    "column_name": { "type": "string" },
-    "numeric_column": { "type": "number" },
-    "date_column": { "type": "string", "format": "date" }
+    "id": {"type": "integer"},
+    "name": {"type": "string"},
+    "email": {"type": "string", "format": "email"}
   },
-  "x-csv": {
-    "delimiter": ",",
-    "nulls": { "global": ["", "NULL", "N/A"] }
+  "required": ["id", "name"]
+}
+```
+
+### Forklift Extensions
+
+#### `x-primaryKey` - Primary Key Configuration
+```json
+{
+  "x-primaryKey": {
+    "description": "Primary key configuration",
+    "columns": ["id"],
+    "type": "single",
+    "enforceUniqueness": true,
+    "allowNulls": false
   }
 }
 ```
 
-### SQL Schema Example
+#### `x-csv` - CSV Processing Configuration
 ```json
 {
-  "$id": "https://github.com/cornyhorse/forklift/schema-standards/sql_example.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "SQL Database Schema",
-  "type": "object",
-  "properties": {
-    "customer_id": { "type": "integer" },
-    "customer_name": { "type": "string" },
-    "created_date": { "type": "string", "format": "date" }
-  },
-  "x-sql": {
-    "tables": [
-      {
-        "select": {
-          "schema": "sales",
-          "name": "customers"
-        },
-        "outputName": "customers"
-      },
-      {
-        "select": {
-          "schema": "inventory", 
-          "name": "products"
-        },
-        "outputName": "products"
-      }
+  "x-csv": {
+    "encodingPriority": ["utf-8", "utf-8-sig", "latin-1"],
+    "delimiter": ",",
+    "quotechar": "\"",
+    "header": {"mode": "present"},
+    "nulls": {
+      "global": ["", "NA", "NULL"],
+      "perColumn": {"salary": ["", "0.00"]}
+    },
+    "dataTypes": {
+      "id": "int64",
+      "name": "string",
+      "salary": "double"
+    },
+    "validation": {
+      "enabled": true,
+      "onError": "log",
+      "maxErrors": 1000
+    }
+  }
+}
+```
+
+#### `x-excel` - Excel Processing Configuration
+```json
+{
+  "x-excel": {
+    "sheet": "Sheet1",
+    "header": {"mode": "present"},
+    "skipRows": 0,
+    "nulls": {"global": ["", "NA", "NULL"]}
+  }
+}
+```
+
+#### `x-sample` - Sample Data (Optional)
+⚠️ **Privacy Note**: Sample data is NOT included by default to protect sensitive information.
+
+```json
+{
+  "x-sample": {
+    "description": "Sample data from first 3 rows",
+    "rows": [
+      {"id": 1, "name": "John", "email": "john@example.com"},
+      {"id": 2, "name": "Jane", "email": "jane@example.com"}
     ]
   }
 }
 ```
 
-### Format Extensions
-- **`x-csv`**: CSV-specific configuration (delimiter, nulls, encoding)
-- **`x-excel`**: Excel-specific configuration (sheets, headers)
-- **`x-fwf`**: Fixed-width configuration (positions, widths)
-- **`x-sql`**: SQL-specific configuration (explicit table specifications)
+To include sample data, explicitly request it:
+- **CLI**: `--include-sample`
+- **API**: `include_sample_data=True`
 
-## Output Formats
+#### `x-generation` - Generation Metadata
+```json
+{
+  "x-generation": {
+    "generated_at": "2025-09-03T17:06:09.795225",
+    "source_file": "data.csv",
+    "rows_analyzed": 1000,
+    "generator_version": "1.0.0"
+  }
+}
+```
 
-### Parquet Files
-- Snappy compression by default
-- Schema preservation and type optimization
-- Metadata embedding for lineage tracking
-- Optimized for both row-based and columnar access
+## Configuration Options
 
-### Manifest Files
-- Processing statistics and metrics
-- Input/output file inventory
-- Validation summary and error counts
-- Processing timestamps and performance data
-
-### Metadata Files
-- Schema information and transformations
-- Data quality metrics
-- Processing configuration snapshot
-- Lineage and provenance tracking
-
-## Error Handling
-
-Forklift provides comprehensive error handling and reporting:
-
-- **Schema Validation Errors**: Detailed field-level validation failures
-- **Data Processing Errors**: Row-level errors with context
-- **I/O Errors**: File access and network issues
-- **Performance Monitoring**: Processing statistics and bottleneck identification
-
-## Real-World Examples
-
-### Large Dataset Processing with Polars
+### Schema Generation Configuration
 
 ```python
-import forklift as fl
-import polars as pl
+from forklift.schema.schema_generator import SchemaGenerationConfig, FileType, OutputTarget
 
-# Process large CSV with lazy evaluation
-lf = fl.read_csv("sales_2024.csv", schema_file="sales_schema.json").as_polars(lazy=True)
-
-# Efficient aggregation at Rust speed
-monthly_totals = (
-    lf
-    .with_columns(pl.col("date").str.strptime(pl.Date, "%Y-%m-%d"))
-    .with_columns(pl.col("date").dt.month().alias("month"))
-    .group_by("month")
-    .agg([
-        pl.col("amount").sum().alias("total_sales"),
-        pl.col("customer_id").n_unique().alias("unique_customers")
-    ])
-    .collect()
+config = SchemaGenerationConfig(
+    input_path="data.csv",
+    file_type=FileType.CSV,
+    nrows=1000,                    # Default: 1000 rows
+    output_target=OutputTarget.STDOUT,
+    delimiter=",",
+    encoding="utf-8",
+    include_sample_data=False,     # Default: False (privacy-safe)
+    infer_primary_key=True
 )
 ```
 
-### ETL Pipeline with Full Processing
+### Import Configuration
 
 ```python
 from forklift.engine.forklift_core import ImportConfig, HeaderMode
 
 config = ImportConfig(
-    input_path="large_dataset.csv",
-    output_path="processed/",
+    input_path="data.csv",
+    output_path="./output/",
     schema_file="schema.json",
-    batch_size=50000,  # Optimize for large files
-    header_mode=HeaderMode.AUTO,
-    encoding="utf-8"
+    batch_size=10000,
+    encoding="utf-8",
+    header_mode=HeaderMode.PRESENT,
+    validate_schema=True,
+    create_manifest=True,
+    create_metadata=True
 )
-
-results = fl.import_csv(**config.__dict__)
-print(f"Processed {results.total_rows:,} rows in {results.execution_time:.2f}s")
 ```
 
-### Multi-Format Data Integration
+## API Reference
+
+### Schema Generation Functions
 
 ```python
-import forklift as fl
-import polars as pl
-
-# Read from different sources and combine
-sales_csv = fl.read_csv("sales.csv").as_polars(lazy=True)
-customer_excel = fl.read_excel("customers.xlsx").as_polars(lazy=True)
-product_db = fl.read_sql("postgresql://host/db", 
-                        schema_file="sql_schema.json").as_polars(lazy=True)
-
-# Join efficiently in Rust layer
-result = (
-    sales_csv
-    .join(customer_excel, on="customer_id")
-    .join(product_db, on="product_id")
-    .collect()
+# CSV schema generation
+schema = forklift.generate_schema_from_csv(
+    input_path: str,
+    nrows: int = 1000,
+    delimiter: str = ",",
+    encoding: str = "utf-8",
+    include_sample_data: bool = False,
+    infer_primary_key: bool = True
 )
+
+# Excel schema generation
+schema = forklift.generate_schema_from_excel(
+    input_path: str,
+    nrows: int = 1000,
+    sheet_name: str = None,
+    include_sample_data: bool = False,
+    infer_primary_key: bool = True
+)
+
+# Parquet schema generation
+schema = forklift.generate_schema_from_parquet(
+    input_path: str,
+    nrows: int = 1000,
+    include_sample_data: bool = False,
+    infer_primary_key: bool = True
+)
+
+# Convenience functions
+forklift.generate_and_save_schema(input_path, output_path, file_type, **kwargs)
+forklift.generate_and_copy_schema(input_path, file_type, **kwargs)
 ```
 
-## Development
+### Data Import Functions
 
-### Project Structure
-```
-forklift/
-├── src/forklift/          # Main package
-│   ├── engine/            # Core processing engine
-│   ├── inputs/            # Input format processors
-│   ├── outputs/           # Output generators
-│   ├── processors/        # Data processors and validation
-│   ├── schema/            # Schema management
-│   ├── utils/             # Utility functions
-│   ├── io/                # I/O abstractions
-│   └── readers.py         # Ad-hoc DataFrame readers
-├── tests/                 # Test suite
-├── schema-standards/      # Reference schemas
-└── docs/                  # Documentation
+```python
+# Import functions
+results = forklift.import_csv(input_path, output_path, schema_file=None, **kwargs)
+results = forklift.import_excel(input_path, output_path, schema_file=None, **kwargs)
+results = forklift.import_fwf(input_path, output_path, schema_file=None, **kwargs)
+results = forklift.import_sql(connection, query, output_path, **kwargs)
+
+# DataFrame readers (for ad-hoc analysis)
+df = forklift.read_csv(input_path, **kwargs)
+df = forklift.read_excel(input_path, **kwargs)
+df = forklift.read_fwf(input_path, **kwargs)
+df = forklift.read_sql(connection, query, **kwargs)
 ```
 
-### Running Tests
-```bash
-pytest tests/ -v --cov=forklift
+## S3 Integration
+
+Forklift provides seamless S3 integration for both input and output:
+
+```python
+# Read from S3, write to local
+results = forklift.import_csv(
+    input_path="s3://bucket/data.csv",
+    output_path="./local_output/"
+)
+
+# Read from local, write to S3
+results = forklift.import_csv(
+    input_path="data.csv",
+    output_path="s3://bucket/output/"
+)
+
+# Full S3 workflow
+results = forklift.import_csv(
+    input_path="s3://input-bucket/data.csv",
+    output_path="s3://output-bucket/processed/",
+    schema_file="s3://config-bucket/schemas/data-schema.json"
+)
+
+# Schema generation from S3
+schema = forklift.generate_schema_from_csv("s3://bucket/data.csv")
 ```
 
-### Contributing
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+## Privacy & Security
+
+### Sample Data Protection
+
+Forklift takes a **privacy-first approach** to schema generation:
+
+- **Default behavior**: No sample data included in generated schemas
+- **Explicit opt-in**: Use `--include-sample` or `include_sample_data=True` when needed
+- **Development workflow**: Include sample data only during development/testing
+
+### Best Practices
+
+1. **Production schemas**: Always use default settings (no sample data)
+2. **Development schemas**: Explicitly request sample data when needed for testing
+3. **Sensitive data**: Never commit schemas with sample data to version control
+4. **Row limits**: Use appropriate `nrows` values to balance accuracy vs. performance
+
+## Output Files
+
+When processing data, Forklift creates comprehensive output:
+
+### Parquet Files
+- High-performance columnar format
+- Optimized for analytics workloads
+- Schema embedded in file metadata
+
+### Manifest Files
+```json
+{
+  "processing_summary": {
+    "total_rows": 10000,
+    "valid_rows": 9995,
+    "invalid_rows": 5,
+    "start_time": "2025-09-03T17:00:00Z",
+    "end_time": "2025-09-03T17:00:30Z"
+  },
+  "output_files": ["data.parquet"],
+  "schema_file": "schema.json"
+}
+```
+
+### Metadata Files
+```json
+{
+  "source": {
+    "file_path": "data.csv",
+    "file_size": 1048576,
+    "encoding": "utf-8"
+  },
+  "processing": {
+    "batch_size": 10000,
+    "validation_enabled": true,
+    "error_threshold": 1000
+  },
+  "schema": {
+    "version": "1.0.0",
+    "columns": 15,
+    "primary_key": ["id"]
+  }
+}
+```
+
+## Error Handling
+
+Forklift provides comprehensive error handling and reporting:
+
+### Validation Errors
+- Detailed error messages with row numbers
+- Configurable error thresholds
+- Continue processing or fail-fast options
+
+### File Format Errors
+- Encoding detection and fallback
+- Malformed data handling
+- Graceful degradation for partial files
+
+### Example Error Handling
+
+```python
+from forklift import import_csv
+from forklift.engine.forklift_core import ProcessingError
+
+try:
+    results = import_csv("data.csv", "./output/", validate_schema=True)
+    
+    if results.invalid_rows > 0:
+        print(f"Warning: {results.invalid_rows} rows failed validation")
+        # Check error details in manifest file
+        
+except ProcessingError as e:
+    print(f"Processing failed: {e}")
+except FileNotFoundError:
+    print("Input file not found")
+```
+
+## Performance Considerations
+
+### Row Sampling for Schema Generation
+
+- **Default**: 1000 rows provides good balance of accuracy vs. speed
+- **Large files**: Consider smaller samples (500-2000 rows) for very large datasets
+- **Small files**: Full file analysis when under 1000 rows
+- **Complex data**: Increase sample size for files with high variability
+
+### Memory Management
+
+- **Batch processing**: Default 10,000 rows per batch
+- **Large files**: Reduce batch size if memory constrained
+- **Streaming**: PyArrow streaming keeps memory usage constant
+
+### S3 Optimization
+
+- **Regional placement**: Keep data and compute in same AWS region
+- **Parallel uploads**: Forklift automatically optimizes S3 transfers
+- **Compression**: Use Snappy compression for Parquet output (default)
+
+## Contributing
+
+Forklift is open source and welcomes contributions:
+
+1. **Issues**: Report bugs or request features
+2. **Pull requests**: Submit improvements or fixes
+3. **Documentation**: Help improve guides and examples
+4. **Testing**: Add test cases for edge cases
 
 ## License
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Dependencies
+## Changelog
 
-Forklift builds on excellent open-source libraries:
+See [CHANGELOG.md](CHANGELOG.md) for version history and release notes.
 
-| Package | Purpose | License |
-|---------|---------|---------|
-| PyArrow | Columnar processing & Parquet | Apache-2.0 |
-| Pandas | Data manipulation & Excel support | BSD-3-Clause |
-| Polars | High-performance DataFrames (optional) | MIT |
-| JSONSchema | Schema validation | MIT |
-| Click | CLI framework | BSD-3-Clause |
-| Boto3 | AWS S3 integration | Apache-2.0 |
+---
 
-See the full dependency list in `pyproject.toml` for complete details.
+**Need help?** Check out the [documentation](docs/) or open an issue on GitHub.

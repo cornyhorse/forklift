@@ -166,12 +166,30 @@ class FwfInputHandler:
             PyArrow Schema object
         """
         fields = []
+        unique_fields = {}  # Use dict to avoid duplicates while preserving order
 
-        # Use simple fields if available
+        # Handle simple fields if available
         if self.config.fields:
             for field_spec in self.config.fields:
                 arrow_type = self._get_arrow_type(field_spec.parquet_type)
-                fields.append(pa.field(field_spec.name, arrow_type))
+                unique_fields[field_spec.name] = pa.field(field_spec.name, arrow_type)
+
+        # Handle conditional schemas - collect all unique fields from all schemas
+        if self.config.conditional_schemas:
+            # Add flag column if present
+            if self.config.flag_column:
+                arrow_type = self._get_arrow_type(self.config.flag_column.parquet_type)
+                unique_fields[self.config.flag_column.name] = pa.field(self.config.flag_column.name, arrow_type)
+
+            # Add all fields from all conditional schemas
+            for schema in self.config.conditional_schemas:
+                for field_spec in schema.fields:
+                    if field_spec.name not in unique_fields:
+                        arrow_type = self._get_arrow_type(field_spec.parquet_type)
+                        unique_fields[field_spec.name] = pa.field(field_spec.name, arrow_type)
+
+        # Convert to list maintaining order
+        fields = list(unique_fields.values())
 
         # Add metadata fields
         fields.extend([

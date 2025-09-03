@@ -156,11 +156,13 @@ class ExcelSchemaImporter:
 
             # Validate sheet selection
             select = sheet.get("select")
-            if not select:
+            if select is None:
                 errors.append(f"Sheet {i} missing required 'select' configuration")
             elif isinstance(select, dict):
                 if not any(key in select for key in ["name", "index", "regex"]):
                     errors.append(f"Sheet {i} select must have 'name', 'index', or 'regex'")
+            else:
+                errors.append(f"Sheet {i} select must be a dictionary")
 
             # Validate columns
             columns = sheet.get("columns")
@@ -203,7 +205,7 @@ class ExcelSchemaImporter:
                 errors.append(f"Sheet {sheet_index} column {j} missing required 'name'")
 
             position = column.get("position")
-            if not position:
+            if position is None:
                 errors.append(f"Sheet {sheet_index} column {j} missing required 'position'")
             elif isinstance(position, str):
                 # Validate Excel column notation (A, B, AA, etc.)
@@ -247,6 +249,8 @@ class ExcelSchemaImporter:
         errors = []
 
         for i, sheet in enumerate(self.sheets):
+            if not isinstance(sheet, dict):
+                continue  # Skip invalid sheets, will be caught by sheet validation
             columns = sheet.get("columns", [])
             for j, column in enumerate(columns):
                 if isinstance(column, dict):
@@ -259,6 +263,9 @@ class ExcelSchemaImporter:
     def _validate_properties(self) -> List[str]:
         """Validate field properties and their constraints."""
         errors = []
+
+        if not isinstance(self.field_map, dict):
+            return errors  # This will be caught by JSON schema structure validation
 
         for field_name, field_def in self.field_map.items():
             if not isinstance(field_def, dict):

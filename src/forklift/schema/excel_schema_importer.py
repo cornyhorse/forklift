@@ -321,10 +321,6 @@ class ExcelSchemaImporter:
         if parquet_type.startswith("timestamp[") and parquet_type.endswith("]"):
             return True
 
-        # Check for duration types
-        if parquet_type.startswith("duration[") and parquet_type.endswith("]"):
-            return True
-
         # Check for list types
         if parquet_type.startswith("list<") and parquet_type.endswith(">"):
             return True

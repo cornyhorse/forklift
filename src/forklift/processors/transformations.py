@@ -15,7 +15,8 @@ from ..utils.data_transformations import (
     MoneyTypeConfig,
     NumericCleaningConfig,
     StringPaddingConfig,
-    HTMLXMLConfig
+    HTMLXMLConfig,
+    DateTimeTransformConfig
 )
 
 

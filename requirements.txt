@@ -14,6 +14,7 @@ smart-open>=7.0
 
 # helpful utils
 python-dateutil>=2.9
+pytz>=2024.1
 
 # (dev/test tools — move to requirements-dev.txt eventually)
 pytest>=8.0

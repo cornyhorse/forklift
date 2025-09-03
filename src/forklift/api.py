@@ -1,0 +1,199 @@
+"""API functions for Forklift schema generation.
+
+This module provides programmatic access to schema generation functionality
+that can be used by other Python applications.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, Optional, Union
+from pathlib import Path
+
+from .schema.schema_generator import SchemaGenerator, SchemaGenerationConfig, OutputTarget, FileType
+
+
+def generate_schema_from_csv(
+    input_path: Union[str, Path],
+    nrows: Optional[int] = None,
+    delimiter: str = ",",
+    encoding: str = "utf-8",
+    include_sample_data: bool = True,
+    infer_primary_key: bool = True
+) -> Dict[str, Any]:
+    """Generate a Forklift schema from a CSV file.
+
+    Args:
+        input_path: Path to the CSV file (local or S3)
+        nrows: Number of rows to analyze (None for full file)
+        delimiter: CSV field delimiter
+        encoding: File encoding
+        include_sample_data: Include sample data in the schema
+        infer_primary_key: Attempt to infer primary key columns
+
+    Returns:
+        Dictionary containing the generated schema
+
+    Example:
+        >>> schema = generate_schema_from_csv("data.csv", nrows=1000)
+        >>> print(schema["title"])
+        Forklift CSV Schema - Generated
+    """
+    config = SchemaGenerationConfig(
+        input_path=input_path,
+        file_type=FileType.CSV,
+        nrows=nrows,
+        output_target=OutputTarget.STDOUT,  # Not used for API calls
+        delimiter=delimiter,
+        encoding=encoding,
+        include_sample_data=include_sample_data,
+        infer_primary_key=infer_primary_key
+    )
+
+    generator = SchemaGenerator(config)
+    return generator.generate_schema()
+
+
+def generate_schema_from_excel(
+    input_path: Union[str, Path],
+    nrows: Optional[int] = None,
+    sheet_name: Optional[str] = None,
+    include_sample_data: bool = True,
+    infer_primary_key: bool = True
+) -> Dict[str, Any]:
+    """Generate a Forklift schema from an Excel file.
+
+    Args:
+        input_path: Path to the Excel file (local or S3)
+        nrows: Number of rows to analyze (None for full file)
+        sheet_name: Name or index of the Excel sheet
+        include_sample_data: Include sample data in the schema
+        infer_primary_key: Attempt to infer primary key columns
+
+    Returns:
+        Dictionary containing the generated schema
+
+    Example:
+        >>> schema = generate_schema_from_excel("data.xlsx", sheet_name="Sheet1")
+        >>> print(len(schema["properties"]))
+        5
+    """
+    config = SchemaGenerationConfig(
+        input_path=input_path,
+        file_type=FileType.EXCEL,
+        nrows=nrows,
+        output_target=OutputTarget.STDOUT,  # Not used for API calls
+        sheet_name=sheet_name,
+        include_sample_data=include_sample_data,
+        infer_primary_key=infer_primary_key
+    )
+
+    generator = SchemaGenerator(config)
+    return generator.generate_schema()
+
+
+def generate_schema_from_parquet(
+    input_path: Union[str, Path],
+    nrows: Optional[int] = None,
+    include_sample_data: bool = True,
+    infer_primary_key: bool = True
+) -> Dict[str, Any]:
+    """Generate a Forklift schema from a Parquet file.
+
+    Args:
+        input_path: Path to the Parquet file (local or S3)
+        nrows: Number of rows to analyze (None for full file)
+        include_sample_data: Include sample data in the schema
+        infer_primary_key: Attempt to infer primary key columns
+
+    Returns:
+        Dictionary containing the generated schema
+
+    Example:
+        >>> schema = generate_schema_from_parquet("data.parquet")
+        >>> print(schema["$schema"])
+        https://json-schema.org/draft/2020-12/schema
+    """
+    config = SchemaGenerationConfig(
+        input_path=input_path,
+        file_type=FileType.PARQUET,
+        nrows=nrows,
+        output_target=OutputTarget.STDOUT,  # Not used for API calls
+        include_sample_data=include_sample_data,
+        infer_primary_key=infer_primary_key
+    )
+
+    generator = SchemaGenerator(config)
+    return generator.generate_schema()
+
+
+def generate_and_save_schema(
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
+    file_type: str,
+    nrows: Optional[int] = None,
+    **kwargs
+) -> None:
+    """Generate a schema and save it to a file.
+
+    Args:
+        input_path: Path to the input file
+        output_path: Path where the schema should be saved
+        file_type: Type of input file ("csv", "excel", "parquet")
+        nrows: Number of rows to analyze
+        **kwargs: Additional arguments passed to the generator
+
+    Example:
+        >>> generate_and_save_schema(
+        ...     "data.csv",
+        ...     "schema.json",
+        ...     "csv",
+        ...     nrows=1000
+        ... )
+    """
+    config = SchemaGenerationConfig(
+        input_path=input_path,
+        file_type=FileType(file_type),
+        nrows=nrows,
+        output_target=OutputTarget.FILE,
+        output_path=output_path,
+        **kwargs
+    )
+
+    generator = SchemaGenerator(config)
+    schema = generator.generate_schema()
+    generator.output_schema(schema)
+
+
+def generate_and_copy_schema(
+    input_path: Union[str, Path],
+    file_type: str,
+    nrows: Optional[int] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Generate a schema and copy it to the clipboard.
+
+    Args:
+        input_path: Path to the input file
+        file_type: Type of input file ("csv", "excel", "parquet")
+        nrows: Number of rows to analyze
+        **kwargs: Additional arguments passed to the generator
+
+    Returns:
+        Dictionary containing the generated schema
+
+    Example:
+        >>> schema = generate_and_copy_schema("data.csv", "csv")
+        Schema copied to clipboard
+    """
+    config = SchemaGenerationConfig(
+        input_path=input_path,
+        file_type=FileType(file_type),
+        nrows=nrows,
+        output_target=OutputTarget.CLIPBOARD,
+        **kwargs
+    )
+
+    generator = SchemaGenerator(config)
+    schema = generator.generate_schema()
+    generator.output_schema(schema)
+    return schema

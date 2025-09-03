@@ -1,0 +1,4 @@
+id,name,age,salary,is_active
+1,John Doe,30,50000.50,true
+2,Jane Smith,25,45000.00,false
+3,Bob Johnson,35,60000.75,true

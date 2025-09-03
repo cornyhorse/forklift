@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 from .engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 from .io import is_s3_path
+from .schema.schema_generator import SchemaGenerator, SchemaGenerationConfig, OutputTarget, FileType
 
 
 def main() -> None:
@@ -25,6 +26,19 @@ def main() -> None:
         default="present",
         help="Explicit header handling: 'present' (file has header), 'absent' (no header, use override), 'auto'"
     )
+
+    # Add schema generation command
+    schema_gen = sub.add_parser("generate-schema", help="Generate schema from data file")
+    schema_gen.add_argument("source", help="Input path (local file or S3 URI: s3://bucket/key)")
+    schema_gen.add_argument("--file-type", choices=["csv", "excel", "parquet"], required=True, help="Type of input file")
+    schema_gen.add_argument("--nrows", type=int, help="Number of rows to analyze (default: full file)")
+    schema_gen.add_argument("--output", choices=["stdout", "file", "clipboard"], default="stdout", help="Output target")
+    schema_gen.add_argument("--output-path", help="Output file path (required when --output=file)")
+    schema_gen.add_argument("--delimiter", default=",", help="CSV delimiter (default: comma)")
+    schema_gen.add_argument("--encoding", default="utf-8", help="File encoding (default: utf-8)")
+    schema_gen.add_argument("--sheet", help="Excel sheet name or index")
+    schema_gen.add_argument("--no-sample", action="store_true", help="Don't include sample data in schema")
+    schema_gen.add_argument("--no-primary-key", action="store_true", help="Don't infer primary key")
 
     args = p.parse_args()
 
@@ -76,3 +90,31 @@ def main() -> None:
                 print(f"Metadata file: {results.metadata_file}")
         else:
             print(f"Error: Input kind '{args.input_kind}' not yet implemented in new ForkliftCore. Only 'csv' is currently supported.")
+    elif args.cmd == "generate-schema":
+        # Validate output arguments
+        if args.output == "file" and not args.output_path:
+            print("Error: --output-path is required when --output=file")
+            return
+
+        # Create schema generation config
+        config = SchemaGenerationConfig(
+            input_path=args.source,
+            file_type=FileType(args.file_type),
+            nrows=args.nrows,
+            output_target=OutputTarget(args.output),
+            output_path=args.output_path,
+            delimiter=args.delimiter,
+            encoding=args.encoding,
+            sheet_name=args.sheet,
+            include_sample_data=not args.no_sample,
+            infer_primary_key=not args.no_primary_key
+        )
+
+        try:
+            # Generate schema
+            generator = SchemaGenerator(config)
+            schema = generator.generate_schema()
+            generator.output_schema(schema)
+        except Exception as e:
+            print(f"Error generating schema: {e}")
+            return

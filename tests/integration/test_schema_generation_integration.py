@@ -36,7 +36,7 @@ class TestSchemaGenerationIntegration:
         # Generate schema from the CSV
         schema = generate_schema_from_csv(
             input_path=str(csv_file),
-            include_sample_data=True,
+            include_sample_data=False,  # Use new default (no sample data)
             infer_primary_key=True
         )
 
@@ -61,9 +61,8 @@ class TestSchemaGenerationIntegration:
         assert "x-primaryKey" in schema
         assert schema["x-primaryKey"]["columns"] == ["id"]
 
-        # Check sample data is included
-        assert "x-sample" in schema
-        assert len(schema["x-sample"]["rows"]) > 0
+        # Check that sample data is NOT included by default (new behavior)
+        assert "x-sample" not in schema
 
         # Save schema to file
         schema_file = tmp_path / "generated_schema.json"
@@ -107,11 +106,12 @@ class TestSchemaGenerationIntegration:
         schema = generate_schema_from_csv(
             input_path=str(csv_file),
             nrows=3,
-            include_sample_data=True
+            include_sample_data=True  # Explicitly request sample data
         )
 
         # Validate schema was generated from limited data
         assert schema["x-generation"]["rows_analyzed"] == 3
+        assert "x-sample" in schema  # Now checking for presence since we requested it
         assert len(schema["x-sample"]["rows"]) == 3
 
         # Save schema and process full file

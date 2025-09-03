@@ -47,13 +47,13 @@ class SchemaGenerationConfig:
     """Configuration for schema generation."""
     input_path: Union[str, Path]
     file_type: FileType
-    nrows: Optional[int] = None  # None means full file
+    nrows: Optional[int] = 1000  # Default to 1000 rows for analysis
     output_target: OutputTarget = OutputTarget.STDOUT
     output_path: Optional[Union[str, Path]] = None
     delimiter: str = ","
     encoding: str = "utf-8"
     sheet_name: Optional[str] = None  # For Excel files
-    include_sample_data: bool = True
+    include_sample_data: bool = False  # Default to False to avoid sensitive data
     infer_primary_key: bool = True
 
 

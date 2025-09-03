@@ -14,20 +14,20 @@ from .schema.schema_generator import SchemaGenerator, SchemaGenerationConfig, Ou
 
 def generate_schema_from_csv(
     input_path: Union[str, Path],
-    nrows: Optional[int] = None,
+    nrows: Optional[int] = 1000,  # Default to 1000 rows
     delimiter: str = ",",
     encoding: str = "utf-8",
-    include_sample_data: bool = True,
+    include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key: bool = True
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from a CSV file.
 
     Args:
         input_path: Path to the CSV file (local or S3)
-        nrows: Number of rows to analyze (None for full file)
+        nrows: Number of rows to analyze (default: 1000)
         delimiter: CSV field delimiter
         encoding: File encoding
-        include_sample_data: Include sample data in the schema
+        include_sample_data: Include sample data in the schema (default: False)
         infer_primary_key: Attempt to infer primary key columns
 
     Returns:
@@ -55,18 +55,18 @@ def generate_schema_from_csv(
 
 def generate_schema_from_excel(
     input_path: Union[str, Path],
-    nrows: Optional[int] = None,
+    nrows: Optional[int] = 1000,  # Default to 1000 rows
     sheet_name: Optional[str] = None,
-    include_sample_data: bool = True,
+    include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key: bool = True
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from an Excel file.
 
     Args:
         input_path: Path to the Excel file (local or S3)
-        nrows: Number of rows to analyze (None for full file)
+        nrows: Number of rows to analyze (default: 1000)
         sheet_name: Name or index of the Excel sheet
-        include_sample_data: Include sample data in the schema
+        include_sample_data: Include sample data in the schema (default: False)
         infer_primary_key: Attempt to infer primary key columns
 
     Returns:
@@ -93,16 +93,16 @@ def generate_schema_from_excel(
 
 def generate_schema_from_parquet(
     input_path: Union[str, Path],
-    nrows: Optional[int] = None,
-    include_sample_data: bool = True,
+    nrows: Optional[int] = 1000,  # Default to 1000 rows
+    include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key: bool = True
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from a Parquet file.
 
     Args:
         input_path: Path to the Parquet file (local or S3)
-        nrows: Number of rows to analyze (None for full file)
-        include_sample_data: Include sample data in the schema
+        nrows: Number of rows to analyze (default: 1000)
+        include_sample_data: Include sample data in the schema (default: False)
         infer_primary_key: Attempt to infer primary key columns
 
     Returns:

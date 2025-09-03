@@ -24,16 +24,24 @@ class TestSchemaGenerator:
         config = SchemaGenerationConfig(
             input_path="/path/to/file.csv",
             file_type=FileType.CSV,
-            nrows=1000,
+            nrows=500,  # Override default
             output_target=OutputTarget.STDOUT
         )
 
         assert config.input_path == "/path/to/file.csv"
         assert config.file_type == FileType.CSV
-        assert config.nrows == 1000
+        assert config.nrows == 500
         assert config.output_target == OutputTarget.STDOUT
         assert config.delimiter == ","  # default
         assert config.encoding == "utf-8"  # default
+
+        # Test new defaults
+        default_config = SchemaGenerationConfig(
+            input_path="/path/to/file.csv",
+            file_type=FileType.CSV
+        )
+        assert default_config.nrows == 1000  # New default
+        assert default_config.include_sample_data == False  # New default
 
     def test_arrow_to_json_schema_type_conversion(self, tmp_path):
         """Test Arrow type to JSON Schema type conversion."""

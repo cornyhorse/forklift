@@ -31,13 +31,13 @@ def main() -> None:
     schema_gen = sub.add_parser("generate-schema", help="Generate schema from data file")
     schema_gen.add_argument("source", help="Input path (local file or S3 URI: s3://bucket/key)")
     schema_gen.add_argument("--file-type", choices=["csv", "excel", "parquet"], required=True, help="Type of input file")
-    schema_gen.add_argument("--nrows", type=int, help="Number of rows to analyze (default: full file)")
+    schema_gen.add_argument("--nrows", type=int, help="Number of rows to analyze (default: 1000)")
     schema_gen.add_argument("--output", choices=["stdout", "file", "clipboard"], default="stdout", help="Output target")
     schema_gen.add_argument("--output-path", help="Output file path (required when --output=file)")
     schema_gen.add_argument("--delimiter", default=",", help="CSV delimiter (default: comma)")
     schema_gen.add_argument("--encoding", default="utf-8", help="File encoding (default: utf-8)")
     schema_gen.add_argument("--sheet", help="Excel sheet name or index")
-    schema_gen.add_argument("--no-sample", action="store_true", help="Don't include sample data in schema")
+    schema_gen.add_argument("--include-sample", action="store_true", help="Include sample data in schema")
     schema_gen.add_argument("--no-primary-key", action="store_true", help="Don't infer primary key")
 
     args = p.parse_args()
@@ -106,7 +106,7 @@ def main() -> None:
             delimiter=args.delimiter,
             encoding=args.encoding,
             sheet_name=args.sheet,
-            include_sample_data=not args.no_sample,
+            include_sample_data=args.include_sample,  # Changed from not args.no_sample
             infer_primary_key=not args.no_primary_key
         )
 

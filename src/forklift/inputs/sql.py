@@ -447,7 +447,11 @@ class SqlInputHandler:
             PyArrow RecordBatch
         """
         if not rows:
-            return pa.record_batch([], schema)
+            # Create empty arrays for each field in the schema
+            empty_arrays = []
+            for field in schema:
+                empty_arrays.append(pa.array([], type=field.type))
+            return pa.record_batch(empty_arrays, schema)
 
         # Transpose rows to columns
         columns = list(zip(*rows))

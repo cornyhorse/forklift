@@ -710,10 +710,10 @@ class TestSqlInputHandler:
         schema = pa.schema([pa.field('id', pa.int32())])
 
         # Test that the implementation properly handles empty rows
-        # The actual implementation has a bug where it passes [] instead of empty arrays
-        # This test documents the current behavior
-        with pytest.raises(ValueError, match="Schema and number of arrays unequal"):
-            handler._rows_to_recordbatch([], schema)
+        # Should create an empty RecordBatch with the correct schema
+        batch = handler._rows_to_recordbatch([], schema)
+        assert batch.num_rows == 0
+        assert batch.schema.equals(schema)
 
     @patch('pyodbc.connect')
     def test_read_table_data_with_fetch_size(self, mock_connect, basic_config):

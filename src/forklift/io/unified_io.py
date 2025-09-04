@@ -34,6 +34,16 @@ class UnifiedIOHandler:
             self._s3_client = get_s3_client()
         return self._s3_client
 
+    @s3_client.setter
+    def s3_client(self, value: S3StreamingClient) -> None:
+        """Set S3 client."""
+        self._s3_client = value
+
+    @s3_client.deleter
+    def s3_client(self) -> None:
+        """Delete S3 client reference."""
+        self._s3_client = None
+
     def exists(self, path: Union[str, Path]) -> bool:
         """Check if path exists (local file or S3 object).
 

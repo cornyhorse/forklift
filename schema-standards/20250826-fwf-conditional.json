@@ -62,7 +62,7 @@
   },
 
   "x-rowHash": {
-    "description": "Configuration for generating row-level hash columns for change detection and data integrity",
+    "description": "Configuration for generating row-level hash columns and metadata for change detection and data integrity",
     "enabled": false,
     "columnName": "row_hash",
     "algorithm": "sha256",
@@ -70,7 +70,16 @@
     "excludeColumns": [],
     "nullValue": "NULL",
     "separator": "||",
-    "description_detail": "Row hash disabled by default. When enabled, generates SHA256 hash of all row data for change detection and integrity verification. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
+    "inputHashEnabled": false,
+    "inputHashColumnName": "_input_hash",
+    "sourceUriEnabled": false,
+    "sourceUriColumnName": "_source_uri",
+    "ingestedAtEnabled": false,
+    "ingestedAtColumnName": "_ingested_at_utc",
+    "rowNumberEnabled": false,
+    "sourceRowNumberColumnName": "_rownum_in_source_file",
+    "processingRowNumberColumnName": "_rownum",
+    "description_detail": "Row hash and metadata columns disabled by default. When enabled, can generate: output row hash (SHA256 default), input row hash, source URI, ingestion timestamp, and row numbers. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
   },
 
   "x-fwf": {

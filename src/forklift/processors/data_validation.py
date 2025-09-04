@@ -400,14 +400,8 @@ class DataValidationProcessor(BaseProcessor):
             sample_row = self.bad_rows[0]
             for key, value in sample_row.items():
                 if not key.startswith("_"):
-                    if isinstance(value, bool):
-                        field_type = pa.bool_()
-                    elif isinstance(value, int):
-                        field_type = pa.int64()
-                    elif isinstance(value, float):
-                        field_type = pa.float64()
-                    else:
-                        field_type = pa.string()
+                    # Improved type inference that handles None values
+                    field_type = self._infer_field_type(key, self.bad_rows)
                     original_fields.append(pa.field(key, field_type))
 
             # Add error fields if present
@@ -424,9 +418,45 @@ class DataValidationProcessor(BaseProcessor):
         arrays = []
         for field in schema:
             field_values = [row.get(field.name) for row in self.bad_rows]
-            arrays.append(pa.array(field_values, type=field.type))
+            # Let PyArrow infer the type from the actual values
+            arrays.append(pa.array(field_values))
 
         return pa.RecordBatch.from_arrays(arrays, schema=schema)
+
+    def _infer_field_type(self, field_name: str, bad_rows: List[Dict[str, Any]]) -> pa.DataType:
+        """Infer PyArrow data type for a field from bad rows data."""
+        # Collect all non-None values for this field
+        values = []
+        for row in bad_rows:
+            value = row.get(field_name)
+            if value is not None:
+                values.append(value)
+
+        # If all values are None, default to string
+        if not values:
+            return pa.string()
+
+        # Check types of non-None values
+        types_seen = set()
+        for value in values:
+            if isinstance(value, bool):
+                types_seen.add('bool')
+            elif isinstance(value, int):
+                types_seen.add('int')
+            elif isinstance(value, float):
+                types_seen.add('float')
+            else:
+                types_seen.add('string')
+
+        # Return most appropriate type
+        if 'float' in types_seen:
+            return pa.float64()
+        elif 'int' in types_seen and 'string' not in types_seen:
+            return pa.int64()
+        elif 'bool' in types_seen and len(types_seen) == 1:
+            return pa.bool_()
+        else:
+            return pa.string()
 
     def get_validation_summary(self) -> Dict[str, Any]:
         """Get validation processing summary."""

@@ -114,7 +114,14 @@ def main() -> None:
             # Generate schema
             generator = SchemaGenerator(config)
             schema = generator.generate_schema()
-            generator.output_schema(schema)
-        except Exception as e:
+            include_sample_data=args.include_sample,
+            infer_primary_key=not args.no_primary_key,
+            # New metadata generation options
+            generate_metadata=not args.no_metadata,
+            metadata_output_path=args.metadata_output,
+            enum_threshold=args.enum_threshold,
+            uniqueness_threshold=args.uniqueness_threshold,
+            top_n_values=args.top_n_values,
+            quantiles=args.quantiles if args.quantiles else None
             print(f"Error generating schema: {e}")
             return

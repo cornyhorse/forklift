@@ -22,6 +22,7 @@ import pyarrow.compute as pc
 
 # Import S3 streaming capabilities
 from ..io import UnifiedIOHandler, is_s3_path, S3Path, create_parquet_writer
+from ..metadata import OutputMetadataCollector
 
 
 class ProcessingError(Exception):
@@ -850,6 +851,22 @@ class ForkliftCore:
             good_writer = None
             bad_writer = None
 
+            # Initialize output metadata collector if enabled
+            output_metadata_collector = None
+            if self.config.create_metadata:
+                # Read metadata configuration from schema if available
+                metadata_config = {}
+                if self.schema and hasattr(self, 'schema_dict'):
+                    metadata_config = self.schema_dict.get('x-metadata-generation', {})
+
+                output_metadata_collector = OutputMetadataCollector(
+                    enabled=metadata_config.get('enabled', True),
+                    enum_threshold=metadata_config.get('enum_detection', {}).get('uniqueness_threshold', 0.1),
+                    uniqueness_threshold=0.95,  # Default threshold for too unique columns
+                    top_n_values=metadata_config.get('statistics', {}).get('categorical', {}).get('top_n_values', 10),
+                    quantiles=metadata_config.get('statistics', {}).get('numeric', {}).get('quantiles', [0.25, 0.5, 0.75, 0.9, 0.95, 0.99])
+                )
+
             # Process batches using S3-aware batch reader
             for batch in self._create_s3_batch_reader(self.config.input_path):
                 # Validate and split batch
@@ -871,9 +888,12 @@ class ForkliftCore:
                         compression=self.config.compression
                     )
 
-                # Write batches
+                # Write batches and collect metadata from FINAL OUTPUT DATA
                 if len(valid_batch) > 0:
                     self._write_batch_to_parquet(valid_batch, good_writer)
+                    # Collect metadata from the final transformed valid data
+                    if output_metadata_collector:
+                        output_metadata_collector.add_batch(valid_batch)
                     results.valid_rows += len(valid_batch)
 
                 if len(invalid_batch) > 0:
@@ -903,6 +923,36 @@ class ForkliftCore:
                 results.manifest_file = self._create_s3_manifest(self.config.output_path, results.output_files)
 
             if self.config.create_metadata:
+                # Generate and save output metadata if we collected it
+                if output_metadata_collector and output_metadata_collector.total_rows > 0:
+                    # Get the schema from the good writer if available
+                    output_schema = good_writer.schema if good_writer else None
+
+                    # Generate source info for metadata
+                    source_info = {
+                        "input_path": str(self.config.input_path),
+                        "processing_type": "csv_processing",
+                        "schema_file": str(self.config.schema_file) if self.config.schema_file else None,
+                        "total_batches_processed": "streaming",
+                        "final_output_files": results.output_files
+                    }
+
+                    # Generate comprehensive metadata about the final output data
+                    output_metadata = output_metadata_collector.generate_metadata(output_schema, source_info)
+
+                    # Save output metadata to separate file
+                    output_metadata_path = output_metadata_collector.save_metadata(
+                        self.config.output_path,
+                        "output_data_metadata.json"
+                    )
+
+                    if output_metadata_path:
+                        print(f"Output data metadata saved to: {output_metadata_path}")
+                        # Optionally add to results for tracking
+                        if hasattr(results, 'output_metadata_file'):
+                            results.output_metadata_file = output_metadata_path
+
+                # Still create the traditional processing metadata
                 results.metadata_file = self._create_s3_metadata(self.config.output_path, results)
 
             results.execution_time = time.time() - start_time

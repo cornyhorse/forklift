@@ -278,6 +278,33 @@ def _matches_format_exact(value: str, fmt: str) -> bool:
         # Format it back and compare
         try:
             reformatted = parsed.strftime(fmt)
+
+            # Special handling for microseconds - allow flexible matching
+            if '%f' in fmt:
+                # For microseconds, we need to handle the case where the input
+                # has fewer than 6 digits but strftime always outputs 6 digits
+
+                # Find the microseconds part in both strings
+                import re
+
+                # Pattern to match microseconds (1-6 digits after a dot)
+                microseconds_pattern = r'\.(\d{1,6})'
+
+                original_match = re.search(microseconds_pattern, value)
+                reformatted_match = re.search(microseconds_pattern, reformatted)
+
+                if original_match and reformatted_match:
+                    original_microseconds = original_match.group(1)
+                    reformatted_microseconds = reformatted_match.group(1)
+
+                    # Pad the original to 6 digits for comparison
+                    original_padded = original_microseconds.ljust(6, '0')
+
+                    if original_padded == reformatted_microseconds:
+                        # Replace the microseconds part in both strings for comparison
+                        value_normalized = re.sub(microseconds_pattern, f'.{original_padded}', value)
+                        return value_normalized == reformatted
+
             return reformatted == value
         except (ValueError, TypeError):
             # strftime can fail for some formats/values

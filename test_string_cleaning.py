@@ -317,8 +317,14 @@ class TestStringCleaningTransformations:
         """Test fixing common encoding errors."""
         config = StringCleaningConfig(
             fix_encoding_errors=True,
+            normalize_quotes=False,  # Explicitly disable
+            normalize_dashes=False,  # Explicitly disable
+            normalize_spaces=False,  # Explicitly disable
             collapse_whitespace=False,
-            strip_whitespace=False
+            strip_whitespace=False,
+            remove_zero_width=False,  # Explicitly disable
+            remove_control_chars=False,  # Explicitly disable
+            unicode_normalize=None  # Explicitly disable
         )
 
         test_data = [
@@ -436,7 +442,11 @@ class TestStringCleaningTransformations:
             normalize_dashes=True,   # Enabled
             normalize_spaces=False,  # Disabled
             collapse_whitespace=False,
-            strip_whitespace=False
+            strip_whitespace=False,
+            remove_zero_width=False,  # Explicitly disable
+            remove_control_chars=False,  # Explicitly disable
+            fix_encoding_errors=False,  # Explicitly disable
+            unicode_normalize=None  # Explicitly disable
         )
 
         test_data = ["\u201CHello\u2014world\u00A0test\u201D"]
@@ -514,7 +524,7 @@ if __name__ == "__main__":
     print("• 🔧 Control Char Removal: With newline/tab preservation")
     print("• 🌐 Unicode Normalization: NFKC/NFC/NFD forms")
     print("• 🔤 Case Fixing: ALL CAPS → Title Case")
-    print("• 🌍 Accent Removal: café → cafe")
+    print("• 🌍 Accent Removal: café �� cafe")
     print("• 🔤 ASCII-only: Remove non-ASCII characters")
     print("• 🛠️ Encoding Fixes: Fix mojibake errors")
     print("• ⚙️ Schema Integration: Declarative configuration")

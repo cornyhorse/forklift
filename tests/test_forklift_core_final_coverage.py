@@ -412,6 +412,10 @@ class TestFinalMissingLines:
         # Create valid schema file for SQL import
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as schema_f:
             schema_data = {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "https://example.com/sql-schema.json",
+                "title": "SQL Import Schema",
+                "type": "object",
                 "x-sql": {
                     "tables": [
                         {
@@ -461,8 +465,8 @@ class TestFinalMissingLines:
         with tempfile.TemporaryDirectory() as output_dir:
             try:
                 # Mock SQL components to test the processing logic
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_sql_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema:
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_sql_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema:
 
                     # Mock schema importer
                     mock_schema_instance = MagicMock()
@@ -488,13 +492,13 @@ class TestFinalMissingLines:
         """Test Excel helper functions (lines 1537-1553)."""
         # Test _create_default_excel_config
         try:
-            from src.forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.forklift_core import _create_default_excel_config
 
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
 
                 # Mock Excel handler for config creation
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                     mock_handler_instance = MagicMock()
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1', 'Sheet2']
@@ -509,7 +513,7 @@ class TestFinalMissingLines:
     def test_lines_1578_1592_filename_sanitization(self):
         """Test filename sanitization helper (lines 1578-1592)."""
         try:
-            from src.forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.forklift_core import _sanitize_filename
 
             # Test various filename sanitization cases - adjusted for actual implementation
             test_cases = [
@@ -534,7 +538,7 @@ class TestFinalMissingLines:
     def test_lines_1596_1597_excel_config_creation(self):
         """Test Excel config creation paths (lines 1596-1597)."""
         try:
-            from src.forklift.engine.forklift_core import _create_excel_config_from_schema
+            from forklift.engine.forklift_core import _create_excel_config_from_schema
 
             # Mock schema for testing
             mock_schema = MagicMock()

@@ -429,7 +429,7 @@ class TestPublicAPIFunctions:
         )
         engine = ForkliftCore(config)
 
-        from src.forklift.engine.forklift_core import ProcessingResults
+        from forklift.engine.forklift_core import ProcessingResults
         results = ProcessingResults(total_rows=10, valid_rows=8, invalid_rows=2)
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -623,7 +623,7 @@ class TestRemainingMissingLines:
         )
         engine = ForkliftCore(config)
 
-        from src.forklift.engine.forklift_core import ProcessingResults
+        from forklift.engine.forklift_core import ProcessingResults
         results = ProcessingResults(total_rows=5, valid_rows=5, invalid_rows=0)
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -812,7 +812,7 @@ class TestFinalMissingLines:
         )
         engine = ForkliftCore(config)
 
-        from src.forklift.engine.forklift_core import ProcessingResults
+        from forklift.engine.forklift_core import ProcessingResults
         results = ProcessingResults(total_rows=3, valid_rows=3, invalid_rows=0)
 
         with tempfile.TemporaryDirectory() as temp_dir:

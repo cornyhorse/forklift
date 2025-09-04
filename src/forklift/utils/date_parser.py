@@ -170,7 +170,7 @@ def _normalize_format(fmt: str) -> str:
     result = fmt
 
     # Replace tokens in order of specificity (longest first to avoid conflicts)
-    # Process the most specific patterns first to avoid partial matches
+    # We need to be careful about the order to avoid double-replacements
 
     # Year tokens (longest first)
     result = result.replace('YYYY', '%Y')
@@ -208,29 +208,37 @@ def _normalize_format(fmt: str) -> str:
         result = result.replace('mm', '%m')
         result = result.replace('Mm', '%m')
         # Single M/m for months (only in date context, after month names are processed)
-        result = result.replace('M', '%m')
-        result = result.replace('m', '%m')
+        # BUT we need to avoid replacing M's that are already part of % codes
+        # Use a more careful approach for single character replacements
+        import re
+        # Only replace M/m that are not preceded by %
+        result = re.sub(r'(?<!%)M(?![a-zA-Z])', '%m', result)
+        result = re.sub(r'(?<!%)m(?![a-zA-Z])', '%m', result)
 
     # Day tokens
     result = result.replace('DD', '%d')
     result = result.replace('dd', '%d')
     result = result.replace('Dd', '%d')
-    result = result.replace('D', '%d')
-    result = result.replace('d', '%d')
+    # Single D/d (be careful not to replace in % codes)
+    import re
+    result = re.sub(r'(?<!%)D(?![a-zA-Z])', '%d', result)
+    result = re.sub(r'(?<!%)d(?![a-zA-Z])', '%d', result)
 
     # Hour tokens
     result = result.replace('HH', '%H')
     result = result.replace('hh', '%H')
     result = result.replace('Hh', '%H')
-    result = result.replace('H', '%H')
-    result = result.replace('h', '%H')
+    # Single H/h
+    result = re.sub(r'(?<!%)H(?![a-zA-Z])', '%H', result)
+    result = re.sub(r'(?<!%)h(?![a-zA-Z])', '%H', result)
 
     # Second tokens
     result = result.replace('SS', '%S')
     result = result.replace('ss', '%S')
     result = result.replace('Ss', '%S')
-    result = result.replace('S', '%S')
-    result = result.replace('s', '%S')
+    # Single S/s
+    result = re.sub(r'(?<!%)S(?![a-zA-Z])', '%S', result)
+    result = re.sub(r'(?<!%)s(?![a-zA-Z])', '%S', result)
 
     return result
 
@@ -358,7 +366,8 @@ def parse_date(
                 return True
             except (ValueError, TypeError):
                 continue
-        return False
+        # If formats list was provided but none matched, still try fallback parsing
+        # (This allows for more flexible parsing when a formats list is provided)
 
     # Try common date formats
     if _try_strptime(value, COMMON_DATE_FORMATS):

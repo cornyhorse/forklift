@@ -5,13 +5,13 @@ import pyarrow as pa
 from typing import Dict, List
 from unittest.mock import Mock
 
-from src.forklift.processors.column_mapper import (
+from forklift.processors.column_mapper import (
     ColumnMappingConfig,
     ColumnMapper,
     create_postgres_mapper,
     create_custom_mapper
 )
-from src.forklift.processors.base import ValidationResult
+from forklift.processors.base import ValidationResult
 
 
 class TestColumnMappingConfig:
@@ -516,6 +516,10 @@ class TestNamingConventionHelpers:
 class TestHelperFunctions:
     """Test suite for helper functions."""
 
+    def create_test_batch(self, data: Dict[str, List]) -> pa.RecordBatch:
+        """Helper to create test PyArrow RecordBatch."""
+        return pa.RecordBatch.from_pydict(data)
+
     def test_create_postgres_mapper(self):
         """Test create_postgres_mapper function."""
         mapper = create_postgres_mapper()
@@ -554,9 +558,9 @@ class TestHelperFunctions:
             "OldName": [1, 2],
             "CamelCase": ["a", "b"]
         }
-        batch = pa.RecordBatch.from_pydict(data)
-        result_batch, validation_results = mapper.process_batch(batch)
+        batch = self.create_test_batch(data)
 
+        result_batch, validation_results = mapper.process_batch(batch)
 
         assert len(validation_results) == 0
         column_names = result_batch.schema.names
@@ -570,12 +574,15 @@ class TestHelperFunctions:
 class TestEdgeCases:
     """Test suite for edge cases and special scenarios."""
 
+    def create_test_batch(self, data: Dict[str, List]) -> pa.RecordBatch:
+        """Helper to create test PyArrow RecordBatch."""
+        return pa.RecordBatch.from_pydict(data)
+
     def test_empty_batch(self):
         """Test processing an empty batch."""
         config = ColumnMappingConfig(explicit_mappings={"test": "mapped"})
-        config = ColumnMappingConfig()
-
         mapper = ColumnMapper(config)
+
         # Create empty batch
         schema = pa.schema([])
         batch = pa.RecordBatch.from_arrays([], schema=schema)
@@ -583,8 +590,8 @@ class TestEdgeCases:
         result_batch, validation_results = mapper.process_batch(batch)
 
         assert len(validation_results) == 0
+        # Empty batch should pass through without validation errors
         assert len(result_batch.schema.names) == 0
-        assert len(validation_results) == 0
 
     def test_single_column_batch(self):
         """Test processing a batch with a single column."""
@@ -595,7 +602,7 @@ class TestEdgeCases:
         mapper = ColumnMapper(config)
 
         data = {"single": [1, 2, 3]}
-        batch = pa.RecordBatch.from_pydict(data)
+        batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
 
@@ -614,7 +621,7 @@ class TestEdgeCases:
             "col1": [1, 2],
             "col2": [3, 4]
         }
-        batch = pa.RecordBatch.from_pydict(data)
+        batch = self.create_test_batch(data)
 
         # This should not crash, but the behavior might be undefined
         # We're mainly testing that it doesn't throw an exception
@@ -634,7 +641,7 @@ class TestEdgeCases:
             "col with spaces": [5, 6],
             "col_with_underscores": [7, 8]
         }
-        batch = pa.RecordBatch.from_pydict(data)
+        batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
 

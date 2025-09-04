@@ -54,7 +54,6 @@ SCHEMA_TOKEN_MAP = {
     'D': '%d', 'd': '%d',
     'HH': '%H', 'hh': '%H', 'Hh': '%H',
     'H': '%H', 'h': '%H',
-    'mm': '%M',  # Note: minutes, not month when after hour
     'SS': '%S', 'ss': '%S', 'Ss': '%S',
     'S': '%S', 's': '%S',
     'MMM': '%b', 'mmm': '%b', 'Mmm': '%b',
@@ -75,7 +74,7 @@ def _is_epoch_timestamp(value: str) -> bool:
     if not value:
         return False
 
-    # Check if all characters are digits
+    # Check if all characters are digits (no decimals or other characters)
     if not value.isdigit():
         return False
 
@@ -85,6 +84,10 @@ def _is_epoch_timestamp(value: str) -> bool:
     # 16 digits: microseconds since epoch
     # 19 digits: nanoseconds since epoch
     length = len(value)
+
+    # Only accept specific valid lengths
+    if length not in [10, 13, 16, 19]:
+        return False
 
     try:
         timestamp = int(value)
@@ -245,7 +248,7 @@ def _datetime_to_epoch(dt: datetime.datetime, unit: str) -> int:
     elif unit == "nanoseconds":
         return int(epoch_seconds * 1000000000)
     else:
-        raise ValueError(f"Unsupported epoch unit: {unit}")
+        raise ValueError(f"Invalid epoch unit: {unit}")
 
 
 def parse_date(
@@ -279,20 +282,26 @@ def parse_date(
         except ValueError:
             return False
 
-    # Try specific format if provided
+    # Try specific format if provided (strict matching)
     if fmt:
         normalized_fmt = _normalize_format(fmt)
         try:
             datetime.datetime.strptime(value, normalized_fmt)
-            return True
+            # For strict format enforcement, check exact match
+            return _matches_format_exact(value, normalized_fmt)
         except (ValueError, TypeError):
-            pass
+            return False
 
-    # Try list of formats if provided
+    # Try list of formats if provided (strict matching)
     if formats:
         normalized_formats = [_normalize_format(f) for f in formats]
-        if _try_strptime(value, normalized_formats):
-            return True
+        for normalized_fmt in normalized_formats:
+            try:
+                datetime.datetime.strptime(value, normalized_fmt)
+                return True
+            except (ValueError, TypeError):
+                continue
+        return False
 
     # Try common date formats
     if _try_strptime(value, COMMON_DATE_FORMATS):
@@ -302,7 +311,7 @@ def parse_date(
     try:
         dateutil_parser.parse(value)
         return True
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         return False
 
 
@@ -347,11 +356,21 @@ def coerce_date(
     if formats:
         candidates.extend(_normalize_format(f) for f in formats)
 
-    # Try candidate formats first
+    # Try candidate formats first with strict matching
     if candidates:
-        parsed_dt = _try_strptime(value, candidates)
-        if parsed_dt:
-            return parsed_dt.date().isoformat()
+        for candidate_fmt in candidates:
+            try:
+                parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
+                # For strict format enforcement when fmt is specified, check exact match
+                if fmt and not _matches_format_exact(value, candidate_fmt):
+                    continue
+                return parsed_dt.date().isoformat()
+            except (ValueError, TypeError):
+                continue
+
+    # If specific formats were provided but none matched, raise error
+    if fmt or formats:
+        raise ValueError(f"bad date: {value}")
 
     # Try common date formats
     parsed_dt = _try_strptime(value, COMMON_DATE_FORMATS)
@@ -362,7 +381,7 @@ def coerce_date(
     try:
         dt = dateutil_parser.parse(value)
         return dt.date().isoformat()
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, OverflowError):
         pass
 
     raise ValueError(f"bad date: {value}")
@@ -374,7 +393,8 @@ def coerce_datetime(
     formats: Optional[List[str]] = None,
     from_epoch: bool = False,
     to_epoch: Optional[str] = None,
-    fuzzy: bool = False
+    fuzzy: bool = False,
+    allow_fuzzy: Optional[bool] = None
 ) -> Union[datetime.datetime, int]:
     """Coerce a value to datetime object or epoch timestamp.
 
@@ -386,6 +406,7 @@ def coerce_datetime(
         to_epoch: If specified, return epoch in this unit
                  ('seconds', 'milliseconds', 'microseconds', 'nanoseconds')
         fuzzy: If True, allow fuzzy parsing with dateutil
+        allow_fuzzy: Legacy parameter, same as fuzzy
 
     Returns:
         Datetime object or epoch timestamp (int)
@@ -395,6 +416,10 @@ def coerce_datetime(
     """
     if not isinstance(value, str) or not value or not value.strip():
         raise ValueError("empty datetime")
+
+    # Handle allow_fuzzy parameter (legacy support)
+    if allow_fuzzy is not None:
+        fuzzy = allow_fuzzy
 
     # Clean whitespace
     value = value.strip()
@@ -437,6 +462,13 @@ def coerce_datetime(
                     except (ValueError, TypeError):
                         continue
 
+                # If specific formats were provided but none matched, raise error
+                if not parsed_dt and (fmt or formats):
+                    if fmt:
+                        raise ValueError(f"Value '{value}' does not match required format '{fmt}'")
+                    else:
+                        raise ValueError(f"Value '{value}' does not match any of the specified formats")
+
             # Try common datetime formats
             if not parsed_dt:
                 parsed_dt = _try_strptime(value, COMMON_DATETIME_FORMATS)
@@ -449,7 +481,7 @@ def coerce_datetime(
             if not parsed_dt:
                 try:
                     parsed_dt = dateutil_parser.parse(value, fuzzy=fuzzy)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, OverflowError):
                     pass
 
     if not parsed_dt:

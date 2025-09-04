@@ -649,30 +649,31 @@ class DataTransformer:
                 replace_with_space = config.collapse_whitespace
                 str_value = self._remove_zero_width_chars(str_value, replace_with_space=replace_with_space)
 
-            # Tab handling - handle the complex interaction between tab settings
+            # Tab handling - check for explicit tab replacement intent
             if config.remove_tabs:
                 # Explicitly remove tabs
                 str_value = str_value.replace('\t', '')
             elif '\t' in str_value:
-                # When remove_tabs=False, check if this is intended tab replacement or control char removal
-                if config.remove_control_chars and not config.preserve_tabs:
-                    # Special case: if control char removal is enabled and tabs aren't preserved,
-                    # and this isn't an explicit tab replacement scenario, let control chars handle it
-                    # We can detect explicit tab replacement by checking if tab_replacement was customized
-                    # (Different from default single space for most scenarios)
-                    is_explicit_tab_replacement = (config.tab_replacement != " " or
-                                                 not config.collapse_whitespace or
-                                                 not config.strip_whitespace)
-                    if is_explicit_tab_replacement:
-                        # This looks like explicit tab replacement - honor the tab_replacement setting
-                        str_value = str_value.replace('\t', config.tab_replacement)
-                    # Otherwise, let control character removal handle tabs (they'll be removed)
-                else:
+                # Determine if this is explicit tab replacement or should be handled by control char removal
+                explicit_tab_replacement = (
+                    config.tab_replacement != " " or  # Custom replacement (like 4 spaces)
+                    config.collapse_whitespace        # Need spaces for collapse to work
+                )
+
+                if explicit_tab_replacement:
                     # Replace tabs with the configured replacement
+                    str_value = str_value.replace('\t', config.tab_replacement)
+                elif config.remove_control_chars and not config.preserve_tabs:
+                    # Let control character removal handle tabs (they'll be removed)
+                    pass
+                else:
+                    # Default: replace tabs with the configured replacement
                     str_value = str_value.replace('\t', config.tab_replacement)
 
             if config.remove_control_chars:
-                str_value = self._remove_control_chars(str_value, config.preserve_newlines, config.preserve_tabs)
+                # Only preserve tabs if we haven't already handled them above
+                preserve_tabs_for_removal = config.preserve_tabs
+                str_value = self._remove_control_chars(str_value, config.preserve_newlines, preserve_tabs_for_removal)
 
             # Whitespace handling
             if config.collapse_whitespace:

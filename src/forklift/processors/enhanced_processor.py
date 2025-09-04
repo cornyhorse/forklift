@@ -112,15 +112,30 @@ class EnhancedDataProcessor(BaseProcessor):
         # Collect constraint violations by row
         constraint_violations_by_row = {}
         for violation in self.constraint_validator.get_all_violations():
-            if violation.row_index not in constraint_violations_by_row:
+            if violation.row_index is not None and violation.row_index not in constraint_violations_by_row:
                 constraint_violations_by_row[violation.row_index] = []
-            constraint_violations_by_row[violation.row_index].append(violation)
+                constraint_violations_by_row[violation.row_index].append(violation)
 
         # Add bad rows to handler
         invalid_row_indices = set(validation_by_row.keys()) | set(constraint_violations_by_row.keys())
 
         for row_idx in invalid_row_indices:
-            if row_idx >= original_batch.num_rows:
+            # Ensure row_idx is an integer - handle various types
+            original_row_idx = row_idx
+            if isinstance(row_idx, str):
+                try:
+                    row_idx = int(row_idx)
+                except (ValueError, TypeError):
+                    continue
+            elif row_idx is None:
+                continue
+            elif not isinstance(row_idx, int):
+                try:
+                    row_idx = int(row_idx)
+                except (ValueError, TypeError):
+                    continue
+
+            if row_idx < 0 or row_idx >= original_batch.num_rows:
                 continue
 
             # Extract row data
@@ -134,8 +149,8 @@ class EnhancedDataProcessor(BaseProcessor):
             self.bad_rows_handler.add_bad_row(
                 row_data=row_data,
                 row_index=row_idx,
-                validation_results=validation_by_row.get(row_idx, []),
-                constraint_violations=constraint_violations_by_row.get(row_idx, [])
+                validation_results=validation_by_row.get(original_row_idx, []),
+                constraint_violations=constraint_violations_by_row.get(original_row_idx, [])
             )
 
     def _extract_error_handling_mode(self) -> str:

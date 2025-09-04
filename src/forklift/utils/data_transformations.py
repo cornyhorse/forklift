@@ -13,21 +13,18 @@ This module provides comprehensive data transformation capabilities including:
 
 from __future__ import annotations
 
-import re
 import html
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
 import datetime
+import re
 
 import pyarrow as pa
-import pyarrow.compute as pc
+import pandas as pd
 
 from .date_parser import (
     coerce_datetime,
-    coerce_date,
-    COMMON_DATE_FORMATS,
-    COMMON_DATETIME_FORMATS
 )
 
 @dataclass
@@ -148,7 +145,10 @@ class StringCleaningConfig:
 
     # Case handling
     fix_case_issues: bool = False  # Fix common case issues (e.g., multiple caps)
+    case_transform: Optional[str] = None  # Case transformation: 'upper', 'lower', 'title', 'proper', or None
     title_case_exceptions: List[str] = None  # Words to not title case (e.g., ["of", "the", "and"])
+    custom_case_mapping: Optional[Dict[str, str]] = None  # Custom case mappings (e.g., state codes: {"california": "CA"})
+    case_mapping_mode: str = "exact"  # How to apply custom mappings: 'exact', 'contains', 'startswith', 'endswith'
 
     # Other cleaning
     remove_accents: bool = False  # Remove diacritical marks
@@ -159,8 +159,18 @@ class StringCleaningConfig:
         if self.title_case_exceptions is None:
             self.title_case_exceptions = ["a", "an", "and", "as", "at", "but", "by", "for", "if", "in", "nor", "of", "on", "or", "so", "the", "to", "up", "yet"]
 
-        if self.ascii_only:
-            self.remove_accents = True
+        if self.custom_case_mapping is None:
+            self.custom_case_mapping = {}
+
+        # Validate case_transform parameter
+        valid_transforms = {None, 'upper', 'lower', 'title', 'proper'}
+        if self.case_transform not in valid_transforms:
+            raise ValueError(f"case_transform must be one of {valid_transforms}, got: {self.case_transform}")
+
+        # Validate case_mapping_mode
+        valid_modes = {'exact', 'contains', 'startswith', 'endswith'}
+        if self.case_mapping_mode not in valid_modes:
+            raise ValueError(f"case_mapping_mode must be one of {valid_modes}, got: {self.case_mapping_mode}")
 
 
 class DataTransformer:
@@ -609,7 +619,6 @@ class DataTransformer:
             return column
 
         import unicodedata
-        import string
 
         pandas_series = column.to_pandas()
         transformed_values = []
@@ -692,6 +701,39 @@ class DataTransformer:
             # Case handling
             if config.fix_case_issues:
                 str_value = self._fix_case_issues(str_value, config.title_case_exceptions)
+            if config.case_transform == 'upper':
+                str_value = str_value.upper()
+            elif config.case_transform == 'lower':
+                str_value = str_value.lower()
+            elif config.case_transform in {'title', 'proper'}:
+                # Title case - capitalize first letter of each word
+                # Proper case - capitalize first letter, lowercase the rest
+                def title_case_fn(s):
+                    if config.case_transform == 'title':
+                        return s.title()
+                    else:  # proper
+                        return s[0].upper() + s[1:].lower() if s else s
+
+                # Split on spaces and hyphens for title/proper casing
+                parts = re.split(r'(\s+|-)', str_value)
+                transformed_parts = [title_case_fn(part) for part in parts]
+                str_value = ''.join(transformed_parts)
+
+            # Custom case mapping (if any)
+            if config.custom_case_mapping:
+                for key, mapped_value in config.custom_case_mapping.items():
+                    if config.case_mapping_mode == 'exact' and str_value == key:
+                        str_value = mapped_value
+                        break
+                    elif config.case_mapping_mode == 'startswith' and str_value.startswith(key):
+                        str_value = mapped_value + str_value[len(key):]
+                        break
+                    elif config.case_mapping_mode == 'endswith' and str_value.endswith(key):
+                        str_value = str_value[:-len(key)] + mapped_value
+                        break
+                    elif config.case_mapping_mode == 'contains' and key in str_value:
+                        str_value = str_value.replace(key, mapped_value)
+                        break
 
             transformed_values.append(str_value)
 
@@ -871,7 +913,7 @@ class DataTransformer:
             'â€™': "'",  # Smart apostrophe mojibake (U+00E2 U+20AC U+2122 → ')
             'â€œ': '"',  # Smart quote start
             'â€': '"',   # Smart quote end
-            'â€"': '–',  # En dash
+            'â€"â€': '–',  # En dash (fixed duplicate key)
             'â€"': '—',  # Em dash
             'Donâ€™t': "Don't",  # Specific test case pattern
             'âœ"': '✓',  # Checkmark

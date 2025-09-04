@@ -1,174 +1,363 @@
-"""Write-time constraint validator that validates constraints after all transformations are complete."""
+            return results
 
-from __future__ import annotations
-from typing import Dict, List, Tuple, Any, Optional
-import logging
+        # Check if schemas match
+        if not batch.schema.equals(self.config.expected_schema):
+            error_msg = f"Schema mismatch. Expected: {self.config.expected_schema}, Got: {batch.schema}"
 
-import pyarrow as pa
+            if self.config.fail_on_schema_mismatch:
+                results.append(ValidationResult(
+                    is_valid=False,
+                    error_message=error_msg,
+                    error_code="SCHEMA_MISMATCH"
+                ))
+"""Write-time validation processor for ensuring data quality before writing."""
+                # Just warn about schema differences
+                results.append(ValidationResult(
+                    is_valid=True,
+                    error_message=f"Schema warning: {error_msg}",
+                    error_code="SCHEMA_WARNING"
+                ))
 
-from .constraint_validator import ConstraintValidator, ConstraintConfig, ConstraintViolation
-from .bad_rows_handler import BadRowsHandler, BadRowsConfig
-from .base import ValidationResult
+        return results
 
-logger = logging.getLogger(__name__)
+    def _validate_required_columns(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate that all required columns are present."""
+        results = []
 
+        if not self.config.required_columns:
+            return results
 
-class WriteTimeConstraintValidator:
-    """Validates constraints at write time, after all transformations are complete.
+        present_columns = set(batch.schema.names)
+        missing_columns = set(self.config.required_columns) - present_columns
 
-    This validator should be the final step before writing data to ensure that
-    constraints are validated on the final, transformed data rather than raw input.
-    """
+        if missing_columns:
+            results.append(ValidationResult(
+                is_valid=False,
+                error_message=f"Missing required columns: {sorted(missing_columns)}",
+                error_code="MISSING_REQUIRED_COLUMNS"
+            ))
 
-    def __init__(self,
-                 constraint_config: ConstraintConfig,
-                 bad_rows_config: Optional[BadRowsConfig] = None):
-        """Initialize write-time constraint validator.
+        return results
 
-        Args:
-            constraint_config: Configuration for constraint validation
-            bad_rows_config: Configuration for bad rows handling
-        """
-        self.constraint_validator = ConstraintValidator(constraint_config)
-        self.bad_rows_handler = BadRowsHandler(bad_rows_config or BadRowsConfig())
+    def _validate_null_percentages(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate null percentages don't exceed thresholds."""
+        results = []
 
-    def validate_and_split(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, pa.RecordBatch, List[ValidationResult]]:
-        """Validate constraints and split into valid and invalid rows.
+        if batch.num_rows == 0:
+            return results
 
-        Args:
-            batch: Final transformed batch ready for writing
+        for i, column_name in enumerate(batch.schema.names):
+            column = batch.column(i)
+            null_count = pc.sum(pc.is_null(column)).as_py()
+            null_percentage = (null_count / batch.num_rows) * 100
 
-        Returns:
-            Tuple of (valid_batch, invalid_batch, validation_results)
-        """
-        # Perform constraint validation
-        valid_batch, validation_results = self.constraint_validator.process_batch(batch)
+            if null_percentage > self.config.max_null_percentage:
+                results.append(ValidationResult(
+                    is_valid=False,
+                    error_message=f"Column '{column_name}' has {null_percentage:.1f}% null values, exceeds threshold of {self.config.max_null_percentage}%",
+                    error_code="EXCESSIVE_NULLS",
+                    column_name=column_name
+                ))
 
-        # Determine invalid rows
-        invalid_row_indices = []
-        violations_by_row = {}
+        return results
 
-        for result in validation_results:
-            if not result.is_valid and result.row_index is not None:
-                if result.row_index not in invalid_row_indices:
-                    invalid_row_indices.append(result.row_index)
+    def _validate_primary_key_nulls(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate that primary key columns don't contain nulls."""
+        results = []
 
-        for violation in self.constraint_validator.get_all_violations():
-            if violation.row_index not in violations_by_row:
-                violations_by_row[violation.row_index] = []
-            violations_by_row[violation.row_index].append(violation)
+        schema_names = batch.schema.names
 
-        # Create invalid batch if there are invalid rows
-        invalid_batch = None
-        if invalid_row_indices:
-            invalid_batch = batch.take(pa.array(invalid_row_indices))
-
-            # Add invalid rows to bad rows handler
-            self._add_invalid_rows_to_handler(batch, invalid_row_indices, validation_results, violations_by_row)
-
-        return valid_batch, invalid_batch, validation_results
-
-    def _add_invalid_rows_to_handler(self,
-                                   original_batch: pa.RecordBatch,
-                                   invalid_indices: List[int],
-                                   validation_results: List[ValidationResult],
-                                   violations_by_row: Dict[int, List[ConstraintViolation]]):
-        """Add invalid rows to the bad rows handler."""
-        # Group validation results by row
-        validation_by_row = {}
-        for result in validation_results:
-            if result.row_index is not None and not result.is_valid:
-                if result.row_index not in validation_by_row:
-                    validation_by_row[result.row_index] = []
-                validation_by_row[result.row_index].append(result)
-
-        # Add each invalid row
-        for row_idx in invalid_indices:
-            if row_idx >= original_batch.num_rows:
+        for pk_column in self.config.primary_key_columns:
+            if pk_column not in schema_names:
+                results.append(ValidationResult(
+                    is_valid=False,
+                    error_message=f"Primary key column '{pk_column}' not found in schema",
+                    error_code="MISSING_PRIMARY_KEY_COLUMN",
+                    column_name=pk_column
+                ))
                 continue
 
-            # Extract row data
-            row_data = {}
-            for i, field in enumerate(original_batch.schema):
-                if i < original_batch.num_columns:
-                    value = original_batch.column(i)[row_idx]
-                    row_data[field.name] = value.as_py() if value.is_valid else None
+            column_index = schema_names.index(pk_column)
+            column = batch.column(column_index)
+            null_count = pc.sum(pc.is_null(column)).as_py()
 
-            # Add to bad rows handler
-            self.bad_rows_handler.add_bad_row(
-                row_data=row_data,
-                row_index=row_idx,
-                validation_results=validation_by_row.get(row_idx, []),
-                constraint_violations=violations_by_row.get(row_idx, [])
+            if null_count > 0:
+                results.append(ValidationResult(
+                    is_valid=False,
+                    error_message=f"Primary key column '{pk_column}' contains {null_count} null values",
+                    error_code="NULL_PRIMARY_KEY",
+                    column_name=pk_column
+                ))
+
+        return results
+
+    def _validate_duplicate_rows(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate that there are no duplicate rows based on primary key."""
+        results = []
+
+        if not self.config.primary_key_columns or batch.num_rows == 0:
+            return results
+
+        schema_names = batch.schema.names
+
+        # Check if all primary key columns exist
+        missing_pk_columns = set(self.config.primary_key_columns) - set(schema_names)
+        if missing_pk_columns:
+            results.append(ValidationResult(
+                is_valid=False,
+                error_message=f"Primary key columns not found: {sorted(missing_pk_columns)}",
+                error_code="MISSING_PRIMARY_KEY_COLUMNS"
+            ))
+            return results
+
+        # Extract primary key values
+        pk_indices = [schema_names.index(col) for col in self.config.primary_key_columns]
+
+        duplicate_rows = []
+        current_batch_keys = set()
+
+        for row_idx in range(batch.num_rows):
+            # Create primary key tuple for this row
+            pk_values = tuple(
+                batch.column(col_idx)[row_idx].as_py() if not batch.column(col_idx)[row_idx].is_valid else None
+                for col_idx in pk_indices
             )
 
-    def finalize(self) -> Dict[str, Any]:
-        """Finalize validation and return summary."""
-        try:
-            self.constraint_validator.finalize()
-            constraint_validation_passed = True
-            constraint_error = None
-        except Exception as e:
-            constraint_validation_passed = False
-            constraint_error = str(e)
+            # Check for duplicates within this batch
+            if pk_values in current_batch_keys:
+                duplicate_rows.append(row_idx)
+            else:
+                current_batch_keys.add(pk_values)
 
-        # Write bad rows if any
-        bad_rows_file = None
-        if self.bad_rows_handler.has_bad_rows():
-            bad_rows_file = self.bad_rows_handler.write_bad_rows()
+            # Check for duplicates across batches
+            if pk_values in self._seen_primary_keys:
+                duplicate_rows.append(row_idx)
+            else:
+                self._seen_primary_keys.add(pk_values)
 
-        return {
-            "constraint_validation_passed": constraint_validation_passed,
-            "constraint_error": constraint_error,
-            "bad_rows_summary": self.bad_rows_handler.get_summary(),
-            "bad_rows_file": str(bad_rows_file) if bad_rows_file else None,
-            "total_violations": len(self.constraint_validator.get_all_violations())
-        }
+        if duplicate_rows:
+            results.append(ValidationResult(
+                is_valid=False,
+                error_message=f"Found {len(duplicate_rows)} duplicate primary key values in rows: {duplicate_rows[:10]}{'...' if len(duplicate_rows) > 10 else ''}",
+                error_code="DUPLICATE_PRIMARY_KEYS"
+            ))
+
+        return results
+
+    def _validate_write_readiness(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate that data is ready for writing (general checks)."""
+        results = []
+
+        # Check for unsupported data types that might cause write issues
+        for field in batch.schema:
+            if field.type == pa.null():
+                results.append(ValidationResult(
+                    is_valid=False,
+                    error_message=f"Column '{field.name}' has null type which may cause write issues",
+                    error_code="NULL_TYPE_COLUMN",
+                    column_name=field.name
+                ))
+
+        # Check for extremely large strings that might cause issues
+        for i, field in enumerate(batch.schema):
+            if field.type == pa.string():
+                column = batch.column(i)
+                try:
+                    max_length = pc.max(pc.utf8_length(column)).as_py()
+                    if max_length and max_length > 1000000:  # 1MB limit
+                        results.append(ValidationResult(
+                            is_valid=False,
+                            error_message=f"Column '{field.name}' contains very large strings (max: {max_length} chars) that may cause write issues",
+                            error_code="LARGE_STRING_VALUES",
+                            column_name=field.name
+                        ))
+                except Exception:
+                    # Skip if we can't compute string lengths
+                    pass
+
+        return results
+
+    def reset_state(self):
+        """Reset internal state for processing new datasets."""
+        self._seen_primary_keys.clear()
 
 
-class TransformationAwareProcessor:
-    """Processor that coordinates transformations and write-time constraint validation.
+def create_basic_write_validator(primary_key_columns: Optional[List[str]] = None) -> WriteTimeValidator:
+    """Create a basic write-time validator with common settings.
 
-    This processor ensures that constraint validation happens after all transformations
-    are complete, providing accurate validation on the final data that will be written.
+    Args:
+        primary_key_columns: List of primary key column names
+
+    Returns:
+        WriteTimeValidator with basic configuration
     """
+    config = WriteTimeConfig(
+        check_empty_tables=True,
+        check_duplicate_rows=bool(primary_key_columns),
+        check_null_primary_keys=bool(primary_key_columns),
+        primary_key_columns=primary_key_columns or [],
+        max_null_percentage=90.0  # Allow high null percentage for basic validation
+    )
+    return WriteTimeValidator(config)
 
-    def __init__(self,
-                 transformation_processors: List,
-                 constraint_config: Optional[ConstraintConfig] = None,
-                 bad_rows_config: Optional[BadRowsConfig] = None):
-        """Initialize transformation-aware processor.
+
+def create_strict_write_validator(
+    primary_key_columns: List[str],
+    required_columns: List[str],
+    expected_schema: Optional[pa.Schema] = None
+) -> WriteTimeValidator:
+    """Create a strict write-time validator for production use.
+
+    Args:
+        primary_key_columns: List of primary key column names
+        required_columns: List of required column names
+        expected_schema: Expected schema for validation
+
+    Returns:
+        WriteTimeValidator with strict configuration
+    """
+    config = WriteTimeConfig(
+        check_empty_tables=True,
+        check_schema_compliance=True,
+        check_duplicate_rows=True,
+        check_null_primary_keys=True,
+        primary_key_columns=primary_key_columns,
+        required_columns=required_columns,
+        max_null_percentage=10.0,
+        fail_on_schema_mismatch=True,
+        expected_schema=expected_schema,
+        validate_write_readiness=True
+    )
+    return WriteTimeValidator(config)
+        check_null_primary_keys: Whether to validate primary key columns are not null
+        primary_key_columns: List of column names that form the primary key
+        required_columns: List of column names that are required to be present
+        max_null_percentage: Maximum percentage of null values allowed per column
+        fail_on_schema_mismatch: Whether to fail if schema doesn't match expected
+        expected_schema: Expected PyArrow schema for validation
+        validate_write_readiness: Whether to perform write-readiness checks
+    """
+    check_empty_tables: bool = True
+    check_schema_compliance: bool = True
+    check_duplicate_rows: bool = True
+    check_null_primary_keys: bool = True
+    primary_key_columns: Optional[List[str]] = None
+    required_columns: Optional[List[str]] = None
+    max_null_percentage: float = 50.0
+    fail_on_schema_mismatch: bool = False
+    expected_schema: Optional[pa.Schema] = None
+    validate_write_readiness: bool = True
+    
+    def __post_init__(self):
+        if self.primary_key_columns is None:
+            self.primary_key_columns = []
+        if self.required_columns is None:
+            self.required_columns = []
+
+
+class WriteTimeValidator(BaseProcessor):
+    """Validates data quality and consistency before writing.
+
+    This processor performs final validation checks before data is written
+    to ensure data quality, schema compliance, and write-readiness.
+
+    Examples:
+        # Basic write-time validation
+        config = WriteTimeConfig(
+            primary_key_columns=['id'],
+            required_columns=['id', 'name', 'created_at']
+        )
+
+        # Schema validation with expected schema
+        config = WriteTimeConfig(
+            expected_schema=expected_schema,
+            fail_on_schema_mismatch=True
+        )
+
+        # Comprehensive validation
+        config = WriteTimeConfig(
+            check_empty_tables=True,
+            check_duplicate_rows=True,
+            primary_key_columns=['state_id', 'county_code'],
+            max_null_percentage=10.0
+        )
+    """
+    
+    def __init__(self, config: WriteTimeConfig):
+        """Initialize the write-time validator.
 
         Args:
-            transformation_processors: List of transformation processors to apply
-            constraint_config: Configuration for constraint validation
-            bad_rows_config: Configuration for bad rows handling
+            config: Write-time validation configuration
         """
-        self.transformation_processors = transformation_processors
-        self.write_time_validator = None
-
-        if constraint_config:
-            self.write_time_validator = WriteTimeConstraintValidator(
-                constraint_config, bad_rows_config
-            )
-
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, pa.RecordBatch, List[ValidationResult]]:
-        """Process batch through transformations and validate constraints at write time.
+        self.config = config
+        self._seen_primary_keys: Set[Tuple] = set()
+    
+    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+        """Process a batch by performing write-time validation.
 
         Args:
-            batch: Input batch to process
+            batch: PyArrow RecordBatch to validate
 
         Returns:
-            Tuple of (valid_batch_for_writing, invalid_batch, validation_results)
+            Tuple of (validated_batch, validation_results)
         """
-        # Apply all transformations first
-        current_batch = batch
-        all_validation_results = []
-
-        for processor in self.transformation_processors:
-            if hasattr(processor, 'process_batch'):
-                current_batch, validation_results = processor.process_batch(current_batch)
-                all_validation_results.extend(validation_results)
+        validation_results = []
+        
+        try:
+            # Check if table is empty
+            if self.config.check_empty_tables:
+                validation_results.extend(self._validate_not_empty(batch))
+            
+            # Check schema compliance
+            if self.config.check_schema_compliance:
+                validation_results.extend(self._validate_schema_compliance(batch))
+            
+            # Check required columns are present
+            validation_results.extend(self._validate_required_columns(batch))
+            
+            # Check null percentages
+            validation_results.extend(self._validate_null_percentages(batch))
+            
+            # Check primary key constraints
+            if self.config.check_null_primary_keys and self.config.primary_key_columns:
+                validation_results.extend(self._validate_primary_key_nulls(batch))
+            
+            # Check for duplicate rows
+            if self.config.check_duplicate_rows:
+                validation_results.extend(self._validate_duplicate_rows(batch))
+            
+            # Check write readiness
+            if self.config.validate_write_readiness:
+                validation_results.extend(self._validate_write_readiness(batch))
+            
+            return batch, validation_results
+            
+        except Exception as e:
+            validation_results.append(ValidationResult(
+                is_valid=False,
+                error_message=f"Write-time validation failed: {str(e)}",
+                error_code="WRITE_VALIDATION_ERROR"
+            ))
+            return batch, validation_results
+    
+    def _validate_not_empty(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate that the batch is not empty."""
+        results = []
+        
+        if batch.num_rows == 0:
+            results.append(ValidationResult(
+                is_valid=False,
+                error_message="Cannot write empty table",
+                error_code="EMPTY_TABLE"
+            ))
+        
+        return results
+    
+    def _validate_schema_compliance(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate schema compliance against expected schema."""
+        results = []
+        
+        if self.config.expected_schema is None:
             else:
                 # Handle processors that might not follow the standard interface
                 current_batch = processor.transform(current_batch)

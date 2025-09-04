@@ -42,7 +42,8 @@ markers = [
     "excel: marks tests as Excel-related",
     "fwf: marks tests as fixed-width file related",
     "csv: marks tests as CSV-related",
-    "sql: marks tests as SQL-related"
+    "sql: marks tests as SQL-related",
+    "performance: marks tests as performance tests (deselect with '-m \"not performance\"')"
 ]
 
 [tool.coverage.run]

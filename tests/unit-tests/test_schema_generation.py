@@ -99,14 +99,16 @@ class TestSchemaGenerator:
         config = SchemaGenerationConfig(
             input_path=str(csv_file),
             file_type=FileType.CSV,
-            infer_primary_key=True
+            infer_primary_key_from_metadata=True
         )
 
         generator = SchemaGenerator(config)
-        table = generator._read_csv_sample()
+        schema = generator.generate_schema()
 
-        pk_candidates = generator._infer_primary_key(table)
-        assert "user_id" in pk_candidates
+        # Check if primary key was inferred in the schema
+        assert "x-primaryKey" in schema
+        assert schema["x-primaryKey"]["columns"] == ["user_id"]
+        assert schema["x-primaryKey"]["type"] == "single"
 
     def test_csv_extension_generation(self, tmp_path):
         """Test CSV extension configuration generation."""

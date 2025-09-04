@@ -15,9 +15,11 @@ from pathlib import Path
 from forklift.engine.forklift_core import import_csv
 
 
+@pytest.mark.performance
 class TestCSVPerformance:
     """Performance tests for CSV import with large datasets."""
 
+    @pytest.mark.performance
     def test_large_csv_performance(self):
         """Test performance with large CSV file.
 

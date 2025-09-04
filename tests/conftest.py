@@ -145,7 +145,7 @@ def use_s3_mock(request):
 
 
 @pytest.fixture(scope="function")
-def s3_mock_conditional(request, use_s3_mock, aws_credentials):
+def s3_mock_conditional(request, use_s3_mock):
     """Conditionally provide S3 mocking based on configuration."""
     if use_s3_mock:
         # Use mocking
@@ -153,10 +153,16 @@ def s3_mock_conditional(request, use_s3_mock, aws_credentials):
         with patch('boto3.Session') as mock_session:
             mock_client = MagicMock()
             mock_session.return_value.client.return_value = mock_client
-            yield mock_session, mock_client
+
+            # Mock the S3StreamingClient creation instead of the property
+            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_s3_client:
+                mock_s3_streaming_client = MagicMock()
+                mock_get_s3_client.return_value = mock_s3_streaming_client
+                yield mock_session, mock_s3_streaming_client
     else:
-        # Use real S3 - check if credentials are available
-        if not aws_credentials.get('aws_access_key_id') or not aws_credentials.get('aws_secret_access_key'):
+        # Use real S3 - load credentials only when needed
+        credentials = _load_credentials_from_env()
+        if not credentials.get('aws_access_key_id') or not credentials.get('aws_secret_access_key'):
             pytest.skip("Real S3 testing requested but AWS credentials not available")
 
         # Return None to indicate no mocking

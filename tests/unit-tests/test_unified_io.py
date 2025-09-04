@@ -37,26 +37,23 @@ class TestUnifiedIOHandler:
 
     def test_s3_client_property_creates_client_when_none(self, s3_mock_conditional):
         """Test s3_client property creates client when none exists."""
-        mock_session, mock_client = s3_mock_conditional
+        mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
-                mock_s3_client = MagicMock(spec=S3StreamingClient)
-                mock_get_client.return_value = mock_s3_client
+            handler = UnifiedIOHandler()
+            client = handler.s3_client
 
-                handler = UnifiedIOHandler()
-                client = handler.s3_client
-
-                mock_get_client.assert_called_once()
+            assert client is mock_s3_client
 
     def test_s3_client_property_returns_existing_client(self, s3_mock_conditional):
         """Test s3_client property returns existing client."""
-        mock_session, mock_client = s3_mock_conditional
+        mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            mock_s3_client = MagicMock(spec=S3StreamingClient)
-            handler = UnifiedIOHandler(s3_client=mock_s3_client)
+            # Create handler with existing client
+            existing_client = MagicMock(spec=S3StreamingClient)
+            handler = UnifiedIOHandler(s3_client=existing_client)
 
             client = handler.s3_client
-            assert client is mock_s3_client
+            assert client is existing_client
 
     def test_exists_local_file_true(self, tmp_path):
         """Test exists method with local file that exists."""
@@ -75,13 +72,12 @@ class TestUnifiedIOHandler:
 
     def test_exists_s3_path(self, s3_mock_conditional):
         """Test exists method with S3 path."""
-        mock_session, mock_client = s3_mock_conditional
+        mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
             with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
-                mock_s3_client = MagicMock(spec=S3StreamingClient)
                 mock_s3_client.exists.return_value = True
 
-                handler = UnifiedIOHandler(s3_client=mock_s3_client)
+                handler = UnifiedIOHandler()
                 result = handler.exists("s3://bucket/key")
 
                 assert result is True
@@ -100,13 +96,12 @@ class TestUnifiedIOHandler:
 
     def test_get_size_s3_path(self, s3_mock_conditional):
         """Test get_size method with S3 path."""
-        mock_session, mock_client = s3_mock_conditional
+        mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
             with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
-                mock_s3_client = MagicMock(spec=S3StreamingClient)
                 mock_s3_client.get_size.return_value = 1024
 
-                handler = UnifiedIOHandler(s3_client=mock_s3_client)
+                handler = UnifiedIOHandler()
                 size = handler.get_size("s3://bucket/key")
 
                 assert size == 1024
@@ -138,14 +133,13 @@ class TestUnifiedIOHandler:
 
     def test_open_for_read_s3_path(self, s3_mock_conditional):
         """Test open_for_read method with S3 path."""
-        mock_session, mock_client = s3_mock_conditional
+        mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
             with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
-                mock_s3_client = MagicMock(spec=S3StreamingClient)
                 mock_file = StringIO("s3 content")
                 mock_s3_client.open_for_read.return_value = mock_file
 
-                handler = UnifiedIOHandler(s3_client=mock_s3_client)
+                handler = UnifiedIOHandler()
                 with handler.open_for_read("s3://bucket/key", encoding='utf-8') as f:
                     content = f.read()
 
@@ -178,14 +172,13 @@ class TestUnifiedIOHandler:
 
     def test_open_for_write_s3_path(self, s3_mock_conditional):
         """Test open_for_write method with S3 path."""
-        mock_session, mock_client = s3_mock_conditional
+        mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
             with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
-                mock_s3_client = MagicMock(spec=S3StreamingClient)
                 mock_writer = MagicMock()
                 mock_s3_client.open_for_write.return_value = mock_writer
 
-                handler = UnifiedIOHandler(s3_client=mock_s3_client)
+                handler = UnifiedIOHandler()
                 result = handler.open_for_write("s3://bucket/key", encoding='utf-8')
 
                 assert result is mock_writer
@@ -319,12 +312,13 @@ class TestUnifiedIOHandler:
                     mock_s3_path_class.side_effect = [mock_src_path, mock_dest_path]
 
                     mock_s3_client = MagicMock(spec=S3StreamingClient)
-                    mock_s3_client._s3_client = MagicMock()
+                    mock_boto3_client = MagicMock()
+                    mock_s3_client._s3_client = mock_boto3_client
 
                     handler = UnifiedIOHandler(s3_client=mock_s3_client)
                     handler.copy_file("s3://src-bucket/src-key", "s3://dest-bucket/dest-key")
 
-                    mock_s3_client._s3_client.copy_object.assert_called_once_with(
+                    mock_boto3_client.copy_object.assert_called_once_with(
                         CopySource={'Bucket': 'src-bucket', 'Key': 'src-key'},
                         Bucket='dest-bucket',
                         Key='dest-key'

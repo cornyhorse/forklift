@@ -391,8 +391,12 @@ class TestUltraPrecisionCoverage:
         finally:
             test_file.unlink()
 
-    def test_ultra_precise_s3_paths(self):
+    def test_ultra_precise_s3_paths(self, s3_mock_conditional):
         """Hit ultra-precise S3 code paths."""
+        mock_session, mock_client = s3_mock_conditional
+        if not mock_session:  # Skip if not using mocked S3
+            pytest.skip("S3 mocking not enabled")
+
         config = ImportConfig(
             input_path="dummy.csv",
             output_path="s3://test-bucket/path/",
@@ -412,7 +416,8 @@ class TestUltraPrecisionCoverage:
                  patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                  patch.object(engine.io_handler, 'exists', return_value=True), \
                  patch.object(engine.io_handler, 'get_size', return_value=1024), \
-                 patch.object(engine.io_handler, 'open_for_write') as mock_open:
+                 patch.object(engine.io_handler, 'open_for_write') as mock_open, \
+                 patch('boto3.Session', return_value=mock_session):
 
                 # Setup precise S3 mocks
                 mock_s3_instance = MagicMock()

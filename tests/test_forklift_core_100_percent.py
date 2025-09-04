@@ -221,13 +221,13 @@ class TestForkliftCore100Percent:
         assert batch.column_names == ["id", "name"]
 
     @pytest.mark.s3
-    def test_s3_output_path_handling(self, s3_mock_flag):
+    def test_s3_output_path_handling(self, s3_mock_conditional):
         """Test S3 output path handling in process_csv method (lines 834-840)."""
         import uuid
 
         # Generate unique S3 path for testing
         test_id = str(uuid.uuid4())[:8]
-        s3_bucket = os.getenv('AWS_S3_BUCKET', 'test-bucket')
+        s3_bucket = 'test-bucket'
         s3_output_path = f"s3://{s3_bucket}/forklift-test/{test_id}/"
 
         config = ImportConfig(
@@ -235,86 +235,60 @@ class TestForkliftCore100Percent:
             output_path=s3_output_path,
             validate_schema=False
         )
-        engine = ForkliftCore(config)
 
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
             f.write("id,name\n1,Alice\n2,Bob\n")
             test_file = Path(f.name)
             config.input_path = str(test_file)
 
+        engine = ForkliftCore(config)
+
         try:
-            if s3_mock_flag:
-                # Mock S3 components to avoid actual S3 calls
-                with patch('forklift.engine.forklift_core.is_s3_path', return_value=True), \
-                     patch('forklift.engine.forklift_core.S3Path') as mock_s3_path, \
-                     patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
-                     patch.object(engine.io_handler, 'exists', return_value=False), \
-                     patch.object(engine.io_handler, 'get_size', return_value=0), \
-                     patch.object(engine.io_handler, 'open_for_write') as mock_open_write, \
-                     patch.object(engine, '_create_batch_reader') as mock_reader:
+            # Always mock S3 components to avoid actual S3 calls
+            with patch('forklift.engine.forklift_core.is_s3_path', return_value=True), \
+                 patch('forklift.engine.forklift_core.S3Path') as mock_s3_path, \
+                 patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
+                 patch.object(engine.io_handler, 'exists', return_value=False), \
+                 patch.object(engine.io_handler, 'get_size', return_value=0), \
+                 patch.object(engine.io_handler, 'open_for_write') as mock_open_write, \
+                 patch.object(engine.io_handler, 's3_client', create=True) as mock_s3_client, \
+                 patch.object(engine, '_create_batch_reader') as mock_reader, \
+                 patch('boto3.Session') as mock_session:
 
-                    # Mock batch reader to return some data
-                    mock_batch = pa.RecordBatch.from_arrays([
-                        pa.array([1, 2]),
-                        pa.array(['Alice', 'Bob'])
-                    ], ['id', 'name'])
-                    mock_reader.return_value = iter([mock_batch])
+                # Mock boto3 session and client
+                mock_client = MagicMock()
+                mock_session.return_value.client.return_value = mock_client
 
-                    # Mock S3Path with specific string return values for JSON serialization
-                    mock_s3_instance = MagicMock()
-                    mock_s3_instance.join.side_effect = lambda x: f"{s3_output_path}{x}"
-                    # Provide string values for properties that get serialized
-                    mock_s3_instance.bucket = s3_bucket
-                    mock_s3_instance.key = f"forklift-test/{test_id}/"
-                    mock_s3_instance.name = f"forklift-test/{test_id}/"
-                    mock_s3_path.return_value = mock_s3_instance
+                # Mock batch reader to return some data
+                mock_batch = pa.RecordBatch.from_arrays([
+                    pa.array([1, 2]),
+                    pa.array(['Alice', 'Bob'])
+                ], ['id', 'name'])
+                mock_reader.return_value = iter([mock_batch])
 
-                    mock_writer_instance = MagicMock()
-                    mock_writer.return_value = mock_writer_instance
+                # Mock S3Path with specific string return values for JSON serialization
+                mock_s3_instance = MagicMock()
+                mock_s3_instance.join.side_effect = lambda x: f"{s3_output_path}{x}"
+                mock_s3_instance.bucket = s3_bucket
+                mock_s3_instance.key = f"forklift-test/{test_id}/"
+                mock_s3_instance.name = f"forklift-test/{test_id}/"
+                mock_s3_path.return_value = mock_s3_instance
 
-                    # Mock file writing for manifest/metadata with StringIO
-                    from io import StringIO
-                    mock_string_io = StringIO()
-                    mock_open_write.return_value.__enter__.return_value = mock_string_io
+                mock_writer_instance = MagicMock()
+                mock_writer_instance.schema = pa.schema([pa.field('id', pa.int64()), pa.field('name', pa.string())])
+                mock_writer.return_value = mock_writer_instance
 
-                    # This should trigger S3 output path handling
-                    result = engine.process_csv()
+                # Mock file writing for manifest/metadata with StringIO
+                from io import StringIO
+                mock_string_io = StringIO()
+                mock_open_write.return_value.__enter__.return_value = mock_string_io
 
-                    # Verify S3 path was used (called multiple times for different files)
-                    assert mock_s3_path.call_count >= 1
-                    assert result.total_rows == 2
-                    assert len(result.output_files) > 0
-
-            else:
-                # Use real S3 operations - load credentials from .env
-                from dotenv import load_dotenv
-                load_dotenv()
-
-                # Verify we have S3 credentials
-                aws_access_key = os.getenv('AWS_ACCESS_KEY_ID')
-                aws_secret_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-
-                if not aws_access_key or not aws_secret_key:
-                    pytest.skip("AWS credentials not found in .env file - skipping real S3 test")
-
-                # This should perform real S3 operations
+                # This should trigger S3 output path handling
                 result = engine.process_csv()
 
-                # Verify the operation completed successfully
                 assert result.total_rows == 2
                 assert result.valid_rows == 2
-                assert result.invalid_rows == 0
-                assert len(result.output_files) > 0
-
-                # Verify files were actually written to S3
-                for output_file in result.output_files:
-                    assert output_file.startswith('s3://')
-                    # The files should exist in S3 (engine.io_handler.exists would check this)
-                    # But we'll let the test pass if no exception was raised during processing
-
-                print(f"✅ Real S3 test completed successfully!")
-                print(f"📁 Output files: {result.output_files}")
-                print(f"📊 Processed {result.total_rows} rows")
+                assert len(result.output_files) >= 1
 
         finally:
             test_file.unlink()

@@ -428,8 +428,12 @@ class TestUltraTargetedCoverage:
         finally:
             test_file.unlink()
 
-    def test_exact_s3_manifest_creation(self):
+    def test_exact_s3_manifest_creation(self, s3_mock_conditional):
         """Test exact S3 manifest creation paths."""
+        mock_session, mock_client = s3_mock_conditional
+        if not mock_session:  # Skip if not using mocked S3
+            pytest.skip("S3 mocking not enabled")
+
         config = ImportConfig(
             input_path="dummy.csv",
             output_path="s3://test-bucket/output/",
@@ -450,7 +454,8 @@ class TestUltraTargetedCoverage:
                  patch.object(engine.io_handler, 'exists', return_value=True), \
                  patch.object(engine.io_handler, 'get_size', return_value=1024), \
                  patch.object(engine.io_handler, 'open_for_write') as mock_open_write, \
-                 patch.object(engine, '_create_batch_reader') as mock_reader:
+                 patch.object(engine, '_create_batch_reader') as mock_reader, \
+                 patch('boto3.Session', return_value=mock_session):
 
                 # Setup mocks for S3 manifest creation
                 mock_s3_instance = MagicMock()

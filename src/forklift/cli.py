@@ -40,6 +40,14 @@ def main() -> None:
     schema_gen.add_argument("--include-sample", action="store_true", help="Include sample data in schema")
     schema_gen.add_argument("--no-primary-key", action="store_true", help="Don't infer primary key")
 
+    # New metadata generation options
+    schema_gen.add_argument("--no-metadata", action="store_true", help="Disable metadata generation (default: enabled)")
+    schema_gen.add_argument("--metadata-output", help="Output path for separate metadata file")
+    schema_gen.add_argument("--enum-threshold", type=float, default=0.1, help="Threshold for suggesting enum types (default: 0.1)")
+    schema_gen.add_argument("--uniqueness-threshold", type=float, default=0.95, help="Threshold for considering column too unique for enum (default: 0.95)")
+    schema_gen.add_argument("--top-n-values", type=int, default=10, help="Number of top/bottom values to include (default: 10)")
+    schema_gen.add_argument("--quantiles", nargs="*", type=float, help="Custom quantiles for numeric columns (default: 0.25 0.5 0.75 0.9 0.95 0.99)")
+
     args = p.parse_args()
 
     if args.cmd == "ingest":
@@ -106,14 +114,6 @@ def main() -> None:
             delimiter=args.delimiter,
             encoding=args.encoding,
             sheet_name=args.sheet,
-            include_sample_data=args.include_sample,  # Changed from not args.no_sample
-            infer_primary_key=not args.no_primary_key
-        )
-
-        try:
-            # Generate schema
-            generator = SchemaGenerator(config)
-            schema = generator.generate_schema()
             include_sample_data=args.include_sample,
             infer_primary_key=not args.no_primary_key,
             # New metadata generation options
@@ -123,5 +123,28 @@ def main() -> None:
             uniqueness_threshold=args.uniqueness_threshold,
             top_n_values=args.top_n_values,
             quantiles=args.quantiles if args.quantiles else None
+        )
+
+        try:
+            # Generate schema
+            generator = SchemaGenerator(config)
+            schema = generator.generate_schema()
+            generator.output_schema(schema)
+
+            # Generate and save separate metadata file if requested
+            if config.metadata_output_path:
+                # Read the data again for full metadata generation
+                if config.file_type == FileType.CSV:
+                    table = generator._read_csv_sample()
+                elif config.file_type == FileType.EXCEL:
+                    table = generator._read_excel_sample()
+                elif config.file_type == FileType.PARQUET:
+                    table = generator._read_parquet_sample()
+
+                metadata_file = generator.generate_and_save_metadata(table)
+                if metadata_file:
+                    print(f"Metadata file written to: {metadata_file}")
+
+        except Exception as e:
             print(f"Error generating schema: {e}")
             return

@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
 import re
-import numpy as np
 
 import pyarrow as pa
 import pyarrow.csv as pv_csv
@@ -27,6 +26,7 @@ try:
     import pyperclip
     CLIPBOARD_AVAILABLE = True
 except ImportError:
+    pyperclip = None
     CLIPBOARD_AVAILABLE = False
 
 
@@ -56,7 +56,7 @@ class SchemaGenerationConfig:
     encoding: str = "utf-8"
     sheet_name: Optional[str] = None  # For Excel files
     include_sample_data: bool = False  # Default to False to avoid sensitive data
-    infer_primary_key: bool = True
+    user_specified_primary_key: Optional[List[str]] = None  # Allow user to specify primary key columns
     # New metadata generation options
     generate_metadata: bool = True  # Default to True for metadata generation
     metadata_output_path: Optional[Union[str, Path]] = None  # Separate metadata file path
@@ -64,6 +64,8 @@ class SchemaGenerationConfig:
     uniqueness_threshold: float = 0.95  # Threshold for considering a column too unique for enum
     top_n_values: int = 10  # Number of top values to include in metadata
     quantiles: List[float] = None  # Quantiles to calculate for numeric columns
+    # CLI/API only - primary key inference from metadata
+    infer_primary_key_from_metadata: bool = False  # Only available in CLI/API, not schema files
 
     def __post_init__(self):
         if self.quantiles is None:
@@ -242,18 +244,10 @@ class SchemaGenerator:
         schema["properties"] = properties
         schema["required"] = required_fields
 
-        # Add primary key inference if enabled
-        if self.config.infer_primary_key:
-            pk_candidates = self._infer_primary_key(table)
-            if pk_candidates:
-                schema["x-primaryKey"] = {
-                    "description": "Inferred primary key configuration",
-                    "columns": pk_candidates,
-                    "type": "single" if len(pk_candidates) == 1 else "composite",
-                    "enforceUniqueness": True,
-                    "allowNulls": False,
-                    "description_detail": f"Inferred primary key on {', '.join(pk_candidates)} field(s)"
-                }
+        # Add primary key configuration
+        primary_key_config = self._generate_primary_key_config(table)
+        if primary_key_config:
+            schema["x-primaryKey"] = primary_key_config
 
         # Add file-type specific extensions
         if self.config.file_type == FileType.CSV:
@@ -318,29 +312,121 @@ class SchemaGenerator:
             # Default to string for unknown types
             return {"type": "string"}
 
-    def _infer_primary_key(self, table: pa.Table) -> List[str]:
-        """Infer potential primary key columns."""
+    def _generate_primary_key_config(self, table: pa.Table) -> Optional[Dict[str, Any]]:
+        """Generate primary key configuration based on user input or inference from metadata."""
+        if self.config.user_specified_primary_key:
+            # Use user-specified primary key columns
+            pk_columns = self.config.user_specified_primary_key
+            return {
+                "description": "User-specified primary key",
+                "columns": pk_columns,
+                "type": "composite" if len(pk_columns) > 1 else "single",
+                "enforceUniqueness": True,
+                "allowNulls": False,
+                "description_detail": f"User-defined primary key on {', '.join(pk_columns)} field(s)"
+            }
+        elif self.config.infer_primary_key_from_metadata:
+            # Infer primary key from the metadata that's already being generated
+            return self._infer_primary_key_from_metadata(table)
+
+        return None
+
+    def _infer_primary_key_from_metadata(self, table: pa.Table) -> Optional[Dict[str, Any]]:
+        """Infer primary key from metadata analysis without additional data loading."""
+        # Generate metadata if not already available (this reuses the same data reading)
+        metadata = self._generate_metadata(table)
+
+        if not metadata or "column_metadata" not in metadata:
+            return None
+
         candidates = []
 
-        for i, field in enumerate(table.schema):
-            column_name = field.name
-            column_data = table.column(i)
+        # Analyze each column's metadata for primary key characteristics
+        for column_name, col_meta in metadata["column_metadata"].items():
+            # Primary key criteria based on metadata:
+            # 1. No nulls (null_percentage = 0)
+            # 2. High uniqueness (uniqueness_ratio = 1.0 or very close)
+            # 3. Reasonable column name pattern
+            # 4. Not too many values (reasonable for indexing)
 
-            # Check if column could be a primary key
-            # 1. No nulls
-            # 2. All unique values
-            # 3. Reasonable name pattern
+            is_not_null = col_meta.get("null_percentage", 100) == 0.0
+            uniqueness_ratio = col_meta.get("uniqueness_ratio", 0.0)
+            is_highly_unique = uniqueness_ratio >= 0.95  # At least 95% unique
+            distinct_count = col_meta.get("distinct_count", 0)
 
-            if column_data.null_count == 0:  # No nulls
-                # Convert to pandas for easier uniqueness check
-                pandas_series = column_data.to_pandas()
-                if pandas_series.nunique() == len(pandas_series):  # All unique
-                    # Check for typical primary key naming patterns
-                    if any(pattern in column_name.lower() for pattern in ['id', 'key', 'pk']):
-                        candidates.append(column_name)
+            # Check for typical primary key naming patterns
+            has_pk_name_pattern = any(pattern in column_name.lower()
+                                    for pattern in ['id', 'key', 'pk', 'uuid', 'guid'])
 
-        # Return the first candidate or empty list
-        return candidates[:1] if candidates else []
+            # For a column to be a primary key candidate:
+            # - Must have no nulls
+            # - Must be highly unique (preferably 100% unique)
+            # - Should have reasonable naming
+            # - Should not have too many distinct values for performance
+            if (is_not_null and
+                is_highly_unique and
+                has_pk_name_pattern and
+                distinct_count <= 1000000):  # Reasonable upper limit
+
+                # Calculate a score for ranking candidates
+                score = 0
+                if uniqueness_ratio == 1.0:  # Perfect uniqueness
+                    score += 10
+                elif uniqueness_ratio >= 0.99:
+                    score += 8
+                elif uniqueness_ratio >= 0.95:
+                    score += 5
+
+                # Bonus for good naming patterns
+                if 'id' in column_name.lower():
+                    score += 5
+                elif any(pattern in column_name.lower() for pattern in ['key', 'pk']):
+                    score += 3
+                elif any(pattern in column_name.lower() for pattern in ['uuid', 'guid']):
+                    score += 4
+
+                # Penalty for very large distinct counts (performance concern)
+                if distinct_count > 100000:
+                    score -= 2
+                elif distinct_count > 10000:
+                    score -= 1
+
+                candidates.append({
+                    'column': column_name,
+                    'score': score,
+                    'uniqueness_ratio': uniqueness_ratio,
+                    'distinct_count': distinct_count
+                })
+
+        if not candidates:
+            return None
+
+        # Sort by score (highest first) and select the best candidate
+        candidates.sort(key=lambda x: x['score'], reverse=True)
+        best_candidate = candidates[0]
+
+        # Only return if the score is reasonable (at least 8)
+        if best_candidate['score'] >= 8:
+            return {
+                "description": "Inferred primary key from metadata analysis",
+                "columns": [best_candidate['column']],
+                "type": "single",
+                "enforceUniqueness": True,
+                "allowNulls": False,
+                "description_detail": f"Inferred primary key on {best_candidate['column']} field "
+                                    f"(uniqueness: {best_candidate['uniqueness_ratio']:.1%}, "
+                                    f"distinct values: {best_candidate['distinct_count']}, "
+                                    f"score: {best_candidate['score']})",
+                "inference_metadata": {
+                    "method": "metadata_analysis",
+                    "score": best_candidate['score'],
+                    "uniqueness_ratio": best_candidate['uniqueness_ratio'],
+                    "distinct_count": best_candidate['distinct_count'],
+                    "alternative_candidates": [c['column'] for c in candidates[1:3]]  # Show top 3 alternatives
+                }
+            }
+
+        return None
 
     def _generate_csv_extension(self, table: pa.Table) -> Dict[str, Any]:
         """Generate CSV-specific extension configuration."""

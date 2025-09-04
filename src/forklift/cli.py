@@ -38,7 +38,7 @@ def main() -> None:
     schema_gen.add_argument("--encoding", default="utf-8", help="File encoding (default: utf-8)")
     schema_gen.add_argument("--sheet", help="Excel sheet name or index")
     schema_gen.add_argument("--include-sample", action="store_true", help="Include sample data in schema")
-    schema_gen.add_argument("--no-primary-key", action="store_true", help="Don't infer primary key")
+    schema_gen.add_argument("--infer-primary-key", action="store_true", help="Infer primary key from metadata analysis")
 
     # New metadata generation options
     schema_gen.add_argument("--no-metadata", action="store_true", help="Disable metadata generation (default: enabled)")
@@ -115,7 +115,7 @@ def main() -> None:
             encoding=args.encoding,
             sheet_name=args.sheet,
             include_sample_data=args.include_sample,
-            infer_primary_key=not args.no_primary_key,
+            infer_primary_key_from_metadata=args.infer_primary_key,  # Use new metadata-based inference
             # New metadata generation options
             generate_metadata=not args.no_metadata,
             metadata_output_path=args.metadata_output,

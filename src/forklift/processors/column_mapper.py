@@ -121,11 +121,14 @@ class ColumnMapper(BaseProcessor):
                 new_schema = pa.schema([])
                 new_batch = pa.RecordBatch.from_arrays([], schema=new_schema)
 
-                validation_results.append(ValidationResult(
-                    is_valid=False,
-                    error_message="All columns were dropped during mapping",
-                    error_code="ALL_COLUMNS_DROPPED"
-                ))
+                # Only add validation error if there were originally columns that got dropped
+                # An empty input batch should not generate a validation error
+                if len(current_columns) > 0:
+                    validation_results.append(ValidationResult(
+                        is_valid=False,
+                        error_message="All columns were dropped during mapping",
+                        error_code="ALL_COLUMNS_DROPPED"
+                    ))
 
             return new_batch, validation_results
 

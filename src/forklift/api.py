@@ -14,7 +14,7 @@ from .schema.schema_generator import SchemaGenerator, SchemaGenerationConfig, Ou
 
 def generate_schema_from_csv(
     input_path: Union[str, Path],
-    nrows: Optional[int] = 1000,  # Default to 1000 rows
+    nrows: Optional[int] = None,  # Default to None (analyze entire file)
     delimiter: str = ",",
     encoding: str = "utf-8",
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
@@ -25,7 +25,7 @@ def generate_schema_from_csv(
 
     Args:
         input_path: Path to the CSV file (local or S3)
-        nrows: Number of rows to analyze (default: 1000)
+        nrows: Number of rows to analyze (default: None - analyze entire file)
         delimiter: CSV field delimiter
         encoding: File encoding
         include_sample_data: Include sample data in the schema (default: False)
@@ -36,9 +36,12 @@ def generate_schema_from_csv(
         Dictionary containing the generated schema
 
     Example:
-        >>> schema = generate_schema_from_csv("data.csv", nrows=1000)
+        >>> schema = generate_schema_from_csv("data.csv")  # Analyzes entire file
         >>> print(schema["title"])
         Forklift CSV Schema - Generated
+
+        >>> # Limit analysis to first 1000 rows
+        >>> schema = generate_schema_from_csv("data.csv", nrows=1000)
 
         >>> # With primary key inference
         >>> schema = generate_schema_from_csv("data.csv", infer_primary_key_from_metadata=True)
@@ -111,7 +114,7 @@ def generate_schema_from_excel(
 
 def generate_schema_from_parquet(
     input_path: Union[str, Path],
-    nrows: Optional[int] = 1000,  # Default to 1000 rows
+    nrows: Optional[int] = None,  # Default to None (analyze entire file)
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key_from_metadata: bool = False,  # Use metadata-based inference
     user_specified_primary_key: Optional[List[str]] = None  # Allow manual specification
@@ -120,7 +123,7 @@ def generate_schema_from_parquet(
 
     Args:
         input_path: Path to the Parquet file (local or S3)
-        nrows: Number of rows to analyze (default: 1000)
+        nrows: Number of rows to analyze (default: None - analyze entire file)
         include_sample_data: Include sample data in the schema (default: False)
         infer_primary_key_from_metadata: Infer primary key from metadata analysis (default: False)
         user_specified_primary_key: Manually specify primary key columns (default: None)
@@ -129,9 +132,12 @@ def generate_schema_from_parquet(
         Dictionary containing the generated schema
 
     Example:
-        >>> schema = generate_schema_from_parquet("data.parquet")
+        >>> schema = generate_schema_from_parquet("data.parquet")  # Analyzes entire file
         >>> print(schema["$schema"])
         https://json-schema.org/draft/2020-12/schema
+
+        >>> # Limit analysis to first 1000 rows
+        >>> schema = generate_schema_from_parquet("data.parquet", nrows=1000)
 
         >>> # With primary key inference
         >>> schema = generate_schema_from_parquet("data.parquet", infer_primary_key_from_metadata=True)

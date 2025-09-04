@@ -48,16 +48,16 @@ COMMON_DATETIME_FORMATS = [
 SCHEMA_TOKEN_MAP = {
     'YYYY': '%Y', 'yyyy': '%Y', 'Yyyy': '%Y',
     'YY': '%y', 'yy': '%y', 'Yy': '%y',
-    'MM': '%m', 'mm': '%m', 'Mm': '%m',
+    'MM': '%m', 'mm': '%m', 'Mm': '%m',  # Months (default)
     'M': '%m', 'm': '%m',
     'DD': '%d', 'dd': '%d', 'Dd': '%d',
     'D': '%d', 'd': '%d',
-    'HH': '%H', 'hh': '%H', 'Hh': '%H',
+    'HH': '%H', 'hh': '%H', 'Hh': '%H',  # Hours (24-hour)
     'H': '%H', 'h': '%H',
-    'SS': '%S', 'ss': '%S', 'Ss': '%S',
+    'SS': '%S', 'ss': '%S', 'Ss': '%S',  # Seconds
     'S': '%S', 's': '%S',
-    'MMM': '%b', 'mmm': '%b', 'Mmm': '%b',
-    'MMMM': '%B', 'mmmm': '%B', 'Mmmm': '%B',
+    'MMM': '%b', 'mmm': '%b', 'Mmm': '%b',  # Month abbreviations
+    'MMMM': '%B', 'mmmm': '%B', 'Mmmm': '%B',  # Full month names
     'fff': '%f', 'ffffff': '%f',  # Microseconds
 }
 
@@ -166,16 +166,73 @@ def _normalize_format(fmt: str) -> str:
     if '%' in fmt:
         return fmt
 
-    # Replace schema tokens with strptime equivalents
-    normalized = fmt
+    # Start with the input format
+    result = fmt
 
-    # Sort tokens by length (longest first) to avoid partial replacements
-    sorted_tokens = sorted(SCHEMA_TOKEN_MAP.items(), key=lambda x: len(x[0]), reverse=True)
+    # Replace tokens in order of specificity (longest first to avoid conflicts)
+    # Process the most specific patterns first to avoid partial matches
 
-    for token, strptime_equiv in sorted_tokens:
-        normalized = normalized.replace(token, strptime_equiv)
+    # Year tokens (longest first)
+    result = result.replace('YYYY', '%Y')
+    result = result.replace('yyyy', '%Y')
+    result = result.replace('Yyyy', '%Y')
+    result = result.replace('YY', '%y')
+    result = result.replace('yy', '%y')
+    result = result.replace('Yy', '%y')
 
-    return normalized
+    # Month name tokens (longest first to avoid conflicts with MM)
+    result = result.replace('MMMM', '%B')
+    result = result.replace('mmmm', '%B')
+    result = result.replace('Mmmm', '%B')
+    result = result.replace('MMM', '%b')
+    result = result.replace('mmm', '%b')
+    result = result.replace('Mmm', '%b')
+
+    # Microsecond tokens (before other tokens that might conflict)
+    result = result.replace('ffffff', '%f')
+    result = result.replace('fff', '%f')
+
+    # Context-dependent MM tokens
+    # Check if this is a time format (contains time-related tokens)
+    is_time_format = any(token in fmt for token in ['HH', 'hh', 'SS', 'ss', 'H:', 'h:', 'S:', 's:'])
+
+    if is_time_format:
+        # In time context, MM should be minutes
+        result = result.replace('MM', '%M')
+        result = result.replace('mm', '%M')
+        result = result.replace('Mm', '%M')
+        # Don't replace single M/m in time context to avoid conflicts with month names
+    else:
+        # In date context, MM should be months
+        result = result.replace('MM', '%m')
+        result = result.replace('mm', '%m')
+        result = result.replace('Mm', '%m')
+        # Single M/m for months (only in date context, after month names are processed)
+        result = result.replace('M', '%m')
+        result = result.replace('m', '%m')
+
+    # Day tokens
+    result = result.replace('DD', '%d')
+    result = result.replace('dd', '%d')
+    result = result.replace('Dd', '%d')
+    result = result.replace('D', '%d')
+    result = result.replace('d', '%d')
+
+    # Hour tokens
+    result = result.replace('HH', '%H')
+    result = result.replace('hh', '%H')
+    result = result.replace('Hh', '%H')
+    result = result.replace('H', '%H')
+    result = result.replace('h', '%H')
+
+    # Second tokens
+    result = result.replace('SS', '%S')
+    result = result.replace('ss', '%S')
+    result = result.replace('Ss', '%S')
+    result = result.replace('S', '%S')
+    result = result.replace('s', '%S')
+
+    return result
 
 
 def _matches_format_exact(value: str, fmt: str) -> bool:
@@ -307,9 +364,17 @@ def parse_date(
     if _try_strptime(value, COMMON_DATE_FORMATS):
         return True
 
-    # Fallback to dateutil parser
+    # Fallback to dateutil parser, but be more restrictive
+    # Reject obviously invalid inputs that dateutil might accept
+    if value.isdigit() and len(value) < 4:
+        # Reject pure numeric values that are too short to be reasonable years
+        return False
+
     try:
-        dateutil_parser.parse(value)
+        parsed = dateutil_parser.parse(value)
+        # Additional validation: reject years that are unreasonably old or future
+        if parsed.year < 1000 or parsed.year > 9999:
+            return False
         return True
     except (ValueError, TypeError, OverflowError):
         return False
@@ -499,5 +564,6 @@ __all__ = [
     'coerce_date',
     'coerce_datetime',
     'COMMON_DATE_FORMATS',
-    'COMMON_DATETIME_FORMATS'
+    'COMMON_DATETIME_FORMATS',
+    'SCHEMA_TOKEN_MAP'
 ]

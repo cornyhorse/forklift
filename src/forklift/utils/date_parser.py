@@ -192,8 +192,6 @@ def _normalize_format(fmt: str) -> str:
 
     # Handle MM/mm tokens with context awareness
     # Split the format into date and time parts to handle MM differently
-    import re
-
     # Common time separators that indicate the time part
     time_separators = [' ', 'T']
     time_part_start = -1
@@ -460,7 +458,6 @@ def coerce_date(
             if has_single_chars:
                 # Create additional format variations for flexible parsing
                 # Replace single digit patterns with flexible alternatives
-                import re
                 flexible_fmt = normalized_fmt
                 # For single digit months/days/hours/seconds, try both padded and unpadded
                 flexible_fmt = re.sub(r'(?<!%)(%[mdhs])(?![a-zA-Z])', r'(?:\1|%\1)', flexible_fmt)
@@ -483,19 +480,21 @@ def coerce_date(
                     if not _matches_format_exact(value, candidate_fmt):
                         continue
                 elif fmt:
-                    # Original format was schema tokens - be more nuanced about exact matching
-                    # Check if format has single character tokens that should allow flexible padding
-                    has_flexible_tokens = any(
+                    # Original format was schema tokens - need precise matching logic
+                    # For formats like "YYYY-MM-DD", the MM requires zero-padding
+                    # For formats like "YYYY-M-DD", the M allows flexible padding
+                    
+                    has_single_tokens = any(
                         token in fmt and token*2 not in fmt
                         for token in ['M', 'D', 'H', 'S', 'm', 'd', 'h', 's']
                     )
-
-                    if has_flexible_tokens:
-                        # For formats with flexible tokens, parsing success is sufficient
-                        # We don't require exact matching for single character tokens
+                    
+                    if has_single_tokens:
+                        # Format has single character tokens - allow flexible parsing
+                        # Only require exact match if parsing failed completely
                         pass
                     else:
-                        # For formats without flexible tokens (all double chars), require exact match
+                        # Format uses only double character tokens - require exact match
                         if not _matches_format_exact(value, candidate_fmt):
                             continue
                 return parsed_dt.date().isoformat()

@@ -468,34 +468,6 @@ class TestCSVEncodingAndSpecialCases:
         finally:
             Path(csv_file).unlink()
 
-    def test_large_csv_performance(self):
-        """Test performance with large CSV file.
-
-        Validates that the streaming processing approach works efficiently
-        with large datasets (200k+ rows).
-
-        Expected Results:
-            - Large file processed successfully
-            - Reasonable processing time
-            - Memory usage remains controlled
-        """
-        csv_file = Path(__file__).parent / "test-files/largecsv/parquet_types.txt"
-        schema_file = Path(__file__).parent / "test-files/largecsv/parquet_types.json"
-
-        if csv_file.exists():
-            with tempfile.TemporaryDirectory() as output_dir:
-                results = import_csv(
-                    input_path=csv_file,
-                    output_path=output_dir,
-                    schema_file=schema_file,
-                    batch_size=10000,  # Smaller batches for testing
-                    header_mode="present"
-                )
-
-                assert results.total_rows > 10000  # Should be large
-                assert results.execution_time > 0
-                assert results.valid_rows > 0
-
 
 class TestCSVManifestAndMetadata:
     """Test manifest and metadata generation.

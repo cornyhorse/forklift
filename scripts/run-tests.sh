@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Run all tests with S3 mocking (default mode)
-pip install -e . && pytest --cache-clear &&  pytest -q --cov=forklift --cov-report=html
+# Run all tests with S3 mocking (default mode) - excludes performance tests
+pip install -e . && pytest --cache-clear &&  pytest -q --cov=forklift --cov-report=html --ignore=tests/performance-tests/
 
 # Run all tests including integration tests with real S3 (requires AWS credentials)
 # pip install -e . && pytest --cache-clear &&  pytest -q --cov=forklift --cov-report=html --integration

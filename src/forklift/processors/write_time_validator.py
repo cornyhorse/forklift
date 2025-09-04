@@ -1,3 +1,100 @@
+"""Write-time validation processor for ensuring data quality before writing."""
+
+from __future__ import annotations
+from typing import List, Optional, Set, Tuple, Any
+from dataclasses import dataclass
+import pyarrow as pa
+import pyarrow.compute as pc
+
+from .base import BaseProcessor, ValidationResult
+
+
+@dataclass
+class WriteTimeConfig:
+    """Configuration for write-time validation."""
+    # Schema validation
+    expected_schema: Optional[pa.Schema] = None
+    fail_on_schema_mismatch: bool = False
+    required_columns: Optional[List[str]] = None
+
+    # Data quality checks
+    check_empty_tables: bool = True
+    check_duplicate_rows: bool = False
+    check_null_primary_keys: bool = False
+    check_null_percentages: bool = False
+
+    # Primary key configuration
+    primary_key_columns: List[str] = None
+
+    # Thresholds
+    max_null_percentage: float = 50.0
+    min_row_count: int = 1
+
+    def __post_init__(self):
+        if self.primary_key_columns is None:
+            self.primary_key_columns = []
+
+
+class WriteTimeValidator(BaseProcessor):
+    """Processor for validating data quality before writing."""
+
+    def __init__(self, config: WriteTimeConfig):
+        super().__init__()
+        self.config = config
+        self._seen_primary_keys: Set[Tuple[Any, ...]] = set()
+
+    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+        """Process a batch and return validation results."""
+        all_results = []
+
+        # Run all configured validations
+        if self.config.check_empty_tables:
+            all_results.extend(self._validate_not_empty(batch))
+
+        if self.config.expected_schema:
+            all_results.extend(self._validate_schema(batch))
+
+        if self.config.required_columns:
+            all_results.extend(self._validate_required_columns(batch))
+
+        if self.config.check_null_percentages:
+            all_results.extend(self._validate_null_percentages(batch))
+
+        if self.config.check_null_primary_keys:
+            all_results.extend(self._validate_primary_key_nulls(batch))
+
+        if self.config.check_duplicate_rows:
+            all_results.extend(self._validate_duplicate_rows(batch))
+
+        # Always check for write readiness
+        all_results.extend(self._validate_write_readiness(batch))
+
+        return batch, all_results
+
+    def _validate_not_empty(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate that the batch is not empty."""
+        results = []
+
+        if batch.num_rows == 0:
+            results.append(ValidationResult(
+                is_valid=False,
+                error_message="Empty table detected",
+                error_code="EMPTY_TABLE"
+            ))
+        elif batch.num_rows < self.config.min_row_count:
+            results.append(ValidationResult(
+                is_valid=False,
+                error_message=f"Table has {batch.num_rows} rows, minimum required: {self.config.min_row_count}",
+                error_code="INSUFFICIENT_ROWS"
+            ))
+
+        return results
+
+    def _validate_schema(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+        """Validate schema matches expected schema."""
+        results = []
+
+        if not self.config.expected_schema:
             return results
 
         # Check if schemas match
@@ -10,7 +107,7 @@
                     error_message=error_msg,
                     error_code="SCHEMA_MISMATCH"
                 ))
-"""Write-time validation processor for ensuring data quality before writing."""
+            else:
                 # Just warn about schema differences
                 results.append(ValidationResult(
                     is_valid=True,
@@ -119,7 +216,7 @@
         for row_idx in range(batch.num_rows):
             # Create primary key tuple for this row
             pk_values = tuple(
-                batch.column(col_idx)[row_idx].as_py() if not batch.column(col_idx)[row_idx].is_valid else None
+                batch.column(col_idx)[row_idx].as_py() if batch.column(col_idx)[row_idx].is_valid else None
                 for col_idx in pk_indices
             )
 
@@ -202,11 +299,11 @@ def create_basic_write_validator(primary_key_columns: Optional[List[str]] = None
 
 
 def create_strict_write_validator(
-    primary_key_columns: List[str],
-    required_columns: List[str],
+    primary_key_columns: Optional[List[str]] = None,
+    required_columns: Optional[List[str]] = None,
     expected_schema: Optional[pa.Schema] = None
 ) -> WriteTimeValidator:
-    """Create a strict write-time validator for production use.
+    """Create a strict write-time validator with comprehensive checks.
 
     Args:
         primary_key_columns: List of primary key column names
@@ -218,162 +315,21 @@ def create_strict_write_validator(
     """
     config = WriteTimeConfig(
         check_empty_tables=True,
-        check_schema_compliance=True,
-        check_duplicate_rows=True,
-        check_null_primary_keys=True,
-        primary_key_columns=primary_key_columns,
+        check_duplicate_rows=bool(primary_key_columns),
+        check_null_primary_keys=bool(primary_key_columns),
+        check_null_percentages=True,
+        primary_key_columns=primary_key_columns or [],
         required_columns=required_columns,
-        max_null_percentage=10.0,
-        fail_on_schema_mismatch=True,
         expected_schema=expected_schema,
-        validate_write_readiness=True
+        fail_on_schema_mismatch=bool(expected_schema),
+        max_null_percentage=10.0  # Strict null percentage
     )
     return WriteTimeValidator(config)
-        check_null_primary_keys: Whether to validate primary key columns are not null
-        primary_key_columns: List of column names that form the primary key
-        required_columns: List of column names that are required to be present
-        max_null_percentage: Maximum percentage of null values allowed per column
-        fail_on_schema_mismatch: Whether to fail if schema doesn't match expected
-        expected_schema: Expected PyArrow schema for validation
-        validate_write_readiness: Whether to perform write-readiness checks
-    """
-    check_empty_tables: bool = True
-    check_schema_compliance: bool = True
-    check_duplicate_rows: bool = True
-    check_null_primary_keys: bool = True
-    primary_key_columns: Optional[List[str]] = None
-    required_columns: Optional[List[str]] = None
-    max_null_percentage: float = 50.0
-    fail_on_schema_mismatch: bool = False
-    expected_schema: Optional[pa.Schema] = None
-    validate_write_readiness: bool = True
-    
-    def __post_init__(self):
-        if self.primary_key_columns is None:
-            self.primary_key_columns = []
-        if self.required_columns is None:
-            self.required_columns = []
 
 
-class WriteTimeValidator(BaseProcessor):
-    """Validates data quality and consistency before writing.
-
-    This processor performs final validation checks before data is written
-    to ensure data quality, schema compliance, and write-readiness.
-
-    Examples:
-        # Basic write-time validation
-        config = WriteTimeConfig(
-            primary_key_columns=['id'],
-            required_columns=['id', 'name', 'created_at']
-        )
-
-        # Schema validation with expected schema
-        config = WriteTimeConfig(
-            expected_schema=expected_schema,
-            fail_on_schema_mismatch=True
-        )
-
-        # Comprehensive validation
-        config = WriteTimeConfig(
-            check_empty_tables=True,
-            check_duplicate_rows=True,
-            primary_key_columns=['state_id', 'county_code'],
-            max_null_percentage=10.0
-        )
-    """
-    
-    def __init__(self, config: WriteTimeConfig):
-        """Initialize the write-time validator.
-
-        Args:
-            config: Write-time validation configuration
-        """
-        self.config = config
-        self._seen_primary_keys: Set[Tuple] = set()
-    
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Process a batch by performing write-time validation.
-
-        Args:
-            batch: PyArrow RecordBatch to validate
-
-        Returns:
-            Tuple of (validated_batch, validation_results)
-        """
-        validation_results = []
-        
-        try:
-            # Check if table is empty
-            if self.config.check_empty_tables:
-                validation_results.extend(self._validate_not_empty(batch))
-            
-            # Check schema compliance
-            if self.config.check_schema_compliance:
-                validation_results.extend(self._validate_schema_compliance(batch))
-            
-            # Check required columns are present
-            validation_results.extend(self._validate_required_columns(batch))
-            
-            # Check null percentages
-            validation_results.extend(self._validate_null_percentages(batch))
-            
-            # Check primary key constraints
-            if self.config.check_null_primary_keys and self.config.primary_key_columns:
-                validation_results.extend(self._validate_primary_key_nulls(batch))
-            
-            # Check for duplicate rows
-            if self.config.check_duplicate_rows:
-                validation_results.extend(self._validate_duplicate_rows(batch))
-            
-            # Check write readiness
-            if self.config.validate_write_readiness:
-                validation_results.extend(self._validate_write_readiness(batch))
-            
-            return batch, validation_results
-            
-        except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Write-time validation failed: {str(e)}",
-                error_code="WRITE_VALIDATION_ERROR"
-            ))
-            return batch, validation_results
-    
-    def _validate_not_empty(self, batch: pa.RecordBatch) -> List[ValidationResult]:
-        """Validate that the batch is not empty."""
-        results = []
-        
-        if batch.num_rows == 0:
-            results.append(ValidationResult(
-                is_valid=False,
-                error_message="Cannot write empty table",
-                error_code="EMPTY_TABLE"
-            ))
-        
-        return results
-    
-    def _validate_schema_compliance(self, batch: pa.RecordBatch) -> List[ValidationResult]:
-        """Validate schema compliance against expected schema."""
-        results = []
-        
-        if self.config.expected_schema is None:
-            else:
-                # Handle processors that might not follow the standard interface
-                current_batch = processor.transform(current_batch)
-
-        # After all transformations, validate constraints
-        if self.write_time_validator:
-            valid_batch, invalid_batch, constraint_results = self.write_time_validator.validate_and_split(current_batch)
-            all_validation_results.extend(constraint_results)
-            return valid_batch, invalid_batch, all_validation_results
-        else:
-            # No constraint validation, return all data as valid
-            return current_batch, None, all_validation_results
-
-    def finalize(self) -> Dict[str, Any]:
-        """Finalize processing and return summary."""
-        if self.write_time_validator:
-            return self.write_time_validator.finalize()
-        else:
-            return {"constraint_validation_passed": True, "total_violations": 0}
+__all__ = [
+    "WriteTimeValidator",
+    "WriteTimeConfig",
+    "create_basic_write_validator",
+    "create_strict_write_validator"
+]

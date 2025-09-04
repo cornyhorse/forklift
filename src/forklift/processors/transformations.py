@@ -16,7 +16,8 @@ from ..utils.data_transformations import (
     NumericCleaningConfig,
     StringPaddingConfig,
     HTMLXMLConfig,
-    DateTimeTransformConfig
+    DateTimeTransformConfig,
+    StringCleaningConfig
 )
 
 

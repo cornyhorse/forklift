@@ -123,6 +123,46 @@ class HTMLXMLConfig:
     preserve_whitespace: bool = False
 
 
+@dataclass
+class StringCleaningConfig:
+    """Configuration for comprehensive string cleaning operations."""
+    # Smart quotes and special characters
+    normalize_quotes: bool = True  # Convert smart quotes to ASCII quotes
+    normalize_dashes: bool = True  # Convert em/en dashes to hyphens
+    normalize_spaces: bool = True  # Convert non-breaking spaces to regular spaces
+
+    # Whitespace handling
+    collapse_whitespace: bool = True  # Collapse multiple spaces to single space
+    strip_whitespace: bool = True  # Strip leading/trailing whitespace
+    remove_tabs: bool = False  # Convert tabs to spaces (if False) or remove (if True)
+    tab_replacement: str = " "  # What to replace tabs with if not removing
+
+    # Zero-width and control characters
+    remove_zero_width: bool = True  # Remove zero-width characters (ZWSP, ZWNJ, etc.)
+    remove_control_chars: bool = True  # Remove control characters (except common ones)
+    preserve_newlines: bool = True  # Keep \n and \r\n when removing control chars
+    preserve_tabs: bool = False  # Keep \t when removing control chars
+
+    # Unicode normalization
+    unicode_normalize: Optional[str] = "NFKC"  # Unicode normalization form (NFC, NFD, NFKC, NFKD)
+
+    # Case handling
+    fix_case_issues: bool = False  # Fix common case issues (e.g., multiple caps)
+    title_case_exceptions: List[str] = None  # Words to not title case (e.g., ["of", "the", "and"])
+
+    # Other cleaning
+    remove_accents: bool = False  # Remove diacritical marks
+    ascii_only: bool = False  # Convert to ASCII-only (implies remove_accents=True)
+    fix_encoding_errors: bool = True  # Fix common encoding errors
+
+    def __post_init__(self):
+        if self.title_case_exceptions is None:
+            self.title_case_exceptions = ["a", "an", "and", "as", "at", "but", "by", "for", "if", "in", "nor", "of", "on", "or", "so", "the", "to", "up", "yet"]
+
+        if self.ascii_only:
+            self.remove_accents = True
+
+
 class DataTransformer:
     """Comprehensive data transformation engine for schema-driven cleaning."""
 
@@ -555,6 +595,262 @@ class DataTransformer:
 
         return pa.array(transformed_values, type=pa_type)
 
+    def apply_string_cleaning(self, column: pa.Array, config: StringCleaningConfig) -> pa.Array:
+        """Apply comprehensive string cleaning operations.
+
+        Args:
+            column: PyArrow Array containing string data
+            config: String cleaning configuration
+
+        Returns:
+            PyArrow Array with string cleaning transformations applied
+        """
+        if not pa.types.is_string(column.type):
+            return column
+
+        import unicodedata
+        import string
+
+        pandas_series = column.to_pandas()
+        transformed_values = []
+
+        for value in pandas_series:
+            if pd.isna(value) or value is None:
+                transformed_values.append(value)
+                continue
+
+            str_value = str(value)
+
+            # Unicode normalization (should be done early)
+            if config.unicode_normalize:
+                try:
+                    str_value = unicodedata.normalize(config.unicode_normalize, str_value)
+                except ValueError:
+                    pass  # Invalid normalization form, skip
+
+            # Fix common encoding errors
+            if config.fix_encoding_errors:
+                str_value = self._fix_encoding_errors(str_value)
+
+            # Smart quotes and special characters
+            if config.normalize_quotes:
+                str_value = self._normalize_quotes(str_value)
+
+            if config.normalize_dashes:
+                str_value = self._normalize_dashes(str_value)
+
+            if config.normalize_spaces:
+                str_value = self._normalize_spaces(str_value)
+
+            # Zero-width and control characters (but replace zero-width with space first)
+            if config.remove_zero_width:
+                str_value = self._remove_zero_width_chars(str_value, replace_with_space=True)
+
+            # Tab handling (do this BEFORE control character removal)
+            if config.remove_tabs:
+                str_value = str_value.replace('\t', '')
+            elif '\t' in str_value:
+                str_value = str_value.replace('\t', config.tab_replacement)
+
+            if config.remove_control_chars:
+                str_value = self._remove_control_chars(str_value, config.preserve_newlines, config.preserve_tabs)
+
+            # Whitespace handling
+            if config.collapse_whitespace:
+                str_value = re.sub(r'\s+', ' ', str_value)
+
+            if config.strip_whitespace:
+                str_value = str_value.strip()
+
+            # Accent and ASCII handling
+            if config.remove_accents or config.ascii_only:
+                str_value = self._remove_accents(str_value)
+
+            if config.ascii_only:
+                str_value = self._to_ascii_only(str_value)
+
+            # Case handling
+            if config.fix_case_issues:
+                str_value = self._fix_case_issues(str_value, config.title_case_exceptions)
+
+            transformed_values.append(str_value)
+
+        return pa.array(transformed_values)
+
+    def _normalize_quotes(self, text: str) -> str:
+        """Convert smart quotes to ASCII quotes."""
+        # Smart single quotes
+        text = text.replace('\u2018', "'")  # Left single quotation mark
+        text = text.replace('\u2019', "'")  # Right single quotation mark
+        text = text.replace('\u201A', "'")  # Single low-9 quotation mark
+        text = text.replace('\u201B', "'")  # Single high-reversed-9 quotation mark
+
+        # Smart double quotes
+        text = text.replace('\u201C', '"')  # Left double quotation mark
+        text = text.replace('\u201D', '"')  # Right double quotation mark
+        text = text.replace('\u201E', '"')  # Double low-9 quotation mark
+        text = text.replace('\u201F', '"')  # Double high-reversed-9 quotation mark
+
+        # Other quote-like characters
+        text = text.replace('\u2039', '<')  # Single left-pointing angle quotation mark
+        text = text.replace('\u203A', '>')  # Single right-pointing angle quotation mark
+        text = text.replace('\u00AB', '"')  # Left-pointing double angle quotation mark
+        text = text.replace('\u00BB', '"')  # Right-pointing double angle quotation mark
+
+        return text
+
+    def _normalize_dashes(self, text: str) -> str:
+        """Convert em/en dashes to hyphens."""
+        text = text.replace('\u2013', '-')  # En dash
+        text = text.replace('\u2014', '-')  # Em dash
+        text = text.replace('\u2015', '-')  # Horizontal bar
+        text = text.replace('\u2212', '-')  # Minus sign
+        return text
+
+    def _normalize_spaces(self, text: str) -> str:
+        """Convert various space characters to regular spaces."""
+        text = text.replace('\u00A0', ' ')  # Non-breaking space
+        text = text.replace('\u2000', ' ')  # En quad
+        text = text.replace('\u2001', ' ')  # Em quad
+        text = text.replace('\u2002', ' ')  # En space
+        text = text.replace('\u2003', ' ')  # Em space
+        text = text.replace('\u2004', ' ')  # Three-per-em space
+        text = text.replace('\u2005', ' ')  # Four-per-em space
+        text = text.replace('\u2006', ' ')  # Six-per-em space
+        text = text.replace('\u2007', ' ')  # Figure space
+        text = text.replace('\u2008', ' ')  # Punctuation space
+        text = text.replace('\u2009', ' ')  # Thin space
+        text = text.replace('\u200A', ' ')  # Hair space
+        text = text.replace('\u202F', ' ')  # Narrow no-break space
+        text = text.replace('\u205F', ' ')  # Medium mathematical space
+        text = text.replace('\u3000', ' ')  # Ideographic space
+        return text
+
+    def _remove_zero_width_chars(self, text: str, replace_with_space: bool = False) -> str:
+        """Remove zero-width characters, optionally replacing with space."""
+        zero_width_chars = [
+            '\u200B',  # Zero width space
+            '\u200C',  # Zero width non-joiner
+            '\u200D',  # Zero width joiner
+            '\u200E',  # Left-to-right mark
+            '\u200F',  # Right-to-left mark
+            '\uFEFF',  # Zero width no-break space (BOM)
+            '\u061C',  # Arabic letter mark
+            '\u180E',  # Mongolian vowel separator
+        ]
+
+        if replace_with_space:
+            # Replace zero-width characters with space
+            for char in zero_width_chars:
+                text = text.replace(char, ' ')
+        else:
+            # Remove zero-width characters
+            for char in zero_width_chars:
+                text = text.replace(char, '')
+
+        return text
+
+    def _remove_control_chars(self, text: str, preserve_newlines: bool, preserve_tabs: bool) -> str:
+        """Remove control characters while optionally preserving newlines and tabs."""
+        import unicodedata
+
+        result = []
+        for char in text:
+            # Get the Unicode category
+            category = unicodedata.category(char)
+
+            # Control characters are in category 'Cc'
+            if category == 'Cc':
+                # Preserve specific characters if requested
+                if preserve_newlines and char in '\n\r':
+                    result.append(char)
+                elif preserve_tabs and char == '\t':
+                    result.append(char)
+                # Otherwise skip the control character
+            else:
+                result.append(char)
+
+        return ''.join(result)
+
+    def _remove_accents(self, text: str) -> str:
+        """Remove diacritical marks (accents) from text."""
+        import unicodedata
+
+        # Decompose characters to separate base characters from diacritics
+        nfd = unicodedata.normalize('NFD', text)
+
+        # Filter out combining characters (diacritics)
+        without_accents = ''.join(
+            char for char in nfd
+            if unicodedata.category(char) != 'Mn'  # Mn = Mark, nonspacing (diacritics)
+        )
+
+        return without_accents
+
+    def _to_ascii_only(self, text: str) -> str:
+        """Convert text to ASCII-only, replacing non-ASCII characters."""
+        # Try to encode as ASCII, replacing errors
+        try:
+            ascii_text = text.encode('ascii', 'ignore').decode('ascii')
+            return ascii_text
+        except UnicodeError:
+            return text
+
+    def _fix_case_issues(self, text: str, title_case_exceptions: List[str]) -> str:
+        """Fix common case issues in text."""
+        # Common acronyms that should stay uppercase
+        acronyms = {"NASA", "FBI", "CIA", "USA", "UK", "US", "EU", "UN", "CEO", "CTO", "CFO", "HR", "IT", "AI", "API", "URL", "HTML", "CSS", "JS", "SQL"}
+
+        words = text.split()
+        fixed_words = []
+
+        for i, word in enumerate(words):
+            # Remove punctuation for comparison but keep original for replacement
+            clean_word = word.strip('.,!?;:"()[]{}')
+
+            if word.isupper() and len(word) > 1:
+                # Check if it's a known acronym
+                if clean_word in acronyms:
+                    fixed_words.append(word)  # Keep original with punctuation
+                # Convert ALL CAPS words to title case
+                elif i == 0 or clean_word.lower() not in title_case_exceptions:
+                    # Apply title case but preserve punctuation
+                    title_part = clean_word.title()
+                    punctuation = word[len(clean_word):]
+                    fixed_words.append(title_part + punctuation)
+                else:
+                    # Article/preposition - make lowercase but preserve punctuation
+                    lower_part = clean_word.lower()
+                    punctuation = word[len(clean_word):]
+                    fixed_words.append(lower_part + punctuation)
+            else:
+                fixed_words.append(word)
+
+        return ' '.join(fixed_words)
+
+    def _fix_encoding_errors(self, text: str) -> str:
+        """Fix common encoding errors."""
+        # Common encoding error patterns
+        fixes = {
+            'â€™': "'",  # Smart apostrophe encoded as UTF-8 then decoded as Latin-1
+            'â€œ': '"',  # Smart quote start
+            'â€': '"',   # Smart quote end
+            'â€"': '–',  # En dash
+            'â€"': '—',  # Em dash
+            'Ã¡': 'á',   # á encoded as UTF-8 then decoded as Latin-1
+            'Ã©': 'é',   # é
+            'Ã­': 'í',   # í
+            'Ã³': 'ó',   # ó
+            'Ãº': 'ú',   # ú
+            'Ã±': 'ñ',   # ñ
+            'Ã¼': 'ü',   # ü
+        }
+
+        for wrong, right in fixes.items():
+            text = text.replace(wrong, right)
+
+        return text
+
 
 # Helper function to create transformation functions from schema configuration
 def create_transformation_from_config(transform_type: str, config: Dict[str, Any]) -> Callable[[pa.Array], pa.Array]:
@@ -605,6 +901,10 @@ def create_transformation_from_config(transform_type: str, config: Dict[str, Any
     elif transform_type == "datetime":
         datetime_config = DateTimeTransformConfig(**clean_config)
         return lambda col: transformer.apply_datetime_transformation(col, datetime_config)
+
+    elif transform_type == "string_cleaning":
+        string_cleaning_config = StringCleaningConfig(**clean_config)
+        return lambda col: transformer.apply_string_cleaning(col, string_cleaning_config)
 
     else:
         raise ValueError(f"Unknown transformation type: {transform_type}")

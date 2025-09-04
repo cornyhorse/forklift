@@ -166,6 +166,254 @@
         "validateDependencies": true,
         "allowNullDependencies": true
       }
+    },
+    "x-transformations": {
+      "description": "Data transformation and standardization configuration for SQL database processing with comprehensive data cleaning and normalization",
+      "stringCleaning": {
+        "description": "String cleaning and normalization options for SQL text columns",
+        "normalizeQuotes": true,
+        "normalizeDashes": true,
+        "normalizeSpaces": true,
+        "collapseWhitespace": true,
+        "stripWhitespace": true,
+        "removeZeroWidth": true,
+        "removeControlChars": true,
+        "preserveNewlines": true,
+        "unicodeNormalize": "NFKC",
+        "sqlSpecific": {
+          "handleNullStrings": true,
+          "emptyStringToNull": false,
+          "trimVarcharPadding": true
+        }
+      },
+      "caseTransformation": {
+        "description": "Case normalization and transformation options for SQL text data",
+        "caseTransform": "title",
+        "fixCaseIssues": true,
+        "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
+        "customCaseMappings": {
+          "ca": "CA",
+          "ny": "NY",
+          "tx": "TX",
+          "usa": "USA",
+          "uk": "UK"
+        },
+        "caseMappingMode": "exact"
+      },
+      "numericCleaning": {
+        "description": "Numeric field cleaning and standardization for SQL numeric columns",
+        "thousandsSeparator": ",",
+        "decimalSeparator": ".",
+        "allowNaN": true,
+        "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan"],
+        "stripWhitespace": true,
+        "sqlSpecific": {
+          "handleSqlNull": true,
+          "preservePrecision": true,
+          "scaleHandling": "preserve"
+        }
+      },
+      "moneyType": {
+        "description": "Currency and monetary value cleaning for SQL financial columns",
+        "currencySymbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
+        "thousandsSeparator": ",",
+        "decimalSeparator": ".",
+        "parenthesesNegative": true,
+        "stripWhitespace": true,
+        "sqlSpecific": {
+          "respectMoneyType": true,
+          "currencyConversion": false
+        }
+      },
+      "dateTimeParsing": {
+        "description": "DateTime parsing and standardization for SQL date/time columns",
+        "mode": "sql_aware",
+        "allowFuzzy": false,
+        "fromEpoch": false,
+        "targetType": "timestamp",
+        "timezone": "UTC",
+        "sqlSpecific": {
+          "handleSqlDateTypes": true,
+          "timezoneAware": true,
+          "preserveTimestamp": true
+        },
+        "commonFormats": [
+          "%Y-%m-%d",
+          "%Y-%m-%d %H:%M:%S",
+          "%Y-%m-%dT%H:%M:%S",
+          "%Y-%m-%dT%H:%M:%SZ"
+        ]
+      },
+      "tableSpecific": {
+        "employees": {
+          "columns": {
+            "first_name": {
+              "transformations": ["stringCleaning", "caseTransformation"],
+              "caseTransform": "title"
+            },
+            "last_name": {
+              "transformations": ["stringCleaning", "caseTransformation"],
+              "caseTransform": "title"
+            },
+            "email": {
+              "transformations": ["stringCleaning"],
+              "caseTransform": "lower"
+            },
+            "salary": {
+              "transformations": ["moneyType", "numericCleaning"]
+            },
+            "hire_date": {
+              "transformations": ["dateTimeParsing"],
+              "dateTimeConfig": {
+                "mode": "sql_aware",
+                "targetType": "date"
+              }
+            }
+          }
+        },
+        "orders": {
+          "columns": {
+            "amount": {
+              "transformations": ["moneyType", "numericCleaning"]
+            },
+            "order_date": {
+              "transformations": ["dateTimeParsing"]
+            }
+          }
+        }
+      }
+    },
+    "x-columnMapping": {
+      "description": "Column name mapping and standardization configuration for SQL database tables",
+      "globalMappings": {
+        "emp_id": "employee_id",
+        "fname": "first_name",
+        "lname": "last_name",
+        "dob": "birth_date",
+        "ssn": "social_security_number",
+        "addr": "address",
+        "ph_num": "phone_number",
+        "email_addr": "email_address",
+        "hire_dt": "hire_date",
+        "dept_code": "department_code",
+        "pos_title": "position_title",
+        "sal_amt": "salary_amount"
+      },
+      "tableSpecificMappings": {
+        "employees": {
+          "EmpID": "employee_id",
+          "FirstName": "first_name",
+          "LastName": "last_name",
+          "DateOfBirth": "birth_date",
+          "HireDate": "hire_date",
+          "DeptID": "department_id"
+        },
+        "orders": {
+          "OrderID": "order_id",
+          "CustID": "customer_id",
+          "OrderAmt": "order_amount",
+          "OrderDt": "order_date"
+        }
+      },
+      "namingConvention": "snake_case",
+      "caseSensitive": false,
+      "allowUnmapped": true,
+      "dropUnmapped": false,
+      "sqlSpecific": {
+        "respectSqlKeywords": true,
+        "quoteIdentifiers": false,
+        "schemaPrefix": false
+      },
+      "standardizationRules": {
+        "removeSpecialChars": true,
+        "replaceSpaces": "_",
+        "maxLength": 63,
+        "reservedWords": ["index", "table", "column", "select", "from", "where", "order", "group", "having"],
+        "reservedWordPrefix": "col_"
+      }
+    },
+    "x-dataQuality": {
+      "description": "Data quality validation and metrics configuration for SQL database data",
+      "completeness": {
+        "enabled": true,
+        "requiredFields": ["id"],
+        "minimumFillRate": 0.90,
+        "reportMissingValues": true,
+        "sqlSpecific": {
+          "handleSqlNulls": true,
+          "nullVsEmpty": "distinguish",
+          "checkConstraints": true
+        }
+      },
+      "uniqueness": {
+        "enabled": true,
+        "uniqueFields": ["id", "email"],
+        "allowDuplicates": false,
+        "duplicateHandling": "error",
+        "sqlSpecific": {
+          "respectPrimaryKeys": true,
+          "checkUniqueConstraints": true
+        }
+      },
+      "consistency": {
+        "enabled": true,
+        "dataTypeValidation": true,
+        "formatValidation": true,
+        "rangeValidation": true,
+        "sqlSpecific": {
+          "validateForeignKeys": true,
+          "checkReferentialIntegrity": true,
+          "enforceConstraints": true
+        }
+      },
+      "accuracy": {
+        "enabled": true,
+        "emailValidation": true,
+        "phoneValidation": true,
+        "dateValidation": true,
+        "numericValidation": true
+      },
+      "tableSpecificRules": {
+        "employees": {
+          "employee_id": {
+            "min": 1,
+            "max": 999999,
+            "dataType": "integer",
+            "unique": true
+          },
+          "salary": {
+            "min": 0,
+            "max": 10000000,
+            "dataType": "decimal",
+            "precision": 10,
+            "scale": 2
+          },
+          "email": {
+            "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+            "unique": true,
+            "required": true
+          },
+          "hire_date": {
+            "minDate": "1950-01-01",
+            "maxDate": "2100-12-31",
+            "dataType": "date"
+          }
+        },
+        "orders": {
+          "order_id": {
+            "min": 1,
+            "dataType": "integer",
+            "unique": true
+          },
+          "amount": {
+            "min": 0,
+            "max": 1000000,
+            "dataType": "decimal",
+            "precision": 10,
+            "scale": 2
+          }
+        }
+      }
     }
   },
   "required": ["x-sql"],

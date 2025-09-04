@@ -180,5 +180,214 @@
       "validateDependencies": true,
       "allowNullDependencies": true
     }
+  },
+
+  "x-transformations": {
+    "description": "Data transformation and standardization configuration for comprehensive data cleaning and normalization",
+    "stringCleaning": {
+      "description": "String cleaning and normalization options",
+      "normalizeQuotes": true,
+      "normalizeDashes": true,
+      "normalizeSpaces": true,
+      "collapseWhitespace": true,
+      "stripWhitespace": true,
+      "removeZeroWidth": true,
+      "removeControlChars": true,
+      "preserveNewlines": true,
+      "unicodeNormalize": "NFKC"
+    },
+    "caseTransformation": {
+      "description": "Case normalization and transformation options",
+      "caseTransform": "title",
+      "fixCaseIssues": true,
+      "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
+      "customCaseMappings": {
+        "ca": "CA",
+        "ny": "NY",
+        "tx": "TX",
+        "usa": "USA",
+        "uk": "UK"
+      },
+      "caseMappingMode": "exact"
+    },
+    "numericCleaning": {
+      "description": "Numeric field cleaning and standardization",
+      "thousandsSeparator": ",",
+      "decimalSeparator": ".",
+      "allowNaN": true,
+      "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!"],
+      "stripWhitespace": true
+    },
+    "moneyType": {
+      "description": "Currency and monetary value cleaning",
+      "currencySymbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
+      "thousandsSeparator": ",",
+      "decimalSeparator": ".",
+      "parenthesesNegative": true,
+      "stripWhitespace": true
+    },
+    "dateTimeParsing": {
+      "description": "DateTime parsing and standardization configuration",
+      "mode": "common_formats",
+      "allowFuzzy": false,
+      "fromEpoch": false,
+      "targetType": "datetime",
+      "timezone": "UTC",
+      "commonFormats": [
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%d/%m/%Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%m/%d/%Y %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ"
+      ]
+    },
+    "htmlXmlCleaning": {
+      "description": "HTML/XML tag and entity cleaning",
+      "stripTags": true,
+      "decodeEntities": true,
+      "preserveWhitespace": false
+    },
+    "stringPadding": {
+      "description": "String padding and formatting options",
+      "enabled": false,
+      "width": 10,
+      "fillChar": " ",
+      "side": "left"
+    },
+    "regexReplacements": [
+      {
+        "description": "Remove extra whitespace",
+        "pattern": "\\s+",
+        "replacement": " ",
+        "flags": 0
+      },
+      {
+        "description": "Standardize phone numbers",
+        "pattern": "[^\\d]",
+        "replacement": "",
+        "flags": 0,
+        "applyToColumns": ["phone", "mobile", "telephone"]
+      }
+    ],
+    "stringReplacements": [
+      {
+        "description": "Replace common abbreviations",
+        "old": "St.",
+        "new": "Street",
+        "applyToColumns": ["address", "street"]
+      },
+      {
+        "description": "Standardize state names",
+        "old": "California",
+        "new": "CA",
+        "applyToColumns": ["state", "state_name"]
+      }
+    ],
+    "columnSpecific": {
+      "name": {
+        "transformations": ["stringCleaning", "caseTransformation"],
+        "caseTransform": "title"
+      },
+      "email": {
+        "transformations": ["stringCleaning"],
+        "caseTransform": "lower"
+      },
+      "salary": {
+        "transformations": ["moneyType", "numericCleaning"]
+      },
+      "birth_date": {
+        "transformations": ["dateTimeParsing"],
+        "dateTimeConfig": {
+          "mode": "specify_formats",
+          "formats": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
+        }
+      },
+      "created_timestamp": {
+        "transformations": ["dateTimeParsing"],
+        "dateTimeConfig": {
+          "mode": "common_formats",
+          "targetType": "timestamp"
+        }
+      }
+    }
+  },
+
+  "x-columnMapping": {
+    "description": "Column name mapping and standardization configuration",
+    "explicitMappings": {
+      "FirstName": "first_name",
+      "LastName": "last_name",
+      "DOB": "birth_date",
+      "SSN": "social_security_number",
+      "Addr1": "address_line_1",
+      "Addr2": "address_line_2",
+      "City": "city",
+      "State": "state",
+      "ZIP": "zip_code",
+      "Phone": "phone_number",
+      "Email": "email_address"
+    },
+    "namingConvention": "snake_case",
+    "caseSensitive": false,
+    "allowUnmapped": true,
+    "dropUnmapped": false,
+    "standardizationRules": {
+      "removeSpecialChars": true,
+      "replaceSpaces": "_",
+      "maxLength": 64,
+      "reservedWords": ["index", "table", "column", "select", "from", "where"],
+      "reservedWordPrefix": "col_"
+    }
+  },
+
+  "x-dataQuality": {
+    "description": "Data quality validation and metrics configuration",
+    "completeness": {
+      "enabled": true,
+      "requiredFields": ["id", "name"],
+      "minimumFillRate": 0.95,
+      "reportMissingValues": true
+    },
+    "uniqueness": {
+      "enabled": true,
+      "uniqueFields": ["id", "email"],
+      "allowDuplicates": false,
+      "duplicateHandling": "error"
+    },
+    "consistency": {
+      "enabled": true,
+      "dataTypeValidation": true,
+      "formatValidation": true,
+      "rangeValidation": true
+    },
+    "accuracy": {
+      "enabled": true,
+      "emailValidation": true,
+      "phoneValidation": true,
+      "dateValidation": true,
+      "numericValidation": true
+    },
+    "fieldSpecificRules": {
+      "age": {
+        "min": 0,
+        "max": 150,
+        "dataType": "integer"
+      },
+      "salary": {
+        "min": 0,
+        "max": 10000000,
+        "dataType": "number"
+      },
+      "email": {
+        "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+        "required": false
+      },
+      "phone": {
+        "pattern": "^\\+?[1-9]\\d{1,14}$",
+        "standardizeFormat": true
+      }
+    }
   }
 }

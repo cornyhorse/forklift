@@ -203,5 +203,215 @@
       "validateDependencies": true,
       "allowNullDependencies": true
     }
+  },
+
+  "x-transformations": {
+    "description": "Data transformation and standardization configuration for Excel file processing with comprehensive data cleaning and normalization",
+    "stringCleaning": {
+      "description": "String cleaning and normalization options for Excel cells",
+      "normalizeQuotes": true,
+      "normalizeDashes": true,
+      "normalizeSpaces": true,
+      "collapseWhitespace": true,
+      "stripWhitespace": true,
+      "removeZeroWidth": true,
+      "removeControlChars": true,
+      "preserveNewlines": false,
+      "unicodeNormalize": "NFKC",
+      "excelSpecific": {
+        "removeCellFormatting": true,
+        "handleMergedCells": "first_value",
+        "convertFormulasToValues": true
+      }
+    },
+    "caseTransformation": {
+      "description": "Case normalization and transformation options for Excel text data",
+      "caseTransform": "title",
+      "fixCaseIssues": true,
+      "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
+      "customCaseMappings": {
+        "ca": "CA",
+        "ny": "NY",
+        "tx": "TX",
+        "usa": "USA",
+        "uk": "UK"
+      },
+      "caseMappingMode": "exact"
+    },
+    "numericCleaning": {
+      "description": "Numeric field cleaning and standardization for Excel numeric data",
+      "thousandsSeparator": ",",
+      "decimalSeparator": ".",
+      "allowNaN": true,
+      "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!", "#DIV/0!", "#VALUE!", "#REF!"],
+      "stripWhitespace": true,
+      "excelSpecific": {
+        "handleExcelErrors": true,
+        "convertTextNumbers": true,
+        "preserveLeadingZeros": false
+      }
+    },
+    "moneyType": {
+      "description": "Currency and monetary value cleaning for Excel financial data",
+      "currencySymbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
+      "thousandsSeparator": ",",
+      "decimalSeparator": ".",
+      "parenthesesNegative": true,
+      "stripWhitespace": true,
+      "excelSpecific": {
+        "respectCellFormatting": true,
+        "handleAccountingFormat": true
+      }
+    },
+    "dateTimeParsing": {
+      "description": "DateTime parsing and standardization for Excel date/time data",
+      "mode": "excel_aware",
+      "allowFuzzy": false,
+      "fromEpoch": false,
+      "targetType": "datetime",
+      "timezone": "UTC",
+      "excelSpecific": {
+        "handleExcelSerial": true,
+        "dateSystem": "1900",
+        "timeOnly": false
+      },
+      "commonFormats": [
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%d/%m/%Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%m/%d/%Y %H:%M:%S"
+      ]
+    },
+    "columnSpecific": {
+      "id": {
+        "transformations": ["numericCleaning"],
+        "position": "A"
+      },
+      "name": {
+        "transformations": ["stringCleaning", "caseTransformation"],
+        "caseTransform": "title",
+        "position": "B"
+      },
+      "salary": {
+        "transformations": ["moneyType", "numericCleaning"],
+        "position": "D"
+      },
+      "birth_date": {
+        "transformations": ["dateTimeParsing"],
+        "position": "F",
+        "dateTimeConfig": {
+          "mode": "excel_aware",
+          "handleExcelSerial": true
+        }
+      },
+      "created_timestamp": {
+        "transformations": ["dateTimeParsing"],
+        "position": "G",
+        "dateTimeConfig": {
+          "mode": "excel_aware",
+          "targetType": "timestamp"
+        }
+      }
+    }
+  },
+
+  "x-columnMapping": {
+    "description": "Column name mapping and standardization configuration for Excel files",
+    "explicitMappings": {
+      "Employee ID": "employee_id",
+      "First Name": "first_name",
+      "Last Name": "last_name",
+      "Date of Birth": "birth_date",
+      "SSN": "social_security_number",
+      "Address": "address",
+      "City": "city",
+      "State": "state",
+      "ZIP Code": "zip_code",
+      "Phone Number": "phone_number",
+      "Email Address": "email_address",
+      "Hire Date": "hire_date",
+      "Department": "department",
+      "Position": "position",
+      "Salary": "salary"
+    },
+    "namingConvention": "snake_case",
+    "caseSensitive": false,
+    "allowUnmapped": true,
+    "dropUnmapped": false,
+    "excelSpecific": {
+      "headerRow": 1,
+      "skipEmptyColumns": true,
+      "trimColumnNames": true,
+      "handleMergedHeaders": "concatenate"
+    },
+    "standardizationRules": {
+      "removeSpecialChars": true,
+      "replaceSpaces": "_",
+      "maxLength": 64,
+      "reservedWords": ["index", "table", "column", "select", "from", "where"],
+      "reservedWordPrefix": "col_"
+    }
+  },
+
+  "x-dataQuality": {
+    "description": "Data quality validation and metrics configuration for Excel data",
+    "completeness": {
+      "enabled": true,
+      "requiredFields": ["id", "name"],
+      "minimumFillRate": 0.95,
+      "reportMissingValues": true,
+      "excelSpecific": {
+        "checkEmptyRows": true,
+        "skipBlankCells": true,
+        "handleHiddenRows": "exclude"
+      }
+    },
+    "uniqueness": {
+      "enabled": true,
+      "uniqueFields": ["id", "employee_id"],
+      "allowDuplicates": false,
+      "duplicateHandling": "error"
+    },
+    "consistency": {
+      "enabled": true,
+      "dataTypeValidation": true,
+      "formatValidation": true,
+      "rangeValidation": true,
+      "excelSpecific": {
+        "validateCellFormats": true,
+        "checkFormulaErrors": true
+      }
+    },
+    "accuracy": {
+      "enabled": true,
+      "emailValidation": true,
+      "phoneValidation": true,
+      "dateValidation": true,
+      "numericValidation": true
+    },
+    "fieldSpecificRules": {
+      "age": {
+        "min": 0,
+        "max": 150,
+        "dataType": "integer",
+        "excelPosition": "C"
+      },
+      "salary": {
+        "min": 0,
+        "max": 10000000,
+        "dataType": "number",
+        "excelPosition": "D"
+      },
+      "email": {
+        "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+        "required": false
+      },
+      "phone": {
+        "pattern": "^\\+?[1-9]\\d{1,14}$",
+        "standardizeFormat": true
+      }
+    }
   }
+
 }

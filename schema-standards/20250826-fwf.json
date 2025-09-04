@@ -165,6 +165,214 @@
       "validateDependencies": true,
       "allowNullDependencies": false
     }
+  },
+
+  "x-transformations": {
+    "description": "Data transformation and standardization configuration for fixed-width file processing with position-aware data cleaning",
+    "stringCleaning": {
+      "description": "String cleaning and normalization options for fixed-width field data",
+      "normalizeQuotes": true,
+      "normalizeDashes": true,
+      "normalizeSpaces": true,
+      "collapseWhitespace": true,
+      "stripWhitespace": true,
+      "removeZeroWidth": true,
+      "removeControlChars": true,
+      "preserveNewlines": false,
+      "unicodeNormalize": "NFKC",
+      "fwfSpecific": {
+        "respectFieldBoundaries": true,
+        "trimPaddingChars": true,
+        "paddingChar": " ",
+        "preserveLeadingZeros": true
+      }
+    },
+    "caseTransformation": {
+      "description": "Case normalization and transformation options for fixed-width text fields",
+      "caseTransform": "upper",
+      "fixCaseIssues": true,
+      "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
+      "customCaseMappings": {
+        "ca": "CA",
+        "ny": "NY",
+        "tx": "TX",
+        "usa": "USA",
+        "uk": "UK"
+      },
+      "caseMappingMode": "exact"
+    },
+    "numericCleaning": {
+      "description": "Numeric field cleaning and standardization for fixed-width numeric data",
+      "thousandsSeparator": "",
+      "decimalSeparator": ".",
+      "allowNaN": true,
+      "nanValues": ["", "NULL", "N/A", "9999", "0000"],
+      "stripWhitespace": true,
+      "fwfSpecific": {
+        "paddedWithZeros": true,
+        "signedFormat": "leading",
+        "impliedDecimal": false,
+        "decimalPlaces": 2
+      }
+    },
+    "moneyType": {
+      "description": "Currency and monetary value cleaning for fixed-width financial fields",
+      "currencySymbols": [],
+      "thousandsSeparator": "",
+      "decimalSeparator": "",
+      "parenthesesNegative": false,
+      "stripWhitespace": true,
+      "fwfSpecific": {
+        "impliedDecimal": true,
+        "decimalPlaces": 2,
+        "signPosition": "trailing",
+        "paddedFormat": true
+      }
+    },
+    "dateTimeParsing": {
+      "description": "DateTime parsing and standardization for fixed-width date fields",
+      "mode": "specify_formats",
+      "allowFuzzy": false,
+      "fromEpoch": false,
+      "targetType": "date",
+      "fwfSpecific": {
+        "fixedFormat": true,
+        "centuryHandling": "windowing",
+        "centuryWindow": 50,
+        "julianDates": false
+      },
+      "formats": [
+        "%Y%m%d",
+        "%m%d%Y",
+        "%d%m%Y",
+        "%y%m%d",
+        "%Y%j"
+      ]
+    },
+    "fieldSpecific": {
+      "id": {
+        "transformations": ["numericCleaning"],
+        "fieldPosition": { "start": 1, "length": 10 },
+        "alignment": "right",
+        "paddingChar": "0"
+      },
+      "name": {
+        "transformations": ["stringCleaning", "caseTransformation"],
+        "fieldPosition": { "start": 11, "length": 30 },
+        "alignment": "left",
+        "paddingChar": " "
+      },
+      "salary": {
+        "transformations": ["moneyType", "numericCleaning"],
+        "fieldPosition": { "start": 44, "length": 12 },
+        "alignment": "right",
+        "paddingChar": "0"
+      },
+      "birth_date": {
+        "transformations": ["dateTimeParsing"],
+        "fieldPosition": { "start": 61, "length": 10 },
+        "dateFormat": "%Y%m%d"
+      }
+    }
+  },
+
+  "x-columnMapping": {
+    "description": "Column name mapping and standardization configuration for fixed-width files",
+    "explicitMappings": {
+      "EMP_ID": "employee_id",
+      "FNAME": "first_name",
+      "LNAME": "last_name",
+      "DOB": "birth_date",
+      "SSN": "social_security_number",
+      "ADDR": "address",
+      "CITY": "city",
+      "ST": "state",
+      "ZIP": "zip_code",
+      "PHONE": "phone_number",
+      "EMAIL": "email_address",
+      "HIRE_DT": "hire_date",
+      "DEPT": "department",
+      "POS": "position",
+      "SAL": "salary"
+    },
+    "namingConvention": "snake_case",
+    "caseSensitive": false,
+    "allowUnmapped": true,
+    "dropUnmapped": false,
+    "fwfSpecific": {
+      "fieldBoundaries": true,
+      "preserveFieldOrder": true,
+      "handleOverflow": "truncate"
+    },
+    "standardizationRules": {
+      "removeSpecialChars": true,
+      "replaceSpaces": "_",
+      "maxLength": 64,
+      "reservedWords": ["index", "table", "column", "select", "from", "where"],
+      "reservedWordPrefix": "col_"
+    }
+  },
+
+  "x-dataQuality": {
+    "description": "Data quality validation and metrics configuration for fixed-width file data",
+    "completeness": {
+      "enabled": true,
+      "requiredFields": ["id", "name"],
+      "minimumFillRate": 0.95,
+      "reportMissingValues": true,
+      "fwfSpecific": {
+        "checkFieldBoundaries": true,
+        "validateRecordLength": true,
+        "handleShortRecords": "pad",
+        "handleLongRecords": "truncate"
+      }
+    },
+    "uniqueness": {
+      "enabled": true,
+      "uniqueFields": ["id"],
+      "allowDuplicates": false,
+      "duplicateHandling": "error"
+    },
+    "consistency": {
+      "enabled": true,
+      "dataTypeValidation": true,
+      "formatValidation": true,
+      "rangeValidation": true,
+      "fwfSpecific": {
+        "validateFieldAlignment": true,
+        "checkPaddingConsistency": true
+      }
+    },
+    "accuracy": {
+      "enabled": true,
+      "emailValidation": false,
+      "phoneValidation": true,
+      "dateValidation": true,
+      "numericValidation": true
+    },
+    "fieldSpecificRules": {
+      "id": {
+        "min": 1,
+        "max": 9999999999,
+        "dataType": "integer",
+        "fieldPosition": { "start": 1, "length": 10 },
+        "paddingValidation": true
+      },
+      "salary": {
+        "min": 0,
+        "max": 99999999,
+        "dataType": "number",
+        "fieldPosition": { "start": 44, "length": 12 },
+        "impliedDecimal": true,
+        "decimalPlaces": 2
+      },
+      "birth_date": {
+        "format": "%Y%m%d",
+        "minDate": "1900-01-01",
+        "maxDate": "2100-12-31",
+        "fieldPosition": { "start": 61, "length": 10 }
+      }
+    }
   }
 
 }

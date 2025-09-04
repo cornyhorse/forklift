@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock, mock_open, call
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,

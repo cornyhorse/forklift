@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock, mock_open
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -329,7 +329,7 @@ class TestFinalMissingLines:
 
         try:
             # Mock to cause exception during Excel processing
-            with patch('src.forklift.engine.forklift_core._create_default_excel_config', side_effect=RuntimeError("Processing failed")):
+            with patch('forklift.engine.forklift_core._create_default_excel_config', side_effect=RuntimeError("Processing failed")):
                 with pytest.raises(RuntimeError, match="Processing failed"):
                     import_excel(str(test_file), "output")
         finally:
@@ -348,7 +348,7 @@ class TestFinalMissingLines:
 
         try:
             # Mock to trigger exception in Excel processing
-            with patch('src.forklift.inputs.excel.ExcelInputHandler', side_effect=ImportError("Excel handler failed")):
+            with patch('forklift.inputs.excel.ExcelInputHandler', side_effect=ImportError("Excel handler failed")):
                 with pytest.raises(ImportError, match="Excel handler failed"):
                     import_excel(str(test_file), "output")
         finally:
@@ -362,8 +362,8 @@ class TestFinalMissingLines:
         with tempfile.TemporaryDirectory() as output_dir:
             try:
                 # Test with kwargs overrides
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
-                     patch('src.forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
+                     patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
                      patch('pyarrow.parquet.write_table'):
 
                     # Mock Excel handler
@@ -389,8 +389,8 @@ class TestFinalMissingLines:
 
         with tempfile.TemporaryDirectory() as output_dir:
             try:
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
-                     patch('src.forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
+                     patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
                      patch('pyarrow.parquet.write_table'):
 
                     mock_handler_instance = MagicMock()

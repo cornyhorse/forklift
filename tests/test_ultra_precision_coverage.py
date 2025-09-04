@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock, mock_open, call
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -187,7 +187,7 @@ class TestUltraPrecisionCoverage:
                 config.output_path = temp_dir
 
                 # Mock to track exact good_writer.close() call
-                with patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer:
+                with patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer:
                     mock_writer_instance = MagicMock()
                     mock_writer.return_value = mock_writer_instance
 
@@ -274,8 +274,8 @@ class TestUltraPrecisionCoverage:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 # Mock all SQL components to hit processing lines 1442-1482
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
                      patch('pyarrow.parquet.write_table') as mock_write:
 
                     # Mock schema importer
@@ -407,9 +407,9 @@ class TestUltraPrecisionCoverage:
 
         try:
             # Mock all S3 operations with precise control
-            with patch('src.forklift.engine.forklift_core.is_s3_path', return_value=True), \
-                 patch('src.forklift.engine.forklift_core.S3Path') as mock_s3_path, \
-                 patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
+            with patch('forklift.engine.forklift_core.is_s3_path', return_value=True), \
+                 patch('forklift.engine.forklift_core.S3Path') as mock_s3_path, \
+                 patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                  patch.object(engine.io_handler, 'exists', return_value=True), \
                  patch.object(engine.io_handler, 'get_size', return_value=1024), \
                  patch.object(engine.io_handler, 'open_for_write') as mock_open:

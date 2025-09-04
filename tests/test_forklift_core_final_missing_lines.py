@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import pyarrow as pa
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -147,7 +147,7 @@ class TestForkliftCoreFinalMissingLines:
         """Test S3 initialization error (line 867)."""
         # This tests the S3 initialization error path by creating a config that would use S3
         # but mocking the UnifiedIOHandler to fail during ForkliftCore.__init__
-        with patch('src.forklift.engine.forklift_core.UnifiedIOHandler') as mock_handler:
+        with patch('forklift.engine.forklift_core.UnifiedIOHandler') as mock_handler:
             mock_handler.side_effect = Exception("S3 connection failed")
 
             with pytest.raises(Exception, match="S3 connection failed"):
@@ -166,7 +166,7 @@ class TestForkliftCoreFinalMissingLines:
 
         try:
             # Test with ForkliftCore initialization error
-            with patch('src.forklift.engine.forklift_core.ForkliftCore', side_effect=Exception("Init failed")):
+            with patch('forklift.engine.forklift_core.ForkliftCore', side_effect=Exception("Init failed")):
                 with pytest.raises(Exception):
                     import_csv(
                         input_path=str(csv_file),
@@ -199,9 +199,9 @@ class TestForkliftCoreFinalMissingLines:
 
         try:
             # The function should handle cases where Excel processing isn't available
-            with patch('src.forklift.inputs.excel.ExcelInputHandler', side_effect=ImportError("Excel not available")):
+            with patch('forklift.inputs.excel.ExcelInputHandler', side_effect=ImportError("Excel not available")):
                 with pytest.raises(ImportError):
-                    from src.forklift.engine.forklift_core import import_excel
+                    from forklift.engine.forklift_core import import_excel
                     import_excel(
                         input_path=str(excel_file),
                         output_path="dummy_output"
@@ -259,7 +259,7 @@ class TestForkliftCoreFinalMissingLines:
 
         try:
             with pytest.raises(Exception):
-                from src.forklift.engine.forklift_core import import_sql
+                from forklift.engine.forklift_core import import_sql
                 import_sql(
                     connection_string="sqlite:///:memory:",
                     output_path="dummy_output",
@@ -287,9 +287,9 @@ class TestForkliftCoreFinalMissingLines:
 
         try:
             with tempfile.TemporaryDirectory() as output_dir:
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
-                     patch('src.forklift.io.create_parquet_writer') as mock_writer:
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
+                     patch('forklift.io.create_parquet_writer') as mock_writer:
 
                     # Mock schema importer
                     mock_schema_instance = MagicMock()
@@ -303,7 +303,7 @@ class TestForkliftCoreFinalMissingLines:
                     mock_handler_instance.get_table_schema.side_effect = Exception("Schema error")
 
                     # This should trigger error handling paths
-                    from src.forklift.engine.forklift_core import import_sql
+                    from forklift.engine.forklift_core import import_sql
                     results = import_sql(
                         connection_string="sqlite:///:memory:",
                         output_path=output_dir,
@@ -321,14 +321,14 @@ class TestForkliftCoreFinalMissingLines:
             test_file = Path(f.name)
 
         try:
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler_instance = MagicMock()
                 mock_handler.return_value = mock_handler_instance
                 mock_handler_instance.get_sheet_info.return_value = {
                     'sheet_names': ['Sheet1', 'Sheet2']
                 }
 
-                from src.forklift.engine.forklift_core import _create_default_excel_config
+                from forklift.engine.forklift_core import _create_default_excel_config
 
                 # Test edge cases for sheet selection
                 with pytest.raises(ValueError):

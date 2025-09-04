@@ -1,63 +1,73 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "forklift"
 version = "0.1.0"
-description = "A data processing tool"
-authors = [
-    {name = "Matthew Kingsbury", email = "your.email@example.com"},
-]
-readme = "README.md"
-license = {file = "LICENSE"}
-requires-python = ">=3.8"
+description = "Data processing pipeline with PyArrow"
+authors = [{name = "Forklift Team"}]
 dependencies = [
-    "pyarrow>=12.0.0",
-    "jsonschema",
-    "click",
-    "pandas",  # for some compatibility features
-    "boto3>=1.26.0",  # for S3 streaming support
-    "pyperclip",  # for clipboard functionality in schema generation
-]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
+    "pyarrow>=10.0.0",
+    "pandas>=1.5.0",
+    "python-dateutil>=2.8.0",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-cov",
-    "mattstash",  # for S3 connection configuration in tests
-]
-
-[project.scripts]
-forklift = "forklift.cli:main"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/forklift"]
-
-[tool.hatch.build.targets.sdist]
-include = [
-    "src/",
-    "tests/",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md",
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "coverage[toml]>=7.0.0"
 ]
 
 [tool.pytest.ini_options]
-# Suppress NumPy re-import warnings that occur during pandas initialization in test environments.
-# This warning appears when pandas is imported multiple times across different test modules,
-# causing NumPy to be reloaded. The warning is informational only and doesn't affect functionality.
-# See: https://github.com/pandas-dev/pandas/issues/52831
-filterwarnings = [
-    "ignore:.*NumPy module was reloaded.*:UserWarning",
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src/forklift",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "--cov-config=pyproject.toml",
+    "--strict-markers",
+    "--disable-warnings"
 ]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "s3: marks tests as requiring S3 access",
+    "mock: marks tests as using mocks",
+    "unit: marks tests as unit tests",
+    "excel: marks tests as Excel-related",
+    "fwf: marks tests as fixed-width file related",
+    "csv: marks tests as CSV-related",
+    "sql: marks tests as SQL-related"
+]
+
+[tool.coverage.run]
+source = ["src/forklift"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    "*/venv/*",
+    "*/.venv/*"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+precision = 2
+
+[tool.coverage.html]
+directory = "htmlcov"

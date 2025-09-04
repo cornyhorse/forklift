@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import pyarrow as pa
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,

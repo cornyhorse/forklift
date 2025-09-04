@@ -10,7 +10,7 @@ from unittest.mock import patch, MagicMock, mock_open, call
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -167,7 +167,7 @@ class TestFinalSurgicalCoverage:
                 config.output_path = temp_dir
 
                 # Mock to ensure we hit the exact writer close path
-                with patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer:
+                with patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer:
                     mock_writer_instance = MagicMock()
                     mock_writer.return_value = mock_writer_instance
 
@@ -198,17 +198,17 @@ class TestFinalSurgicalCoverage:
 
         try:
             # Lines 973-976 - Schema processing error
-            with patch('src.forklift.schema.excel_schema_importer.ExcelSchemaImporter', side_effect=Exception("Schema error")):
+            with patch('forklift.schema.excel_schema_importer.ExcelSchemaImporter', side_effect=Exception("Schema error")):
                 with pytest.raises(Exception):
                     import_excel(str(test_file), "output", schema_file="schema.json")
 
             # Line 979 - General exception
-            with patch('src.forklift.engine.forklift_core._create_default_excel_config', side_effect=Exception("Config error")):
+            with patch('forklift.engine.forklift_core._create_default_excel_config', side_effect=Exception("Config error")):
                 with pytest.raises(Exception):
                     import_excel(str(test_file), "output")
 
             # Lines 1228-1229 - Handler exception
-            with patch('src.forklift.inputs.excel.ExcelInputHandler', side_effect=Exception("Handler error")):
+            with patch('forklift.inputs.excel.ExcelInputHandler', side_effect=Exception("Handler error")):
                 with pytest.raises(Exception):
                     import_excel(str(test_file), "output")
         finally:
@@ -235,8 +235,8 @@ class TestFinalSurgicalCoverage:
 
         try:
             with tempfile.TemporaryDirectory() as output_dir:
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
                      patch('pyarrow.parquet.write_table'):
 
                     mock_schema_instance = MagicMock()
@@ -258,12 +258,12 @@ class TestFinalSurgicalCoverage:
         """Hit exact helper function lines."""
         # Lines 1542-1551 - Excel config creation
         try:
-            from src.forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.forklift_core import _create_default_excel_config
 
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
 
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                     mock_handler_instance = MagicMock()
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1']
@@ -275,7 +275,7 @@ class TestFinalSurgicalCoverage:
 
         # Lines 1578-1592 - Filename sanitization
         try:
-            from src.forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.forklift_core import _sanitize_filename
 
             result = _sanitize_filename("test!@#$%")
             assert isinstance(result, str)
@@ -284,7 +284,7 @@ class TestFinalSurgicalCoverage:
 
         # Lines 1596-1597 - Config from schema
         try:
-            from src.forklift.engine.forklift_core import _create_excel_config_from_schema
+            from forklift.engine.forklift_core import _create_excel_config_from_schema
 
             mock_schema = MagicMock()
             mock_schema.get_sheet_configs.return_value = [{"sheet_name": "Sheet1"}]

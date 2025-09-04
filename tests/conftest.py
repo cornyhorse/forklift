@@ -1,8 +1,29 @@
 """Pytest configuration for forklift tests."""
 
+import sys
 import pytest
 import os
 from pathlib import Path
+
+
+# Add the src directory to the Python path for imports
+src_path = Path(__file__).parent.parent / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+
+def pytest_configure(config):
+    """Configure pytest with coverage settings."""
+    # Register custom markers to avoid warnings
+    config.addinivalue_line("markers", "s3: mark test as requiring S3 access")
+    config.addinivalue_line("markers", "integration: mark test as integration test")
+    config.addinivalue_line("markers", "slow: mark test as slow running")
+    config.addinivalue_line("markers", "mock: mark test as using mocks")
+    config.addinivalue_line("markers", "unit: mark test as unit test")
+    config.addinivalue_line("markers", "excel: mark test as Excel-related")
+    config.addinivalue_line("markers", "fwf: mark test as fixed-width file related")
+    config.addinivalue_line("markers", "csv: mark test as CSV-related")
+    config.addinivalue_line("markers", "sql: mark test as SQL-related")
 
 
 def pytest_addoption(parser):
@@ -27,19 +48,6 @@ def pytest_addoption(parser):
     )
 
 
-def pytest_configure(config):
-    """Configure pytest with custom markers."""
-    config.addinivalue_line(
-        "markers", "integration: mark test as integration test requiring real AWS access"
-    )
-    config.addinivalue_line(
-        "markers", "slow: mark test as slow running"
-    )
-    config.addinivalue_line(
-        "markers", "s3: mark test as requiring S3 access (real or mocked)"
-    )
-
-
 def pytest_collection_modifyitems(config, items):
     """Modify test collection based on command line options."""
     if config.getoption("--integration"):
@@ -51,6 +59,14 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip_integration)
+
+        # Add slow marker to tests that might take longer
+        if "integration" in item.nodeid or "slow" in item.name:
+            item.add_marker(pytest.mark.slow)
+
+        # Add integration marker to integration tests
+        if "integration" in item.nodeid:
+            item.add_marker(pytest.mark.integration)
 
 
 def _load_credentials_from_env():

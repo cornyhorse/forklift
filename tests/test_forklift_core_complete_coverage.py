@@ -12,7 +12,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from dataclasses import dataclass
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -343,7 +343,7 @@ class TestForkliftCoreCompleteCoverage:
 
         try:
             with tempfile.TemporaryDirectory() as output_dir:
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                     mock_handler.side_effect = Exception("Excel processing failed")
 
                     with pytest.raises(Exception):
@@ -389,9 +389,9 @@ class TestForkliftCoreCompleteCoverage:
 
         try:
             with tempfile.TemporaryDirectory() as output_dir:
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
-                     patch('src.forklift.io.create_parquet_writer') as mock_writer:
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
+                     patch('forklift.io.create_parquet_writer') as mock_writer:
 
                     # Mock schema importer
                     mock_schema_instance = MagicMock()
@@ -436,7 +436,7 @@ class TestForkliftCoreCompleteCoverage:
             test_file = Path(f.name)
 
         try:
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler_instance = MagicMock()
                 mock_handler.return_value = mock_handler_instance
                 mock_handler_instance.get_sheet_info.return_value = {
@@ -468,7 +468,7 @@ class TestForkliftCoreCompleteCoverage:
             test_file = Path(f.name)
 
         try:
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler_instance = MagicMock()
                 mock_handler.return_value = mock_handler_instance
                 mock_handler_instance.get_sheet_info.return_value = {
@@ -493,7 +493,7 @@ class TestForkliftCoreCompleteCoverage:
             test_file = Path(f.name)
 
         try:
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler_instance = MagicMock()
                 mock_handler.return_value = mock_handler_instance
                 mock_handler_instance.get_sheet_info.return_value = {

@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from dataclasses import dataclass
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -19,7 +19,8 @@ from src.forklift.engine.forklift_core import (
     ProcessingResults,
     import_csv,
     import_fwf,
-    import_excel
+    import_excel,
+    import_sql
 )
 
 
@@ -244,9 +245,9 @@ class TestForkliftCore100Percent:
         try:
             if s3_mock_flag:
                 # Mock S3 components to avoid actual S3 calls
-                with patch('src.forklift.engine.forklift_core.is_s3_path', return_value=True), \
-                     patch('src.forklift.engine.forklift_core.S3Path') as mock_s3_path, \
-                     patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
+                with patch('forklift.engine.forklift_core.is_s3_path', return_value=True), \
+                     patch('forklift.engine.forklift_core.S3Path') as mock_s3_path, \
+                     patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                      patch.object(engine.io_handler, 'exists', return_value=False), \
                      patch.object(engine.io_handler, 'get_size', return_value=0), \
                      patch.object(engine.io_handler, 'open_for_write') as mock_open_write, \
@@ -338,7 +339,7 @@ class TestForkliftCore100Percent:
             config.input_path = str(test_file)
 
         try:
-            with patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
+            with patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                  patch.object(engine, '_create_manifest', return_value="manifest.json"), \
                  patch.object(engine, '_create_metadata', return_value="metadata.json"):
 
@@ -367,7 +368,7 @@ class TestForkliftCore100Percent:
             config.input_path = str(test_file)
 
         try:
-            with patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
+            with patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                  patch.object(engine, '_create_manifest', return_value="manifest.json"), \
                  patch.object(engine, '_create_metadata', return_value="metadata.json"):
 
@@ -404,7 +405,7 @@ class TestForkliftCore100Percent:
                 config.output_path = temp_dir
 
                 # Don't mock the manifest/metadata methods - let them run
-                with patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer:
+                with patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer:
                     mock_writer_instance = MagicMock()
                     mock_writer.return_value = mock_writer_instance
 
@@ -433,7 +434,7 @@ class TestForkliftCore100Percent:
 
         try:
             # Mock schema loading to raise an exception - use correct import path
-            with patch('src.forklift.schema.excel_schema_importer.ExcelSchemaImporter', side_effect=Exception("Schema error")):
+            with patch('forklift.schema.excel_schema_importer.ExcelSchemaImporter', side_effect=Exception("Schema error")):
                 with pytest.raises(Exception, match="Schema error"):
                     import_excel(str(test_file), "output", schema_file="schema.json")
         finally:
@@ -446,7 +447,7 @@ class TestForkliftCore100Percent:
 
         try:
             # Mock to raise exception during processing
-            with patch('src.forklift.engine.forklift_core._create_default_excel_config', side_effect=Exception("Processing error")):
+            with patch('forklift.engine.forklift_core._create_default_excel_config', side_effect=Exception("Processing error")):
                 with pytest.raises(Exception, match="Processing error"):
                     import_excel(str(test_file), "output")
         finally:
@@ -454,10 +455,9 @@ class TestForkliftCore100Percent:
 
     def test_import_sql_parameter_handling(self):
         """Test import_sql parameter handling (lines 986-987)."""
-        from src.forklift.engine.forklift_core import import_sql
-
         # Test that import_sql raises ProcessingError when schema is missing
         with pytest.raises(Exception, match="Schema file is required"):
+            from forklift.engine.forklift_core import import_sql
             import_sql("connection_string", "output")
 
 
@@ -509,9 +509,9 @@ class TestMissingLargeSections:
         with tempfile.TemporaryDirectory() as output_dir:
             try:
                 # Mock Excel-related components since we can't create real Excel files easily
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
-                     patch('src.forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
-                     patch('src.forklift.engine.forklift_core._sanitize_filename', return_value="test_sheet"), \
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
+                     patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
+                     patch('forklift.engine.forklift_core._sanitize_filename', return_value="test_sheet"), \
                      patch('pyarrow.parquet.write_table') as mock_write:
 
                     # Mock Excel handler
@@ -541,11 +541,15 @@ class TestMissingLargeSections:
 
     def test_sql_import_section(self):
         """Test the SQL import section (lines 1375-1532)."""
-        from src.forklift.engine.forklift_core import import_sql
+        from forklift.engine.forklift_core import import_sql
 
         # Test with proper schema file to trigger the missing lines
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as schema_f:
             schema_data = {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "$id": "http://example.com/schema",
+                "title": "Test Schema",
+                "type": "object",
                 "x-sql": {
                     "tables": [
                         {
@@ -573,12 +577,12 @@ class TestMissingLargeSections:
         """Test helper functions section (lines 1537-1553, 1563-1607, 1612-1618)."""
         # Test _create_default_excel_config if it exists
         try:
-            from src.forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.forklift_core import _create_default_excel_config
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
 
                 # Mock the Excel handler since the file is empty
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                     mock_handler_instance = MagicMock()
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1']
@@ -591,7 +595,7 @@ class TestMissingLargeSections:
 
         # Test _sanitize_filename if it exists
         try:
-            from src.forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.forklift_core import _sanitize_filename
             result = _sanitize_filename("test sheet name!@#")
             assert isinstance(result, str)
         except ImportError:

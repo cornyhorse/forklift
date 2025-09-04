@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import pyarrow as pa
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -135,7 +135,7 @@ class TestForkliftCoreUltraPrecision:
 
     def test_line_867_unified_io_handler_init_error(self):
         """Hit exact line 867: UnifiedIOHandler initialization failure"""
-        with patch('src.forklift.engine.forklift_core.UnifiedIOHandler') as mock_handler:
+        with patch('forklift.engine.forklift_core.UnifiedIOHandler') as mock_handler:
             mock_handler.side_effect = ConnectionError("S3 unavailable")
 
             try:
@@ -155,7 +155,7 @@ class TestForkliftCoreUltraPrecision:
             csv_file = Path(f.name)
 
         try:
-            with patch('src.forklift.engine.forklift_core.ForkliftCore') as mock_core:
+            with patch('forklift.engine.forklift_core.ForkliftCore') as mock_core:
                 mock_core.side_effect = RuntimeError("Core initialization failed")
 
                 try:
@@ -190,7 +190,7 @@ class TestForkliftCoreUltraPrecision:
             excel_file = Path(f.name)
 
         try:
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler.side_effect = ModuleNotFoundError("openpyxl not installed")
 
                 try:
@@ -299,8 +299,8 @@ class TestForkliftCoreUltraPrecision:
 
         try:
             with tempfile.TemporaryDirectory() as output_dir:
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema:
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema:
 
                     mock_schema_instance = MagicMock()
                     mock_schema.return_value = mock_schema_instance
@@ -330,7 +330,7 @@ class TestForkliftCoreUltraPrecision:
             test_file = Path(f.name)
 
         try:
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler_instance = MagicMock()
                 mock_handler.return_value = mock_handler_instance
                 mock_handler_instance.get_sheet_info.return_value = {

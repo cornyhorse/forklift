@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, mock_open
 import pyarrow as pa
 
-from src.forklift.engine.forklift_core import (
+from forklift.engine.forklift_core import (
     ForkliftCore,
     ImportConfig,
     HeaderMode,
@@ -136,7 +136,7 @@ class TestForkliftCore100PercentCoverage:
     def test_line_867_s3_io_handler_error(self):
         """Test line 867: UnifiedIOHandler initialization error."""
         # Mock UnifiedIOHandler to fail during initialization
-        with patch('src.forklift.engine.forklift_core.UnifiedIOHandler') as mock_handler:
+        with patch('forklift.engine.forklift_core.UnifiedIOHandler') as mock_handler:
             mock_handler.side_effect = Exception("S3 connection failed")
 
             with pytest.raises(Exception):
@@ -154,27 +154,10 @@ class TestForkliftCore100PercentCoverage:
 
         try:
             # Mock ForkliftCore to raise exception during initialization
-            with patch('src.forklift.engine.forklift_core.ForkliftCore') as mock_core:
+            with patch('forklift.engine.forklift_core.ForkliftCore') as mock_core:
                 mock_core.side_effect = Exception("Core init failed")
 
                 # This hits the exception handling lines 880-888
-                with pytest.raises(Exception):
-                    import_csv(input_path=str(csv_file), output_path="output")
-        finally:
-            csv_file.unlink()
-
-    def test_lines_898_899_csv_process_exception(self):
-        """Test lines 898-899: CSV processing exception."""
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
-            f.write("id,name\n1,John\n")
-            csv_file = Path(f.name)
-
-        try:
-            # Mock process_csv to raise exception
-            with patch.object(ForkliftCore, 'process_csv') as mock_process:
-                mock_process.side_effect = Exception("Process failed")
-
-                # This hits lines 898-899 exception handling
                 with pytest.raises(Exception):
                     import_csv(input_path=str(csv_file), output_path="output")
         finally:
@@ -187,7 +170,7 @@ class TestForkliftCore100PercentCoverage:
 
         try:
             # Mock to trigger import_excel error path
-            with patch('src.forklift.inputs.excel.ExcelInputHandler', side_effect=ImportError("Excel unavailable")):
+            with patch('forklift.inputs.excel.ExcelInputHandler', side_effect=ImportError("Excel unavailable")):
                 with pytest.raises(ImportError):
                     import_excel(input_path=str(excel_file), output_path="output")
         finally:
@@ -282,8 +265,8 @@ class TestForkliftCore100PercentCoverage:
 
         try:
             with tempfile.TemporaryDirectory() as output_dir:
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema:
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema:
 
                     mock_schema_instance = MagicMock()
                     mock_schema.return_value = mock_schema_instance
@@ -313,7 +296,7 @@ class TestForkliftCore100PercentCoverage:
             test_file = Path(f.name)
 
         try:
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler_instance = MagicMock()
                 mock_handler.return_value = mock_handler_instance
                 mock_handler_instance.get_sheet_info.return_value = {

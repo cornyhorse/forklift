@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 # Import processors to test
-from src.forklift.processors.base import ValidationResult
+from forklift.processors.base import ValidationResult
 
 
 class TestColumnMapper:
@@ -225,66 +225,77 @@ class TestBadRowsHandler:
     def test_bad_rows_handler_basic(self):
         """Test basic bad rows handling."""
         try:
-            from src.forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
+            from forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
 
             config = BadRowsConfig(
-                enabled=True,
                 max_bad_rows=5,
-                bad_rows_threshold=0.1
+                output_format="json"
             )
 
             handler = BadRowsHandler(config)
 
-            # Create test data
-            data = {'id': [1, 2, 3], 'value': ['good', 'good', 'good']}
-            batch = pa.RecordBatch.from_pydict(data)
+            # Test basic functionality
+            assert handler.config == config
+            assert handler.bad_rows == []
+            assert handler.row_count == 0
+            assert handler.bad_row_count == 0
 
-            result_batch, validation_results = handler.process_batch(batch)
+            # Test adding a bad row
+            row_data = {'id': 1, 'value': 'bad_data'}
+            handler.add_bad_row(row_data, 0)
 
-            # Should process successfully
-            assert result_batch is not None
+            assert handler.get_bad_row_count() == 1
+            assert len(handler.bad_rows) == 1
 
         except ImportError:
             pytest.skip("BadRowsHandler not available")
 
     def test_bad_rows_handler_threshold_exceeded(self):
-        """Test bad rows handler when threshold is exceeded."""
+        """Test bad rows handler when max_bad_rows limit is exceeded."""
         try:
-            from src.forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
+            from forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
 
             config = BadRowsConfig(
-                enabled=True,
                 max_bad_rows=2,
-                bad_rows_threshold=0.3  # 30% threshold
+                output_format="json"
             )
 
             handler = BadRowsHandler(config)
 
-            # Simulate processing bad rows by adding them to the handler
-            for i in range(5):  # Add more bad rows than threshold allows
-                handler.add_bad_row(f"row_{i}", "validation_error")
+            # Add more bad rows than the limit allows
+            for i in range(5):
+                row_data = {'id': i, 'value': f'bad_data_{i}'}
+                handler.add_bad_row(row_data, i)
 
-            # Should have validation results indicating threshold exceeded
-            assert handler.get_bad_row_count() > config.max_bad_rows
+            # Should only collect up to max_bad_rows limit
+            assert handler.get_bad_row_count() == config.max_bad_rows
+            assert len(handler.bad_rows) == 2
 
         except ImportError:
             pytest.skip("BadRowsHandler not available")
 
     def test_bad_rows_handler_disabled(self):
-        """Test bad rows handler when disabled."""
+        """Test bad rows handler with minimal configuration."""
         try:
-            from src.forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
+            from forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
 
-            config = BadRowsConfig(enabled=False)
+            # Test with configuration that doesn't include original data or error details
+            config = BadRowsConfig(
+                include_original_data=False,
+                include_error_details=False,
+                output_format="json"
+            )
             handler = BadRowsHandler(config)
 
-            data = {'id': [1, 2], 'value': ['test1', 'test2']}
-            batch = pa.RecordBatch.from_pydict(data)
+            row_data = {'id': 1, 'value': 'test'}
+            handler.add_bad_row(row_data, 0)
 
-            result_batch, validation_results = handler.process_batch(batch)
-
-            # Should pass through when disabled
-            assert result_batch == batch
+            # Should still add the row but without original data
+            assert handler.get_bad_row_count() == 1
+            bad_row = handler.bad_rows[0]
+            assert "original_data" not in bad_row
+            assert "errors" not in bad_row
+            assert bad_row["row_index"] == 0
 
         except ImportError:
             pytest.skip("BadRowsHandler not available")

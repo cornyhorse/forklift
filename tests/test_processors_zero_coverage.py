@@ -6,11 +6,11 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 # Import processors to test
-from src.forklift.processors.row_hash_factory import create_row_hash_processor_from_schema
-from src.forklift.processors.row_hash import RowHashProcessor, RowHashConfig
-from src.forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
-from src.forklift.processors.validation_factory import create_validation_processor_from_schema
-from src.forklift.processors.base import ValidationResult
+from forklift.processors.row_hash_factory import create_row_hash_processor_from_schema
+from forklift.processors.row_hash import RowHashProcessor, RowHashConfig
+from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+from forklift.processors.validation_factory import create_validation_processor_from_schema
+from forklift.processors.base import ValidationResult
 
 
 class TestRowHashFactory:
@@ -379,7 +379,7 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_empty_config(self):
         """Test with empty configuration."""
-        from src.forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
 
         processor = create_calculated_columns_processor_from_schema({})
         # Empty config should create a processor with empty lists, not None
@@ -397,14 +397,14 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_none_config(self):
         """Test with None configuration."""
-        from src.forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
 
         processor = create_calculated_columns_processor_from_schema(None)
         assert processor is None
 
     def test_create_processor_with_constants(self):
         """Test creating processor with constants."""
-        from src.forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
 
         schema_config = {
             "constants": [
@@ -433,7 +433,7 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_with_expressions(self):
         """Test creating processor with expressions."""
-        from src.forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
 
         schema_config = {
             "expressions": [
@@ -457,7 +457,7 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_with_calculated(self):
         """Test creating processor with calculated columns."""
-        from src.forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
 
         schema_config = {
             "calculated": [
@@ -481,7 +481,7 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_with_partition_columns(self):
         """Test creating processor with partition columns."""
-        from src.forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
 
         schema_config = {
             "partitionColumns": ["year", "month", "day"]
@@ -494,7 +494,7 @@ class TestCalculatedColumnsFactory:
 
     def test_parse_data_type_simple_types(self):
         """Test parsing simple data types."""
-        from src.forklift.processors.calculated_columns_factory import _parse_data_type
+        from forklift.processors.calculated_columns_factory import _parse_data_type
         import pyarrow as pa
 
         # Test simple types
@@ -510,7 +510,7 @@ class TestCalculatedColumnsFactory:
 
     def test_parse_data_type_complex_types(self):
         """Test parsing complex data types."""
-        from src.forklift.processors.calculated_columns_factory import _parse_data_type
+        from forklift.processors.calculated_columns_factory import _parse_data_type
         import pyarrow as pa
 
         # Test timestamp with unit
@@ -526,7 +526,7 @@ class TestCalculatedColumnsFactory:
 
     def test_parse_data_type_none_and_unknown(self):
         """Test parsing None and unknown data types."""
-        from src.forklift.processors.calculated_columns_factory import _parse_data_type
+        from forklift.processors.calculated_columns_factory import _parse_data_type
         import pyarrow as pa
 
         # Test None
@@ -543,7 +543,7 @@ class TestValidationFactory:
     def test_create_processor_empty_config(self):
         """Test with empty configuration."""
         try:
-            from src.forklift.processors.validation_factory import create_validation_processor_from_schema
+            from forklift.processors.validation_factory import create_validation_processor_from_schema
 
             processor = create_validation_processor_from_schema({})
             # The behavior depends on implementation - could be None or empty processor
@@ -554,7 +554,7 @@ class TestValidationFactory:
     def test_create_processor_none_config(self):
         """Test with None configuration."""
         try:
-            from src.forklift.processors.validation_factory import create_validation_processor_from_schema
+            from forklift.processors.validation_factory import create_validation_processor_from_schema
 
             processor = create_validation_processor_from_schema(None)
             assert processor is None

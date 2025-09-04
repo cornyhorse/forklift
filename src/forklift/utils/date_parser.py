@@ -170,8 +170,6 @@ def _normalize_format(fmt: str) -> str:
     result = fmt
 
     # Replace tokens in order of specificity (longest first to avoid conflicts)
-    # We need to be careful about the order to avoid double-replacements
-
     # Year tokens (longest first)
     result = result.replace('YYYY', '%Y')
     result = result.replace('yyyy', '%Y')
@@ -192,53 +190,75 @@ def _normalize_format(fmt: str) -> str:
     result = result.replace('ffffff', '%f')
     result = result.replace('fff', '%f')
 
-    # Context-dependent MM tokens
-    # Check if this is a time format (contains time-related tokens)
-    is_time_format = any(token in fmt for token in ['HH', 'hh', 'SS', 'ss', 'H:', 'h:', 'S:', 's:'])
+    # Handle MM/mm tokens with context awareness
+    # Split the format into date and time parts to handle MM differently
+    import re
 
-    if is_time_format:
-        # In time context, MM should be minutes
-        result = result.replace('MM', '%M')
-        result = result.replace('mm', '%M')
-        result = result.replace('Mm', '%M')
-        # Don't replace single M/m in time context to avoid conflicts with month names
+    # Common time separators that indicate the time part
+    time_separators = [' ', 'T']
+    time_part_start = -1
+
+    for sep in time_separators:
+        if sep in result:
+            # Find where time part likely starts (after date part)
+            parts = result.split(sep)
+            if len(parts) >= 2:
+                # Check if the part after separator contains time-like tokens
+                time_part = sep.join(parts[1:])
+                if any(token in time_part for token in ['HH', 'hh', 'H:', 'h:', 'SS', 'ss', 'S:', 's:']):
+                    time_part_start = result.find(sep + time_part)
+                    break
+
+    if time_part_start > 0:
+        # Split into date and time parts
+        date_part = result[:time_part_start]
+        time_part = result[time_part_start:]
+
+        # Process date part: MM should be months
+        date_part = date_part.replace('MM', '%m')
+        date_part = date_part.replace('mm', '%m')
+        date_part = date_part.replace('Mm', '%m')
+
+        # Process time part: MM should be minutes
+        time_part = time_part.replace('MM', '%M')
+        time_part = time_part.replace('mm', '%M')
+        time_part = time_part.replace('Mm', '%M')
+
+        result = date_part + time_part
     else:
-        # In date context, MM should be months
+        # No clear time part, treat as date-only format
         result = result.replace('MM', '%m')
         result = result.replace('mm', '%m')
         result = result.replace('Mm', '%m')
-        # Single M/m for months (only in date context, after month names are processed)
-        # BUT we need to avoid replacing M's that are already part of % codes
-        # Use a more careful approach for single character replacements
-        import re
-        # Only replace M/m that are not preceded by %
-        result = re.sub(r'(?<!%)M(?![a-zA-Z])', '%m', result)
-        result = re.sub(r'(?<!%)m(?![a-zA-Z])', '%m', result)
+
+    # Handle single M/m tokens with regex to avoid conflicts with existing % codes
+    # Only replace standalone M/m that are not preceded by % and not followed by letters
+    result = re.sub(r'(?<!%)M(?![a-zA-Z%])', '%m', result)
+    result = re.sub(r'(?<!%)m(?![a-zA-Z%])', '%m', result)
 
     # Day tokens
     result = result.replace('DD', '%d')
     result = result.replace('dd', '%d')
     result = result.replace('Dd', '%d')
-    # Single D/d (be careful not to replace in % codes)
-    import re
-    result = re.sub(r'(?<!%)D(?![a-zA-Z])', '%d', result)
-    result = re.sub(r'(?<!%)d(?![a-zA-Z])', '%d', result)
+    # Single D/d
+    result = re.sub(r'(?<!%)D(?![a-zA-Z%])', '%d', result)
+    result = re.sub(r'(?<!%)d(?![a-zA-Z%])', '%d', result)
 
     # Hour tokens
     result = result.replace('HH', '%H')
     result = result.replace('hh', '%H')
     result = result.replace('Hh', '%H')
     # Single H/h
-    result = re.sub(r'(?<!%)H(?![a-zA-Z])', '%H', result)
-    result = re.sub(r'(?<!%)h(?![a-zA-Z])', '%H', result)
+    result = re.sub(r'(?<!%)H(?![a-zA-Z%])', '%H', result)
+    result = re.sub(r'(?<!%)h(?![a-zA-Z%])', '%H', result)
 
     # Second tokens
     result = result.replace('SS', '%S')
     result = result.replace('ss', '%S')
     result = result.replace('Ss', '%S')
     # Single S/s
-    result = re.sub(r'(?<!%)S(?![a-zA-Z])', '%S', result)
-    result = re.sub(r'(?<!%)s(?![a-zA-Z])', '%S', result)
+    result = re.sub(r'(?<!%)S(?![a-zA-Z%])', '%S', result)
+    result = re.sub(r'(?<!%)s(?![a-zA-Z%])', '%S', result)
 
     return result
 
@@ -425,7 +445,29 @@ def coerce_date(
     candidates = []
 
     if fmt:
-        candidates.append(_normalize_format(fmt))
+        normalized_fmt = _normalize_format(fmt)
+        candidates.append(normalized_fmt)
+
+        # For schema token formats with single character tokens (M, D, H, S),
+        # also try variations that account for both zero-padded and non-zero-padded values
+        if '%' not in fmt:  # Original was schema tokens, not strptime
+            # Check if format contains single character tokens that need flexible parsing
+            has_single_chars = any(
+                token in fmt and token*2 not in fmt
+                for token in ['M', 'D', 'H', 'S', 'm', 'd', 'h', 's']
+            )
+
+            if has_single_chars:
+                # Create additional format variations for flexible parsing
+                # Replace single digit patterns with flexible alternatives
+                import re
+                flexible_fmt = normalized_fmt
+                # For single digit months/days/hours/seconds, try both padded and unpadded
+                flexible_fmt = re.sub(r'(?<!%)(%[mdhs])(?![a-zA-Z])', r'(?:\1|%\1)', flexible_fmt)
+                # This doesn't work with strptime, so we'll handle it differently
+
+                # Instead, we'll just be more lenient with exact matching for single char formats
+                pass
 
     if formats:
         candidates.extend(_normalize_format(f) for f in formats)
@@ -436,8 +478,26 @@ def coerce_date(
             try:
                 parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
                 # For strict format enforcement when fmt is specified, check exact match
-                if fmt and not _matches_format_exact(value, candidate_fmt):
-                    continue
+                if fmt and '%' in fmt:
+                    # Original format was strptime - always check exact match
+                    if not _matches_format_exact(value, candidate_fmt):
+                        continue
+                elif fmt:
+                    # Original format was schema tokens - be more nuanced about exact matching
+                    # Check if format has single character tokens that should allow flexible padding
+                    has_flexible_tokens = any(
+                        token in fmt and token*2 not in fmt
+                        for token in ['M', 'D', 'H', 'S', 'm', 'd', 'h', 's']
+                    )
+
+                    if has_flexible_tokens:
+                        # For formats with flexible tokens, parsing success is sufficient
+                        # We don't require exact matching for single character tokens
+                        pass
+                    else:
+                        # For formats without flexible tokens (all double chars), require exact match
+                        if not _matches_format_exact(value, candidate_fmt):
+                            continue
                 return parsed_dt.date().isoformat()
             except (ValueError, TypeError):
                 continue
@@ -514,49 +574,68 @@ def coerce_datetime(
                 pass  # Fall through to other parsing methods
 
         if not parsed_dt:
-            # Build list of format candidates
-            candidates = []
+            # Check if the string appears to be timezone-aware
+            # If so, use dateutil parser to preserve timezone info
+            is_timezone_aware = (
+                value.endswith('Z') or  # UTC indicator
+                '+' in value[-6:] or    # Timezone offset like +05:00
+                '-' in value[-6:] or    # Timezone offset like -05:00
+                value.endswith(('UTC', 'GMT'))  # Named timezones
+            )
 
-            if fmt:
-                candidates.append(_normalize_format(fmt))
-
-            if formats:
-                candidates.extend(_normalize_format(f) for f in formats)
-
-            # Try candidate formats first with exact matching
-            if candidates:
-                for candidate_fmt in candidates:
-                    try:
-                        parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
-                        # For strict format enforcement, check exact match
-                        if fmt and not _matches_format_exact(value, candidate_fmt):
-                            parsed_dt = None
-                            continue
-                        break
-                    except (ValueError, TypeError):
-                        continue
-
-                # If specific formats were provided but none matched, raise error
-                if not parsed_dt and (fmt or formats):
-                    if fmt:
-                        raise ValueError(f"Value '{value}' does not match required format '{fmt}'")
-                    else:
-                        raise ValueError(f"Value '{value}' does not match any of the specified formats")
-
-            # Try common datetime formats
-            if not parsed_dt:
-                parsed_dt = _try_strptime(value, COMMON_DATETIME_FORMATS)
-
-            # Try common date formats (will give time 00:00:00)
-            if not parsed_dt:
-                parsed_dt = _try_strptime(value, COMMON_DATE_FORMATS)
-
-            # Fallback to dateutil parser
-            if not parsed_dt:
+            if is_timezone_aware and not fmt and not formats:
+                # For timezone-aware strings without explicit format requirements,
+                # use dateutil parser to preserve timezone information
                 try:
                     parsed_dt = dateutil_parser.parse(value, fuzzy=fuzzy)
                 except (ValueError, TypeError, OverflowError):
                     pass
+
+            if not parsed_dt:
+                # Build list of format candidates
+                candidates = []
+
+                if fmt:
+                    candidates.append(_normalize_format(fmt))
+
+                if formats:
+                    candidates.extend(_normalize_format(f) for f in formats)
+
+                # Try candidate formats first with exact matching
+                if candidates:
+                    for candidate_fmt in candidates:
+                        try:
+                            parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
+                            # For strict format enforcement, check exact match
+                            # But be more lenient if the original format was using schema tokens (no %)
+                            if fmt and '%' in fmt and not _matches_format_exact(value, candidate_fmt):
+                                parsed_dt = None
+                                continue
+                            break
+                        except (ValueError, TypeError):
+                            continue
+
+                    # If specific formats were provided but none matched, raise error
+                    if not parsed_dt and (fmt or formats):
+                        if fmt:
+                            raise ValueError(f"Value '{value}' does not match required format '{fmt}'")
+                        else:
+                            raise ValueError(f"Value '{value}' does not match any of the specified formats")
+
+                # Try common datetime formats
+                if not parsed_dt:
+                    parsed_dt = _try_strptime(value, COMMON_DATETIME_FORMATS)
+
+                # Try common date formats (will give time 00:00:00)
+                if not parsed_dt:
+                    parsed_dt = _try_strptime(value, COMMON_DATE_FORMATS)
+
+                # Fallback to dateutil parser
+                if not parsed_dt:
+                    try:
+                        parsed_dt = dateutil_parser.parse(value, fuzzy=fuzzy)
+                    except (ValueError, TypeError, OverflowError):
+                        pass
 
     if not parsed_dt:
         raise ValueError(f"bad datetime: {value}")

@@ -28,7 +28,7 @@ def test_tab_handling_fix():
     print(f"  Actual: {repr(actual)}")
     print(f"  Passed: {actual == expected}")
 
-    return actual == expected
+    assert actual == expected, f"Expected {repr(expected)}, but got {repr(actual)}"
 
 def test_whitespace_collapse_fix():
     """Test that whitespace collapse works correctly with tabs."""
@@ -65,7 +65,7 @@ def test_whitespace_collapse_fix():
         print(f"    Actual: {repr(actual_val)}")
         print(f"    Passed: {actual_val == expected_val}")
 
-    return actual_list == expected
+    assert actual_list == expected, f"Expected {expected}, but got {actual_list}"
 
 def test_control_character_removal_fix():
     """Test that control character removal works correctly."""
@@ -105,27 +105,45 @@ def test_control_character_removal_fix():
         print(f"    Actual: {repr(actual_val)}")
         print(f"    Passed: {actual_val == expected_val}")
 
-    return actual_list == expected
+    assert actual_list == expected, f"Expected {expected}, but got {actual_list}"
 
 if __name__ == "__main__":
     print("Testing all string cleaning fixes...")
     print("=" * 60)
 
-    tab_test_passed = test_tab_handling_fix()
+    try:
+        test_tab_handling_fix()
+        tab_test_passed = True
+        print("✅ Tab handling test passed")
+    except AssertionError as e:
+        tab_test_passed = False
+        print(f"❌ Tab handling test failed: {e}")
     print()
 
-    whitespace_test_passed = test_whitespace_collapse_fix()
+    try:
+        test_whitespace_collapse_fix()
+        whitespace_test_passed = True
+        print("✅ Whitespace collapse test passed")
+    except AssertionError as e:
+        whitespace_test_passed = False
+        print(f"❌ Whitespace collapse test failed: {e}")
     print()
 
-    control_test_passed = test_control_character_removal_fix()
+    try:
+        test_control_character_removal_fix()
+        control_test_passed = True
+        print("✅ Control character removal test passed")
+    except AssertionError as e:
+        control_test_passed = False
+        print(f"❌ Control character removal test failed: {e}")
     print()
 
     all_tests_passed = tab_test_passed and whitespace_test_passed and control_test_passed
 
     if all_tests_passed:
-        print("✅ All tests passed! The fixes are working correctly.")
+        print("🎉 All tests passed! The fixes are working correctly.")
     else:
-        print("❌ Some tests failed. The fixes need more work.")
+        print("⚠️  Some tests failed. The fixes need more work.")
         if not tab_test_passed:
             print("  - Tab handling test failed")
         if not whitespace_test_passed:

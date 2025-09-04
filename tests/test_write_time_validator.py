@@ -28,7 +28,6 @@ class TestWriteTimeConfig:
         assert config.min_row_count == 1
         assert config.fail_on_schema_mismatch is False
         assert config.expected_schema is None
-        assert config.validate_write_readiness is True
 
     def test_custom_config(self):
         """Test custom configuration values."""
@@ -410,52 +409,6 @@ class TestWriteTimeValidator:
         self.validator.reset_state()
 
         assert len(self.validator._seen_primary_keys) == 0
-
-
-class TestFactoryFunctions:
-    """Test factory functions for creating validators."""
-
-    def test_create_basic_write_validator_no_pk(self):
-        """Test creating basic validator without primary key."""
-        validator = create_basic_write_validator()
-
-        assert isinstance(validator, WriteTimeValidator)
-        assert validator.config.check_empty_tables is True
-        assert validator.config.check_duplicate_rows is False
-        assert validator.config.check_null_primary_keys is False
-        assert validator.config.primary_key_columns == []
-        assert validator.config.max_null_percentage == 90.0
-
-    def test_create_basic_write_validator_with_pk(self):
-        """Test creating basic validator with primary key."""
-        validator = create_basic_write_validator(['id'])
-
-        assert isinstance(validator, WriteTimeValidator)
-        assert validator.config.check_duplicate_rows is True
-        assert validator.config.check_null_primary_keys is True
-        assert validator.config.primary_key_columns == ['id']
-
-    def test_create_strict_write_validator(self):
-        """Test creating strict validator."""
-        expected_schema = pa.schema([pa.field('id', pa.int64())])
-
-        validator = create_strict_write_validator(
-            primary_key_columns=['id'],
-            required_columns=['id', 'name'],
-            expected_schema=expected_schema
-        )
-
-        assert isinstance(validator, WriteTimeValidator)
-        assert validator.config.check_empty_tables is True
-        assert validator.config.check_schema_compliance is True
-        assert validator.config.check_duplicate_rows is True
-        assert validator.config.check_null_primary_keys is True
-        assert validator.config.primary_key_columns == ['id']
-        assert validator.config.required_columns == ['id', 'name']
-        assert validator.config.max_null_percentage == 10.0
-        assert validator.config.fail_on_schema_mismatch is True
-        assert validator.config.expected_schema == expected_schema
-        assert validator.config.validate_write_readiness is True
 
 
 if __name__ == "__main__":

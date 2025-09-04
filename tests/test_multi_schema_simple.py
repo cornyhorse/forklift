@@ -16,7 +16,7 @@ def test_multi_schema_fwf():
     print("Testing multi-schema FWF functionality...")
 
     # Path to our test files
-    test_dir = Path(__file__).parent / "tests" / "test-files" / "goodfwf"
+    test_dir = Path(__file__).parent / "test-files" / "goodfwf"
     schema_path = test_dir / "multi_schema_example.json"
     data_path = test_dir / "multi_schema_example.txt"
 

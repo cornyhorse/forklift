@@ -605,9 +605,14 @@ def coerce_datetime(
                     for candidate_fmt in candidates:
                         try:
                             parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
-                            # For strict format enforcement, check exact match
-                            # But be more lenient if the original format was using schema tokens (no %)
-                            if fmt and '%' in fmt and not _matches_format_exact(value, candidate_fmt):
+                            # For strict format enforcement with schema tokens (no %), always check exact match
+                            if fmt and '%' not in fmt:
+                                # This is a schema token format like "YYYY-MM-DD", enforce exact match
+                                if not _matches_format_exact(value, candidate_fmt):
+                                    parsed_dt = None
+                                    continue
+                            # For strptime formats with %, also check exact match if it was the original format
+                            elif fmt and '%' in fmt and not _matches_format_exact(value, candidate_fmt):
                                 parsed_dt = None
                                 continue
                             break
@@ -621,13 +626,14 @@ def coerce_datetime(
                         else:
                             raise ValueError(f"Value '{value}' does not match any of the specified formats")
 
-                # Try common datetime formats
-                if not parsed_dt:
+                # If no specific format was provided, try common formats
+                if not parsed_dt and not fmt and not formats:
+                    # Try common datetime formats
                     parsed_dt = _try_strptime(value, COMMON_DATETIME_FORMATS)
 
-                # Try common date formats (will give time 00:00:00)
-                if not parsed_dt:
-                    parsed_dt = _try_strptime(value, COMMON_DATE_FORMATS)
+                    # Try common date formats (will give time 00:00:00)
+                    if not parsed_dt:
+                        parsed_dt = _try_strptime(value, COMMON_DATE_FORMATS)
 
                 # Fallback to dateutil parser
                 if not parsed_dt:

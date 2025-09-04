@@ -47,27 +47,36 @@ class WriteTimeValidator(BaseProcessor):
         """Process a batch and return validation results."""
         all_results = []
 
-        # Run all configured validations
-        if self.config.check_empty_tables:
-            all_results.extend(self._validate_not_empty(batch))
+        try:
+            # Run all configured validations
+            if self.config.check_empty_tables:
+                all_results.extend(self._validate_not_empty(batch))
 
-        if self.config.expected_schema:
-            all_results.extend(self._validate_schema(batch))
+            if self.config.expected_schema:
+                all_results.extend(self._validate_schema_compliance(batch))
 
-        if self.config.required_columns:
-            all_results.extend(self._validate_required_columns(batch))
+            if self.config.required_columns:
+                all_results.extend(self._validate_required_columns(batch))
 
-        if self.config.check_null_percentages:
-            all_results.extend(self._validate_null_percentages(batch))
+            if self.config.check_null_percentages:
+                all_results.extend(self._validate_null_percentages(batch))
 
-        if self.config.check_null_primary_keys:
-            all_results.extend(self._validate_primary_key_nulls(batch))
+            if self.config.check_null_primary_keys:
+                all_results.extend(self._validate_primary_key_nulls(batch))
 
-        if self.config.check_duplicate_rows:
-            all_results.extend(self._validate_duplicate_rows(batch))
+            if self.config.check_duplicate_rows:
+                all_results.extend(self._validate_duplicate_rows(batch))
 
-        # Always check for write readiness
-        all_results.extend(self._validate_write_readiness(batch))
+            # Always check for write readiness
+            all_results.extend(self._validate_write_readiness(batch))
+
+        except Exception as e:
+            # Handle any unexpected validation errors
+            all_results.append(ValidationResult(
+                is_valid=False,
+                error_message=f"Write validation error: {str(e)}",
+                error_code="WRITE_VALIDATION_ERROR"
+            ))
 
         return batch, all_results
 
@@ -90,14 +99,14 @@ class WriteTimeValidator(BaseProcessor):
 
         return results
 
-    def _validate_schema(self, batch: pa.RecordBatch) -> List[ValidationResult]:
+    def _validate_schema_compliance(self, batch: pa.RecordBatch) -> List[ValidationResult]:
         """Validate schema matches expected schema."""
         results = []
 
         if not self.config.expected_schema:
             return results
 
-        # Check if schemas match
+        # Check if schemas match - this will raise TypeError if expected_schema is not a Schema
         if not batch.schema.equals(self.config.expected_schema):
             error_msg = f"Schema mismatch. Expected: {self.config.expected_schema}, Got: {batch.schema}"
 

@@ -40,11 +40,11 @@ class RowHashConfig:
     exclude_columns: Optional[List[str]] = None
     null_value: str = "NULL"
     separator: str = "||"
-    
+
     # New input hash options
     input_hash_enabled: bool = False
     input_hash_column_name: str = "_input_hash"
-    
+
     # New metadata columns
     source_uri_enabled: bool = False
     source_uri_column_name: str = "_source_uri"
@@ -58,7 +58,7 @@ class RowHashConfig:
         """Validate configuration after initialization."""
         if self.exclude_columns is None:
             self.exclude_columns = []
-        
+
         # Validate algorithm
         supported_algorithms = ["md5", "sha1", "sha256", "sha384", "sha512"]
         if self.algorithm not in supported_algorithms:
@@ -70,7 +70,7 @@ class RowHashProcessor(BaseProcessor):
     """Processor for adding row-level hash columns and metadata.
 
     This processor generates hash columns and metadata for each row including:
-    - Output row hash (after transformations) 
+    - Output row hash (after transformations)
     - Input row hash (before transformations)
     - Source URI/file path
     - Ingestion timestamp
@@ -78,55 +78,28 @@ class RowHashProcessor(BaseProcessor):
 
     The processor supports multiple hash algorithms and flexible column
     inclusion/exclusion rules.
-
-    Examples:
-        # Basic SHA256 hash with metadata
-        config = RowHashConfig(
-            enabled=True,
-            input_hash_enabled=True,
-            source_uri_enabled=True,
-            ingested_at_enabled=True,
-            row_number_enabled=True
-        )
-
-        # Hash only specific columns
-        config = RowHashConfig(
-            enabled=True,
-            column_name="key_hash",
-            algorithm="sha256",
-            include_columns=["id", "name", "email"]
-        )
     """
+
+    def __init__(self, config: RowHashConfig):
+        """Initialize the row hash processor."""
+        super().__init__()
+        self.config = config
         self.source_uri = None
         self.ingestion_timestamp = None
-        self.source_row_offset = 0  # Starting row number in source file
-        self.processing_row_counter = 0  # Sequential processing counter
+        self.source_row_offset = 0
+        self.processing_row_counter = 0
 
     def set_source_context(self, source_uri: str, source_row_offset: int = 0):
-        """Set source context for metadata generation.
-        
-        Args:
-            source_uri: URI/path of the source file
-            source_row_offset: Starting row number in source file (for batch processing)
-        """
+        """Set source context for metadata generation."""
         self.source_uri = source_uri
         self.source_row_offset = source_row_offset
-        
-        # Set ingestion timestamp when source context is set
+
         if self.config.ingested_at_enabled:
             from datetime import datetime, timezone
             self.ingestion_timestamp = datetime.now(timezone.utc).isoformat()
 
     def process_batch(self, batch: pa.RecordBatch, input_batch: Optional[pa.RecordBatch] = None) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Process a batch by adding hash columns and metadata.
-
-        Args:
-            batch: PyArrow RecordBatch to process (output/transformed data)
-            input_batch: Original input batch for input hash calculation (optional)
-        """
-        self.config = config
-            Tuple of (batch_with_metadata_columns, validation_results)
-        """
+        """Process a batch by adding hash columns and metadata."""
         validation_results = []
         processed_batch = batch
 
@@ -161,7 +134,7 @@ class RowHashProcessor(BaseProcessor):
                 source_row_numbers = list(range(
                     self.source_row_offset + self.processing_row_counter + 1,
                     self.source_row_offset + self.processing_row_counter + batch.num_rows + 1
-        """Process a batch by adding row hash column.
+                ))
                 source_row_array = pa.array(source_row_numbers, type=pa.int64())
                 processed_batch = self._add_column(processed_batch, self.config.source_row_number_column_name, source_row_array)
 
@@ -187,23 +160,14 @@ class RowHashProcessor(BaseProcessor):
             return batch, validation_results
 
     def _get_hash_columns(self, schema: pa.Schema) -> List[str]:
-        """Determine which columns to include in hash calculation.
-
-        Args:
-            schema: PyArrow schema of the batch
-
-        Returns:
-            List of column names to include in hash
-        """
+        """Determine which columns to include in hash calculation."""
         all_columns = [field.name for field in schema]
 
         if self.config.include_columns is not None:
-        Returns:
             hash_columns = [col for col in self.config.include_columns if col in all_columns]
         else:
-            # Use all columns except excluded ones
             hash_columns = [col for col in all_columns if col not in self.config.exclude_columns]
-        validation_results = []
+
         # Don't include metadata columns if they already exist
         metadata_columns = [
             self.config.column_name,
@@ -213,169 +177,35 @@ class RowHashProcessor(BaseProcessor):
             self.config.source_row_number_column_name,
             self.config.processing_row_number_column_name
         ]
-        
+
         hash_columns = [col for col in hash_columns if col not in metadata_columns]
         return hash_columns
 
     def _get_input_hash_columns(self, schema: pa.Schema) -> List[str]:
-        """Get columns for input hash calculation (all original columns).
-        
-        Args:
-            schema: PyArrow schema of the input batch
-            
-        Returns:
-            List of column names to include in input hash
-        """
-        # For input hash, include all original columns
+        """Get columns for input hash calculation (all original columns)."""
         return [field.name for field in schema]
 
     def _compute_row_hashes(self, batch: pa.RecordBatch, hash_columns: List[str]) -> pa.Array:
-        """Compute hash values for each row.
-
-        Args:
-            batch: PyArrow RecordBatch
-            hash_columns: List of column names to include in hash
-
-        Returns:
-            PyArrow Array of hash values
-        """
+        """Compute hash values for each row."""
         num_rows = batch.num_rows
         hash_values = []
 
         for row_idx in range(num_rows):
-            # Build concatenated string for this row
             row_parts = []
             for col_name in hash_columns:
                 column = batch.column(col_name)
                 value = column[row_idx]
 
                 if value.is_valid:
-        if not self.config.enabled:
-            return batch, validation_results
-
-        try:
-                        # Handle binary data
-                        row_parts.append(value.as_py().hex() if value.as_py() else self.config.null_value)
-
-            if not hash_columns:
-                validation_results.append(ValidationResult(
-                    is_valid=False,
-                    error_message="No columns available for hash calculation",
-                    error_code="ROW_HASH_NO_COLUMNS"
-                ))
-                return batch, validation_results
-
-            # Generate hash values for each row
-            hash_values = self._compute_row_hashes(batch, hash_columns)
-
-            # Create new batch with hash column added
-            new_batch = self._add_hash_column(batch, hash_values)
-
-            return new_batch, validation_results
-
-        except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Row hash calculation failed: {str(e)}",
-                error_code="ROW_HASH_ERROR"
-            ))
-            return batch, validation_results
-
-    def _get_hash_columns(self, schema: pa.Schema) -> List[str]:
-        """Determine which columns to include in hash calculation.
-
-        Args:
-            schema: PyArrow schema of the batch
-
-        Returns:
-            List of column names to include in hash
-        """
-        all_columns = [field.name for field in schema]
-
-    def _add_column(self, batch: pa.RecordBatch, column_name: str, values: pa.Array) -> pa.RecordBatch:
-        """Add a column to the batch.
-
-        Args:
-            batch: Original PyArrow RecordBatch
-            column_name: Name of the new column
-            values: Array of values for the new column
-
-        Returns:
-            New RecordBatch with column added
-        """
-        # Create new schema with the column
-        new_fields = list(batch.schema)
-        new_fields.append(pa.field(column_name, values.type))
-        new_schema = pa.schema(new_fields)
-
-        # Create new batch with the column
-        new_columns = list(batch.columns)
-        new_columns.append(values)
-
-        return pa.RecordBatch.from_arrays(new_columns, schema=new_schema)
-        if self.config.include_columns is not None:
-            # Use only specified columns
-        """Get the output schema with all metadata columns added.
-        else:
-            # Use all columns except excluded ones
-            hash_columns = [col for col in all_columns if col not in self.config.exclude_columns]
-
-        # Don't include the hash column itself if it already exists
-            Output schema with metadata columns
-            hash_columns.remove(self.config.column_name)
-        """Compute hash values for each row.
-
-        # Add output hash column
-        if self.config.enabled:
-            new_fields.append(pa.field(self.config.column_name, pa.string()))
-
-        # Add input hash column
-        if self.config.input_hash_enabled:
-            new_fields.append(pa.field(self.config.input_hash_column_name, pa.string()))
-
-        # Add source URI column
-        if self.config.source_uri_enabled:
-            new_fields.append(pa.field(self.config.source_uri_column_name, pa.string()))
-
-        # Add ingestion timestamp column
-        if self.config.ingested_at_enabled:
-            new_fields.append(pa.field(self.config.ingested_at_column_name, pa.string()))
-
-        # Add row number columns
-        if self.config.row_number_enabled:
-            new_fields.append(pa.field(self.config.source_row_number_column_name, pa.int64()))
-            new_fields.append(pa.field(self.config.processing_row_number_column_name, pa.int64()))
-
-        Args:
-            batch: PyArrow RecordBatch
-            hash_columns: List of column names to include in hash
-
-        Returns:
-            PyArrow Array of hash values
-        """
-        num_rows = batch.num_rows
-        hash_values = []
-
-        for row_idx in range(num_rows):
-            # Build concatenated string for this row
-            row_parts = []
-            for col_name in hash_columns:
-                column = batch.column(col_name)
-                value = column[row_idx]
-
-                if value.is_valid:
-                    # Convert value to string representation
                     if pa.types.is_string(column.type) or pa.types.is_large_string(column.type):
                         row_parts.append(str(value.as_py()))
                     elif pa.types.is_binary(column.type):
-                        # Handle binary data
                         row_parts.append(value.as_py().hex() if value.as_py() else self.config.null_value)
                     else:
                         row_parts.append(str(value.as_py()))
                 else:
                     row_parts.append(self.config.null_value)
 
-            # Join with separator and compute hash
             row_string = self.config.separator.join(row_parts)
             hash_value = self._compute_hash(row_string)
             hash_values.append(hash_value)
@@ -383,14 +213,7 @@ class RowHashProcessor(BaseProcessor):
         return pa.array(hash_values, type=pa.string())
 
     def _compute_hash(self, data: str) -> str:
-        """Compute hash of the given string.
-
-        Args:
-            data: String data to hash
-
-        Returns:
-            Hexadecimal hash string
-        """
+        """Compute hash of the given string."""
         data_bytes = data.encode('utf-8')
 
         if self.config.algorithm == "md5":
@@ -406,40 +229,22 @@ class RowHashProcessor(BaseProcessor):
         else:
             raise ValueError(f"Unsupported hash algorithm: {self.config.algorithm}")
 
-    def _add_hash_column(self, batch: pa.RecordBatch, hash_values: pa.Array) -> pa.RecordBatch:
-        """Add hash column to the batch.
-
-        Args:
-            batch: Original PyArrow RecordBatch
-            hash_values: Array of hash values
-
-        Returns:
-            New RecordBatch with hash column added
-        """
-        # Create new schema with hash column
+    def _add_column(self, batch: pa.RecordBatch, column_name: str, column_values: pa.Array) -> pa.RecordBatch:
+        """Add a column to the batch."""
         new_fields = list(batch.schema)
-        new_fields.append(pa.field(self.config.column_name, pa.string()))
+        new_fields.append(pa.field(column_name, column_values.type))
         new_schema = pa.schema(new_fields)
 
-        # Create new batch with hash column
         new_columns = list(batch.columns)
-        new_columns.append(hash_values)
+        new_columns.append(column_values)
 
         return pa.RecordBatch.from_arrays(new_columns, schema=new_schema)
 
     def get_output_schema(self, input_schema: pa.Schema) -> pa.Schema:
-        """Get the output schema with hash column added.
-
-        Args:
-            input_schema: Input PyArrow schema
-
-        Returns:
-            Output schema with hash column
-        """
+        """Get the output schema with hash column added."""
         if not self.config.enabled:
             return input_schema
 
-        # Add hash column to schema
         new_fields = list(input_schema)
         new_fields.append(pa.field(self.config.column_name, pa.string()))
         return pa.schema(new_fields)

@@ -61,6 +61,18 @@
     "description_detail": "Single column primary key on 'id' field ensuring row uniqueness across all conditional schemas"
   },
 
+  "x-rowHash": {
+    "description": "Configuration for generating row-level hash columns for change detection and data integrity",
+    "enabled": false,
+    "columnName": "row_hash",
+    "algorithm": "sha256",
+    "includeColumns": null,
+    "excludeColumns": [],
+    "nullValue": "NULL",
+    "separator": "||",
+    "description_detail": "Row hash disabled by default. When enabled, generates SHA256 hash of all row data for change detection and integrity verification. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
+  },
+
   "x-fwf": {
     "encoding": "utf-8",
     "trim": { "lstrip": false, "rstrip": true },

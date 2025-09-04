@@ -712,6 +712,32 @@ class ForkliftCore:
 
         return valid_batch, invalid_batch
 
+
+    def _process_batch_with_transformations(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        """Apply transformations to a batch including row hash generation.
+
+        Args:
+            batch: Input PyArrow RecordBatch
+
+        Returns:
+            Transformed PyArrow RecordBatch with row hash if enabled
+        """
+        processed_batch = batch
+
+        # Apply row hash if enabled in schema
+        if hasattr(self, 'schema_dict') and self.schema_dict:
+            row_hash_config = self.schema_dict.get('x-rowHash')
+            if row_hash_config:
+                row_hash_processor = create_row_hash_processor_from_schema(row_hash_config)
+                if row_hash_processor:
+                    processed_batch, validation_results = row_hash_processor.process_batch(processed_batch)
+                    # Log any validation issues from row hash processing
+                    for result in validation_results:
+                        if not result.is_valid:
+                            print(f"Row hash processing warning: {result.error_message}")
+
+        return processed_batch
+
     def _write_batch_to_parquet(self, batch: pa.RecordBatch, writer: pq.ParquetWriter):
         """Write a batch to parquet file.
 

@@ -145,6 +145,18 @@
     }
   },
 
+  "x-rowHash": {
+    "description": "Configuration for generating row-level hash columns for change detection and data integrity",
+    "enabled": false,
+    "columnName": "row_hash",
+    "algorithm": "sha256",
+    "includeColumns": null,
+    "excludeColumns": [],
+    "nullValue": "NULL",
+    "separator": "||",
+    "description_detail": "Row hash disabled by default. When enabled, generates SHA256 hash of all row data for change detection and integrity verification. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
+  },
+
   "x-calculatedColumns": {
     "description": "Configuration for adding calculated columns including constants, expressions, and computed fields",
     "constants": [

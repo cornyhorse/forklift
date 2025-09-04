@@ -337,6 +337,14 @@ class CsvSchemaImporter:
         """
         return self.schema.get("x-calculatedColumns")
 
+    def get_row_hash_config(self) -> Optional[Dict[str, Any]]:
+        """Extract row hash configuration from schema.
+
+        Returns:
+            Dictionary containing row hash configuration or None if not present
+        """
+        return self.schema.get("x-rowHash")
+
     def has_calculated_columns(self) -> bool:
         """Check if schema defines calculated columns.
 

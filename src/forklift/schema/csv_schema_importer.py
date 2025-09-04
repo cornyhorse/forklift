@@ -329,5 +329,51 @@ class CsvSchemaImporter:
         """Get the raw schema dictionary for backward compatibility."""
         return self.schema
 
+    def get_calculated_columns_config(self) -> Optional[Dict[str, Any]]:
+        """Extract calculated columns configuration from schema.
+
+        Returns:
+            Dictionary containing calculated columns configuration or None if not present
+        """
+        return self.schema.get("x-calculatedColumns")
+
+    def has_calculated_columns(self) -> bool:
+        """Check if schema defines calculated columns.
+
+        Returns:
+            True if calculated columns are defined, False otherwise
+        """
+        calc_cols = self.get_calculated_columns_config()
+        if not calc_cols:
+            return False
+
+        return (
+            bool(calc_cols.get("constants")) or
+            bool(calc_cols.get("expressions")) or
+            bool(calc_cols.get("calculated"))
+        )
+
+    def get_partition_columns(self) -> List[str]:
+        """Get partition columns from calculated columns configuration.
+
+        Returns:
+            List of column names to be used for partitioning
+        """
+        calc_cols = self.get_calculated_columns_config()
+        if calc_cols:
+            return calc_cols.get("partitionColumns", [])
+        return []
+
+    def get_index_columns(self) -> List[str]:
+        """Get index columns from calculated columns configuration.
+
+        Returns:
+            List of column names to be used for indexing
+        """
+        calc_cols = self.get_calculated_columns_config()
+        if calc_cols:
+            return calc_cols.get("indexColumns", [])
+        return []
+
 
 __all__ = ["CsvSchemaImporter", "SchemaValidationError"]

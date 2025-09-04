@@ -110,5 +110,75 @@
         "description": "Replace with ranges or categories to maintain utility while protecting privacy"
       }
     }
+  },
+
+  "x-calculatedColumns": {
+    "description": "Configuration for adding calculated columns including constants, expressions, and computed fields",
+    "constants": [
+      {
+        "name": "data_source",
+        "value": "census_2020",
+        "dataType": "string",
+        "description": "Source identifier for data lineage and partitioning"
+      },
+      {
+        "name": "load_date",
+        "value": "2024-08-26",
+        "dataType": "date32",
+        "description": "Date when data was loaded for temporal partitioning"
+      },
+      {
+        "name": "processing_version",
+        "value": "v1.0",
+        "dataType": "string",
+        "description": "Version of processing pipeline for change tracking"
+      }
+    ],
+    "expressions": [
+      {
+        "name": "full_name",
+        "expression": "name",
+        "dataType": "string",
+        "dependencies": ["name"],
+        "description": "Full name field derived from existing name column"
+      },
+      {
+        "name": "age_category",
+        "expression": "CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END",
+        "dataType": "string",
+        "dependencies": ["age"],
+        "description": "Categorical age grouping for analytics"
+      },
+      {
+        "name": "salary_tier",
+        "expression": "CASE WHEN salary < 50000 THEN 'entry' WHEN salary < 100000 THEN 'mid' ELSE 'senior' END",
+        "dataType": "string",
+        "dependencies": ["salary"],
+        "description": "Salary tier classification for reporting"
+      }
+    ],
+    "calculated": [
+      {
+        "name": "years_since_created",
+        "function": "years_from_timestamp",
+        "dependencies": ["created_timestamp"],
+        "dataType": "int32",
+        "description": "Years elapsed since record creation"
+      },
+      {
+        "name": "name_length",
+        "function": "string_length",
+        "dependencies": ["name"],
+        "dataType": "int32",
+        "description": "Character count of name field"
+      }
+    ],
+    "partitionColumns": ["data_source", "load_date"],
+    "indexColumns": ["id", "name"],
+    "options": {
+      "skipIfExists": false,
+      "validateDependencies": true,
+      "allowNullDependencies": true
+    }
   }
 }

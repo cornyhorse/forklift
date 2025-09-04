@@ -104,6 +104,68 @@
       },
       "required": ["tables"],
       "additionalProperties": false
+    },
+    "x-calculatedColumns": {
+      "description": "Configuration for adding calculated columns including constants, expressions, and computed fields",
+      "constants": [
+        {
+          "name": "data_source",
+          "value": "sql_query",
+          "dataType": "string",
+          "description": "Source identifier for data lineage and partitioning"
+        },
+        {
+          "name": "load_date",
+          "value": "2024-08-26",
+          "dataType": "date32",
+          "description": "Date when data was loaded for temporal partitioning"
+        },
+        {
+          "name": "query_version",
+          "value": "v1.0",
+          "dataType": "string",
+          "description": "SQL query version for change tracking"
+        }
+      ],
+      "expressions": [
+        {
+          "name": "full_employee_name",
+          "expression": "first_name + ' ' + last_name",
+          "dataType": "string",
+          "dependencies": ["first_name", "last_name"],
+          "description": "Concatenated full name from first and last name fields"
+        },
+        {
+          "name": "salary_grade",
+          "expression": "CASE WHEN salary < 50000 THEN 'Grade_1' WHEN salary < 100000 THEN 'Grade_2' ELSE 'Grade_3' END",
+          "dataType": "string",
+          "dependencies": ["salary"],
+          "description": "Salary grade classification for HR reporting"
+        }
+      ],
+      "calculated": [
+        {
+          "name": "tenure_years",
+          "function": "years_from_timestamp",
+          "dependencies": ["hire_date"],
+          "dataType": "int32",
+          "description": "Employee tenure in years calculated from hire date"
+        },
+        {
+          "name": "email_domain",
+          "function": "extract_email_domain",
+          "dependencies": ["email"],
+          "dataType": "string",
+          "description": "Domain part extracted from email address"
+        }
+      ],
+      "partitionColumns": ["data_source", "load_date", "department"],
+      "indexColumns": ["employee_id", "department", "salary_grade"],
+      "options": {
+        "skipIfExists": false,
+        "validateDependencies": true,
+        "allowNullDependencies": true
+      }
     }
   },
   "required": ["x-sql"],

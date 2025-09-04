@@ -109,5 +109,62 @@
         "description": "Replace with ranges or categories to maintain utility while protecting privacy"
       }
     }
+  },
+
+  "x-calculatedColumns": {
+    "description": "Configuration for adding calculated columns including constants, expressions, and computed fields",
+    "constants": [
+      {
+        "name": "data_source",
+        "value": "fwf_import",
+        "dataType": "string",
+        "description": "Source identifier for data lineage and partitioning"
+      },
+      {
+        "name": "load_date",
+        "value": "2024-08-26",
+        "dataType": "date32",
+        "description": "Date when data was loaded for temporal partitioning"
+      },
+      {
+        "name": "record_type",
+        "value": "fixed_width",
+        "dataType": "string",
+        "description": "Record type identifier for processing pipeline tracking"
+      }
+    ],
+    "expressions": [
+      {
+        "name": "full_record_id",
+        "expression": "record_id + '_' + record_type",
+        "dataType": "string",
+        "dependencies": ["record_id"],
+        "description": "Composite record identifier with type prefix"
+      },
+      {
+        "name": "status_category",
+        "expression": "CASE WHEN status = 'A' THEN 'active' WHEN status = 'I' THEN 'inactive' ELSE 'unknown' END",
+        "dataType": "string",
+        "dependencies": ["status"],
+        "description": "Human-readable status categorization"
+      }
+    ],
+    "calculated": [
+      {
+        "name": "record_length",
+        "function": "string_length",
+        "dependencies": ["raw_record"],
+        "dataType": "int32",
+        "description": "Length of the raw fixed-width record"
+      }
+    ],
+    "partitionColumns": ["data_source", "load_date", "record_type"],
+    "indexColumns": ["record_id", "status"],
+    "options": {
+      "skipIfExists": false,
+      "validateDependencies": true,
+      "allowNullDependencies": false
+    }
   }
+
 }

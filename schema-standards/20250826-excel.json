@@ -147,5 +147,61 @@
     "enforceUniqueness": true,
     "allowNulls": false,
     "description_detail": "Single column primary key on 'id' field ensuring row uniqueness"
+  },
+
+  "x-calculatedColumns": {
+    "description": "Configuration for adding calculated columns including constants, expressions, and computed fields",
+    "constants": [
+      {
+        "name": "data_source",
+        "value": "excel_import",
+        "dataType": "string",
+        "description": "Source identifier for data lineage and partitioning"
+      },
+      {
+        "name": "load_date",
+        "value": "2024-08-26",
+        "dataType": "date32",
+        "description": "Date when data was loaded for temporal partitioning"
+      },
+      {
+        "name": "file_format",
+        "value": "excel",
+        "dataType": "string",
+        "description": "File format identifier for processing pipeline tracking"
+      }
+    ],
+    "expressions": [
+      {
+        "name": "record_key",
+        "expression": "employee_id",
+        "dataType": "string",
+        "dependencies": ["employee_id"],
+        "description": "Primary record identifier derived from employee_id"
+      },
+      {
+        "name": "employment_status",
+        "expression": "CASE WHEN is_active THEN 'active' ELSE 'inactive' END",
+        "dataType": "string",
+        "dependencies": ["is_active"],
+        "description": "Human-readable employment status"
+      }
+    ],
+    "calculated": [
+      {
+        "name": "years_of_service",
+        "function": "years_from_timestamp",
+        "dependencies": ["hire_date"],
+        "dataType": "int32",
+        "description": "Years of service calculated from hire date"
+      }
+    ],
+    "partitionColumns": ["data_source", "load_date", "file_format"],
+    "indexColumns": ["employee_id", "department"],
+    "options": {
+      "skipIfExists": false,
+      "validateDependencies": true,
+      "allowNullDependencies": true
+    }
   }
 }

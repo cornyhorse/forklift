@@ -33,6 +33,38 @@
     "description_detail": "Single column primary key on 'id' field ensuring row uniqueness"
   },
 
+  "x-constraintHandling": {
+    "description": "Configuration for handling constraint violations and data quality issues",
+    "errorMode": "bad_rows",
+    "primaryKeyViolations": {
+      "duplicates": "bad_rows",
+      "nulls": "bad_rows"
+    },
+    "uniqueConstraintViolations": "bad_rows",
+    "notNullViolations": "bad_rows",
+    "badRowsOutput": {
+      "enabled": true,
+      "format": "parquet",
+      "includeOriginalData": true,
+      "includeErrorDetails": true,
+      "maxBadRows": null,
+      "createSummary": true
+    },
+    "validationOptions": {
+      "continueOnError": true,
+      "collectAllErrors": true,
+      "maxErrorsPerRow": 10
+    }
+  },
+
+  "x-uniqueConstraints": [
+    {
+      "name": "unique_email",
+      "columns": ["name", "birth_date"],
+      "description": "Ensure unique combination of name and birth date"
+    }
+  ],
+
   "x-metadata-generation": {
     "description": "Configuration for metadata file generation during processing",
     "enabled": true,

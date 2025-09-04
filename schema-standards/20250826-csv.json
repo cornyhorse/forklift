@@ -389,5 +389,149 @@
         "standardizeFormat": true
       }
     }
+  },
+
+  "x-validation": {
+    "description": "Comprehensive field validation rules with bad row handling for data quality enforcement",
+    "badRowsHandling": {
+      "enabled": true,
+      "outputPath": "bad_rows",
+      "fileFormat": "parquet",
+      "includeOriginalRow": true,
+      "includeValidationErrors": true,
+      "maxBadRowsPercent": 10.0,
+      "failOnExceedThreshold": true
+    },
+    "uniquenessHandling": {
+      "strategy": "first_wins",
+      "options": ["first_wins", "last_wins", "fail_on_duplicate", "mark_all_duplicates"]
+    },
+    "fieldValidations": {
+      "id": {
+        "required": true,
+        "unique": true,
+        "range": {
+          "min": 1,
+          "max": 999999999,
+          "inclusive": true
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "range": "bad_rows"
+        }
+      },
+      "name": {
+        "required": true,
+        "unique": false,
+        "stringValidation": {
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[A-Za-z\\s\\-\\.]+$",
+          "allowEmpty": false
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "age": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0,
+          "max": 150,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "salary": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0,
+          "max": 10000000,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "email": {
+        "required": true,
+        "unique": true,
+        "stringValidation": {
+          "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+          "maxLength": 254
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "birth_date": {
+        "required": false,
+        "unique": false,
+        "dateValidation": {
+          "minDate": "1900-01-01",
+          "maxDate": "2100-12-31",
+          "format": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
+        },
+        "onViolation": {
+          "dateValidation": "bad_rows"
+        }
+      },
+      "score": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0.0,
+          "max": 100.0,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "category": {
+        "required": true,
+        "unique": false,
+        "enumValidation": {
+          "allowedValues": ["A", "B", "C"],
+          "caseSensitive": true
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "enumValidation": "bad_rows"
+        }
+      }
+    },
+    "crossFieldValidations": [
+      {
+        "name": "salary_age_consistency",
+        "description": "Salary should be reasonable for age",
+        "rule": "IF age < 16 THEN salary MUST BE NULL OR 0",
+        "dependencies": ["age", "salary"],
+        "onViolation": "bad_rows"
+      },
+      {
+        "name": "birth_date_age_consistency",
+        "description": "Birth date should be consistent with age",
+        "rule": "CALCULATED_AGE(birth_date) SHOULD BE WITHIN 1 YEAR OF age",
+        "dependencies": ["birth_date", "age"],
+        "onViolation": "warning"
+      }
+    ],
+    "globalValidations": {
+      "maxNullFieldsPerRow": 3,
+      "requiredFieldsCompletePercent": 95.0,
+      "onViolation": {
+        "maxNullFieldsPerRow": "bad_rows",
+        "requiredFieldsCompletePercent": "warning"
+      }
+    }
   }
 }

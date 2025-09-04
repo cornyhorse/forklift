@@ -218,19 +218,19 @@ class TestUltraPrecisionCoverage:
 
         try:
             # Lines 973-976: Schema processing error
-            with patch('src.forklift.schema.excel_schema_importer.ExcelSchemaImporter') as mock_schema:
+            with patch('forklift.schema.excel_schema_importer.ExcelSchemaImporter') as mock_schema:
                 mock_schema.side_effect = Exception("Schema processing failed")
                 with pytest.raises(Exception, match="Schema processing failed"):
                     import_excel(str(test_file), "output", schema_file="schema.json")
 
             # Line 979: General exception during processing
-            with patch('src.forklift.engine.forklift_core._create_default_excel_config') as mock_config:
+            with patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config:
                 mock_config.side_effect = RuntimeError("Config creation failed")
                 with pytest.raises(RuntimeError, match="Config creation failed"):
                     import_excel(str(test_file), "output")
 
             # Lines 1228-1229: Excel handler exception
-            with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+            with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                 mock_handler.side_effect = ImportError("Excel handler import failed")
                 with pytest.raises(ImportError, match="Excel handler import failed"):
                     import_excel(str(test_file), "output")
@@ -303,12 +303,12 @@ class TestUltraPrecisionCoverage:
         """Hit exact Excel helper function lines."""
         # Lines 1542-1551: _create_default_excel_config
         try:
-            from src.forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.forklift_core import _create_default_excel_config
 
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
 
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                     mock_handler_instance = MagicMock()
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1', 'Sheet2']
@@ -321,7 +321,7 @@ class TestUltraPrecisionCoverage:
 
         # Lines 1578-1592: _sanitize_filename
         try:
-            from src.forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.forklift_core import _sanitize_filename
 
             # Test various edge cases to hit all sanitization lines
             test_cases = [
@@ -342,7 +342,7 @@ class TestUltraPrecisionCoverage:
 
         # Lines 1596-1597: _create_excel_config_from_schema
         try:
-            from src.forklift.engine.forklift_core import _create_excel_config_from_schema
+            from forklift.engine.forklift_core import _create_excel_config_from_schema
 
             mock_schema = MagicMock()
             mock_schema.get_sheet_configs.return_value = [

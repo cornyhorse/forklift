@@ -261,7 +261,7 @@ class TestUltraTargetedCoverage:
 
         try:
             # Mock to trigger exact schema processing error
-            with patch('src.forklift.schema.excel_schema_importer.ExcelSchemaImporter', side_effect=ValueError("Schema processing failed")):
+            with patch('forklift.schema.excel_schema_importer.ExcelSchemaImporter', side_effect=ValueError("Schema processing failed")):
                 # This should hit lines 973-976 exactly
                 with pytest.raises(Exception):
                     import_excel(str(test_file), "output", schema_file="invalid_schema.json")
@@ -275,7 +275,7 @@ class TestUltraTargetedCoverage:
 
         try:
             # Mock to trigger exception in processing
-            with patch('src.forklift.engine.forklift_core._create_default_excel_config', side_effect=RuntimeError("Config failed")):
+            with patch('forklift.engine.forklift_core._create_default_excel_config', side_effect=RuntimeError("Config failed")):
                 # This should hit line 979 exactly
                 with pytest.raises(RuntimeError):
                     import_excel(str(test_file), "output")
@@ -295,7 +295,7 @@ class TestUltraTargetedCoverage:
 
         try:
             # This should hit lines 1228-1229 exactly
-            with patch('src.forklift.inputs.excel.ExcelInputHandler', side_effect=Exception("Handler failed")):
+            with patch('forklift.inputs.excel.ExcelInputHandler', side_effect=Exception("Handler failed")):
                 with pytest.raises(Exception):
                     import_excel(str(test_file), "output")
         finally:
@@ -328,8 +328,8 @@ class TestUltraTargetedCoverage:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 # Mock SQL components to hit processing lines
-                with patch('src.forklift.inputs.sql.SqlInputHandler') as mock_handler, \
-                     patch('src.forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
+                with patch('forklift.inputs.sql.SqlInputHandler') as mock_handler, \
+                     patch('forklift.schema.sql_schema_importer.SqlSchemaImporter') as mock_schema, \
                      patch('pyarrow.parquet.write_table'):
 
                     mock_schema_instance = MagicMock()
@@ -351,13 +351,13 @@ class TestUltraTargetedCoverage:
     def test_lines_1542_1551_exact_excel_helper(self):
         """Test exact Excel helper function paths (lines 1542-1551)."""
         try:
-            from src.forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.forklift_core import _create_default_excel_config
 
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
 
                 # Mock to hit exact helper function lines
-                with patch('src.forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
                     mock_handler_instance = MagicMock()
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1']
@@ -371,7 +371,7 @@ class TestUltraTargetedCoverage:
     def test_lines_1578_1592_exact_filename_sanitization(self):
         """Test exact filename sanitization (lines 1578-1592)."""
         try:
-            from src.forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.forklift_core import _sanitize_filename
 
             # Test exact sanitization paths
             test_cases = ["normal", "with spaces", "with!@#symbols", ""]
@@ -385,7 +385,7 @@ class TestUltraTargetedCoverage:
     def test_lines_1596_1597_exact_config_creation(self):
         """Test exact config creation paths (lines 1596-1597)."""
         try:
-            from src.forklift.engine.forklift_core import _create_excel_config_from_schema
+            from forklift.engine.forklift_core import _create_excel_config_from_schema
 
             mock_schema = MagicMock()
             mock_schema.get_sheet_configs.return_value = [{"sheet_name": "Sheet1"}]
@@ -444,9 +444,9 @@ class TestUltraTargetedCoverage:
 
         try:
             # Mock S3 operations to hit manifest creation paths
-            with patch('src.forklift.engine.forklift_core.is_s3_path', return_value=True), \
-                 patch('src.forklift.engine.forklift_core.S3Path') as mock_s3_path, \
-                 patch('src.forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
+            with patch('forklift.engine.forklift_core.is_s3_path', return_value=True), \
+                 patch('forklift.engine.forklift_core.S3Path') as mock_s3_path, \
+                 patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                  patch.object(engine.io_handler, 'exists', return_value=True), \
                  patch.object(engine.io_handler, 'get_size', return_value=1024), \
                  patch.object(engine.io_handler, 'open_for_write') as mock_open_write, \

@@ -173,6 +173,7 @@ class StringCleaningConfig:
     title_case_exceptions: List[str] = None  # Words to not title case (e.g., ["of", "the", "and"])
     custom_case_mapping: Optional[Dict[str, str]] = None  # Custom case mappings (e.g., state codes: {"california": "CA"})
     case_mapping_mode: str = "exact"  # How to apply custom mappings: 'exact', 'contains', 'startswith', 'endswith'
+    acronyms: Optional[List[str]] = None  # Custom acronyms to preserve in uppercase (e.g., ["NASA", "API", "CEO"])
 
     # Other cleaning
     remove_accents: bool = False  # Remove diacritical marks
@@ -185,6 +186,9 @@ class StringCleaningConfig:
 
         if self.custom_case_mapping is None:
             self.custom_case_mapping = {}
+
+        if self.acronyms is None:
+            self.acronyms = []
 
         # Validate case_transform parameter
         valid_transforms = {None, 'upper', 'lower', 'title', 'proper'}
@@ -724,7 +728,7 @@ class DataTransformer:
 
             # Case handling
             if config.fix_case_issues:
-                str_value = self._fix_case_issues(str_value, config.title_case_exceptions)
+                str_value = self._fix_case_issues(str_value, config.title_case_exceptions, config.acronyms)
             if config.case_transform == 'upper':
                 str_value = str_value.upper()
             elif config.case_transform == 'lower':
@@ -758,6 +762,12 @@ class DataTransformer:
                     elif config.case_mapping_mode == 'contains' and key in str_value:
                         str_value = str_value.replace(key, mapped_value)
                         break
+
+            # Acronym handling - preserve specified acronyms in uppercase
+            if config.acronyms:
+                for acronym in config.acronyms:
+                    # Replace only whole words (surrounded by non-word characters)
+                    str_value = re.sub(r'\b' + re.escape(acronym) + r'\b', acronym.upper(), str_value)
 
             transformed_values.append(str_value)
 
@@ -1106,18 +1116,23 @@ class DataTransformer:
             # Fallback: manually filter ASCII characters
             return ''.join(char for char in text if ord(char) < 128)
 
-    def _fix_case_issues(self, text: str, title_case_exceptions: List[str]) -> str:
+    def _fix_case_issues(self, text: str, title_case_exceptions: List[str], custom_acronyms: Optional[List[str]] = None) -> str:
         """Fix common case issues like ALL CAPS."""
         # Check if the text is all uppercase (indicating a case issue)
         if text.isupper() and len(text) > 2:
-            # Common acronyms that should remain uppercase
-            common_acronyms = {
+            # Default common acronyms that should remain uppercase
+            default_acronyms = {
                 'NASA', 'FBI', 'CIA', 'USA', 'UK', 'US', 'CEO', 'CTO', 'CFO', 'VP',
                 'HR', 'IT', 'AI', 'API', 'URL', 'HTTP', 'HTTPS', 'SQL', 'HTML',
                 'CSS', 'JS', 'XML', 'JSON', 'PDF', 'CSV', 'ZIP', 'HTTP', 'FTP',
                 'TCP', 'IP', 'DNS', 'SSL', 'TLS', 'AWS', 'IBM', 'AMD', 'GPU',
                 'CPU', 'RAM', 'SSD', 'HDD', 'USB', 'DVD', 'CD', 'TV', 'HD', 'UHD'
             }
+
+            # Combine default acronyms with custom ones
+            all_acronyms = default_acronyms.copy()
+            if custom_acronyms:
+                all_acronyms.update(acronym.upper() for acronym in custom_acronyms)
 
             # Convert to title case, respecting exceptions and acronyms
             words = text.split()
@@ -1128,7 +1143,7 @@ class DataTransformer:
                 word_clean = ''.join(c for c in word if c.isalpha())
 
                 # Check if it's a known acronym (preserve as uppercase)
-                if word_clean in common_acronyms:
+                if word_clean in all_acronyms:
                     # Preserve the acronym but handle any punctuation
                     result = ""
                     for char in word:

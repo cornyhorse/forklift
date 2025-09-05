@@ -778,7 +778,15 @@ class DataTransformer:
 
             # Whitespace handling
             if config.collapse_whitespace:
-                str_value = re.sub(r'\s+', ' ', str_value)
+                # If we used a custom tab replacement (not single space), preserve those intentional spaces
+                if config.tab_replacement != " " and len(config.tab_replacement) > 1:
+                    # Use a placeholder for custom tab replacements to prevent them from being collapsed
+                    placeholder = "\uE000"  # Private use character as placeholder
+                    str_value = str_value.replace(config.tab_replacement, placeholder)
+                    str_value = re.sub(r'\s+', ' ', str_value)
+                    str_value = str_value.replace(placeholder, config.tab_replacement)
+                else:
+                    str_value = re.sub(r'\s+', ' ', str_value)
 
             if config.strip_whitespace:
                 str_value = str_value.strip()
@@ -1013,11 +1021,12 @@ class DataTransformer:
 
         elif config.zip_type == "zip-9":
             # Handle 9-digit ZIP codes (ZIP+4)
-            if config.zero_pad and len(digits_only) < 9:
-                digits_only = digits_only.zfill(9)
-
+            # Validate original length first, before zero-padding
             if config.validate and len(digits_only) != 9:
                 raise ValueError(f"ZIP-9 must have exactly 9 digits, got {len(digits_only)}")
+
+            if config.zero_pad and len(digits_only) < 9:
+                digits_only = digits_only.zfill(9)
 
             # Format with dash if requested
             if config.format_with_dash and len(digits_only) == 9:

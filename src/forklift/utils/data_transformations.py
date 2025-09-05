@@ -1095,10 +1095,6 @@ class DataTransformer:
         if not original_value:
             raise ValueError("Empty phone number value")
 
-        # Check if we lost too much of the original (indicates invalid data like "abc123")
-        if config.validate and re.search(r'[a-zA-Z]', original_value):
-            raise ValueError(f"Phone number contains letters")
-
         # Remove all non-digits except + for initial processing
         digits_and_plus = re.sub(r'[^\d+]', '', original_value)
 
@@ -1109,74 +1105,40 @@ class DataTransformer:
         if not digits_only:
             raise ValueError("No digits found in phone number")
 
-        # Handle country code detection and removal for US formatting
-        has_country_code = False
-        phone_digits = digits_only
+        # Check if we lost too much of the original (indicates invalid data like "abc123")
+        if config.validate and re.search(r'[a-zA-Z]', original_value):
+            raise ValueError(f"Phone number contains letters")
 
-        # Check for +1 or 1 prefix (US country code)
-        if digits_and_plus.startswith('+1') and len(digits_only) == 11 and digits_only.startswith('1'):
-            has_country_code = True
-            phone_digits = digits_only[1:]  # Remove the leading 1
-        elif not digits_and_plus.startswith('+') and len(digits_only) == 11 and digits_only.startswith('1'):
-            has_country_code = True
-            phone_digits = digits_only[1:]  # Remove the leading 1
-        elif len(digits_only) == 10:
-            # Standard 10-digit US number without country code
-            has_country_code = False
-            phone_digits = digits_only
-
-        # Validate phone number length
-        if config.validate:
-            if len(phone_digits) < config.min_digits or len(phone_digits) > config.max_digits:
-                if len(digits_only) == 11 and digits_only.startswith('1'):
-                    # This is likely a US number with country code, check the remaining 10 digits
-                    if len(phone_digits) != 10:
-                        raise ValueError(f"Phone number must have {config.min_digits}-{config.max_digits} digits, got {len(phone_digits)}")
-                else:
-                    raise ValueError(f"Phone number must have {config.min_digits}-{config.max_digits} digits, got {len(phone_digits)}")
-
-        # Format according to style
+        # Check for country code and format accordingly
         if config.format_style == "international":
-            if config.include_country_code or has_country_code:
-                if phone_digits and len(phone_digits) == 10:
-                    formatted_number = f"+1 {phone_digits}"
-                else:
-                    formatted_number = f"+1 {digits_only}"
+            if config.include_country_code or (len(digits_only) == 11 and digits_only.startswith('1')):
+                # Include country code (+1) for US numbers
+                return f"+1 {digits_only[1:]}"  # Remove the leading 1
             else:
-                formatted_number = phone_digits
+                return digits_only  # No country code, return as-is
 
         elif config.format_style == "us-standard":
-            # Use the 10-digit phone number for US standard formatting
-            if len(phone_digits) == 10:
-                if config.include_country_code or has_country_code:
+            if len(digits_only) == 10:
+                if config.include_country_code:
                     # Include country code in US standard format
                     if config.use_parentheses:
-                        formatted_number = f"1({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}"
+                        return f"1({digits_only[:3]}) {digits_only[3:6]}-{digits_only[6:]}"
                     else:
-                        formatted_number = f"1-{phone_digits[:3]}-{phone_digits[3:6]}-{phone_digits[6:]}"
+                        return f"1-{digits_only[:3]}-{digits_only[3:6]}-{digits_only[6:]}"
                 else:
                     # Standard US format without country code
                     if config.use_parentheses:
-                        formatted_number = f"({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}"
+                        return f"({digits_only[:3]}) {digits_only[3:6]}-{digits_only[6:]}"
                     else:
-                        formatted_number = f"{phone_digits[:3]}-{phone_digits[3:6]}-{phone_digits[6:]}"
+                        return f"{digits_only[:3]}-{digits_only[3:6]}-{digits_only[6:]}"
             else:
                 # Fallback for non-standard lengths
-                formatted_number = phone_digits
+                return digits_only
 
         elif config.format_style == "digits-only":
-            if config.include_country_code or has_country_code:
-                formatted_number = f"1{phone_digits}"
-            else:
-                formatted_number = phone_digits
+            return digits_only  # Only digits, return as-is
         else:  # preserve
-            formatted_number = original_value  # Preserve original format
-
-        # Replace dashes with dots if requested
-        if config.use_dots:
-            formatted_number = formatted_number.replace('-', '.')
-
-        return formatted_number
+            return original_value  # Preserve original format
 
     def apply_email_formatting(self, column: pa.Array, config: EmailConfig) -> pa.Array:
         """Format email addresses according to the specified rules.

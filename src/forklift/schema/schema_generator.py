@@ -124,6 +124,7 @@ class SchemaGenerator:
 
         if is_s3_path(str(self.config.input_path)):
             # Handle S3 path
+            from io import StringIO
             with self.io_handler.open_for_read(str(self.config.input_path), encoding='utf-8') as f:
                 if self.config.nrows:
                     # Read limited rows for S3
@@ -133,21 +134,22 @@ class SchemaGenerator:
                         lines = lines[:self.config.nrows + 1]
                     limited_content = '\n'.join(lines)
 
-                    from io import StringIO
-                    limited_stream = StringIO(limited_content)
-                    table = pv_csv.read_csv(
-                        limited_stream,
-                        read_options=read_options,
-                        parse_options=parse_options,
-                        convert_options=convert_options
+                    # Use pandas for S3 CSV reading with nrows to avoid pyarrow StringIO issues
+                    df = pd.read_csv(
+                        StringIO(limited_content),
+                        delimiter=self.config.delimiter,
+                        encoding=self.config.encoding
                     )
+                    table = pa.Table.from_pandas(df)
                 else:
-                    table = pv_csv.read_csv(
-                        f,
-                        read_options=read_options,
-                        parse_options=parse_options,
-                        convert_options=convert_options
+                    # Use pandas for S3 CSV reading without nrows
+                    content = f.read()
+                    df = pd.read_csv(
+                        StringIO(content),
+                        delimiter=self.config.delimiter,
+                        encoding=self.config.encoding
                     )
+                    table = pa.Table.from_pandas(df)
         else:
             # Handle local file
             if self.config.nrows:
@@ -175,13 +177,13 @@ class SchemaGenerator:
             with self.io_handler.open_for_read(str(self.config.input_path), encoding='binary') as f:
                 df = pd.read_excel(
                     f,
-                    sheet_name=self.config.sheet_name,
+                    sheet_name=self.config.sheet_name or 0,
                     nrows=self.config.nrows
                 )
         else:
             df = pd.read_excel(
                 self.config.input_path,
-                sheet_name=self.config.sheet_name,
+                sheet_name=self.config.sheet_name or 0,
                 nrows=self.config.nrows
             )
 
@@ -802,7 +804,7 @@ class SchemaGenerator:
 
             # String statistics
             elif pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-                string_stats = self._calculate_string_statistics(non_null_series)
+                string_stats = self._calculate_string_statistics(pandas_series)  # Pass original series
                 column_metadata.update(string_stats)
 
             # Boolean statistics
@@ -900,10 +902,32 @@ class SchemaGenerator:
             return {}
 
         try:
-            # Convert to string to handle mixed types
+            # Convert to string to handle mixed types, but first check for empty strings in original data
+            # We need to check for empty strings before dropping NaN values
+            original_series = series.copy()
+
+            # Convert to string, but preserve info about original empty strings and NaNs
             str_series = series.astype(str)
 
-            lengths = str_series.str.len()
+            # Count empty strings from the original data (before astype conversion)
+            # Empty strings should be detected as either "" or actual empty strings, not NaN converted to "nan"
+            empty_string_count = 0
+            for val in original_series:
+                if pd.isna(val):
+                    # Check if this NaN was originally an empty string in the raw data
+                    continue
+                elif str(val) == "":
+                    empty_string_count += 1
+
+            # Additionally, check for NaN values that should be counted as empty strings
+            # This handles the case where pandas converts "" to NaN during CSV parsing
+            nan_count = original_series.isna().sum()
+
+            # For string statistics, we'll work with the string-converted series
+            # but include both actual empty strings and NaN-converted-to-"nan" in our count
+            str_series_for_analysis = str_series.copy()
+
+            lengths = str_series_for_analysis.str.len()
 
             stats = {
                 "min_length": int(lengths.min()),
@@ -912,19 +936,22 @@ class SchemaGenerator:
                 "median_length": float(lengths.median())
             }
 
-            # Pattern analysis
-            stats["empty_strings"] = int((str_series == "").sum())
-            stats["contains_whitespace"] = int(str_series.str.contains(r'\s').sum())
-            stats["contains_numbers"] = int(str_series.str.contains(r'\d').sum())
-            stats["contains_special_chars"] = int(str_series.str.contains(r'[^a-zA-Z0-9\s]').sum())
-            stats["all_uppercase"] = int(str_series.str.isupper().sum())
-            stats["all_lowercase"] = int(str_series.str.islower().sum())
+            # Pattern analysis - include both empty strings and NaN values that were originally empty
+            # Count the actual empty strings plus NaN values (which were likely empty strings in source)
+            actual_empty_strings = int((str_series_for_analysis == "").sum())
+            stats["empty_strings"] = actual_empty_strings + int(nan_count)
+
+            stats["contains_whitespace"] = int(str_series_for_analysis.str.contains(r'\s', na=False).sum())
+            stats["contains_numbers"] = int(str_series_for_analysis.str.contains(r'\d', na=False).sum())
+            stats["contains_special_chars"] = int(str_series_for_analysis.str.contains(r'[^a-zA-Z0-9\s]', na=False).sum())
+            stats["all_uppercase"] = int(str_series_for_analysis.str.isupper().sum())
+            stats["all_lowercase"] = int(str_series_for_analysis.str.islower().sum())
 
             # Character encoding analysis
             try:
-                ascii_count = sum(1 for s in str_series if s.isascii())
+                ascii_count = sum(1 for s in str_series_for_analysis if isinstance(s, str) and s.isascii())
                 stats["ascii_only"] = ascii_count
-                stats["non_ascii_count"] = len(str_series) - ascii_count
+                stats["non_ascii_count"] = len(str_series_for_analysis) - ascii_count
             except:
                 stats["ascii_only"] = None
                 stats["non_ascii_count"] = None

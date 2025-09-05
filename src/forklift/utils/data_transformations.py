@@ -962,7 +962,7 @@ class DataTransformer:
             'Donâ€™t': "Don't",  # Specific test case pattern
             'âœ"': '✓',  # Checkmark
             'Ã¡': 'á',   # á encoded as UTF-8 then decoded as Latin-1
-            'Ã©': 'é',   # é
+            '��©': 'é',   # é
             'Ã­': 'í',   # í
             'Ã³': 'ó',   # ó
             'Ãº': 'ú',   # ú
@@ -1110,20 +1110,75 @@ class DataTransformer:
         """Fix common case issues like ALL CAPS."""
         # Check if the text is all uppercase (indicating a case issue)
         if text.isupper() and len(text) > 2:
-            # Convert to title case, respecting exceptions
+            # Common acronyms that should remain uppercase
+            common_acronyms = {
+                'NASA', 'FBI', 'CIA', 'USA', 'UK', 'US', 'CEO', 'CTO', 'CFO', 'VP',
+                'HR', 'IT', 'AI', 'API', 'URL', 'HTTP', 'HTTPS', 'SQL', 'HTML',
+                'CSS', 'JS', 'XML', 'JSON', 'PDF', 'CSV', 'ZIP', 'HTTP', 'FTP',
+                'TCP', 'IP', 'DNS', 'SSL', 'TLS', 'AWS', 'IBM', 'AMD', 'GPU',
+                'CPU', 'RAM', 'SSD', 'HDD', 'USB', 'DVD', 'CD', 'TV', 'HD', 'UHD'
+            }
+
+            # Convert to title case, respecting exceptions and acronyms
             words = text.split()
             fixed_words = []
 
             for i, word in enumerate(words):
-                if i == 0:
-                    # Always capitalize the first word
-                    fixed_words.append(word.capitalize())
-                elif word.lower() in title_case_exceptions:
-                    # Use lowercase for exception words
-                    fixed_words.append(word.lower())
+                # Remove any punctuation from the word for checking exceptions/acronyms
+                word_clean = ''.join(c for c in word if c.isalpha())
+
+                # Check if it's a known acronym (preserve as uppercase)
+                if word_clean in common_acronyms:
+                    # Preserve the acronym but handle any punctuation
+                    result = ""
+                    for char in word:
+                        if char.isalpha():
+                            result += char.upper()
+                        else:
+                            result += char
+                    fixed_words.append(result)
+                elif i == 0:
+                    # Always capitalize the first word, but preserve punctuation
+                    if word_clean:
+                        # Capitalize the alphabetic part while preserving punctuation
+                        result = ""
+                        alpha_done = False
+                        for char in word:
+                            if char.isalpha() and not alpha_done:
+                                result += char.upper()
+                                alpha_done = True
+                            elif char.isalpha():
+                                result += char.lower()
+                            else:
+                                result += char
+                        fixed_words.append(result)
+                    else:
+                        fixed_words.append(word)
+                elif word_clean.lower() in title_case_exceptions:
+                    # Use lowercase for exception words, but preserve punctuation
+                    result = ""
+                    for char in word:
+                        if char.isalpha():
+                            result += char.lower()
+                        else:
+                            result += char
+                    fixed_words.append(result)
                 else:
-                    # Capitalize normally
-                    fixed_words.append(word.capitalize())
+                    # Capitalize normally, preserving punctuation
+                    if word_clean:
+                        result = ""
+                        alpha_done = False
+                        for char in word:
+                            if char.isalpha() and not alpha_done:
+                                result += char.upper()
+                                alpha_done = True
+                            elif char.isalpha():
+                                result += char.lower()
+                            else:
+                                result += char
+                        fixed_words.append(result)
+                    else:
+                        fixed_words.append(word)
 
             return ' '.join(fixed_words)
 

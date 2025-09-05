@@ -94,7 +94,9 @@ class ValidationFactory:
             schema = pa.schema(fields)
 
         strict_mode = config.get('strict_mode', kwargs.get('strict_mode', True))
-        return SchemaValidator(schema, strict_mode)
+
+        # Use positional arguments for backward compatibility with tests
+        return SchemaValidator(schema, None, strict_mode)
 
     @staticmethod
     def _create_constraint_validator(config: Dict[str, Any], **kwargs) -> ConstraintValidator:

@@ -989,14 +989,14 @@ class DataTransformer:
         # Remove all non-digits
         digits_only = re.sub(r'\D', '', original_value)
 
+        # Check for empty after digit extraction first
+        if not digits_only:
+            raise ValueError("No digits found in ZIP code")
+
         # Check if we lost too much of the original (indicates invalid data like "abc12")
         if config.validate and len(digits_only) < len(original_value) * 0.5:
             # If more than half the characters were removed, likely invalid
             raise ValueError(f"ZIP code contains too many non-digit characters")
-
-        # Check for empty after digit extraction
-        if not digits_only:
-            raise ValueError("No digits found in ZIP code")
 
         if config.zip_type == "zip-5":
             # Handle 5-digit ZIP codes

@@ -858,29 +858,27 @@ class TestDateTimeTransformation:
 
     @patch('forklift.utils.data_transformations.coerce_datetime')
     @patch('pytz.timezone')
-    def test_apply_datetime_transformation_with_timezone(self, mock_coerce, mock_timezone):
+    def test_apply_datetime_transformation_with_timezone(self, mock_timezone, mock_coerce):
         """Test datetime transformation with timezone conversion."""
         transformer = DataTransformer()
         config = DateTimeTransformConfig(timezone="America/New_York")
 
-        # Create a proper datetime object instead of a mock
-        mock_dt = datetime.datetime(2023, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        # Create a mock datetime object that can have its astimezone method mocked
+        mock_dt = Mock()
+        mock_dt.tzinfo = None  # Start with no timezone info
         mock_coerce.return_value = mock_dt
 
-        # Mock the timezone object
+        # Mock the timezone object and converted datetime
         mock_tz = Mock()
         mock_timezone.return_value = mock_tz
-
-        # Mock the converted datetime
         mock_dt_converted = datetime.datetime(2023, 1, 1, 7, 0, 0)
+        mock_dt.astimezone.return_value = mock_dt_converted
 
-        # We need to patch the astimezone method
-        with patch.object(mock_dt, 'astimezone', return_value=mock_dt_converted):
-            column = pa.array(["2023-01-01"])
-            result = transformer.apply_datetime_transformation(column, config)
+        column = pa.array(["2023-01-01"])
+        result = transformer.apply_datetime_transformation(column, config)
 
-            mock_timezone.assert_called_with("America/New_York")
-            mock_dt.astimezone.assert_called_with(mock_tz)
+        mock_timezone.assert_called_with("America/New_York")
+        mock_dt.astimezone.assert_called_with(mock_tz)
 
     @patch('forklift.utils.data_transformations.coerce_datetime')
     def test_apply_datetime_transformation_target_date(self, mock_coerce):

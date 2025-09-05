@@ -797,18 +797,14 @@ class DataTransformer:
             elif config.case_transform == 'lower':
                 str_value = str_value.lower()
             elif config.case_transform in {'title', 'proper'}:
-                # Title case - capitalize first letter of each word
-                # Proper case - capitalize first letter, lowercase the rest
-                def title_case_fn(s):
-                    if config.case_transform == 'title':
-                        return s.title()
-                    else:  # proper
-                        return s[0].upper() + s[1:].lower() if s else s
-
-                # Split on spaces and hyphens for title/proper casing
-                parts = re.split(r'(\s+|-)', str_value)
-                transformed_parts = [title_case_fn(part) for part in parts]
-                str_value = ''.join(transformed_parts)
+                if config.case_transform == 'title':
+                    # Title case - capitalize first letter of each word
+                    parts = re.split(r'(\s+|-)', str_value)
+                    transformed_parts = [part.title() if part.strip() else part for part in parts]
+                    str_value = ''.join(transformed_parts)
+                else:  # proper
+                    # Proper case - capitalize first letter, lowercase the rest of entire string
+                    str_value = str_value[0].upper() + str_value[1:].lower() if str_value else str_value
 
             # Custom case mapping (if any)
             if config.custom_case_mapping:
@@ -824,13 +820,13 @@ class DataTransformer:
                         break
                     elif config.case_mapping_mode == 'contains' and key in str_value:
                         str_value = str_value.replace(key, mapped_value)
-                        break
 
             # Acronym handling - preserve specified acronyms in uppercase
             if config.acronyms:
                 for acronym in config.acronyms:
-                    # Replace only whole words (surrounded by non-word characters)
-                    str_value = re.sub(r'\b' + re.escape(acronym) + r'\b', acronym.upper(), str_value)
+                    # Replace only whole words (case-insensitive search, but preserve exact acronym casing)
+                    pattern = r'\b' + re.escape(acronym.lower()) + r'\b'
+                    str_value = re.sub(pattern, acronym.upper(), str_value, flags=re.IGNORECASE)
 
             transformed_values.append(str_value)
 
@@ -900,17 +896,40 @@ class DataTransformer:
         if not digits_only:
             raise ValueError("No digits found in SSN")
 
-        # Handle zero padding
-        if config.zero_pad and len(digits_only) < 9:
-            digits_only = digits_only.zfill(9)
-
-        # Validate length
+        # Validate length if validation is enabled (before zero padding)
         if config.validate and len(digits_only) != 9:
             raise ValueError(f"SSN must have exactly 9 digits, got {len(digits_only)}")
 
+        # Handle zero padding (after validation)
+        if config.zero_pad and len(digits_only) < 9:
+            digits_only = digits_only.zfill(9)
+
         # Format with dashes if requested
-        if config.format_with_dashes and len(digits_only) == 9:
-            return f"{digits_only[:3]}-{digits_only[3:5]}-{digits_only[5:]}"
+        if config.format_with_dashes:
+            # Handle different lengths for dash formatting
+            if len(digits_only) >= 6:
+                # At least 6 digits - format as XX-XX-XX or XXX-XX-XXXX
+                if len(digits_only) == 9:
+                    return f"{digits_only[:3]}-{digits_only[3:5]}-{digits_only[5:]}"
+                elif len(digits_only) == 6:
+                    return f"{digits_only[:2]}-{digits_only[2:4]}-{digits_only[4:]}"
+                else:
+                    # For other lengths, try to format reasonably
+                    if len(digits_only) <= 3:
+                        return digits_only
+                    elif len(digits_only) <= 5:
+                        return f"{digits_only[:2]}-{digits_only[2:]}"
+                    else:
+                        # More than 6 digits, format as best we can
+                        return f"{digits_only[:3]}-{digits_only[3:5]}-{digits_only[5:]}"
+            else:
+                # Less than 6 digits, format what we can
+                if len(digits_only) <= 2:
+                    return digits_only
+                elif len(digits_only) <= 4:
+                    return f"{digits_only[:2]}-{digits_only[2:]}"
+                else:
+                    return f"{digits_only[:2]}-{digits_only[2:4]}-{digits_only[4:]}"
         else:
             return digits_only
 
@@ -1429,11 +1448,20 @@ class DataTransformer:
         if not hex_only:
             raise ValueError("No hexadecimal digits found in MAC address")
 
-        # Zero-pad each octet to 2 digits
-        if config.zero_pad:
-            octets = [hex_only[i:i+2].zfill(2) for i in range(0, len(hex_only), 2)]
-        else:
-            octets = [hex_only[i:i+2] for i in range(0, len(hex_only), 2)]
+        # Handle zero padding before validation
+        if config.zero_pad and len(hex_only) < 12:
+            hex_only = hex_only.zfill(12)
+
+        # Validate MAC address length if validation is enabled (after potential padding)
+        if config.validate and len(hex_only) != 12:
+            raise ValueError(f"MAC address must have exactly 12 hexadecimal digits, got {len(hex_only)}")
+
+        # Truncate to 12 characters if needed
+        if len(hex_only) > 12:
+            hex_only = hex_only[:12]  # Truncate to 12 digits
+
+        # Split into octets (pairs of hex digits)
+        octets = [hex_only[i:i+2] for i in range(0, 12, 2)]
 
         # Format according to style
         if config.format_style == "colon":
@@ -1441,15 +1469,17 @@ class DataTransformer:
         elif config.format_style == "dash":
             formatted_mac = '-'.join(octets)
         elif config.format_style == "dot":
-            formatted_mac = '.'.join(octets[i:i+2] for i in range(0, len(octets), 2))
+            # For dot format, group octets in pairs and join with dots
+            formatted_mac = '.'.join([''.join(octets[i:i+2]) for i in range(0, 6, 2)])
         else:  # none
             formatted_mac = ''.join(octets)
 
-        # Convert to upper or lower case as requested
+        # Apply case transformation
         if config.case_style == "upper":
             formatted_mac = formatted_mac.upper()
         elif config.case_style == "lower":
             formatted_mac = formatted_mac.lower()
+        # If case_style is "preserve", we don't change the case
 
         return formatted_mac
 
@@ -1460,12 +1490,11 @@ class DataTransformer:
             'â€™': "'",  # Smart apostrophe mojibake (U+00E2 U+20AC U+2122 → ')
             'â€œ': '"',  # Smart quote start
             'â€': '"',   # Smart quote end
-            'â€"â€': '–',  # En dash (fixed duplicate key)
             'â€"': '—',  # Em dash
             'Donâ€™t': "Don't",  # Specific test case pattern
             'âœ"': '✓',  # Checkmark
             'Ã¡': 'á',   # á encoded as UTF-8 then decoded as Latin-1
-            '��©': 'é',   # é
+            'Ã©': 'é',   # é (fixed the corrupted pattern)
             'Ã­': 'í',   # í
             'Ã³': 'ó',   # ó
             'Ãº': 'ú',   # ú
@@ -1722,8 +1751,9 @@ def create_transformation_from_config(transform_type: str, config: Dict[str, Any
         return lambda col: transformer.apply_money_conversion(col, money_config)
 
     elif transform_type == "numeric_cleaning":
+        # Extract target_type before creating config since it's not part of NumericCleaningConfig
+        target_type = clean_config.pop("target_type", "double")
         numeric_config = NumericCleaningConfig(**clean_config)
-        target_type = clean_config.get("target_type", "double")
         return lambda col: transformer.apply_numeric_cleaning(col, numeric_config, target_type)
 
     elif transform_type == "string_padding":

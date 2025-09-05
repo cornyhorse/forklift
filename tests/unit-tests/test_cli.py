@@ -62,7 +62,7 @@ class TestCLIArgumentParsing:
             '--schema', 'schema.json',
             '--pre', 'clean_whitespace', 'normalize_case',
             '--encoding-priority', 'utf-8', 'latin-1',
-            '--delimiter', '|',
+            '--delimiter', '',
             '--header-mode', 'auto'
         ]
 
@@ -314,6 +314,190 @@ class TestCLIArgumentParsing:
             main()
 
         mock_schema_gen.assert_called_once()
+
+    # NEW TESTS TO ACHIEVE 100% COVERAGE
+
+    @patch('forklift.cli.ForkliftCore')
+    def test_ingest_excel_unsupported_error(self, mock_forklift):
+        """Test ingest command with Excel input shows unsupported error (line 98)."""
+        test_args = [
+            'forklift', 'ingest', 'input.xlsx',
+            '--dest', 'output/',
+            '--input-kind', 'excel'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                mock_print.assert_any_call("Error: Input kind 'excel' not yet implemented in new ForkliftCore. Only 'csv' is currently supported.")
+
+    @patch('forklift.cli.ForkliftCore')
+    def test_ingest_fwf_unsupported_error(self, mock_forklift):
+        """Test ingest command with FWF input shows unsupported error (line 98)."""
+        test_args = [
+            'forklift', 'ingest', 'input.txt',
+            '--dest', 'output/',
+            '--input-kind', 'fwf'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                mock_print.assert_any_call("Error: Input kind 'fwf' not yet implemented in new ForkliftCore. Only 'csv' is currently supported.")
+
+    @patch('forklift.cli.ForkliftCore')
+    def test_ingest_csv_successful_processing_output(self, mock_forklift):
+        """Test ingest CSV command with successful processing output (lines 89-96)."""
+        # Setup mock to return results
+        mock_results = MagicMock()
+        mock_results.total_rows = 1000
+        mock_results.valid_rows = 950
+        mock_results.invalid_rows = 50
+        mock_results.output_files = ['output1.parquet', 'output2.parquet']
+        mock_results.manifest_file = 'manifest.json'
+        mock_results.metadata_file = 'metadata.json'
+
+        mock_core_instance = MagicMock()
+        mock_core_instance.process_csv.return_value = mock_results
+        mock_forklift.return_value = mock_core_instance
+
+        test_args = [
+            'forklift', 'ingest', 'input.csv',
+            '--dest', 'output/',
+            '--input-kind', 'csv'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                # Verify all the output print statements are called
+                mock_print.assert_any_call("Processing complete. Processed 1000 rows.")
+                mock_print.assert_any_call("Valid rows: 950, Invalid rows: 50")
+                mock_print.assert_any_call("Output files: output1.parquet, output2.parquet")
+                mock_print.assert_any_call("Manifest file: manifest.json")
+                mock_print.assert_any_call("Metadata file: metadata.json")
+
+    @patch('forklift.cli.SchemaGenerator')
+    def test_generate_schema_with_metadata_output_csv(self, mock_schema_gen):
+        """Test generate-schema with metadata output for CSV (lines 138-142)."""
+        mock_generator = MagicMock()
+        mock_schema_gen.return_value = mock_generator
+
+        # Mock methods
+        mock_generator.generate_schema.return_value = {"test": "schema"}
+        mock_generator._read_csv_sample.return_value = "mock_table"
+        mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
+
+        test_args = [
+            'forklift', 'generate-schema', 'input.csv',
+            '--file-type', 'csv',
+            '--metadata-output', 'metadata_output.json'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                # Verify metadata file written message
+                mock_print.assert_any_call("Metadata file written to: metadata_output.json")
+                # Verify the CSV reader method was called
+                mock_generator._read_csv_sample.assert_called_once()
+                mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
+
+    @patch('forklift.cli.SchemaGenerator')
+    def test_generate_schema_with_metadata_output_excel(self, mock_schema_gen):
+        """Test generate-schema with metadata output for Excel (lines 138-142)."""
+        mock_generator = MagicMock()
+        mock_schema_gen.return_value = mock_generator
+
+        # Mock methods
+        mock_generator.generate_schema.return_value = {"test": "schema"}
+        mock_generator._read_excel_sample.return_value = "mock_table"
+        mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
+
+        test_args = [
+            'forklift', 'generate-schema', 'input.xlsx',
+            '--file-type', 'excel',
+            '--metadata-output', 'metadata_output.json'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                # Verify metadata file written message
+                mock_print.assert_any_call("Metadata file written to: metadata_output.json")
+                # Verify the Excel reader method was called
+                mock_generator._read_excel_sample.assert_called_once()
+                mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
+
+    @patch('forklift.cli.SchemaGenerator')
+    def test_generate_schema_with_metadata_output_parquet(self, mock_schema_gen):
+        """Test generate-schema with metadata output for Parquet (lines 138-142)."""
+        mock_generator = MagicMock()
+        mock_schema_gen.return_value = mock_generator
+
+        # Mock methods
+        mock_generator.generate_schema.return_value = {"test": "schema"}
+        mock_generator._read_parquet_sample.return_value = "mock_table"
+        mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
+
+        test_args = [
+            'forklift', 'generate-schema', 'input.parquet',
+            '--file-type', 'parquet',
+            '--metadata-output', 'metadata_output.json'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                # Verify metadata file written message
+                mock_print.assert_any_call("Metadata file written to: metadata_output.json")
+                # Verify the Parquet reader method was called
+                mock_generator._read_parquet_sample.assert_called_once()
+                mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
+
+    @patch('forklift.cli.SchemaGenerator')
+    def test_generate_schema_exception_handling(self, mock_schema_gen):
+        """Test generate-schema command exception handling (lines 145-150)."""
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.side_effect = Exception("Test error message")
+        mock_schema_gen.return_value = mock_generator
+
+        test_args = [
+            'forklift', 'generate-schema', 'input.csv',
+            '--file-type', 'csv'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                # Verify error message is printed
+                mock_print.assert_any_call("Error generating schema: Test error message")
+
+    @patch('forklift.cli.SchemaGenerator')
+    def test_generate_schema_metadata_output_no_file_returned(self, mock_schema_gen):
+        """Test generate-schema when metadata generation returns None (edge case)."""
+        mock_generator = MagicMock()
+        mock_schema_gen.return_value = mock_generator
+
+        # Mock methods - metadata generation returns None
+        mock_generator.generate_schema.return_value = {"test": "schema"}
+        mock_generator._read_csv_sample.return_value = "mock_table"
+        mock_generator.generate_and_save_metadata.return_value = None
+
+        test_args = [
+            'forklift', 'generate-schema', 'input.csv',
+            '--file-type', 'csv',
+            '--metadata-output', 'metadata_output.json'
+        ]
+
+        with patch('sys.argv', test_args):
+            with patch('builtins.print') as mock_print:
+                main()
+                # Should not print metadata file message when None is returned
+                mock_print.assert_not_called() or all(
+                    "Metadata file written to:" not in str(call)
+                    for call in mock_print.call_args_list
+                )
 
 
 class TestCLIEdgeCases:

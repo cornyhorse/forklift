@@ -49,6 +49,12 @@ def generate_schema_from_csv(
         >>> # With manual primary key specification
         >>> schema = generate_schema_from_csv("data.csv", user_specified_primary_key=["user_id"])
     """
+    # Validate input_path
+    if input_path is None:
+        raise ValueError("input_path cannot be None")
+    if isinstance(input_path, str) and not input_path.strip():
+        raise ValueError("input_path cannot be empty")
+
     config = SchemaGenerationConfig(
         input_path=input_path,
         file_type=FileType.CSV,
@@ -97,6 +103,12 @@ def generate_schema_from_excel(
         >>> # With manual primary key specification
         >>> schema = generate_schema_from_excel("data.xlsx", user_specified_primary_key=["record_id"])
     """
+    # Validate input_path
+    if input_path is None:
+        raise ValueError("input_path cannot be None")
+    if isinstance(input_path, str) and not input_path.strip():
+        raise ValueError("input_path cannot be empty")
+
     config = SchemaGenerationConfig(
         input_path=input_path,
         file_type=FileType.EXCEL,
@@ -145,6 +157,12 @@ def generate_schema_from_parquet(
         >>> # With manual primary key specification
         >>> schema = generate_schema_from_parquet("data.parquet", user_specified_primary_key=["id"])
     """
+    # Validate input_path
+    if input_path is None:
+        raise ValueError("input_path cannot be None")
+    if isinstance(input_path, str) and not input_path.strip():
+        raise ValueError("input_path cannot be empty")
+    
     config = SchemaGenerationConfig(
         input_path=input_path,
         file_type=FileType.PARQUET,

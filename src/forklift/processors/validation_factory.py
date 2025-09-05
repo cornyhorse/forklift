@@ -95,8 +95,9 @@ class ValidationFactory:
 
         strict_mode = config.get('strict_mode', kwargs.get('strict_mode', True))
 
-        # Use positional arguments for backward compatibility with tests
-        return SchemaValidator(schema, None, strict_mode)
+        # Use the old interface that tests expect: SchemaValidator(schema, strict_mode)
+        # This will map to our new constructor as: SchemaValidator(schema, config=None, strict_mode=strict_mode)
+        return SchemaValidator(schema, strict_mode)
 
     @staticmethod
     def _create_constraint_validator(config: Dict[str, Any], **kwargs) -> ConstraintValidator:

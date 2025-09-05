@@ -59,14 +59,20 @@ class SchemaValidatorConfig:
 class SchemaValidator(BaseProcessor):
     """Validates PyArrow record batches against schema definitions."""
 
-    def __init__(self, schema_definition: Union[Dict[str, Any], pa.Schema], config: Optional[SchemaValidatorConfig] = None, strict_mode: Optional[bool] = None):
+    def __init__(self, schema_definition: Union[Dict[str, Any], pa.Schema], config: Optional[Union[SchemaValidatorConfig, bool]] = None, strict_mode: Optional[bool] = None):
         """Initialize the schema validator.
 
         Args:
             schema_definition: Schema definition dictionary or PyArrow Schema
-            config: Validation configuration
+            config: Validation configuration or legacy strict_mode boolean
             strict_mode: Legacy parameter for backwards compatibility
         """
+        # Handle legacy interface where second parameter might be strict_mode boolean
+        if isinstance(config, bool):
+            # Legacy interface: SchemaValidator(schema, strict_mode)
+            strict_mode = config
+            config = None
+
         # Handle legacy interface
         if isinstance(schema_definition, pa.Schema):
             self.schema = schema_definition

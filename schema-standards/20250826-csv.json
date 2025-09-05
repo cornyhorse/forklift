@@ -47,8 +47,8 @@
     "phone_number": {
       "type": "string",
       "x-special-type": "phone",
-      "pattern": "^\\(\\d{3}\\) \\d{3}-\\d{4}$",
-      "description": "US phone number in (XXX) XXX-XXXX format"
+      "pattern": "^(1?\\(\\d{3}\\) \\d{3}-\\d{4}|\\d{10,11})$",
+      "description": "US phone number in (XXX) XXX-XXXX or 1(XXX) XXX-XXXX format"
     },
     "email_address": {
       "type": "string",

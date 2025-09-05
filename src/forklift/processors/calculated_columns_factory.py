@@ -1,7 +1,7 @@
 """Factory functions for creating calculated columns processors from schema configurations."""
 
 from __future__ import annotations
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import pyarrow as pa
 
 from .calculated_columns import (
@@ -11,6 +11,66 @@ from .calculated_columns import (
     ExpressionColumn,
     CalculatedColumn
 )
+
+
+def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
+    """Parse data type string to PyArrow data type.
+
+    Args:
+        data_type_str: String representation of data type
+
+    Returns:
+        PyArrow DataType or None if input is None/empty
+    """
+    if not data_type_str:
+        return None
+
+    data_type_str = data_type_str.lower().strip()
+
+    # Handle simple types
+    type_mapping = {
+        'string': pa.string(),
+        'int64': pa.int64(),
+        'int32': pa.int32(),
+        'float64': pa.float64(),
+        'float32': pa.float32(),
+        'double': pa.float64(),  # alias for float64
+        'bool': pa.bool_(),
+        'boolean': pa.bool_(),
+        'date32': pa.date32(),
+        'date64': pa.date64(),
+        'timestamp': pa.timestamp('ns'),
+        'binary': pa.binary(),
+    }
+
+    # Handle simple mapped types first
+    if data_type_str in type_mapping:
+        return type_mapping[data_type_str]
+
+    # Handle complex types with parameters
+    if data_type_str.startswith('timestamp[') and data_type_str.endswith(']'):
+        # Extract unit from timestamp[unit]
+        unit = data_type_str[10:-1]  # Remove 'timestamp[' and ']'
+        return pa.timestamp(unit)
+
+    if data_type_str.startswith('decimal128(') and data_type_str.endswith(')'):
+        # Extract precision and scale from decimal128(precision,scale)
+        params = data_type_str[11:-1]  # Remove 'decimal128(' and ')'
+        try:
+            precision, scale = map(int, params.split(','))
+            return pa.decimal128(precision, scale)
+        except (ValueError, TypeError):
+            pass
+
+    if data_type_str.startswith('list<') and data_type_str.endswith('>'):
+        # Extract inner type from list<type>
+        inner_type_str = data_type_str[5:-1]  # Remove 'list<' and '>'
+        inner_type = _parse_data_type(inner_type_str)
+        if inner_type:
+            return pa.list_(inner_type)
+
+    # Default to string for unknown types
+    return pa.string()
 
 
 def create_calculated_columns_processor_from_schema(
@@ -27,8 +87,12 @@ def create_calculated_columns_processor_from_schema(
     if not schema_config:
         return None
 
-    # Parse constants
-    constants = []
+    all_columns = []
+    constants_list = []
+    expressions_list = []
+    calculated_list = []
+
+    # Parse constants and convert to CalculatedColumns
     for const_def in schema_config.get("constants", []):
         constant = ConstantColumn(
             name=const_def["name"],
@@ -36,10 +100,10 @@ def create_calculated_columns_processor_from_schema(
             data_type=_parse_data_type(const_def.get("dataType")),
             description=const_def.get("description")
         )
-        constants.append(constant)
+        constants_list.append(constant)
+        all_columns.append(constant.to_calculated_column())
 
-    # Parse expressions
-    expressions = []
+    # Parse expressions and convert to CalculatedColumns
     for expr_def in schema_config.get("expressions", []):
         expression = ExpressionColumn(
             name=expr_def["name"],
@@ -48,85 +112,112 @@ def create_calculated_columns_processor_from_schema(
             description=expr_def.get("description"),
             dependencies=expr_def.get("dependencies", [])
         )
-        expressions.append(expression)
+        expressions_list.append(expression)
+        all_columns.append(expression.to_calculated_column())
 
-    # Parse calculated columns
-    calculated = []
+    # Parse calculated columns (treat 'function' as 'expression' for backward compatibility)
     for calc_def in schema_config.get("calculated", []):
+        # Handle both 'function' and 'expression' keys for backward compatibility
+        expression_value = calc_def.get("expression", calc_def.get("function", ""))
+
         calculated_col = CalculatedColumn(
             name=calc_def["name"],
-            function=calc_def["function"],
-            dependencies=calc_def["dependencies"],
+            expression=expression_value,
+            dependencies=calc_def.get("dependencies", []),
             data_type=_parse_data_type(calc_def.get("dataType")),
             description=calc_def.get("description")
         )
-        calculated.append(calculated_col)
+        # Add function attribute for backward compatibility
+        calculated_col.function = calc_def.get("function", expression_value)
+        calculated_list.append(calculated_col)
+        all_columns.append(calculated_col)
 
-    # Create configuration
+    # Handle partition columns (just store them, don't process as calculated columns)
+    partition_columns = schema_config.get("partitionColumns", [])
+
+    # If no columns were defined and no partition columns, return None
+    if not all_columns and not partition_columns:
+        return None
+
+    # Create configuration with our actual interface plus compatibility attributes
     config = CalculatedColumnsConfig(
-        constants=constants,
-        expressions=expressions,
-        calculated=calculated,
-        partition_columns=schema_config.get("partitionColumns", [])
+        columns=all_columns,
+        fail_on_error=schema_config.get("failOnError", True),
+        add_metadata=schema_config.get("addMetadata", False),
+        validate_dependencies=schema_config.get("validateDependencies", True),
+        constants=constants_list,
+        expressions=expressions_list,
+        calculated=calculated_list,
+        partition_columns=partition_columns
     )
 
     return CalculatedColumnsProcessor(config)
 
 
-def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
-    """Parse a data type string into PyArrow DataType.
+def create_calculated_columns_processor_from_metadata(
+    metadata: Dict[str, Any]
+) -> Optional[CalculatedColumnsProcessor]:
+    """Create a CalculatedColumnsProcessor from metadata configuration.
 
     Args:
-        data_type_str: String representation of data type
+        metadata: Dictionary containing calculated columns metadata
 
     Returns:
-        PyArrow DataType or None if not specified
+        CalculatedColumnsProcessor instance or None if no configuration found
     """
-    if not data_type_str:
+    calculated_columns_config = metadata.get("x-calculatedColumns")
+    if not calculated_columns_config:
         return None
 
-    type_mapping = {
-        "string": pa.string(),
-        "int8": pa.int8(),
-        "int16": pa.int16(),
-        "int32": pa.int32(),
-        "int64": pa.int64(),
-        "uint8": pa.uint8(),
-        "uint16": pa.uint16(),
-        "uint32": pa.uint32(),
-        "uint64": pa.uint64(),
-        "float32": pa.float32(),
-        "float64": pa.float64(),
-        "double": pa.float64(),
-        "bool": pa.bool_(),
-        "boolean": pa.bool_(),
-        "date32": pa.date32(),
-        "date64": pa.date64(),
-        "timestamp": pa.timestamp('us'),
-        "binary": pa.binary(),
-    }
+    return create_calculated_columns_processor_from_schema(calculated_columns_config)
 
-    # Handle simple types
-    if data_type_str in type_mapping:
-        return type_mapping[data_type_str]
 
-    # Handle complex types
-    if data_type_str.startswith("timestamp["):
-        # Extract unit from timestamp[unit]
-        unit = data_type_str[10:-1]  # Remove "timestamp[" and "]"
-        return pa.timestamp(unit)
+def validate_calculated_columns_schema(schema_config: Dict[str, Any]) -> List[str]:
+    """Validate calculated columns schema configuration.
 
-    elif data_type_str.startswith("decimal128("):
-        # Extract precision and scale from decimal128(precision,scale)
-        params = data_type_str[11:-1]  # Remove "decimal128(" and ")"
-        precision, scale = map(int, params.split(","))
-        return pa.decimal128(precision, scale)
+    Args:
+        schema_config: Dictionary containing the x-calculatedColumns configuration
 
-    elif data_type_str.startswith("list<"):
-        # Extract inner type from list<type>
-        inner_type_str = data_type_str[5:-1]  # Remove "list<" and ">"
-        inner_type = _parse_data_type(inner_type_str)
-        return pa.list_(inner_type)
+    Returns:
+        List of validation error messages (empty if valid)
+    """
+    errors = []
 
-    # Default to string if unknown
-    return pa.string()
+    if not isinstance(schema_config, dict):
+        errors.append("Schema configuration must be a dictionary")
+        return errors
+
+    # Validate constants
+    for i, const_def in enumerate(schema_config.get("constants", [])):
+        if not isinstance(const_def, dict):
+            errors.append(f"Constant at index {i} must be a dictionary")
+            continue
+
+        if "name" not in const_def:
+            errors.append(f"Constant at index {i} missing required 'name' field")
+        if "value" not in const_def:
+            errors.append(f"Constant at index {i} missing required 'value' field")
+
+    # Validate expressions
+    for i, expr_def in enumerate(schema_config.get("expressions", [])):
+        if not isinstance(expr_def, dict):
+            errors.append(f"Expression at index {i} must be a dictionary")
+            continue
+
+        if "name" not in expr_def:
+            errors.append(f"Expression at index {i} missing required 'name' field")
+        if "expression" not in expr_def:
+            errors.append(f"Expression at index {i} missing required 'expression' field")
+
+    # Validate calculated columns
+    for i, calc_def in enumerate(schema_config.get("calculated", [])):
+        if not isinstance(calc_def, dict):
+            errors.append(f"Calculated column at index {i} must be a dictionary")
+            continue
+
+        if "name" not in calc_def:
+            errors.append(f"Calculated column at index {i} missing required 'name' field")
+        if "function" not in calc_def and "expression" not in calc_def:
+            errors.append(f"Calculated column at index {i} missing required 'function' or 'expression' field")
+
+    return errors

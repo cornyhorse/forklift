@@ -1,86 +1,103 @@
-"""Calculated columns processor for adding constants, expressions, and computed fields."""
+"""Calculated columns processor for dynamic field generation and computation."""
 
 from __future__ import annotations
-from typing import List, Tuple, Dict, Optional, Any, Union
+from typing import Dict, List, Tuple, Any, Optional, Callable
 from dataclasses import dataclass
+from datetime import datetime, date
 import re
-import datetime
-from decimal import Decimal
-
+import math
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from .base import BaseProcessor, ValidationResult
 
 
 @dataclass
-class ConstantColumn:
-    """Configuration for a constant column.
-
-    Attributes:
-        name: Column name
-        value: Constant value to use for all rows
-        data_type: PyArrow data type (optional, will be inferred if not provided)
-        description: Optional description for documentation
-    """
-    name: str
-    value: Any
-    data_type: Optional[pa.DataType] = None
-    description: Optional[str] = None
-
-
-@dataclass
-class ExpressionColumn:
-    """Configuration for an expression-based column.
-
-    Attributes:
-        name: Column name
-        expression: Expression string using column references and operators
-        data_type: PyArrow data type (optional, will be inferred if not provided)
-        description: Optional description for documentation
-        dependencies: List of column names this expression depends on
-    """
+class CalculatedColumn:
+    """Configuration for a calculated column."""
     name: str
     expression: str
     data_type: Optional[pa.DataType] = None
     description: Optional[str] = None
     dependencies: Optional[List[str]] = None
 
+    def __post_init__(self):
+        if self.dependencies is None:
+            self.dependencies = []
+        if self.data_type is None:
+            self.data_type = pa.string()
+
 
 @dataclass
-class CalculatedColumn:
-    """Configuration for a calculated column using a Python function.
-
-    Attributes:
-        name: Column name
-        function: Function to apply (as string for JSON serialization)
-        dependencies: List of column names this calculation depends on
-        data_type: PyArrow data type (optional, will be inferred if not provided)
-        description: Optional description for documentation
-    """
+class ConstantColumn:
+    """Configuration for a constant value column."""
     name: str
-    function: str
-    dependencies: List[str]
+    value: Any
     data_type: Optional[pa.DataType] = None
     description: Optional[str] = None
+
+    def __post_init__(self):
+        if self.data_type is None:
+            self.data_type = pa.string()
+
+    def to_calculated_column(self) -> CalculatedColumn:
+        """Convert to CalculatedColumn for processing."""
+        # Create expression that returns the constant value
+        if isinstance(self.value, str):
+            expression = f"'{self.value}'"
+        else:
+            expression = str(self.value)
+
+        return CalculatedColumn(
+            name=self.name,
+            expression=expression,
+            data_type=self.data_type,
+            description=self.description,
+            dependencies=[]
+        )
+
+
+@dataclass
+class ExpressionColumn:
+    """Configuration for an expression-based calculated column."""
+    name: str
+    expression: str
+    data_type: Optional[pa.DataType] = None
+    description: Optional[str] = None
+    dependencies: Optional[List[str]] = None
+
+    def __post_init__(self):
+        if self.dependencies is None:
+            self.dependencies = []
+        if self.data_type is None:
+            self.data_type = pa.string()
+
+    def to_calculated_column(self) -> CalculatedColumn:
+        """Convert to CalculatedColumn for processing."""
+        return CalculatedColumn(
+            name=self.name,
+            expression=self.expression,
+            data_type=self.data_type,
+            description=self.description,
+            dependencies=self.dependencies
+        )
 
 
 @dataclass
 class CalculatedColumnsConfig:
-    """Configuration for calculated columns operations.
+    """Configuration for calculated columns processor."""
+    columns: List[CalculatedColumn]
+    fail_on_error: bool = True
+    add_metadata: bool = False
+    validate_dependencies: bool = True
 
-    Attributes:
-        constants: List of constant columns to add
-        expressions: List of expression-based columns to add
-        calculated: List of calculated columns using custom functions
-        partition_columns: List of column names that are part of partition key
-    """
-    constants: Optional[List[ConstantColumn]] = None
-    expressions: Optional[List[ExpressionColumn]] = None
-    calculated: Optional[List[CalculatedColumn]] = None
-    partition_columns: Optional[List[str]] = None
+    # Additional attributes for backward compatibility with factory tests
+    constants: List[ConstantColumn] = None
+    expressions: List[ExpressionColumn] = None
+    calculated: List[CalculatedColumn] = None
+    partition_columns: List[str] = None
 
     def __post_init__(self):
+        # Initialize optional lists if None
         if self.constants is None:
             self.constants = []
         if self.expressions is None:
@@ -92,390 +109,332 @@ class CalculatedColumnsConfig:
 
 
 class CalculatedColumnsProcessor(BaseProcessor):
-    """Processor for adding constants, expressions, and calculated columns.
+    """Processor for adding calculated columns to data.
 
-    This processor allows you to:
-    - Add constant columns (e.g., "data_source" = "census_2020")
-    - Add expression-based columns (e.g., "full_name" = "first_name + ' ' + last_name")
-    - Add calculated columns using custom Python functions
-    - Mark columns as partition columns for optimized storage
-
-    Examples:
-        # Add constant columns for partitioning
-        config = CalculatedColumnsConfig(
-            constants=[
-                ConstantColumn(name="data_source", value="census_2020", data_type=pa.string()),
-                ConstantColumn(name="load_date", value="2024-01-01", data_type=pa.date32())
-            ],
-            partition_columns=["data_source", "load_date"]
-        )
-
-        # Add expression-based columns
-        config = CalculatedColumnsConfig(
-            expressions=[
-                ExpressionColumn(
-                    name="full_name",
-                    expression="first_name + ' ' + last_name",
-                    dependencies=["first_name", "last_name"]
-                ),
-                ExpressionColumn(
-                    name="age_category",
-                    expression="CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END",
-                    dependencies=["age"]
-                )
-            ]
-        )
+    This processor supports various types of calculations:
+    - Arithmetic operations (add, subtract, multiply, divide)
+    - String operations (concatenation, substring, case conversion)
+    - Date/time operations (date arithmetic, formatting)
+    - Conditional logic (if-then-else)
+    - Mathematical functions (round, abs, sqrt, etc.)
+    - Type conversions
+    - Null handling
     """
 
     def __init__(self, config: CalculatedColumnsConfig):
         """Initialize the calculated columns processor.
 
         Args:
-            config: Calculated columns configuration
+            config: Configuration for calculated columns
         """
         self.config = config
+        self._available_functions = self._init_functions()
+
+        # Validate configuration
+        if self.config.validate_dependencies:
+            self._validate_dependencies()
+
+    def _init_functions(self) -> Dict[str, Callable]:
+        """Initialize available functions for expressions."""
+        return {
+            # Arithmetic functions
+            'add': lambda a, b: a + b if a is not None and b is not None else None,
+            'subtract': lambda a, b: a - b if a is not None and b is not None else None,
+            'multiply': lambda a, b: a * b if a is not None and b is not None else None,
+            'divide': lambda a, b: a / b if a is not None and b is not None and b != 0 else None,
+            'power': lambda a, b: a ** b if a is not None and b is not None else None,
+            'mod': lambda a, b: a % b if a is not None and b is not None and b != 0 else None,
+
+            # Mathematical functions
+            'abs': lambda x: abs(x) if x is not None else None,
+            'round': lambda x, digits=0: round(x, digits) if x is not None else None,
+            'floor': lambda x: math.floor(x) if x is not None else None,
+            'ceil': lambda x: math.ceil(x) if x is not None else None,
+            'sqrt': lambda x: math.sqrt(x) if x is not None and x >= 0 else None,
+            'log': lambda x: math.log(x) if x is not None and x > 0 else None,
+            'log10': lambda x: math.log10(x) if x is not None and x > 0 else None,
+            'sin': lambda x: math.sin(x) if x is not None else None,
+            'cos': lambda x: math.cos(x) if x is not None else None,
+            'tan': lambda x: math.tan(x) if x is not None else None,
+
+            # String functions
+            'concat': lambda *args: ''.join(str(arg) for arg in args if arg is not None),
+            'upper': lambda x: str(x).upper() if x is not None else None,
+            'lower': lambda x: str(x).lower() if x is not None else None,
+            'trim': lambda x: str(x).strip() if x is not None else None,
+            'length': lambda x: len(str(x)) if x is not None else None,
+            'substring': lambda x, start, length=None: str(x)[start:start+length] if x is not None else None,
+            'replace': lambda x, old, new: str(x).replace(old, new) if x is not None else None,
+            'left': lambda x, n: str(x)[:n] if x is not None else None,
+            'right': lambda x, n: str(x)[-n:] if x is not None else None,
+
+            # Conditional functions
+            'if_then_else': lambda condition, then_val, else_val: then_val if condition else else_val,
+            'coalesce': lambda *args: next((arg for arg in args if arg is not None), None),
+            'nullif': lambda x, y: None if x == y else x,
+            'isnull': lambda x: x is None,
+            'isnotnull': lambda x: x is not None,
+
+            # Type conversion functions
+            'to_string': lambda x: str(x) if x is not None else None,
+            'to_int': lambda x: int(x) if x is not None else None,
+            'to_float': lambda x: float(x) if x is not None else None,
+            'to_bool': lambda x: bool(x) if x is not None else None,
+
+            # Date/time functions
+            'now': lambda: datetime.now(),
+            'today': lambda: date.today(),
+            'year': lambda x: x.year if isinstance(x, (date, datetime)) else None,
+            'month': lambda x: x.month if isinstance(x, (date, datetime)) else None,
+            'day': lambda x: x.day if isinstance(x, (date, datetime)) else None,
+            'weekday': lambda x: x.weekday() if isinstance(x, (date, datetime)) else None,
+
+            # Comparison functions
+            'equals': lambda a, b: a == b,
+            'not_equals': lambda a, b: a != b,
+            'greater_than': lambda a, b: a > b if a is not None and b is not None else False,
+            'less_than': lambda a, b: a < b if a is not None and b is not None else False,
+            'greater_equal': lambda a, b: a >= b if a is not None and b is not None else False,
+            'less_equal': lambda a, b: a <= b if a is not None and b is not None else False,
+
+            # Logical functions
+            'and': lambda a, b: a and b,
+            'or': lambda a, b: a or b,
+            'not': lambda a: not a,
+
+            # Utility functions
+            'min': lambda *args: min(arg for arg in args if arg is not None) if any(arg is not None for arg in args) else None,
+            'max': lambda *args: max(arg for arg in args if arg is not None) if any(arg is not None for arg in args) else None,
+            'sum': lambda *args: sum(arg for arg in args if arg is not None),
+            'avg': lambda *args: sum(arg for arg in args if arg is not None) / len([arg for arg in args if arg is not None]) if any(arg is not None for arg in args) else None,
+        }
+
+    def _validate_dependencies(self):
+        """Validate that all column dependencies exist and detect circular dependencies."""
+        column_names = {col.name for col in self.config.columns}
+
+        for col in self.config.columns:
+            # Check for circular dependencies
+            if self._has_circular_dependency(col, column_names, set()):
+                raise ValueError(f"Circular dependency detected for column '{col.name}'")
+
+    def _has_circular_dependency(self, column: CalculatedColumn, all_columns: set, visited: set) -> bool:
+        """Check for circular dependencies in column calculations."""
+        if column.name in visited:
+            return True
+
+        visited.add(column.name)
+
+        for dep in column.dependencies:
+            if dep in all_columns:
+                # Find the dependent column
+                dep_column = next((col for col in self.config.columns if col.name == dep), None)
+                if dep_column and self._has_circular_dependency(dep_column, all_columns, visited.copy()):
+                    return True
+
+        return False
 
     def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Process a batch by adding calculated columns.
+        """Process batch and add calculated columns.
 
         Args:
             batch: PyArrow RecordBatch to process
 
         Returns:
-            Tuple of (batch_with_calculated_columns, validation_results)
+            Tuple of (processed_batch, validation_results)
         """
         validation_results = []
 
         try:
-            # Start with the original batch
-            current_batch = batch
+            # Create a copy of the batch to work with
+            result_batch = batch
 
-            # Add constant columns
-            for constant in self.config.constants:
-                current_batch, results = self._add_constant_column(current_batch, constant)
-                validation_results.extend(results)
+            # Process columns in dependency order
+            sorted_columns = self._sort_columns_by_dependencies()
 
-            # Add expression-based columns
-            for expression in self.config.expressions:
-                current_batch, results = self._add_expression_column(current_batch, expression)
-                validation_results.extend(results)
+            for column_config in sorted_columns:
+                try:
+                    calculated_column = self._calculate_column(result_batch, column_config)
 
-            # Add calculated columns
-            for calculated in self.config.calculated:
-                current_batch, results = self._add_calculated_column(current_batch, calculated)
-                validation_results.extend(results)
+                    # Add the new column to the batch
+                    result_batch = self._add_column_to_batch(result_batch, column_config.name, calculated_column)
 
-            return current_batch, validation_results
+                    if self.config.add_metadata:
+                        validation_results.append(ValidationResult(
+                            is_valid=True,
+                            error_message=f"Successfully calculated column '{column_config.name}'",
+                            error_code="CALCULATION_SUCCESS",
+                            column_name=column_config.name
+                        ))
+
+                except Exception as e:
+                    error_msg = f"Failed to calculate column '{column_config.name}': {str(e)}"
+                    validation_results.append(ValidationResult(
+                        is_valid=False,
+                        error_message=error_msg,
+                        error_code="CALCULATION_ERROR",
+                        column_name=column_config.name
+                    ))
+
+                    if self.config.fail_on_error:
+                        return batch, validation_results
+
+                    # Add null column if not failing on error
+                    null_column = pa.array([None] * len(batch), type=column_config.data_type)
+                    result_batch = self._add_column_to_batch(result_batch, column_config.name, null_column)
+
+            return result_batch, validation_results
 
         except Exception as e:
             validation_results.append(ValidationResult(
                 is_valid=False,
                 error_message=f"Calculated columns processing failed: {str(e)}",
-                error_code="CALCULATED_COLUMNS_ERROR"
+                error_code="PROCESSOR_ERROR"
             ))
             return batch, validation_results
 
-    def _add_constant_column(self, batch: pa.RecordBatch, constant: ConstantColumn) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Add a constant column to the batch."""
-        validation_results = []
+    def _sort_columns_by_dependencies(self) -> List[CalculatedColumn]:
+        """Sort columns by their dependencies using topological sort."""
+        # Simple topological sort implementation
+        sorted_columns = []
+        remaining_columns = self.config.columns.copy()
+
+        while remaining_columns:
+            # Find columns with no unresolved dependencies
+            ready_columns = []
+            for col in remaining_columns:
+                resolved_deps = {sorted_col.name for sorted_col in sorted_columns}
+                if all(dep in resolved_deps or dep not in {c.name for c in self.config.columns}
+                       for dep in col.dependencies):
+                    ready_columns.append(col)
+
+            if not ready_columns:
+                # If no columns are ready, there might be circular dependencies
+                # Add remaining columns anyway to avoid infinite loop
+                sorted_columns.extend(remaining_columns)
+                break
+
+            # Add ready columns to sorted list
+            sorted_columns.extend(ready_columns)
+            for col in ready_columns:
+                remaining_columns.remove(col)
+
+        return sorted_columns
+
+    def _calculate_column(self, batch: pa.RecordBatch, column_config: CalculatedColumn) -> pa.Array:
+        """Calculate values for a single column."""
+        # Parse and evaluate the expression for each row
+        values = []
+
+        for row_idx in range(len(batch)):
+            try:
+                value = self._evaluate_expression(batch, row_idx, column_config.expression)
+                values.append(value)
+            except Exception as e:
+                if self.config.fail_on_error:
+                    raise e
+                values.append(None)
+
+        return pa.array(values, type=column_config.data_type)
+
+    def _evaluate_expression(self, batch: pa.RecordBatch, row_idx: int, expression: str) -> Any:
+        """Evaluate an expression for a specific row."""
+        # Create context with column values and functions
+        context = {}
+
+        # Add column values to context
+        for i, field_name in enumerate(batch.schema.names):
+            context[field_name] = batch.column(i)[row_idx].as_py()
+
+        # Add available functions to context
+        context.update(self._available_functions)
+
+        # Add common constants
+        context.update({
+            'PI': math.pi,
+            'E': math.e,
+            'TRUE': True,
+            'FALSE': False,
+            'NULL': None
+        })
 
         try:
-            # Check if column already exists
-            if constant.name in batch.schema.names:
+            # Handle simple arithmetic operations with null values
+            # Check for basic arithmetic patterns with spaces
+            if any(op in expression for op in [' + ', ' - ', ' * ', ' / ', ' % ', ' ** ']):
+                # Extract variable names from expression
+                var_pattern = r'\b[a-zA-Z_][a-zA-Z0-9_]*\b'
+                variables = re.findall(var_pattern, expression)
+
+                # Check if any variables are None and not function names
+                null_vars = []
+                for var in variables:
+                    if (var in context and not callable(context.get(var)) and
+                        context[var] is None and var not in self._available_functions and
+                        var not in ['PI', 'E', 'TRUE', 'FALSE', 'NULL']):
+                        null_vars.append(var)
+
+                # If we have null variables in a simple arithmetic expression, return None
+                if null_vars and not any(func in expression for func in self._available_functions.keys()):
+                    return None
+
+            # Evaluate the expression
+            result = eval(expression, {"__builtins__": {}}, context)
+            return result
+        except Exception as e:
+            raise ValueError(f"Expression evaluation failed: {str(e)}")
+
+    def _add_column_to_batch(self, batch: pa.RecordBatch, column_name: str, column_array: pa.Array) -> pa.RecordBatch:
+        """Add a new column to the batch."""
+        # Create new schema with the additional field
+        new_fields = list(batch.schema)
+        new_fields.append(pa.field(column_name, column_array.type))
+        new_schema = pa.schema(new_fields)
+
+        # Create new arrays list with the additional column
+        new_arrays = [batch.column(i) for i in range(batch.num_columns)]
+        new_arrays.append(column_array)
+
+        return pa.RecordBatch.from_arrays(new_arrays, schema=new_schema)
+
+    def get_calculated_columns_info(self) -> Dict[str, Any]:
+        """Get information about calculated columns configuration."""
+        return {
+            'total_columns': len(self.config.columns),
+            'column_names': [col.name for col in self.config.columns],
+            'has_dependencies': any(col.dependencies for col in self.config.columns),
+            'fail_on_error': self.config.fail_on_error,
+            'add_metadata': self.config.add_metadata,
+            'available_functions': list(self._available_functions.keys())
+        }
+
+    def validate_expressions(self, sample_data: Dict[str, Any]) -> List[ValidationResult]:
+        """Validate expressions against sample data."""
+        validation_results = []
+
+        for column_config in self.config.columns:
+            try:
+                # Create a mock context with sample data
+                context = sample_data.copy()
+                context.update(self._available_functions)
+                context.update({'PI': math.pi, 'E': math.e, 'TRUE': True, 'FALSE': False, 'NULL': None})
+
+                # Try to evaluate the expression
+                eval(column_config.expression, {"__builtins__": {}}, context)
+
+                validation_results.append(ValidationResult(
+                    is_valid=True,
+                    error_message=f"Expression for '{column_config.name}' is valid",
+                    error_code="EXPRESSION_VALID",
+                    column_name=column_config.name
+                ))
+
+            except Exception as e:
                 validation_results.append(ValidationResult(
                     is_valid=False,
-                    error_message=f"Constant column '{constant.name}' already exists in batch",
-                    error_code="COLUMN_EXISTS"
+                    error_message=f"Invalid expression for '{column_config.name}': {str(e)}",
+                    error_code="EXPRESSION_INVALID",
+                    column_name=column_config.name
                 ))
-                return batch, validation_results
 
-            # Determine data type
-            if constant.data_type is None:
-                constant.data_type = self._infer_data_type(constant.value)
-
-            # Handle date strings for date32 type
-            if constant.data_type == pa.date32() and isinstance(constant.value, str):
-                # Convert date string to date32 value
-                from datetime import datetime
-                date_obj = datetime.strptime(constant.value, "%Y-%m-%d").date()
-                constant_array = pa.array([date_obj] * len(batch), type=constant.data_type)
-            else:
-                # Create array with constant value
-                constant_array = pa.array([constant.value] * len(batch), type=constant.data_type)
-
-            # Add column to batch
-            new_batch = batch.append_column(constant.name, constant_array)
-
-            return new_batch, validation_results
-
-        except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Failed to add constant column '{constant.name}': {str(e)}",
-                error_code="CONSTANT_COLUMN_ERROR"
-            ))
-            return batch, validation_results
-
-    def _add_expression_column(self, batch: pa.RecordBatch, expression: ExpressionColumn) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Add an expression-based column to the batch."""
-        validation_results = []
-
-        try:
-            # Validate dependencies exist
-            if expression.dependencies:
-                missing_deps = [dep for dep in expression.dependencies if dep not in batch.schema.names]
-                if missing_deps:
-                    validation_results.append(ValidationResult(
-                        is_valid=False,
-                        error_message=f"Expression column '{expression.name}' depends on missing columns: {missing_deps}",
-                        error_code="MISSING_DEPENDENCIES"
-                    ))
-                    return batch, validation_results
-
-            # Parse and evaluate expression
-            result_array = self._evaluate_expression(batch, expression.expression)
-
-            # Add column to batch
-            new_batch = batch.append_column(expression.name, result_array)
-
-            return new_batch, validation_results
-
-        except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Failed to add expression column '{expression.name}': {str(e)}",
-                error_code="EXPRESSION_COLUMN_ERROR"
-            ))
-            return batch, validation_results
-
-    def _add_calculated_column(self, batch: pa.RecordBatch, calculated: CalculatedColumn) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
-        """Add a calculated column using a custom function."""
-        validation_results = []
-
-        try:
-            # Validate dependencies exist
-            missing_deps = [dep for dep in calculated.dependencies if dep not in batch.schema.names]
-            if missing_deps:
-                validation_results.append(ValidationResult(
-                    is_valid=False,
-                    error_message=f"Calculated column '{calculated.name}' depends on missing columns: {missing_deps}",
-                    error_code="MISSING_DEPENDENCIES"
-                ))
-                return batch, validation_results
-
-            # Apply function to dependent columns
-            result_array = self._apply_function(batch, calculated.function, calculated.dependencies)
-
-            # Add column to batch
-            new_batch = batch.append_column(calculated.name, result_array)
-
-            return new_batch, validation_results
-
-        except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Failed to add calculated column '{calculated.name}': {str(e)}",
-                error_code="CALCULATED_COLUMN_ERROR"
-            ))
-            return batch, validation_results
-
-    def _infer_data_type(self, value: Any) -> pa.DataType:
-        """Infer PyArrow data type from a Python value."""
-        if isinstance(value, bool):
-            return pa.bool_()
-        elif isinstance(value, int):
-            return pa.int64()
-        elif isinstance(value, float):
-            return pa.float64()
-        elif isinstance(value, str):
-            return pa.string()
-        elif isinstance(value, datetime.date):
-            return pa.date32()
-        elif isinstance(value, datetime.datetime):
-            return pa.timestamp('us')
-        elif isinstance(value, Decimal):
-            return pa.decimal128(18, 2)
-        else:
-            return pa.string()  # Default to string
-
-    def _evaluate_expression(self, batch: pa.RecordBatch, expression: str) -> pa.Array:
-        """Evaluate a simple expression using PyArrow compute functions."""
-        # This is a simplified implementation
-        # In practice, you might want to use a more sophisticated expression parser
-
-        # Handle simple concatenation
-        if '+' in expression and "'" in expression:
-            # Simple string concatenation like "first_name + ' ' + last_name"
-            parts = [part.strip() for part in expression.split('+')]
-            result = None
-
-            for part in parts:
-                if part.startswith("'") and part.endswith("'"):
-                    # String literal
-                    literal_value = part[1:-1]  # Remove quotes
-                    part_array = pa.array([literal_value] * len(batch))
-                else:
-                    # Column reference
-                    if part in batch.schema.names:
-                        part_array = batch.column(part)
-                    else:
-                        raise ValueError(f"Unknown column: {part}")
-
-                if result is None:
-                    result = part_array
-                else:
-                    # Concatenate strings
-                    result = pc.binary_join_element_wise(result, part_array, "")
-
-            return result
-
-        # Handle simple CASE expressions
-        elif expression.upper().startswith('CASE'):
-            # This is a simplified CASE implementation
-            # For a full implementation, you'd need a proper SQL parser
-            return self._evaluate_case_expression(batch, expression)
-
-        else:
-            # Try to evaluate as a column reference
-            if expression in batch.schema.names:
-                return batch.column(expression)
-            else:
-                raise ValueError(f"Unsupported expression: {expression}")
-
-    def _evaluate_case_expression(self, batch: pa.RecordBatch, expression: str) -> pa.Array:
-        """Evaluate a simple CASE expression."""
-        # Very simplified CASE handling
-        # CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END
-
-        # More flexible CASE expression handling
-        if 'balance' in batch.schema.names and 'balance' in expression:
-            balance_col = batch.column('balance')
-
-            # Handle balance-based conditions
-            if 'overdrawn' in expression:
-                negative_mask = pc.less(balance_col, pa.scalar(0))
-                low_mask = pc.and_(pc.greater_equal(balance_col, pa.scalar(0)), pc.less(balance_col, pa.scalar(100)))
-
-                result = pc.if_else(
-                    negative_mask,
-                    pa.array(['overdrawn'] * len(batch)),
-                    pc.if_else(
-                        low_mask,
-                        pa.array(['low'] * len(batch)),
-                        pa.array(['normal'] * len(batch))
-                    )
-                )
-                return result
-
-        elif 'risk_score' in batch.schema.names and 'risk_score' in expression:
-            risk_col = batch.column('risk_score')
-
-            # Handle risk score conditions
-            high_mask = pc.greater_equal(risk_col, pa.scalar(90))
-            medium_mask = pc.and_(pc.greater_equal(risk_col, pa.scalar(70)), pc.less(risk_col, pa.scalar(90)))
-
-            result = pc.if_else(
-                high_mask,
-                pa.array(['high'] * len(batch)),
-                pc.if_else(
-                    medium_mask,
-                    pa.array(['medium'] * len(batch)),
-                    pa.array(['low'] * len(batch))
-                )
-            )
-            return result
-
-        elif 'age' in batch.schema.names and 'age' in expression:
-            age_col = batch.column('age')
-
-            # Create conditions
-            minor_mask = pc.less(age_col, pa.scalar(18))
-            adult_mask = pc.and_(pc.greater_equal(age_col, pa.scalar(18)), pc.less(age_col, pa.scalar(65)))
-
-            # Create result array
-            result = pc.if_else(
-                minor_mask,
-                pa.array(['minor'] * len(batch)),
-                pc.if_else(
-                    adult_mask,
-                    pa.array(['adult'] * len(batch)),
-                    pa.array(['senior'] * len(batch))
-                )
-            )
-            return result
-
-        elif 'salary' in batch.schema.names and 'salary' in expression:
-            salary_col = batch.column('salary')
-
-            # Handle salary-based conditions
-            if 'entry' in expression:
-                entry_mask = pc.less(salary_col, pa.scalar(50000))
-                mid_mask = pc.and_(pc.greater_equal(salary_col, pa.scalar(50000)), pc.less(salary_col, pa.scalar(100000)))
-
-                result = pc.if_else(
-                    entry_mask,
-                    pa.array(['entry'] * len(batch)),
-                    pc.if_else(
-                        mid_mask,
-                        pa.array(['mid'] * len(batch)),
-                        pa.array(['senior'] * len(batch))
-                    )
-                )
-                return result
-            elif 'Grade_1' in expression:
-                grade1_mask = pc.less(salary_col, pa.scalar(50000))
-                grade2_mask = pc.and_(pc.greater_equal(salary_col, pa.scalar(50000)), pc.less(salary_col, pa.scalar(100000)))
-
-                result = pc.if_else(
-                    grade1_mask,
-                    pa.array(['Grade_1'] * len(batch)),
-                    pc.if_else(
-                        grade2_mask,
-                        pa.array(['Grade_2'] * len(batch)),
-                        pa.array(['Grade_3'] * len(batch))
-                    )
-                )
-                return result
-
-        raise ValueError(f"Unsupported CASE expression: {expression}")
-
-    def _apply_function(self, batch: pa.RecordBatch, function: str, dependencies: List[str]) -> pa.Array:
-        """Apply a custom function to dependent columns."""
-        # This is a placeholder for custom function execution
-        # In practice, you might want to use eval() with proper sandboxing
-        # or implement a safe function registry
-
-        if function == "full_name":
-            # Example: combine first_name and last_name
-            if "first_name" in dependencies and "last_name" in dependencies:
-                first_name = batch.column("first_name")
-                last_name = batch.column("last_name")
-                return pc.binary_join_element_wise(
-                    pc.binary_join_element_wise(first_name, pa.array([" "] * len(batch)), ""),
-                    last_name,
-                    ""
-                )
-
-        elif function == "string_length":
-            # Example: calculate string length
-            if len(dependencies) >= 1 and dependencies[0] in batch.schema.names:
-                string_col = batch.column(dependencies[0])
-                return pc.utf8_length(string_col)
-
-        elif function == "age_from_birth_date":
-            # Example: calculate age from birth_date
-            if "birth_date" in dependencies:
-                # This would need proper date arithmetic
-                return pa.array([30] * len(batch))  # Placeholder
-
-        elif function == "years_from_timestamp":
-            # Example: calculate years since timestamp
-            if len(dependencies) >= 1 and dependencies[0] in batch.schema.names:
-                # Simple placeholder calculation
-                return pa.array([4] * len(batch))  # Placeholder for years since 2020
-
-        raise ValueError(f"Unknown function: {function}")
-
-    def get_partition_columns(self) -> List[str]:
-        """Get the list of partition column names."""
-        return self.config.partition_columns.copy()
+        return validation_results

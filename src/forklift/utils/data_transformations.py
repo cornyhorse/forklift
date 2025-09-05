@@ -1027,15 +1027,16 @@ class DataTransformer:
 
         else:  # zip-permissive
             # Handle permissive ZIP codes (5 or 9 digits)
+            # Validate original length first, before zero-padding
+            if config.validate:
+                if len(digits_only) not in [5, 9]:
+                    raise ValueError(f"ZIP code must have 5 or 9 digits, got {len(digits_only)}")
+
             if config.zero_pad:
                 if len(digits_only) <= 5:
                     digits_only = digits_only.zfill(5)
                 elif len(digits_only) <= 9:
                     digits_only = digits_only.zfill(9)
-
-            if config.validate:
-                if len(digits_only) not in [5, 9]:
-                    raise ValueError(f"ZIP code must have 5 or 9 digits, got {len(digits_only)}")
 
             # Format based on length
             if len(digits_only) == 9 and config.format_with_dash:
@@ -1449,8 +1450,7 @@ class DataTransformer:
         if not hex_only:
             raise ValueError("No hexadecimal digits found in MAC address")
 
-        # Check if we have suspiciously few hex digits (likely not a real MAC address)
-        # This prevents inputs like "invalid" (only 2 hex chars) from being zero-padded
+        # Check for suspiciously few hex digits (likely not a real MAC address)
         if len(hex_only) < 6:  # Less than 6 hex chars is suspicious
             raise ValueError(f"MAC address must have at least 6 hexadecimal digits, got {len(hex_only)}")
 

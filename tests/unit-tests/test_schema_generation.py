@@ -712,7 +712,7 @@ Bob,Yet another person"""
         config = SchemaGenerationConfig(
             input_path=str(csv_file),
             file_type=FileType.CSV,
-            enum_threshold=0.2,  # Lower threshold to catch enum candidates
+            enum_threshold=0.7,  # Higher threshold to catch enum candidates with 60% uniqueness
             top_n_values=3
         )
 

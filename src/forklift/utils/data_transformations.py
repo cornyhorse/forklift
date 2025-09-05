@@ -1449,15 +1449,18 @@ class DataTransformer:
         if not hex_only:
             raise ValueError("No hexadecimal digits found in MAC address")
 
-        # Check if we have a reasonable number of hex digits before zero padding
-        # If validation is enabled OR if we have very few hex digits, validate strictly
-        if config.validate or len(hex_only) < 6:  # Less than 6 hex chars is suspicious
-            if len(hex_only) != 12:
-                raise ValueError(f"MAC address must have exactly 12 hexadecimal digits, got {len(hex_only)}")
+        # Check if we have suspiciously few hex digits (likely not a real MAC address)
+        # This prevents inputs like "invalid" (only 2 hex chars) from being zero-padded
+        if len(hex_only) < 6:  # Less than 6 hex chars is suspicious
+            raise ValueError(f"MAC address must have at least 6 hexadecimal digits, got {len(hex_only)}")
 
         # Handle zero padding after initial validation
         if config.zero_pad and len(hex_only) < 12:
             hex_only = hex_only.zfill(12)
+
+        # Validate MAC address length if validation is enabled (after potential padding)
+        if config.validate and len(hex_only) != 12:
+            raise ValueError(f"MAC address must have exactly 12 hexadecimal digits, got {len(hex_only)}")
 
         # Truncate to 12 characters if needed
         if len(hex_only) > 12:

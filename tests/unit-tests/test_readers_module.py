@@ -263,10 +263,13 @@ class TestReadCsv:
 
         # Verify calls
         mock_mkdtemp.assert_called_once()
+        # Now encoding and delimiter are passed through with default values
         mock_import_csv.assert_called_once_with(
             input_path="/path/to/input.csv",
             output_path=temp_dir,
-            schema_file=None
+            schema_file=None,
+            encoding="utf-8",
+            delimiter=","
         )
 
         # Verify result
@@ -290,13 +293,18 @@ class TestReadCsv:
             schema_file="/path/to/schema.json"
         )
 
+        # Now encoding and delimiter are passed through with default values
         mock_import_csv.assert_called_once_with(
             input_path="/path/to/input.csv",
             output_path=temp_dir,
-            schema_file="/path/to/schema.json"
+            schema_file="/path/to/schema.json",
+            encoding="utf-8",
+            delimiter=","
         )
 
         assert isinstance(result, DataFrameReader)
+        assert result.parquet_files == mock_result.output_files
+        assert result._temp_dir == temp_dir
 
 
 class TestGlobalCleanup:

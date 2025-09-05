@@ -162,6 +162,8 @@ def read_csv(
             input_path=input_path,
             output_path=temp_dir,
             schema_file=schema_file,
+            encoding=encoding,
+            delimiter=delimiter,
             **kwargs
         )
 
@@ -206,6 +208,7 @@ def read_excel(
             input_path=input_path,
             output_path=temp_dir,
             schema_file=schema_file,
+            sheet=sheet,
             **kwargs
         )
 

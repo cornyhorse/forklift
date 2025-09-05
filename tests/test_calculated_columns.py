@@ -12,7 +12,13 @@ import pyarrow.compute as pc
 # Add src to Python path for imports
 sys.path.insert(0, 'src')
 
+# Import the base classes first
 from forklift.processors.base import BaseProcessor, ValidationResult
+
+# Import the calculated_columns module directly to ensure coverage tracking
+import forklift.processors.calculated_columns
+
+# Now import the specific classes
 from forklift.processors.calculated_columns import (
     CalculatedColumn,
     CalculatedColumnsConfig,
@@ -939,6 +945,3 @@ class TestExpressionColumn:
         assert calc_col.data_type == pa.int64()
         assert calc_col.description == "Test expression"
         assert calc_col.dependencies == ["x", "y"]
-
-
-

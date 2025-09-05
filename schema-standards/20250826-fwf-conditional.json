@@ -13,7 +13,31 @@
     "birth_date": { "type": "string", "format": "date" },
     "foo": { "type": "string" },
     "bar": { "type": "integer" },
-    "baz": { "type": "string" }
+    "baz": { "type": "string" },
+    "ssn": {
+      "type": "string",
+      "x-special-type": "ssn",
+      "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+      "description": "Social Security Number in XXX-XX-XXXX format"
+    },
+    "zip_code": {
+      "type": "string",
+      "x-special-type": "zip-permissive",
+      "pattern": "^\\d{5}(-\\d{4})?$",
+      "description": "ZIP code in XXXXX or XXXXX-XXXX format"
+    },
+    "zip_5": {
+      "type": "string",
+      "x-special-type": "zip-5",
+      "pattern": "^\\d{5}$",
+      "description": "5-digit ZIP code"
+    },
+    "zip_9": {
+      "type": "string",
+      "x-special-type": "zip-9",
+      "pattern": "^\\d{5}-\\d{4}$",
+      "description": "9-digit ZIP+4 code in XXXXX-XXXX format"
+    }
   },
   "required": ["id"],
   "additionalProperties": false,

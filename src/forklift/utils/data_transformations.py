@@ -145,6 +145,69 @@ class ZipCodeConfig:
 
 
 @dataclass
+class PhoneNumberConfig:
+    """Configuration for phone number formatting."""
+    format_style: str = "us-standard"  # "us-standard", "international", "digits-only", "preserve"
+    include_country_code: bool = False  # Include +1 for US numbers
+    use_parentheses: bool = True  # Format as (XXX) XXX-XXXX vs XXX-XXX-XXXX
+    use_dashes: bool = True  # Use dashes between number groups
+    use_dots: bool = False  # Use dots instead of dashes
+    validate: bool = True  # Validate phone number format
+    allow_invalid: bool = False  # If False, invalid phone numbers become None
+    min_digits: int = 10  # Minimum number of digits required
+    max_digits: int = 11  # Maximum number of digits allowed
+
+    def __post_init__(self):
+        valid_styles = {"us-standard", "international", "digits-only", "preserve"}
+        if self.format_style not in valid_styles:
+            raise ValueError(f"format_style must be one of {valid_styles}, got: {self.format_style}")
+
+
+@dataclass
+class EmailConfig:
+    """Configuration for email address formatting and validation."""
+    normalize_case: bool = True  # Convert to lowercase
+    validate_format: bool = True  # Validate email format with regex
+    allow_invalid: bool = False  # If False, invalid emails become None
+    strip_whitespace: bool = True  # Remove leading/trailing whitespace
+    normalize_domain: bool = True  # Normalize domain names (e.g., remove trailing dots)
+
+
+@dataclass
+class IPAddressConfig:
+    """Configuration for IP address formatting and validation."""
+    ip_version: str = "both"  # "ipv4", "ipv6", "both"
+    normalize_ipv6: bool = True  # Normalize IPv6 addresses (expand/compress)
+    validate: bool = True  # Validate IP address format
+    allow_invalid: bool = False  # If False, invalid IPs become None
+    compress_ipv6: bool = True  # Use compressed IPv6 format (::1 vs 0000:0000:0000:0000:0000:0000:0000:0001)
+
+    def __post_init__(self):
+        valid_versions = {"ipv4", "ipv6", "both"}
+        if self.ip_version not in valid_versions:
+            raise ValueError(f"ip_version must be one of {valid_versions}, got: {self.ip_version}")
+
+
+@dataclass
+class MACAddressConfig:
+    """Configuration for MAC address formatting and validation."""
+    format_style: str = "colon"  # "colon", "dash", "dot", "none"
+    case_style: str = "lower"  # "lower", "upper", "preserve"
+    validate: bool = True  # Validate MAC address format
+    allow_invalid: bool = False  # If False, invalid MAC addresses become None
+    zero_pad: bool = True  # Ensure each octet is zero-padded to 2 characters
+
+    def __post_init__(self):
+        valid_formats = {"colon", "dash", "dot", "none"}
+        if self.format_style not in valid_formats:
+            raise ValueError(f"format_style must be one of {valid_formats}, got: {self.format_style}")
+
+        valid_cases = {"lower", "upper", "preserve"}
+        if self.case_style not in valid_cases:
+            raise ValueError(f"case_style must be one of {valid_cases}, got: {self.case_style}")
+
+
+@dataclass
 class StringCleaningConfig:
     """Configuration for comprehensive string cleaning operations."""
     # Smart quotes and special characters
@@ -960,6 +1023,387 @@ class DataTransformer:
             else:
                 return digits_only
 
+    def apply_phone_number_formatting(self, column: pa.Array, config: PhoneNumberConfig) -> pa.Array:
+        """Format phone numbers according to the specified style.
+
+        Args:
+            column: PyArrow Array containing phone number data
+            config: Phone number formatting configuration
+
+        Returns:
+            PyArrow Array with phone numbers formatted according to style
+        """
+        if not pa.types.is_string(column.type):
+            # Convert to string first if not already
+            column = pa.compute.cast(column, pa.string())
+
+        pandas_series = column.to_pandas()
+        formatted_values = []
+
+        for value in pandas_series:
+            if pd.isna(value) or value is None:
+                formatted_values.append(None)
+                continue
+
+            try:
+                formatted_phone = self._format_phone_number(str(value), config)
+                formatted_values.append(formatted_phone)
+            except ValueError:
+                if config.allow_invalid:
+                    formatted_values.append(str(value))
+                else:
+                    formatted_values.append(None)
+
+        return pa.array(formatted_values)
+
+    def _format_phone_number(self, value: str, config: PhoneNumberConfig) -> str:
+        """Format a single phone number value.
+
+        Args:
+            value: Raw phone number string
+            config: Phone number formatting configuration
+
+        Returns:
+            Formatted phone number string
+
+        Raises:
+            ValueError: If phone number is invalid and validation is enabled
+        """
+        original_value = value.strip()
+
+        # Check for empty or invalid input early
+        if not original_value:
+            raise ValueError("Empty phone number value")
+
+        # Remove all non-digits except +
+        digits_only = re.sub(r'[^\d+]', '', original_value)
+
+        # Check if we lost too much of the original (indicates invalid data like "abc123")
+        if config.validate and re.search(r'[a-zA-Z]', original_value):
+            raise ValueError(f"Phone number contains letters")
+
+        # Check for empty after digit extraction
+        if not digits_only:
+            raise ValueError("No digits found in phone number")
+
+        # Handle international format (assume +1 for US if not specified)
+        if config.format_style == "international":
+            if digits_only.startswith('+'):
+                formatted_number = digits_only  # Already in international format
+            else:
+                formatted_number = '+1 ' + digits_only  # Assume US number
+        elif config.format_style == "us-standard":
+            # US standard format (XXX) XXX-XXXX or XXX-XXX-XXXX
+            if config.use_parentheses:
+                formatted_number = re.sub(r'(\d{3})(\d{3})(\d{4})', r'(\1) \2-\3', digits_only)
+            else:
+                formatted_number = re.sub(r'(\d{3})(\d{3})(\d{4})', r'\1-\2-\3', digits_only)
+        elif config.format_style == "digits-only":
+            formatted_number = digits_only  # Just the digits
+        else:  # preserve
+            formatted_number = original_value  # Preserve original format
+
+        # Replace dashes with dots if requested
+        if config.use_dots:
+            formatted_number = formatted_number.replace('-', '.')
+
+        return formatted_number
+
+    def apply_email_formatting(self, column: pa.Array, config: EmailConfig) -> pa.Array:
+        """Format email addresses according to the specified rules.
+
+        Args:
+            column: PyArrow Array containing email data
+            config: Email formatting configuration
+
+        Returns:
+            PyArrow Array with email addresses formatted
+        """
+        if not pa.types.is_string(column.type):
+            # Convert to string first if not already
+            column = pa.compute.cast(column, pa.string())
+
+        pandas_series = column.to_pandas()
+        formatted_values = []
+
+        for value in pandas_series:
+            if pd.isna(value) or value is None:
+                formatted_values.append(None)
+                continue
+
+            try:
+                formatted_email = self._format_email(str(value), config)
+                formatted_values.append(formatted_email)
+            except ValueError:
+                if config.allow_invalid:
+                    formatted_values.append(str(value))
+                else:
+                    formatted_values.append(None)
+
+        return pa.array(formatted_values)
+
+    def _format_email(self, value: str, config: EmailConfig) -> str:
+        """Format a single email value.
+
+        Args:
+            value: Raw email string
+            config: Email formatting configuration
+
+        Returns:
+            Formatted email string
+
+        Raises:
+            ValueError: If email is invalid and validation is enabled
+        """
+        original_value = value.strip()
+
+        # Check for empty or invalid input early
+        if not original_value:
+            raise ValueError("Empty email value")
+
+        # Normalize case
+        if config.normalize_case:
+            original_value = original_value.lower()
+
+        # Remove leading/trailing whitespace
+        if config.strip_whitespace:
+            original_value = original_value.strip()
+
+        # Normalize domain (e.g., remove trailing dots)
+        if config.normalize_domain and '.' in original_value:
+            original_value = re.sub(r'\.+$', '', original_value)
+
+        # Basic format validation (simple regex check)
+        if config.validate_format:
+            pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            if not re.match(pattern, original_value):
+                raise ValueError("Invalid email format")
+
+        return original_value
+
+    def apply_ip_address_formatting(self, column: pa.Array, config: IPAddressConfig) -> pa.Array:
+        """Format IP addresses according to the specified rules.
+
+        Args:
+            column: PyArrow Array containing IP address data
+            config: IP address formatting configuration
+
+        Returns:
+            PyArrow Array with IP addresses formatted
+        """
+        if not pa.types.is_string(column.type):
+            # Convert to string first if not already
+            column = pa.compute.cast(column, pa.string())
+
+        pandas_series = column.to_pandas()
+        formatted_values = []
+
+        for value in pandas_series:
+            if pd.isna(value) or value is None:
+                formatted_values.append(None)
+                continue
+
+            try:
+                formatted_ip = self._format_ip_address(str(value), config)
+                formatted_values.append(formatted_ip)
+            except ValueError:
+                if config.allow_invalid:
+                    formatted_values.append(str(value))
+                else:
+                    formatted_values.append(None)
+
+        return pa.array(formatted_values)
+
+    def _format_ip_address(self, value: str, config: IPAddressConfig) -> str:
+        """Format a single IP address value.
+
+        Args:
+            value: Raw IP address string
+            config: IP address formatting configuration
+
+        Returns:
+            Formatted IP address string
+
+        Raises:
+            ValueError: If IP address is invalid and validation is enabled
+        """
+        original_value = value.strip()
+
+        # Check for empty or invalid input early
+        if not original_value:
+            raise ValueError("Empty IP address value")
+
+        # Normalize IPv6 (expand/compress) if requested
+        if config.ip_version in {"ipv6", "both"}:
+            try:
+                # Expand and then compress to normalize
+                normalized_ipv6 = self._normalize_ipv6_address(original_value, config.compress_ipv6)
+                if normalized_ipv6:
+                    original_value = normalized_ipv6
+            except Exception:
+                if config.allow_invalid:
+                    pass  # Ignore normalization errors if allowing invalid
+                else:
+                    raise
+
+        # Validate IP address format
+        if config.validate:
+            if config.ip_version == "ipv4" and not self._is_valid_ipv4(original_value):
+                raise ValueError("Invalid IPv4 address")
+            elif config.ip_version == "ipv6" and not self._is_valid_ipv6(original_value):
+                raise ValueError("Invalid IPv6 address")
+            elif config.ip_version == "both" and not (self._is_valid_ipv4(original_value) or self._is_valid_ipv6(original_value)):
+                raise ValueError("Invalid IP address")
+
+        return original_value
+
+    def _normalize_ipv6_address(self, ipv6_address: str, compress: bool = True) -> str:
+        """Normalize an IPv6 address by expanding and compressing.
+
+        Args:
+            ipv6_address: Raw IPv6 address
+            compress: Whether to compress the address after expanding
+
+        Returns:
+            Normalized IPv6 address or None if invalid
+        """
+        import ipaddress
+
+        try:
+            # Parse the IPv6 address
+            parsed_ip = ipaddress.IPv6Address(ipv6_address)
+
+            # Normalize by expanding
+            expanded = parsed_ip.exploded
+
+            if compress:
+                # Compress the normalized address
+                compressed = str(ipaddress.IPv6Address(expanded))
+                return compressed
+            else:
+                return expanded
+        except (ValueError, InvalidOperation):
+            return None
+
+    def _is_valid_ipv4(self, ip_address: str) -> bool:
+        """Check if an IP address is a valid IPv4 address.
+
+        Args:
+            ip_address: Raw IP address
+
+        Returns:
+            True if valid IPv4, False otherwise
+        """
+        import ipaddress
+
+        try:
+            # Try to create an IPv4 address object
+            ipaddress.IPv4Address(ip_address)
+            return True
+        except (ValueError, InvalidOperation):
+            return False
+
+    def _is_valid_ipv6(self, ip_address: str) -> bool:
+        """Check if an IP address is a valid IPv6 address.
+
+        Args:
+            ip_address: Raw IP address
+
+        Returns:
+            True if valid IPv6, False otherwise
+        """
+        import ipaddress
+
+        try:
+            # Try to create an IPv6 address object
+            ipaddress.IPv6Address(ip_address)
+            return True
+        except (ValueError, InvalidOperation):
+            return False
+
+    def apply_mac_address_formatting(self, column: pa.Array, config: MACAddressConfig) -> pa.Array:
+        """Format MAC addresses according to the specified rules.
+
+        Args:
+            column: PyArrow Array containing MAC address data
+            config: MAC address formatting configuration
+
+        Returns:
+            PyArrow Array with MAC addresses formatted
+        """
+        if not pa.types.is_string(column.type):
+            # Convert to string first if not already
+            column = pa.compute.cast(column, pa.string())
+
+        pandas_series = column.to_pandas()
+        formatted_values = []
+
+        for value in pandas_series:
+            if pd.isna(value) or value is None:
+                formatted_values.append(None)
+                continue
+
+            try:
+                formatted_mac = self._format_mac_address(str(value), config)
+                formatted_values.append(formatted_mac)
+            except ValueError:
+                if config.allow_invalid:
+                    formatted_values.append(str(value))
+                else:
+                    formatted_values.append(None)
+
+        return pa.array(formatted_values)
+
+    def _format_mac_address(self, value: str, config: MACAddressConfig) -> str:
+        """Format a single MAC address value.
+
+        Args:
+            value: Raw MAC address string
+            config: MAC address formatting configuration
+
+        Returns:
+            Formatted MAC address string
+
+        Raises:
+            ValueError: If MAC address is invalid and validation is enabled
+        """
+        original_value = value.strip()
+
+        # Check for empty or invalid input early
+        if not original_value:
+            raise ValueError("Empty MAC address value")
+
+        # Remove all non-hexadecimal characters
+        hex_only = re.sub(r'[^0-9A-Fa-f]', '', original_value)
+
+        # Check for empty after hex digit extraction
+        if not hex_only:
+            raise ValueError("No hexadecimal digits found in MAC address")
+
+        # Zero-pad each octet to 2 digits
+        if config.zero_pad:
+            octets = [hex_only[i:i+2].zfill(2) for i in range(0, len(hex_only), 2)]
+        else:
+            octets = [hex_only[i:i+2] for i in range(0, len(hex_only), 2)]
+
+        # Format according to style
+        if config.format_style == "colon":
+            formatted_mac = ':'.join(octets)
+        elif config.format_style == "dash":
+            formatted_mac = '-'.join(octets)
+        elif config.format_style == "dot":
+            formatted_mac = '.'.join(octets[i:i+2] for i in range(0, len(octets), 2))
+        else:  # none
+            formatted_mac = ''.join(octets)
+
+        # Convert to upper or lower case as requested
+        if config.case_style == "upper":
+            formatted_mac = formatted_mac.upper()
+        elif config.case_style == "lower":
+            formatted_mac = formatted_mac.lower()
+
+        return formatted_mac
+
     def _fix_encoding_errors(self, text: str) -> str:
         """Fix common encoding errors."""
         # Common encoding error patterns
@@ -1261,6 +1705,22 @@ def create_transformation_from_config(transform_type: str, config: Dict[str, Any
     elif transform_type == "zip_code_formatting":
         zip_config = ZipCodeConfig(**clean_config)
         return lambda col: transformer.apply_zip_code_formatting(col, zip_config)
+
+    elif transform_type == "phone_number_formatting":
+        phone_config = PhoneNumberConfig(**clean_config)
+        return lambda col: transformer.apply_phone_number_formatting(col, phone_config)
+
+    elif transform_type == "email_formatting":
+        email_config = EmailConfig(**clean_config)
+        return lambda col: transformer.apply_email_formatting(col, email_config)
+
+    elif transform_type == "ip_address_formatting":
+        ip_config = IPAddressConfig(**clean_config)
+        return lambda col: transformer.apply_ip_address_formatting(col, ip_config)
+
+    elif transform_type == "mac_address_formatting":
+        mac_config = MACAddressConfig(**clean_config)
+        return lambda col: transformer.apply_mac_address_formatting(col, mac_config)
 
     else:
         raise ValueError(f"Unknown transformation type: {transform_type}")

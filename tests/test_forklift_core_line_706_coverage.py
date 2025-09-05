@@ -14,132 +14,136 @@ class TestForkliftCoreLine706Coverage:
 
     def test_batch_validation_all_rows_invalid(self):
         """Test batch validation where all rows are invalid, triggering empty valid batch (line 706)."""
-        # Create a CSV with data that will fail validation
+        # Create CSV with data where ALL rows have missing required integer values (which become null)
         csv_content = """name,age,city
-invalid_name_123456789012345678901234567890,invalid_age,invalid_city_123456789012345678901234567890
-another_invalid_name_123456789012345678901234567890,also_invalid_age,another_invalid_city_123456789012345678901234567890
+John,,NYC
+Jane,,Chicago
+Bob,,LA
 """
 
-        # Create a strict schema that will cause all rows to fail validation
+        # Create a schema with required fields (non-nullable) - age is required and will be null
         schema_content = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "maxLength": 10,  # Very restrictive - will fail
-                    "pattern": "^[A-Za-z]+$"  # Only letters
-                },
-                "age": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 120
-                },
-                "city": {
-                    "type": "string",
-                    "maxLength": 15,  # Will fail due to long city names
-                    "pattern": "^[A-Za-z ]+$"  # Only letters and spaces
-                }
+                "name": {"type": "string"},
+                "age": {"type": "integer"},
+                "city": {"type": "string"}
             },
-            "required": ["name", "age", "city"]
+            "required": ["name", "age", "city"]  # All fields are required (non-nullable)
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_f:
-            csv_f.write(csv_content)
-            csv_f.flush()
+        # Use regular files instead of NamedTemporaryFile to avoid I/O handler issues
+        import tempfile
+        temp_dir = tempfile.mkdtemp()
+        csv_path = os.path.join(temp_dir, "test_data.csv")
+        schema_path = os.path.join(temp_dir, "test_schema.json")
+        output_path = os.path.join(temp_dir, "output")
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as schema_f:
-                json.dump(schema_content, schema_f)
-                schema_f.flush()
+        try:
+            # Write files
+            with open(csv_path, 'w') as f:
+                f.write(csv_content)
 
-                try:
-                    config = ImportConfig(
-                        input_path=csv_f.name,
-                        output_path=tempfile.mkdtemp(),
-                        schema_file=schema_f.name,
-                        header_mode=HeaderMode.PRESENT,
-                        validate_schema=True,
-                        max_validation_errors=100  # Allow processing to continue
-                    )
+            with open(schema_path, 'w') as f:
+                json.dump(schema_content, f)
 
-                    core = ForkliftCore(config)
+            config = ImportConfig(
+                input_path=csv_path,
+                output_path=output_path,
+                schema_file=schema_path,
+                header_mode=HeaderMode.PRESENT,
+                validate_schema=True,
+                max_validation_errors=100
+            )
 
-                    # This should cause all rows to fail validation,
-                    # triggering line 706 to create an empty valid batch
-                    result = core.process_csv()
+            core = ForkliftCore(config)
 
-                    # Should complete processing even with all invalid rows
-                    assert result is not None
-                    # All rows should be invalid
-                    assert result.invalid_rows > 0
+            # Verify schema loads correctly
+            core.schema = core._load_schema()
+            assert core.schema is not None, "Schema should be loaded"
+            assert len(core.schema) == 3, "Schema should have 3 fields"
 
-                finally:
-                    os.unlink(csv_f.name)
-                    os.unlink(schema_f.name)
+            # Verify that age field is non-nullable (required)
+            age_field = None
+            for field in core.schema:
+                if field.name == "age":
+                    age_field = field
+                    break
+            assert age_field is not None, "Age field should exist"
+            assert not age_field.nullable, "Age field should be non-nullable (required)"
+
+            # This should cause all rows to fail validation (missing age values),
+            # triggering line 706 to create an empty valid batch
+            result = core.process_csv()
+
+            # Should complete processing even with all invalid rows
+            assert result is not None
+            # All rows should be invalid due to null values in required age field
+            assert result.invalid_rows == 3, f"Expected 3 invalid rows, got {result.invalid_rows}"
+            assert result.valid_rows == 0, f"Expected 0 valid rows, got {result.valid_rows}"
+
+        finally:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_batch_validation_mixed_valid_invalid(self):
         """Test batch validation with some valid and some invalid rows."""
-        # Create CSV with mix of valid and invalid data
+        # Create CSV with mix of valid and invalid data (some rows have missing age values)
         csv_content = """name,age,city
 John,25,NYC
-InvalidNameTooLong123456789,30,LA
-Jane,invalid_age,Chicago
-Bob,35,ValidCity
+Jane,,LA
+Bob,35,Chicago
+Alice,,ValidCity
 """
 
         schema_content = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
-                "name": {
-                    "type": "string",
-                    "maxLength": 10,
-                    "pattern": "^[A-Za-z]+$"
-                },
-                "age": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 120
-                },
-                "city": {
-                    "type": "string",
-                    "maxLength": 20,
-                    "pattern": "^[A-Za-z]+$"
-                }
+                "name": {"type": "string"},
+                "age": {"type": "integer"},
+                "city": {"type": "string"}
             },
-            "required": ["name", "age", "city"]
+            "required": ["name", "age", "city"]  # All fields are required (non-nullable)
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_f:
-            csv_f.write(csv_content)
-            csv_f.flush()
+        # Use regular files instead of NamedTemporaryFile
+        import tempfile
+        temp_dir = tempfile.mkdtemp()
+        csv_path = os.path.join(temp_dir, "test_data.csv")
+        schema_path = os.path.join(temp_dir, "test_schema.json")
+        output_path = os.path.join(temp_dir, "output")
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as schema_f:
-                json.dump(schema_content, schema_f)
-                schema_f.flush()
+        try:
+            # Write files
+            with open(csv_path, 'w') as f:
+                f.write(csv_content)
 
-                try:
-                    config = ImportConfig(
-                        input_path=csv_f.name,
-                        output_path=tempfile.mkdtemp(),
-                        schema_file=schema_f.name,
-                        header_mode=HeaderMode.PRESENT,
-                        validate_schema=True,
-                        max_validation_errors=100
-                    )
+            with open(schema_path, 'w') as f:
+                json.dump(schema_content, f)
 
-                    core = ForkliftCore(config)
+            config = ImportConfig(
+                input_path=csv_path,
+                output_path=output_path,
+                schema_file=schema_path,
+                header_mode=HeaderMode.PRESENT,
+                validate_schema=True,
+                max_validation_errors=100
+            )
 
-                    # This should have both valid and invalid rows
-                    result = core.process_csv()
+            core = ForkliftCore(config)
 
-                    assert result is not None
-                    assert result.valid_rows > 0
-                    assert result.invalid_rows > 0
+            # This should have both valid and invalid rows
+            result = core.process_csv()
 
-                finally:
-                    os.unlink(csv_f.name)
-                    os.unlink(schema_f.name)
+            assert result is not None
+            assert result.valid_rows == 2, f"Expected 2 valid rows, got {result.valid_rows}"    # John and Bob should be valid
+            assert result.invalid_rows == 2, f"Expected 2 invalid rows, got {result.invalid_rows}"  # Jane and Alice should be invalid
+
+        finally:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_batch_validation_no_schema_all_valid(self):
         """Test processing without schema validation (all rows should be valid)."""
@@ -149,26 +153,33 @@ Jane,30,LA
 Bob,35,Chicago
 """
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_f:
-            csv_f.write(csv_content)
-            csv_f.flush()
+        # Use regular files instead of NamedTemporaryFile
+        import tempfile
+        temp_dir = tempfile.mkdtemp()
+        csv_path = os.path.join(temp_dir, "test_data.csv")
+        output_path = os.path.join(temp_dir, "output")
 
-            try:
-                config = ImportConfig(
-                    input_path=csv_f.name,
-                    output_path=tempfile.mkdtemp(),
-                    header_mode=HeaderMode.PRESENT,
-                    validate_schema=False  # No validation
-                )
+        try:
+            # Write files
+            with open(csv_path, 'w') as f:
+                f.write(csv_content)
 
-                core = ForkliftCore(config)
+            config = ImportConfig(
+                input_path=csv_path,
+                output_path=output_path,
+                header_mode=HeaderMode.PRESENT,
+                validate_schema=False  # No validation
+            )
 
-                # Without validation, all rows should be valid
-                result = core.process_csv()
+            core = ForkliftCore(config)
 
-                assert result is not None
-                assert result.valid_rows >= 3
-                assert result.invalid_rows == 0
+            # Without validation, all rows should be valid
+            result = core.process_csv()
 
-            finally:
-                os.unlink(csv_f.name)
+            assert result is not None
+            assert result.valid_rows >= 3
+            assert result.invalid_rows == 0
+
+        finally:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)

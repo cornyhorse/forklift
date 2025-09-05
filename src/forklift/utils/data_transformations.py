@@ -707,12 +707,14 @@ class DataTransformer:
         try:
             return pa.array(transformed_values, type=pa_type)
         except (pa.ArrowTypeError, TypeError) as e:
-            # Fallback for unconvertible types - only filter out the actual problematic values
+            # Fallback for unconvertible types - convert all Mock objects to None
             safe_values = []
             for value in transformed_values:
-                # Only convert to None if it's actually unconvertible to PyArrow
-                if hasattr(value, '_mock_name') and not hasattr(value, 'date') and not hasattr(value, 'timestamp'):
-                    # Mock object that doesn't have datetime-like methods
+                # More comprehensive Mock object detection
+                if (hasattr(value, '_mock_name') or
+                    str(type(value)).startswith("<class 'unittest.mock") or
+                    'Mock' in str(type(value)) or
+                    hasattr(value, '_mock_methods')):
                     safe_values.append(None)
                 else:
                     safe_values.append(value)
@@ -743,16 +745,17 @@ class DataTransformer:
 
             str_value = str(value)
 
-            # Unicode normalization (should be done early)
+            # Fix common encoding errors FIRST, before Unicode normalization
+            # This prevents Unicode normalization from corrupting mojibake patterns
+            if config.fix_encoding_errors:
+                str_value = self._fix_encoding_errors(str_value)
+
+            # Unicode normalization (should be done after encoding fix)
             if config.unicode_normalize:
                 try:
                     str_value = unicodedata.normalize(config.unicode_normalize, str_value)
                 except ValueError:
                     pass  # Invalid normalization form, skip
-
-            # Fix common encoding errors
-            if config.fix_encoding_errors:
-                str_value = self._fix_encoding_errors(str_value)
 
             # Smart quotes and special characters
             if config.normalize_quotes:

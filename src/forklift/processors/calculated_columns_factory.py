@@ -102,24 +102,32 @@ def create_calculated_columns_processor_from_schema(
 
     # Parse constants and convert to CalculatedColumns
     for const_def in schema_config.get("constants", []):
-        constant = ConstantColumn(
-            name=const_def["name"],
-            value=const_def["value"],
-            data_type=_parse_data_type(const_def.get("dataType")),
-            description=const_def.get("description")
-        )
+        # Only pass data_type if dataType is provided in schema
+        const_kwargs = {
+            "name": const_def["name"],
+            "value": const_def["value"],
+            "description": const_def.get("description")
+        }
+        if "dataType" in const_def:
+            const_kwargs["data_type"] = _parse_data_type(const_def["dataType"])
+
+        constant = ConstantColumn(**const_kwargs)
         constants_list.append(constant)
         all_columns.append(constant.to_calculated_column())
 
     # Parse expressions and convert to CalculatedColumns
     for expr_def in schema_config.get("expressions", []):
-        expression = ExpressionColumn(
-            name=expr_def["name"],
-            expression=expr_def["expression"],
-            data_type=_parse_data_type(expr_def.get("dataType")),
-            description=expr_def.get("description"),
-            dependencies=expr_def.get("dependencies", [])
-        )
+        # Only pass data_type if dataType is provided in schema
+        expr_kwargs = {
+            "name": expr_def["name"],
+            "expression": expr_def["expression"],
+            "description": expr_def.get("description"),
+            "dependencies": expr_def.get("dependencies", [])
+        }
+        if "dataType" in expr_def:
+            expr_kwargs["data_type"] = _parse_data_type(expr_def["dataType"])
+
+        expression = ExpressionColumn(**expr_kwargs)
         expressions_list.append(expression)
         all_columns.append(expression.to_calculated_column())
 
@@ -128,13 +136,17 @@ def create_calculated_columns_processor_from_schema(
         # Handle both 'function' and 'expression' keys for backward compatibility
         expression_value = calc_def.get("expression", calc_def.get("function", ""))
 
-        calculated_col = CalculatedColumn(
-            name=calc_def["name"],
-            expression=expression_value,
-            dependencies=calc_def.get("dependencies", []),
-            data_type=_parse_data_type(calc_def.get("dataType")),
-            description=calc_def.get("description")
-        )
+        # Only pass data_type if dataType is provided in schema
+        calc_kwargs = {
+            "name": calc_def["name"],
+            "expression": expression_value,
+            "dependencies": calc_def.get("dependencies", []),
+            "description": calc_def.get("description")
+        }
+        if "dataType" in calc_def:
+            calc_kwargs["data_type"] = _parse_data_type(calc_def["dataType"])
+
+        calculated_col = CalculatedColumn(**calc_kwargs)
         # Add function attribute for backward compatibility
         calculated_col.function = calc_def.get("function", expression_value)
         calculated_list.append(calculated_col)

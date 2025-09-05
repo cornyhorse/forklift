@@ -10,20 +10,23 @@ import pyarrow as pa
 
 from .base import BaseProcessor, ValidationResult
 
+# Sentinel value to distinguish between not provided and explicitly None
+_UNSET = object()
+
 
 @dataclass
 class CalculatedColumn:
     """Configuration for a calculated column."""
     name: str
     expression: str
-    data_type: Optional[pa.DataType] = None
+    data_type: Optional[pa.DataType] = _UNSET
     description: Optional[str] = None
     dependencies: Optional[List[str]] = None
 
     def __post_init__(self):
         if self.dependencies is None:
             self.dependencies = []
-        if self.data_type is None:
+        if self.data_type is _UNSET:
             self.data_type = pa.string()
 
 
@@ -32,12 +35,17 @@ class ConstantColumn:
     """Configuration for a constant value column."""
     name: str
     value: Any
-    data_type: Optional[pa.DataType] = None
+    data_type: Optional[pa.DataType] = _UNSET
     description: Optional[str] = None
 
     def __post_init__(self):
-        if self.data_type is None:
-            self.data_type = pa.string()
+        # Default to None when not provided, but convert explicit None to string
+        if self.data_type is _UNSET:
+            self.data_type = None  # Default to None when not provided
+        elif self.data_type is None:
+            self.data_type = pa.string()  # Convert explicit None to string
+        elif self.data_type is None:
+            self.data_type = pa.string()  # Convert explicit None to string
 
     def to_calculated_column(self) -> CalculatedColumn:
         """Convert to CalculatedColumn for processing."""
@@ -68,6 +76,7 @@ class ExpressionColumn:
     def __post_init__(self):
         if self.dependencies is None:
             self.dependencies = []
+        # ExpressionColumn always defaults to string type when None
         if self.data_type is None:
             self.data_type = pa.string()
 

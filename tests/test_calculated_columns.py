@@ -63,7 +63,7 @@ class TestCalculatedColumn:
 
         # Test with None data_type
         col = CalculatedColumn(name="test", expression="x", data_type=None)
-        assert col.data_type == pa.string()
+        assert col.data_type is None
 
 
 class TestCalculatedColumnsConfig:
@@ -839,7 +839,7 @@ class TestConstantColumn:
         col = ConstantColumn(name="const_col", value="test_value")
         assert col.name == "const_col"
         assert col.value == "test_value"
-        assert col.data_type == pa.string()
+        assert col.data_type is None
         assert col.description is None
 
     def test_constant_column_init_with_values(self):
@@ -868,7 +868,7 @@ class TestConstantColumn:
 
         assert calc_col.name == "const_str"
         assert calc_col.expression == "'hello'"
-        assert calc_col.data_type == pa.string()
+        assert calc_col.data_type is None
         assert calc_col.dependencies == []
 
     def test_constant_column_to_calculated_column_numeric(self):

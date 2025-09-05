@@ -22,10 +22,18 @@ def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
     Returns:
         PyArrow DataType or None if input is None/empty
     """
-    if not data_type_str:
+    if data_type_str is None:
         return None
+    
+    if data_type_str == "":
+        return None
+    
+    # For whitespace-only strings, strip first then check if empty
+    stripped = data_type_str.strip()
+    if not stripped:
+        return pa.string()
 
-    data_type_str = data_type_str.lower().strip()
+    data_type_str = stripped.lower()
 
     # Handle simple types
     type_mapping = {

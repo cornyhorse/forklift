@@ -1,10 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-excel.json",
-  "title": "Forklift Excel Row - Comprehensive Parquet Data Types",
-  "description": "Schema for Excel file processing demonstrating all supported Parquet data types with sheet selection, column mapping, and Excel-specific configuration options including header detection, data type validation, and cell positioning.",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-csv.json",
+  "title": "Forklift CSV Row - Comprehensive Parquet Data Types",
+  "description": "Schema for CSV file processing demonstrating all supported Parquet data types with delimiter handling, encoding detection, header scanning, and data type validation for Parquet output.",
   "type": "object",
-
   "properties": {
     "id": { "type": "integer", "minimum": 1 },
     "name": { "type": "string", "minLength": 1 },
@@ -20,10 +19,75 @@
     "metadata": { "type": "object", "additionalProperties": true },
     "binary_data": { "type": "string", "contentEncoding": "base64" },
     "uuid": { "type": "string", "format": "uuid" },
-    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" }
+    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" },
+    "ssn": {
+      "type": "string",
+      "x-special-type": "ssn",
+      "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+      "description": "Social Security Number in XXX-XX-XXXX format"
+    },
+    "zip_code": {
+      "type": "string",
+      "x-special-type": "zip-permissive",
+      "pattern": "^\\d{5}(-\\d{4})?$",
+      "description": "ZIP code in XXXXX or XXXXX-XXXX format"
+    },
+    "zip_5": {
+      "type": "string",
+      "x-special-type": "zip-5",
+      "pattern": "^\\d{5}$",
+      "description": "5-digit ZIP code"
+    },
+    "zip_9": {
+      "type": "string",
+      "x-special-type": "zip-9",
+      "pattern": "^\\d{5}-\\d{4}$",
+      "description": "9-digit ZIP+4 code in XXXXX-XXXX format"
+    }
   },
   "required": ["id", "name"],
   "additionalProperties": false,
+
+  "x-primaryKey": {
+    "description": "Primary key configuration for data uniqueness and referential integrity",
+    "columns": ["id"],
+    "type": "single",
+    "enforceUniqueness": true,
+    "allowNulls": false,
+    "description_detail": "Single column primary key on 'id' field ensuring row uniqueness"
+  },
+
+  "x-constraintHandling": {
+    "description": "Configuration for handling constraint violations and data quality issues",
+    "errorMode": "bad_rows",
+    "primaryKeyViolations": {
+      "duplicates": "bad_rows",
+      "nulls": "bad_rows"
+    },
+    "uniqueConstraintViolations": "bad_rows",
+    "notNullViolations": "bad_rows",
+    "badRowsOutput": {
+      "enabled": true,
+      "format": "parquet",
+      "includeOriginalData": true,
+      "includeErrorDetails": true,
+      "maxBadRows": null,
+      "createSummary": true
+    },
+    "validationOptions": {
+      "continueOnError": true,
+      "collectAllErrors": true,
+      "maxErrorsPerRow": 10
+    }
+  },
+
+  "x-uniqueConstraints": [
+    {
+      "name": "unique_email",
+      "columns": ["name", "birth_date"],
+      "description": "Ensure unique combination of name and birth date"
+    }
+  ],
 
   "x-metadata-generation": {
     "description": "Configuration for metadata file generation during processing",
@@ -59,31 +123,14 @@
     }
   },
 
-  "x-rowHash": {
-    "description": "Configuration for generating row-level hash columns and metadata for change detection and data integrity",
-    "enabled": false,
-    "columnName": "row_hash",
-    "algorithm": "sha256",
-    "includeColumns": null,
-    "excludeColumns": [],
-    "nullValue": "NULL",
-    "separator": "||",
-    "inputHashEnabled": false,
-    "inputHashColumnName": "_input_hash",
-    "sourceUriEnabled": false,
-    "sourceUriColumnName": "_source_uri",
-    "ingestedAtEnabled": false,
-    "ingestedAtColumnName": "_ingested_at_utc",
-    "rowNumberEnabled": false,
-    "sourceRowNumberColumnName": "_rownum_in_source_file",
-    "processingRowNumberColumnName": "_rownum",
-    "description_detail": "Row hash and metadata columns disabled by default. When enabled, can generate: output row hash (SHA256 default), input row hash, source URI, ingestion timestamp, and row numbers. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
-  },
-
-  "x-excel": {
-    "valuesOnly": true,
-    "dateSystem": "1900",
-    "encoding": "utf-8",
+  "x-csv": {
+    "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
+    "delimiter": "auto",
+    "quotechar": "\"",
+    "escapechar": "\\",
+    "multiline": true,
+    "header": { "mode": "stability_scan", "keywords": ["id", "name", "age", "salary"] },
+    "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" },
     "nulls": {
       "global": ["", "NA", "N/A", "-", "NULL"],
       "perColumn": {
@@ -92,59 +139,23 @@
         "metadata": ["", "{}"]
       }
     },
-    "sheets": [
-      {
-        "select": { "name": "Sheet1" },
-        "columns": [
-          { "name": "id", "position": "A", "type": "integer", "required": true, "parquetType": "int64" },
-          { "name": "name", "position": "B", "type": "string", "required": true, "trim": true, "parquetType": "string" },
-          { "name": "age", "position": "C", "type": "integer", "required": false, "parquetType": "int32" },
-          { "name": "salary", "position": "D", "type": "number", "required": false, "parquetType": "double" },
-          { "name": "is_active", "position": "E", "type": "boolean", "required": false, "parquetType": "bool" },
-          { "name": "birth_date", "position": "F", "type": "string", "format": "date", "required": false, "parquetType": "date32" },
-          { "name": "created_timestamp", "position": "G", "type": "string", "format": "date-time", "required": false, "parquetType": "timestamp[us]" },
-          { "name": "duration_seconds", "position": "H", "type": "integer", "required": false, "parquetType": "duration[s]" },
-          { "name": "score", "position": "I", "type": "number", "required": false, "parquetType": "float32" },
-          { "name": "category", "position": "J", "type": "string", "required": false, "parquetType": "dictionary<values=string, indices=int32>" },
-          { "name": "tags", "position": "K", "type": "array", "required": false, "parquetType": "list<string>" },
-          { "name": "metadata", "position": "L", "type": "object", "required": false, "parquetType": "struct" },
-          { "name": "binary_data", "position": "M", "type": "string", "required": false, "parquetType": "binary" },
-          { "name": "uuid", "position": "N", "type": "string", "format": "uuid", "required": false, "parquetType": "string" },
-          { "name": "decimal_amount", "position": "O", "type": "string", "required": false, "parquetType": "decimal128(10,2)" }
-        ],
-        "header": { "row": 1, "mode": "present" },
-        "dataStartRow": 2,
-        "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
-      }
-    ],
+    "case": { "standardizeNames": "postgres", "dedupeNames": "suffix" },
     "parquetTypeMapping": {
-      "int8": "8-bit signed integer",
-      "int16": "16-bit signed integer",
-      "int32": "32-bit signed integer",
-      "int64": "64-bit signed integer",
-      "uint8": "8-bit unsigned integer",
-      "uint16": "16-bit unsigned integer",
-      "uint32": "32-bit unsigned integer",
-      "uint64": "64-bit unsigned integer",
-      "float32": "32-bit floating point",
-      "double": "64-bit floating point",
-      "bool": "Boolean true/false",
-      "string": "Variable-length string",
-      "binary": "Variable-length binary data",
-      "date32": "Date as days since epoch",
-      "date64": "Date as milliseconds since epoch",
-      "timestamp[s]": "Timestamp with second precision",
-      "timestamp[ms]": "Timestamp with millisecond precision",
-      "timestamp[us]": "Timestamp with microsecond precision",
-      "timestamp[ns]": "Timestamp with nanosecond precision",
-      "duration[s]": "Duration in seconds",
-      "duration[ms]": "Duration in milliseconds",
-      "duration[us]": "Duration in microseconds",
-      "duration[ns]": "Duration in nanoseconds",
-      "decimal128(precision,scale)": "High precision decimal",
-      "list<type>": "Array/list of specified type",
-      "struct": "Nested object/record structure",
-      "dictionary<values=type, indices=type>": "Dictionary encoding for categorical data"
+      "id": "int64",
+      "name": "string",
+      "age": "int32",
+      "salary": "double",
+      "is_active": "bool",
+      "birth_date": "date32",
+      "created_timestamp": "timestamp[us]",
+      "duration_seconds": "duration[s]",
+      "score": "float32",
+      "category": "dictionary<values=string, indices=int32>",
+      "tags": "list<string>",
+      "metadata": "struct",
+      "binary_data": "binary",
+      "uuid": "string",
+      "decimal_amount": "decimal128(10,2)"
     }
   },
 
@@ -154,26 +165,22 @@
       "name": {
         "isPII": true,
         "category": "direct_identifier",
-        "description": "Full name is direct PII requiring masking",
-        "excelPosition": "B"
+        "description": "Full name is direct PII requiring masking"
       },
       "birth_date": {
         "isPII": true,
         "category": "quasi_identifier",
-        "description": "Birth date can be used to identify individuals when combined with other data",
-        "excelPosition": "F"
+        "description": "Birth date can be used to identify individuals when combined with other data"
       },
       "salary": {
         "isPII": true,
         "category": "sensitive",
-        "description": "Financial information requiring protection",
-        "excelPosition": "D"
+        "description": "Financial information requiring protection"
       },
       "uuid": {
         "isPII": false,
         "category": "identifier",
-        "description": "System-generated UUID, not personally identifying but may link records",
-        "excelPosition": "N"
+        "description": "System-generated UUID, not personally identifying but may link records"
       }
     },
     "maskingRules": {
@@ -195,13 +202,25 @@
     }
   },
 
-  "x-primaryKey": {
-    "description": "Primary key configuration for data uniqueness and referential integrity",
-    "columns": ["id"],
-    "type": "single",
-    "enforceUniqueness": true,
-    "allowNulls": false,
-    "description_detail": "Single column primary key on 'id' field ensuring row uniqueness"
+  "x-rowHash": {
+    "description": "Configuration for generating row-level hash columns and metadata for change detection and data integrity",
+    "enabled": false,
+    "columnName": "row_hash",
+    "algorithm": "sha256",
+    "includeColumns": null,
+    "excludeColumns": [],
+    "nullValue": "NULL",
+    "separator": "||",
+    "inputHashEnabled": false,
+    "inputHashColumnName": "_input_hash",
+    "sourceUriEnabled": false,
+    "sourceUriColumnName": "_source_uri",
+    "ingestedAtEnabled": false,
+    "ingestedAtColumnName": "_ingested_at_utc",
+    "rowNumberEnabled": false,
+    "sourceRowNumberColumnName": "_rownum_in_source_file",
+    "processingRowNumberColumnName": "_rownum",
+    "description_detail": "Row hash and metadata columns disabled by default. When enabled, can generate: output row hash (SHA256 default), input row hash, source URI, ingestion timestamp, and row numbers. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
   },
 
   "x-calculatedColumns": {
@@ -209,7 +228,7 @@
     "constants": [
       {
         "name": "data_source",
-        "value": "excel_import",
+        "value": "census_2020",
         "dataType": "string",
         "description": "Source identifier for data lineage and partitioning"
       },
@@ -220,39 +239,53 @@
         "description": "Date when data was loaded for temporal partitioning"
       },
       {
-        "name": "file_format",
-        "value": "excel",
+        "name": "processing_version",
+        "value": "v1.0",
         "dataType": "string",
-        "description": "File format identifier for processing pipeline tracking"
+        "description": "Version of processing pipeline for change tracking"
       }
     ],
     "expressions": [
       {
-        "name": "record_key",
-        "expression": "employee_id",
+        "name": "full_name",
+        "expression": "name",
         "dataType": "string",
-        "dependencies": ["employee_id"],
-        "description": "Primary record identifier derived from employee_id"
+        "dependencies": ["name"],
+        "description": "Full name field derived from existing name column"
       },
       {
-        "name": "employment_status",
-        "expression": "CASE WHEN is_active THEN 'active' ELSE 'inactive' END",
+        "name": "age_category",
+        "expression": "CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END",
         "dataType": "string",
-        "dependencies": ["is_active"],
-        "description": "Human-readable employment status"
+        "dependencies": ["age"],
+        "description": "Categorical age grouping for analytics"
+      },
+      {
+        "name": "salary_tier",
+        "expression": "CASE WHEN salary < 50000 THEN 'entry' WHEN salary < 100000 THEN 'mid' ELSE 'senior' END",
+        "dataType": "string",
+        "dependencies": ["salary"],
+        "description": "Salary tier classification for reporting"
       }
     ],
     "calculated": [
       {
-        "name": "years_of_service",
+        "name": "years_since_created",
         "function": "years_from_timestamp",
-        "dependencies": ["hire_date"],
+        "dependencies": ["created_timestamp"],
         "dataType": "int32",
-        "description": "Years of service calculated from hire date"
+        "description": "Years elapsed since record creation"
+      },
+      {
+        "name": "name_length",
+        "function": "string_length",
+        "dependencies": ["name"],
+        "dataType": "int32",
+        "description": "Character count of name field"
       }
     ],
-    "partitionColumns": ["data_source", "load_date", "file_format"],
-    "indexColumns": ["employee_id", "department"],
+    "partitionColumns": ["data_source", "load_date"],
+    "indexColumns": ["id", "name"],
     "options": {
       "skipIfExists": false,
       "validateDependencies": true,
@@ -261,9 +294,9 @@
   },
 
   "x-transformations": {
-    "description": "Data transformation and standardization configuration for Excel file processing with comprehensive data cleaning and normalization",
+    "description": "Data transformation and standardization configuration for comprehensive data cleaning and normalization",
     "stringCleaning": {
-      "description": "String cleaning and normalization options for Excel cells",
+      "description": "String cleaning and normalization options",
       "normalizeQuotes": true,
       "normalizeDashes": true,
       "normalizeSpaces": true,
@@ -271,16 +304,11 @@
       "stripWhitespace": true,
       "removeZeroWidth": true,
       "removeControlChars": true,
-      "preserveNewlines": false,
-      "unicodeNormalize": "NFKC",
-      "excelSpecific": {
-        "removeCellFormatting": true,
-        "handleMergedCells": "first_value",
-        "convertFormulasToValues": true
-      }
+      "preserveNewlines": true,
+      "unicodeNormalize": "NFKC"
     },
     "caseTransformation": {
-      "description": "Case normalization and transformation options for Excel text data",
+      "description": "Case normalization and transformation options",
       "caseTransform": "title",
       "fixCaseIssues": true,
       "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
@@ -294,112 +322,167 @@
       "caseMappingMode": "exact"
     },
     "numericCleaning": {
-      "description": "Numeric field cleaning and standardization for Excel numeric data",
+      "description": "Numeric field cleaning and standardization",
       "thousandsSeparator": ",",
       "decimalSeparator": ".",
       "allowNaN": true,
-      "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!", "#DIV/0!", "#VALUE!", "#REF!"],
-      "stripWhitespace": true,
-      "excelSpecific": {
-        "handleExcelErrors": true,
-        "convertTextNumbers": true,
-        "preserveLeadingZeros": false
-      }
+      "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!"],
+      "stripWhitespace": true
     },
     "moneyType": {
-      "description": "Currency and monetary value cleaning for Excel financial data",
+      "description": "Currency and monetary value cleaning",
       "currencySymbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
       "thousandsSeparator": ",",
       "decimalSeparator": ".",
       "parenthesesNegative": true,
-      "stripWhitespace": true,
-      "excelSpecific": {
-        "respectCellFormatting": true,
-        "handleAccountingFormat": true
-      }
+      "stripWhitespace": true
     },
     "dateTimeParsing": {
-      "description": "DateTime parsing and standardization for Excel date/time data",
-      "mode": "excel_aware",
+      "description": "DateTime parsing and standardization configuration",
+      "mode": "common_formats",
       "allowFuzzy": false,
       "fromEpoch": false,
       "targetType": "datetime",
       "timezone": "UTC",
-      "excelSpecific": {
-        "handleExcelSerial": true,
-        "dateSystem": "1900",
-        "timeOnly": false
-      },
       "commonFormats": [
         "%Y-%m-%d",
         "%m/%d/%Y",
         "%d/%m/%Y",
         "%Y-%m-%d %H:%M:%S",
-        "%m/%d/%Y %H:%M:%S"
+        "%m/%d/%Y %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ"
       ]
     },
-    "columnSpecific": {
-      "id": {
-        "transformations": ["numericCleaning"],
-        "position": "A"
+    "htmlXmlCleaning": {
+      "description": "HTML/XML tag and entity cleaning",
+      "stripTags": true,
+      "decodeEntities": true,
+      "preserveWhitespace": false
+    },
+    "stringPadding": {
+      "description": "String padding and formatting options",
+      "enabled": false,
+      "width": 10,
+      "fillChar": " ",
+      "side": "left"
+    },
+    "regexReplacements": [
+      {
+        "description": "Remove extra whitespace",
+        "pattern": "\\s+",
+        "replacement": " ",
+        "flags": 0
       },
+      {
+        "description": "Standardize phone numbers",
+        "pattern": "[^\\d]",
+        "replacement": "",
+        "flags": 0,
+        "applyToColumns": ["phone", "mobile", "telephone"]
+      }
+    ],
+    "stringReplacements": [
+      {
+        "description": "Replace common abbreviations",
+        "old": "St.",
+        "new": "Street",
+        "applyToColumns": ["address", "street"]
+      },
+      {
+        "description": "Standardize state names",
+        "old": "California",
+        "new": "CA",
+        "applyToColumns": ["state", "state_name"]
+      }
+    ],
+    "columnSpecific": {
       "name": {
         "transformations": ["stringCleaning", "caseTransformation"],
-        "caseTransform": "title",
-        "position": "B"
+        "caseTransform": "title"
+      },
+      "email": {
+        "transformations": ["stringCleaning"],
+        "caseTransform": "lower"
       },
       "salary": {
-        "transformations": ["moneyType", "numericCleaning"],
-        "position": "D"
+        "transformations": ["moneyType", "numericCleaning"]
       },
       "birth_date": {
         "transformations": ["dateTimeParsing"],
-        "position": "F",
         "dateTimeConfig": {
-          "mode": "excel_aware",
-          "handleExcelSerial": true
+          "mode": "specify_formats",
+          "formats": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
         }
       },
       "created_timestamp": {
         "transformations": ["dateTimeParsing"],
-        "position": "G",
         "dateTimeConfig": {
-          "mode": "excel_aware",
+          "mode": "common_formats",
           "targetType": "timestamp"
+        }
+      },
+      "ssn": {
+        "transformations": ["ssn_formatting"],
+        "ssnConfig": {
+          "format_with_dashes": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_code": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-permissive",
+          "format_with_dash": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_5": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-5",
+          "format_with_dash": false,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_9": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-9",
+          "format_with_dash": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
         }
       }
     }
   },
 
   "x-columnMapping": {
-    "description": "Column name mapping and standardization configuration for Excel files",
+    "description": "Column name mapping and standardization configuration",
     "explicitMappings": {
-      "Employee ID": "employee_id",
-      "First Name": "first_name",
-      "Last Name": "last_name",
-      "Date of Birth": "birth_date",
+      "FirstName": "first_name",
+      "LastName": "last_name",
+      "DOB": "birth_date",
       "SSN": "social_security_number",
-      "Address": "address",
+      "Addr1": "address_line_1",
+      "Addr2": "address_line_2",
       "City": "city",
       "State": "state",
-      "ZIP Code": "zip_code",
-      "Phone Number": "phone_number",
-      "Email Address": "email_address",
-      "Hire Date": "hire_date",
-      "Department": "department",
-      "Position": "position",
-      "Salary": "salary"
+      "ZIP": "zip_code",
+      "Phone": "phone_number",
+      "Email": "email_address"
     },
     "namingConvention": "snake_case",
     "caseSensitive": false,
     "allowUnmapped": true,
     "dropUnmapped": false,
-    "excelSpecific": {
-      "headerRow": 1,
-      "skipEmptyColumns": true,
-      "trimColumnNames": true,
-      "handleMergedHeaders": "concatenate"
-    },
     "standardizationRules": {
       "removeSpecialChars": true,
       "replaceSpaces": "_",
@@ -410,21 +493,16 @@
   },
 
   "x-dataQuality": {
-    "description": "Data quality validation and metrics configuration for Excel data",
+    "description": "Data quality validation and metrics configuration",
     "completeness": {
       "enabled": true,
       "requiredFields": ["id", "name"],
       "minimumFillRate": 0.95,
-      "reportMissingValues": true,
-      "excelSpecific": {
-        "checkEmptyRows": true,
-        "skipBlankCells": true,
-        "handleHiddenRows": "exclude"
-      }
+      "reportMissingValues": true
     },
     "uniqueness": {
       "enabled": true,
-      "uniqueFields": ["id", "employee_id"],
+      "uniqueFields": ["id", "email"],
       "allowDuplicates": false,
       "duplicateHandling": "error"
     },
@@ -432,11 +510,7 @@
       "enabled": true,
       "dataTypeValidation": true,
       "formatValidation": true,
-      "rangeValidation": true,
-      "excelSpecific": {
-        "validateCellFormats": true,
-        "checkFormulaErrors": true
-      }
+      "rangeValidation": true
     },
     "accuracy": {
       "enabled": true,
@@ -449,14 +523,12 @@
       "age": {
         "min": 0,
         "max": 150,
-        "dataType": "integer",
-        "excelPosition": "C"
+        "dataType": "integer"
       },
       "salary": {
         "min": 0,
         "max": 10000000,
-        "dataType": "number",
-        "excelPosition": "D"
+        "dataType": "number"
       },
       "email": {
         "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
@@ -467,6 +539,195 @@
         "standardizeFormat": true
       }
     }
-  }
+  },
 
+  "x-validation": {
+    "description": "Comprehensive field validation rules with bad row handling for data quality enforcement",
+    "badRowsHandling": {
+      "enabled": true,
+      "outputPath": "bad_rows",
+      "fileFormat": "parquet",
+      "includeOriginalRow": true,
+      "includeValidationErrors": true,
+      "maxBadRowsPercent": 10.0,
+      "failOnExceedThreshold": true
+    },
+    "uniquenessHandling": {
+      "strategy": "first_wins",
+      "options": ["first_wins", "last_wins", "fail_on_duplicate", "mark_all_duplicates"]
+    },
+    "fieldValidations": {
+      "id": {
+        "required": true,
+        "unique": true,
+        "range": {
+          "min": 1,
+          "max": 999999999,
+          "inclusive": true
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "range": "bad_rows"
+        }
+      },
+      "name": {
+        "required": true,
+        "unique": false,
+        "stringValidation": {
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[A-Za-z\\s\\-\\.]+$",
+          "allowEmpty": false
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "age": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0,
+          "max": 150,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "salary": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0,
+          "max": 10000000,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "email": {
+        "required": true,
+        "unique": true,
+        "stringValidation": {
+          "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+          "maxLength": 254
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "birth_date": {
+        "required": false,
+        "unique": false,
+        "dateValidation": {
+          "minDate": "1900-01-01",
+          "maxDate": "2100-12-31",
+          "format": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
+        },
+        "onViolation": {
+          "dateValidation": "bad_rows"
+        }
+      },
+      "score": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0.0,
+          "max": 100.0,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "category": {
+        "required": true,
+        "unique": false,
+        "enumValidation": {
+          "allowedValues": ["A", "B", "C"],
+          "caseSensitive": true
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "enumValidation": "bad_rows"
+        }
+      },
+      "ssn": {
+        "required": false,
+        "unique": true,
+        "stringValidation": {
+          "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+          "maxLength": 11
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_code": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}(-\\d{4})?$",
+          "maxLength": 10
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_5": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}$",
+          "maxLength": 5
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_9": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}-\\d{4}$",
+          "maxLength": 10
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      }
+    },
+    "crossFieldValidations": [
+      {
+        "name": "salary_age_consistency",
+        "description": "Salary should be reasonable for age",
+        "rule": "IF age < 16 THEN salary MUST BE NULL OR 0",
+        "dependencies": ["age", "salary"],
+        "onViolation": "bad_rows"
+      },
+      {
+        "name": "birth_date_age_consistency",
+        "description": "Birth date should be consistent with age",
+        "rule": "CALCULATED_AGE(birth_date) SHOULD BE WITHIN 1 YEAR OF age",
+        "dependencies": ["birth_date", "age"],
+        "onViolation": "warning"
+      }
+    ],
+    "globalValidations": {
+      "maxNullFieldsPerRow": 3,
+      "requiredFieldsCompletePercent": 95.0,
+      "onViolation": {
+        "maxNullFieldsPerRow": "bad_rows",
+        "requiredFieldsCompletePercent": "warning"
+      }
+    }
+  }
 }

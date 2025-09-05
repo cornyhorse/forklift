@@ -19,7 +19,31 @@
     "metadata": { "type": "object", "additionalProperties": true },
     "binary_data": { "type": "string", "contentEncoding": "base64" },
     "uuid": { "type": "string", "format": "uuid" },
-    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" }
+    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" },
+    "ssn": {
+      "type": "string",
+      "x-special-type": "ssn",
+      "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+      "description": "Social Security Number in XXX-XX-XXXX format"
+    },
+    "zip_code": {
+      "type": "string",
+      "x-special-type": "zip-permissive",
+      "pattern": "^\\d{5}(-\\d{4})?$",
+      "description": "ZIP code in XXXXX or XXXXX-XXXX format"
+    },
+    "zip_5": {
+      "type": "string",
+      "x-special-type": "zip-5",
+      "pattern": "^\\d{5}$",
+      "description": "5-digit ZIP code"
+    },
+    "zip_9": {
+      "type": "string",
+      "x-special-type": "zip-9",
+      "pattern": "^\\d{5}-\\d{4}$",
+      "description": "9-digit ZIP+4 code in XXXXX-XXXX format"
+    }
   },
   "required": ["id", "name"],
   "additionalProperties": false,
@@ -397,6 +421,45 @@
           "mode": "common_formats",
           "targetType": "timestamp"
         }
+      },
+      "ssn": {
+        "transformations": ["ssn_formatting"],
+        "ssnConfig": {
+          "format_with_dashes": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_code": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-permissive",
+          "format_with_dash": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_5": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-5",
+          "format_with_dash": false,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_9": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-9",
+          "format_with_dash": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
       }
     }
   },
@@ -593,6 +656,52 @@
         "onViolation": {
           "required": "bad_rows",
           "enumValidation": "bad_rows"
+        }
+      },
+      "ssn": {
+        "required": false,
+        "unique": true,
+        "stringValidation": {
+          "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+          "maxLength": 11
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_code": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}(-\\d{4})?$",
+          "maxLength": 10
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_5": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}$",
+          "maxLength": 5
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_9": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}-\\d{4}$",
+          "maxLength": 10
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
         }
       }
     },

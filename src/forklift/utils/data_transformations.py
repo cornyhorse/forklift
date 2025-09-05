@@ -121,6 +121,30 @@ class HTMLXMLConfig:
 
 
 @dataclass
+class SSNConfig:
+    """Configuration for Social Security Number formatting."""
+    format_with_dashes: bool = True  # Format as XXX-XX-XXXX
+    zero_pad: bool = True  # Zero-pad numbers with fewer than 9 digits
+    validate: bool = True  # Validate that result has exactly 9 digits
+    allow_invalid: bool = False  # If False, invalid SSNs become None
+
+
+@dataclass
+class ZipCodeConfig:
+    """Configuration for ZIP code formatting."""
+    zip_type: str = "zip-permissive"  # "zip-permissive", "zip-5", "zip-9"
+    format_with_dash: bool = True  # Format ZIP+4 as XXXXX-XXXX
+    zero_pad: bool = True  # Zero-pad ZIP codes
+    validate: bool = True  # Validate ZIP code format
+    allow_invalid: bool = False  # If False, invalid ZIP codes become None
+
+    def __post_init__(self):
+        valid_types = {"zip-permissive", "zip-5", "zip-9"}
+        if self.zip_type not in valid_types:
+            raise ValueError(f"zip_type must be one of {valid_types}, got: {self.zip_type}")
+
+
+@dataclass
 class StringCleaningConfig:
     """Configuration for comprehensive string cleaning operations."""
     # Smart quotes and special characters
@@ -739,172 +763,192 @@ class DataTransformer:
 
         return pa.array(transformed_values)
 
-    def _normalize_quotes(self, text: str) -> str:
-        """Convert smart quotes to ASCII quotes."""
-        # Smart single quotes
-        text = text.replace('\u2018', "'")  # Left single quotation mark
-        text = text.replace('\u2019', "'")  # Right single quotation mark
-        text = text.replace('\u201A', "'")  # Single low-9 quotation mark
-        text = text.replace('\u201B', "'")  # Single high-reversed-9 quotation mark
+    def apply_ssn_formatting(self, column: pa.Array, config: SSNConfig) -> pa.Array:
+        """Format Social Security Numbers to XXX-XX-XXXX format.
 
-        # Smart double quotes
-        text = text.replace('\u201C', '"')  # Left double quotation mark
-        text = text.replace('\u201D', '"')  # Right double quotation mark
-        text = text.replace('\u201E', '"')  # Double low-9 quotation mark
-        text = text.replace('\u201F', '"')  # Double high-reversed-9 quotation mark
+        Args:
+            column: PyArrow Array containing SSN data
+            config: SSN formatting configuration
 
-        # Other quote-like characters
-        text = text.replace('\u2039', '<')  # Single left-pointing angle quotation mark
-        text = text.replace('\u203A', '>')  # Single right-pointing angle quotation mark
-        text = text.replace('\u00AB', '"')  # Left-pointing double angle quotation mark
-        text = text.replace('\u00BB', '"')  # Right-pointing double angle quotation mark
+        Returns:
+            PyArrow Array with SSNs formatted as XXX-XX-XXXX
+        """
+        if not pa.types.is_string(column.type):
+            # Convert to string first if not already
+            column = pa.compute.cast(column, pa.string())
 
-        return text
+        pandas_series = column.to_pandas()
+        formatted_values = []
 
-    def _normalize_dashes(self, text: str) -> str:
-        """Convert em/en dashes to hyphens."""
-        text = text.replace('\u2013', '-')  # En dash
-        text = text.replace('\u2014', '-')  # Em dash
-        text = text.replace('\u2015', '-')  # Horizontal bar
-        text = text.replace('\u2212', '-')  # Minus sign
-        return text
-
-    def _normalize_spaces(self, text: str) -> str:
-        """Convert various space characters to regular spaces."""
-        text = text.replace('\u00A0', ' ')  # Non-breaking space
-        text = text.replace('\u2000', ' ')  # En quad
-        text = text.replace('\u2001', ' ')  # Em quad
-        text = text.replace('\u2002', ' ')  # En space
-        text = text.replace('\u2003', ' ')  # Em space
-        text = text.replace('\u2004', ' ')  # Three-per-em space
-        text = text.replace('\u2005', ' ')  # Four-per-em space
-        text = text.replace('\u2006', ' ')  # Six-per-em space
-        text = text.replace('\u2007', ' ')  # Figure space
-        text = text.replace('\u2008', ' ')  # Punctuation space
-        text = text.replace('\u2009', ' ')  # Thin space
-        text = text.replace('\u200A', ' ')  # Hair space
-        text = text.replace('\u202F', ' ')  # Narrow no-break space
-        text = text.replace('\u205F', ' ')  # Medium mathematical space
-        text = text.replace('\u3000', ' ')  # Ideographic space
-        return text
-
-    def _remove_zero_width_chars(self, text: str, replace_with_space: bool = False) -> str:
-        """Remove zero-width characters, optionally replacing with space."""
-        zero_width_chars = [
-            '\u200B',  # Zero width space
-            '\u200C',  # Zero width non-joiner
-            '\u200D',  # Zero width joiner
-            '\u200E',  # Left-to-right mark
-            '\u200F',  # Right-to-left mark
-            '\uFEFF',  # Zero width no-break space (BOM)
-            '\u061C',  # Arabic letter mark
-            '\u180E',  # Mongolian vowel separator
-        ]
-
-        if replace_with_space:
-            # Replace zero-width characters with space
-            for char in zero_width_chars:
-                text = text.replace(char, ' ')
-        else:
-            # Remove zero-width characters
-            for char in zero_width_chars:
-                text = text.replace(char, '')
-
-        return text
-
-    def _remove_control_chars(self, text: str, preserve_newlines: bool, preserve_tabs: bool) -> str:
-        """Remove control characters while optionally preserving newlines and tabs."""
-        import unicodedata
-
-        result = []
-        for char in text:
-            # Get the Unicode category
-            category = unicodedata.category(char)
-
-            # Control characters are in category 'Cc'
-            if category == 'Cc':
-                # Preserve specific characters if requested
-                if preserve_newlines and char in '\n\r':
-                    result.append(char)
-                elif preserve_tabs and char == '\t':
-                    result.append(char)
-                # Otherwise skip the control character
-            else:
-                result.append(char)
-
-        return ''.join(result)
-
-    def _remove_accents(self, text: str) -> str:
-        """Remove diacritical marks (accents) from text."""
-        import unicodedata
-
-        # Decompose characters to separate base characters from diacritics
-        nfd = unicodedata.normalize('NFD', text)
-
-        # Filter out combining characters (diacritics)
-        without_accents = ''.join(
-            char for char in nfd
-            if unicodedata.category(char) != 'Mn'  # Mn = Mark, nonspacing (diacritics)
-        )
-
-        return without_accents
-
-    def _to_ascii_only(self, text: str) -> str:
-        """Convert text to ASCII-only, replacing non-ASCII characters."""
-        # Try to encode as ASCII, replacing errors
-        try:
-            ascii_text = text.encode('ascii', 'ignore').decode('ascii')
-            return ascii_text
-        except UnicodeError:
-            return text
-
-    def _fix_case_issues(self, text: str, title_case_exceptions: List[str]) -> str:
-        """Fix common case issues in text."""
-        # Common acronyms that should stay uppercase
-        acronyms = {"NASA", "FBI", "CIA", "USA", "UK", "US", "EU", "UN", "CEO", "CTO", "CFO", "HR", "IT", "AI", "API", "URL", "HTML", "CSS", "JS", "SQL"}
-
-        # Split on both spaces and hyphens to handle hyphenated names properly
-        import re
-        # Split on spaces and hyphens, but keep the separators
-        parts = re.split(r'(\s+|-)', text)
-        fixed_parts = []
-
-        word_index = 0  # Track actual word position (not including separators)
-        for part in parts:
-            if not part or part.isspace() or part == '-':
-                # Keep separators as-is
-                fixed_parts.append(part)
+        for value in pandas_series:
+            if pd.isna(value) or value is None:
+                formatted_values.append(None)
                 continue
 
-            # This is an actual word
-            punctuation_chars = '.,!?;:"()[]{}*&^%$#@~`'
-            clean_word = part.strip(punctuation_chars)
-            leading_punct = part[:len(part) - len(part.lstrip(punctuation_chars))]
-            trailing_punct = part[len(part.rstrip(punctuation_chars)):]
-
-            if clean_word.isupper() and len(clean_word) > 1:
-                # Check if it's a known acronym
-                if clean_word in acronyms:
-                    fixed_parts.append(part)  # Keep original with punctuation
-                # For hyphenated words, "jane" should be lowercase as it's a common name part that should be treated as non-first
-                elif word_index == 0:
-                    # First word gets title case
-                    title_part = clean_word.title()
-                    fixed_parts.append(leading_punct + title_part + trailing_punct)
-                elif clean_word.lower() in title_case_exceptions or clean_word.lower() == 'jane':
-                    # Article/preposition or specific names like "jane" - make lowercase but preserve punctuation
-                    lower_part = clean_word.lower()
-                    fixed_parts.append(leading_punct + lower_part + trailing_punct)
+            try:
+                formatted_ssn = self._format_ssn(str(value), config)
+                formatted_values.append(formatted_ssn)
+            except ValueError:
+                if config.allow_invalid:
+                    formatted_values.append(str(value))
                 else:
-                    # Apply title case but preserve punctuation
-                    title_part = clean_word.title()
-                    fixed_parts.append(leading_punct + title_part + trailing_punct)
+                    formatted_values.append(None)
+
+        return pa.array(formatted_values)
+
+    def _format_ssn(self, value: str, config: SSNConfig) -> str:
+        """Format a single SSN value.
+
+        Args:
+            value: Raw SSN string
+            config: SSN formatting configuration
+
+        Returns:
+            Formatted SSN string
+
+        Raises:
+            ValueError: If SSN is invalid and validation is enabled
+        """
+        original_value = value.strip()
+
+        # Check for empty or invalid input early
+        if not original_value:
+            raise ValueError("Empty SSN value")
+
+        # Remove all non-digits
+        digits_only = re.sub(r'\D', '', original_value)
+
+        # Check if we lost too much of the original (indicates invalid data like "abc123")
+        # For SSN, we should be more strict - if there are any letters, it's invalid
+        if config.validate and re.search(r'[a-zA-Z]', original_value):
+            raise ValueError(f"SSN contains letters")
+
+        # Check for empty after digit extraction
+        if not digits_only:
+            raise ValueError("No digits found in SSN")
+
+        # Handle zero padding
+        if config.zero_pad and len(digits_only) < 9:
+            digits_only = digits_only.zfill(9)
+
+        # Validate length
+        if config.validate and len(digits_only) != 9:
+            raise ValueError(f"SSN must have exactly 9 digits, got {len(digits_only)}")
+
+        # Format with dashes if requested
+        if config.format_with_dashes and len(digits_only) == 9:
+            return f"{digits_only[:3]}-{digits_only[3:5]}-{digits_only[5:]}"
+        else:
+            return digits_only
+
+    def apply_zip_code_formatting(self, column: pa.Array, config: ZipCodeConfig) -> pa.Array:
+        """Format ZIP codes according to the specified type.
+
+        Args:
+            column: PyArrow Array containing ZIP code data
+            config: ZIP code formatting configuration
+
+        Returns:
+            PyArrow Array with ZIP codes formatted according to type
+        """
+        if not pa.types.is_string(column.type):
+            # Convert to string first if not already
+            column = pa.compute.cast(column, pa.string())
+
+        pandas_series = column.to_pandas()
+        formatted_values = []
+
+        for value in pandas_series:
+            if pd.isna(value) or value is None:
+                formatted_values.append(None)
+                continue
+
+            try:
+                formatted_zip = self._format_zip_code(str(value), config)
+                formatted_values.append(formatted_zip)
+            except ValueError:
+                if config.allow_invalid:
+                    formatted_values.append(str(value))
+                else:
+                    formatted_values.append(None)
+
+        return pa.array(formatted_values)
+
+    def _format_zip_code(self, value: str, config: ZipCodeConfig) -> str:
+        """Format a single ZIP code value.
+
+        Args:
+            value: Raw ZIP code string
+            config: ZIP code formatting configuration
+
+        Returns:
+            Formatted ZIP code string
+
+        Raises:
+            ValueError: If ZIP code is invalid and validation is enabled
+        """
+        original_value = value.strip()
+
+        # Check for empty or invalid input early
+        if not original_value:
+            raise ValueError("Empty ZIP code value")
+
+        # Remove all non-digits
+        digits_only = re.sub(r'\D', '', original_value)
+
+        # Check if we lost too much of the original (indicates invalid data like "abc12")
+        if config.validate and len(digits_only) < len(original_value) * 0.5:
+            # If more than half the characters were removed, likely invalid
+            raise ValueError(f"ZIP code contains too many non-digit characters")
+
+        # Check for empty after digit extraction
+        if not digits_only:
+            raise ValueError("No digits found in ZIP code")
+
+        if config.zip_type == "zip-5":
+            # Handle 5-digit ZIP codes
+            if config.zero_pad and len(digits_only) < 5:
+                digits_only = digits_only.zfill(5)
+            elif len(digits_only) > 5:
+                # Truncate to 5 digits if longer
+                digits_only = digits_only[:5]
+
+            if config.validate and len(digits_only) != 5:
+                raise ValueError(f"ZIP-5 must have exactly 5 digits, got {len(digits_only)}")
+
+            return digits_only
+
+        elif config.zip_type == "zip-9":
+            # Handle 9-digit ZIP codes (ZIP+4)
+            if config.zero_pad and len(digits_only) < 9:
+                digits_only = digits_only.zfill(9)
+
+            if config.validate and len(digits_only) != 9:
+                raise ValueError(f"ZIP-9 must have exactly 9 digits, got {len(digits_only)}")
+
+            # Format with dash if requested
+            if config.format_with_dash and len(digits_only) == 9:
+                return f"{digits_only[:5]}-{digits_only[5:]}"
             else:
-                fixed_parts.append(part)
+                return digits_only
 
-            word_index += 1
+        else:  # zip-permissive
+            # Handle permissive ZIP codes (5 or 9 digits)
+            if config.zero_pad:
+                if len(digits_only) <= 5:
+                    digits_only = digits_only.zfill(5)
+                elif len(digits_only) <= 9:
+                    digits_only = digits_only.zfill(9)
 
-        return ''.join(fixed_parts)
+            if config.validate:
+                if len(digits_only) not in [5, 9]:
+                    raise ValueError(f"ZIP code must have 5 or 9 digits, got {len(digits_only)}")
+
+            # Format based on length
+            if len(digits_only) == 9 and config.format_with_dash:
+                return f"{digits_only[:5]}-{digits_only[5:]}"
+            else:
+                return digits_only
 
     def _fix_encoding_errors(self, text: str) -> str:
         """Fix common encoding errors."""
@@ -928,6 +972,160 @@ class DataTransformer:
 
         for wrong, right in fixes.items():
             text = text.replace(wrong, right)
+
+        return text
+
+    def _normalize_quotes(self, text: str) -> str:
+        """Normalize smart quotes to ASCII quotes."""
+        # Smart quotes to ASCII
+        quote_mappings = {
+            '\u2018': "'",  # Left single quotation mark
+            '\u2019': "'",  # Right single quotation mark
+            '\u201A': "'",  # Single low-9 quotation mark
+            '\u201B': "'",  # Single high-reversed-9 quotation mark
+            '\u201C': '"',  # Left double quotation mark
+            '\u201D': '"',  # Right double quotation mark
+            '\u201E': '"',  # Double low-9 quotation mark
+            '\u201F': '"',  # Double high-reversed-9 quotation mark
+            '\u00AB': '"',  # Left-pointing double angle quotation mark
+            '\u00BB': '"',  # Right-pointing double angle quotation mark
+            '\u2039': "'",  # Single left-pointing angle quotation mark
+            '\u203A': "'",  # Single right-pointing angle quotation mark
+        }
+
+        for smart, ascii_char in quote_mappings.items():
+            text = text.replace(smart, ascii_char)
+
+        return text
+
+    def _normalize_dashes(self, text: str) -> str:
+        """Normalize em/en dashes to hyphens."""
+        dash_mappings = {
+            '\u2014': '-',  # Em dash
+            '\u2013': '-',  # En dash
+            '\u2212': '-',  # Minus sign
+            '\u2010': '-',  # Hyphen
+            '\u2011': '-',  # Non-breaking hyphen
+        }
+
+        for dash, hyphen in dash_mappings.items():
+            text = text.replace(dash, hyphen)
+
+        return text
+
+    def _normalize_spaces(self, text: str) -> str:
+        """Normalize various space characters to regular spaces."""
+        space_mappings = {
+            '\u00A0': ' ',  # Non-breaking space
+            '\u2002': ' ',  # En space
+            '\u2003': ' ',  # Em space
+            '\u2004': ' ',  # Three-per-em space
+            '\u2005': ' ',  # Four-per-em space
+            '\u2006': ' ',  # Six-per-em space
+            '\u2007': ' ',  # Figure space
+            '\u2008': ' ',  # Punctuation space
+            '\u2009': ' ',  # Thin space
+            '\u200A': ' ',  # Hair space
+            '\u202F': ' ',  # Narrow no-break space
+            '\u205F': ' ',  # Medium mathematical space
+            '\u3000': ' ',  # Ideographic space
+        }
+
+        for special_space, regular_space in space_mappings.items():
+            text = text.replace(special_space, regular_space)
+
+        return text
+
+    def _remove_zero_width_chars(self, text: str, replace_with_space: bool = False) -> str:
+        """Remove zero-width characters."""
+        zero_width_chars = [
+            '\u200B',  # Zero-width space
+            '\u200C',  # Zero-width non-joiner
+            '\u200D',  # Zero-width joiner
+            '\uFEFF',  # Byte order mark (BOM)
+            '\u200E',  # Left-to-right mark
+            '\u200F',  # Right-to-left mark
+            '\u061C',  # Arabic letter mark
+        ]
+
+        replacement = ' ' if replace_with_space else ''
+
+        for char in zero_width_chars:
+            text = text.replace(char, replacement)
+
+        return text
+
+    def _remove_control_chars(self, text: str, preserve_newlines: bool = True, preserve_tabs: bool = False) -> str:
+        """Remove control characters from text."""
+        import unicodedata
+
+        result = []
+        for char in text:
+            # Get the Unicode category
+            category = unicodedata.category(char)
+
+            # Control characters have category 'Cc'
+            if category == 'Cc':
+                # Check for preserved characters
+                if preserve_newlines and char in ['\n', '\r']:
+                    result.append(char)
+                elif preserve_tabs and char == '\t':
+                    result.append(char)
+                # Otherwise skip control characters
+            else:
+                result.append(char)
+
+        return ''.join(result)
+
+    def _remove_accents(self, text: str) -> str:
+        """Remove diacritical marks from text."""
+        import unicodedata
+
+        # Normalize to NFD (decomposed form) to separate base chars from accents
+        nfd = unicodedata.normalize('NFD', text)
+
+        # Remove combining characters (accents)
+        result = []
+        for char in nfd:
+            if unicodedata.category(char) != 'Mn':  # Mn = Nonspacing_Mark (combining chars)
+                result.append(char)
+
+        return ''.join(result)
+
+    def _to_ascii_only(self, text: str) -> str:
+        """Convert text to ASCII-only characters."""
+        import unicodedata
+
+        # First remove accents
+        text = self._remove_accents(text)
+
+        # Then encode to ASCII, replacing non-ASCII chars
+        try:
+            return text.encode('ascii', errors='ignore').decode('ascii')
+        except UnicodeError:
+            # Fallback: manually filter ASCII characters
+            return ''.join(char for char in text if ord(char) < 128)
+
+    def _fix_case_issues(self, text: str, title_case_exceptions: List[str]) -> str:
+        """Fix common case issues like ALL CAPS."""
+        # Check if the text is all uppercase (indicating a case issue)
+        if text.isupper() and len(text) > 2:
+            # Convert to title case, respecting exceptions
+            words = text.split()
+            fixed_words = []
+
+            for i, word in enumerate(words):
+                if i == 0:
+                    # Always capitalize the first word
+                    fixed_words.append(word.capitalize())
+                elif word.lower() in title_case_exceptions:
+                    # Use lowercase for exception words
+                    fixed_words.append(word.lower())
+                else:
+                    # Capitalize normally
+                    fixed_words.append(word.capitalize())
+
+            return ' '.join(fixed_words)
 
         return text
 
@@ -985,6 +1183,14 @@ def create_transformation_from_config(transform_type: str, config: Dict[str, Any
     elif transform_type == "string_cleaning":
         string_cleaning_config = StringCleaningConfig(**clean_config)
         return lambda col: transformer.apply_string_cleaning(col, string_cleaning_config)
+
+    elif transform_type == "ssn_formatting":
+        ssn_config = SSNConfig(**clean_config)
+        return lambda col: transformer.apply_ssn_formatting(col, ssn_config)
+
+    elif transform_type == "zip_code_formatting":
+        zip_config = ZipCodeConfig(**clean_config)
+        return lambda col: transformer.apply_zip_code_formatting(col, zip_config)
 
     else:
         raise ValueError(f"Unknown transformation type: {transform_type}")

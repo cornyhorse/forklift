@@ -1,9 +1,7 @@
-"""Metadata collection module for Forklift.
+"""Metadata collection and generation functionality."""
 
-This module provides functionality to collect metadata about both input data
-(for schema generation) and output data (for processing pipeline analysis).
-"""
-
-from .output_metadata_collector import OutputMetadataCollector
+from __future__ import annotations
 
 __all__ = ['OutputMetadataCollector']
+
+from .output_metadata_collector import OutputMetadataCollector

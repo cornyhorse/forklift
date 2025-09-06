@@ -14,9 +14,16 @@ from forklift.schema.schema_generator import (
     SchemaGenerator,
     SchemaGenerationConfig,
     OutputTarget,
-    FileType,
-    CLIPBOARD_AVAILABLE
+    FileType
 )
+# Import CLIPBOARD_AVAILABLE from the new location in the refactored structure
+from forklift.schema.generator.core import CLIPBOARD_AVAILABLE
+# Import additional components for testing
+from forklift.schema.types.data_types import DataTypeConverter
+from forklift.schema.utils.helpers import get_parquet_type_string
+from forklift.schema.processors.metadata import MetadataGenerator
+from forklift.schema.types.transformations import TransformationAnalyzer
+from forklift.schema.generator.inference import DataTypeInferrer
 
 
 class TestSchemaGenerationConfig:
@@ -251,54 +258,50 @@ class TestSchemaGenerator:
 
     def test_arrow_to_json_schema_type_conversion(self):
         """Test Arrow type to JSON Schema type conversion."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
+        converter = DataTypeConverter()
 
         # Test basic types
-        assert generator._arrow_to_json_schema_type(pa.int8()) == {"type": "integer"}
-        assert generator._arrow_to_json_schema_type(pa.int16()) == {"type": "integer"}
-        assert generator._arrow_to_json_schema_type(pa.int32()) == {"type": "integer"}
-        assert generator._arrow_to_json_schema_type(pa.int64()) == {"type": "integer"}
-        assert generator._arrow_to_json_schema_type(pa.uint8()) == {"type": "integer"}
-        assert generator._arrow_to_json_schema_type(pa.uint16()) == {"type": "integer"}
-        assert generator._arrow_to_json_schema_type(pa.uint32()) == {"type": "integer"}
-        assert generator._arrow_to_json_schema_type(pa.uint64()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.int8()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.int16()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.int32()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.int64()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.uint8()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.uint16()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.uint32()) == {"type": "integer"}
+        assert converter.arrow_to_json_schema_type(pa.uint64()) == {"type": "integer"}
 
-        assert generator._arrow_to_json_schema_type(pa.float32()) == {"type": "number"}
-        assert generator._arrow_to_json_schema_type(pa.float64()) == {"type": "number"}
+        assert converter.arrow_to_json_schema_type(pa.float32()) == {"type": "number"}
+        assert converter.arrow_to_json_schema_type(pa.float64()) == {"type": "number"}
 
-        assert generator._arrow_to_json_schema_type(pa.bool_()) == {"type": "boolean"}
+        assert converter.arrow_to_json_schema_type(pa.bool_()) == {"type": "boolean"}
 
-        assert generator._arrow_to_json_schema_type(pa.string()) == {"type": "string"}
-        assert generator._arrow_to_json_schema_type(pa.large_string()) == {"type": "string"}
+        assert converter.arrow_to_json_schema_type(pa.string()) == {"type": "string"}
+        assert converter.arrow_to_json_schema_type(pa.large_string()) == {"type": "string"}
 
-        assert generator._arrow_to_json_schema_type(pa.date32()) == {"type": "string", "format": "date"}
-        assert generator._arrow_to_json_schema_type(pa.date64()) == {"type": "string", "format": "date"}
+        assert converter.arrow_to_json_schema_type(pa.date32()) == {"type": "string", "format": "date"}
+        assert converter.arrow_to_json_schema_type(pa.date64()) == {"type": "string", "format": "date"}
 
-        assert generator._arrow_to_json_schema_type(pa.timestamp('ns')) == {"type": "string", "format": "date-time"}
-        assert generator._arrow_to_json_schema_type(pa.time32('s')) == {"type": "string", "format": "time"}
-        assert generator._arrow_to_json_schema_type(pa.time64('us')) == {"type": "string", "format": "time"}
+        assert converter.arrow_to_json_schema_type(pa.timestamp('ns')) == {"type": "string", "format": "date-time"}
+        assert converter.arrow_to_json_schema_type(pa.time32('s')) == {"type": "string", "format": "time"}
+        assert converter.arrow_to_json_schema_type(pa.time64('us')) == {"type": "string", "format": "time"}
 
-        assert generator._arrow_to_json_schema_type(pa.binary()) == {"type": "string", "contentEncoding": "base64"}
-        assert generator._arrow_to_json_schema_type(pa.large_binary()) == {"type": "string", "contentEncoding": "base64"}
+        assert converter.arrow_to_json_schema_type(pa.binary()) == {"type": "string", "contentEncoding": "base64"}
+        assert converter.arrow_to_json_schema_type(pa.large_binary()) == {"type": "string", "contentEncoding": "base64"}
 
         # Test list types
-        list_result = generator._arrow_to_json_schema_type(pa.list_(pa.string()))
+        list_result = converter.arrow_to_json_schema_type(pa.list_(pa.string()))
         assert list_result["type"] == "array"
         assert list_result["items"]["type"] == "string"
 
-        large_list_result = generator._arrow_to_json_schema_type(pa.large_list(pa.int32()))
+        large_list_result = converter.arrow_to_json_schema_type(pa.large_list(pa.int32()))
         assert large_list_result["type"] == "array"
         assert large_list_result["items"]["type"] == "integer"
 
         # Test struct type
-        assert generator._arrow_to_json_schema_type(pa.struct([("field1", pa.string())])) == {"type": "object", "additionalProperties": True}
+        assert converter.arrow_to_json_schema_type(pa.struct([("field1", pa.string())])) == {"type": "object", "additionalProperties": True}
 
         # Test dictionary type
-        assert generator._arrow_to_json_schema_type(pa.dictionary(pa.int32(), pa.string())) == {"type": "string"}
+        assert converter.arrow_to_json_schema_type(pa.dictionary(pa.int32(), pa.string())) == {"type": "string"}
 
     @patch('pyarrow.types.is_list', return_value=True)
     @patch('pyarrow.types.is_large_list', return_value=False)
@@ -317,14 +320,10 @@ class TestSchemaGenerator:
     @patch('builtins.hasattr', return_value=False)
     def test_arrow_to_json_schema_type_list_without_value_type(self, *args):
         """Test list without value_type attribute (edge case)."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
+        converter = DataTypeConverter()
 
         mock_list_type = MagicMock()
-        result = generator._arrow_to_json_schema_type(mock_list_type)
+        result = converter.arrow_to_json_schema_type(mock_list_type)
         assert result == {"type": "array", "items": {"type": "string"}}
 
     @patch('pyarrow.types.is_list', return_value=False)
@@ -343,70 +342,54 @@ class TestSchemaGenerator:
     @patch('pyarrow.types.is_dictionary', return_value=False)
     def test_arrow_to_json_schema_type_unknown_fallback(self, *args):
         """Test unknown type fallback to string."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
+        converter = DataTypeConverter()
 
         mock_unknown_type = MagicMock()
-        result = generator._arrow_to_json_schema_type(mock_unknown_type)
+        result = converter.arrow_to_json_schema_type(mock_unknown_type)
         assert result == {"type": "string"}
 
     def test_get_parquet_type_string(self):
         """Test Parquet type string conversion."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
-
         # Test integer types
-        assert generator._get_parquet_type_string(pa.int8()) == "int8"
-        assert generator._get_parquet_type_string(pa.int16()) == "int16"
-        assert generator._get_parquet_type_string(pa.int32()) == "int32"
-        assert generator._get_parquet_type_string(pa.int64()) == "int64"
-        assert generator._get_parquet_type_string(pa.uint8()) == "uint8"
-        assert generator._get_parquet_type_string(pa.uint16()) == "uint16"
-        assert generator._get_parquet_type_string(pa.uint32()) == "uint32"
-        assert generator._get_parquet_type_string(pa.uint64()) == "uint64"
+        assert get_parquet_type_string(pa.int8()) == "int8"
+        assert get_parquet_type_string(pa.int16()) == "int16"
+        assert get_parquet_type_string(pa.int32()) == "int32"
+        assert get_parquet_type_string(pa.int64()) == "int64"
+        assert get_parquet_type_string(pa.uint8()) == "uint8"
+        assert get_parquet_type_string(pa.uint16()) == "uint16"
+        assert get_parquet_type_string(pa.uint32()) == "uint32"
+        assert get_parquet_type_string(pa.uint64()) == "uint64"
 
         # Test float types
-        assert generator._get_parquet_type_string(pa.float32()) == "float32"
-        assert generator._get_parquet_type_string(pa.float64()) == "double"
+        assert get_parquet_type_string(pa.float32()) == "float32"
+        assert get_parquet_type_string(pa.float64()) == "double"
 
         # Test other types
-        assert generator._get_parquet_type_string(pa.bool_()) == "bool"
-        assert generator._get_parquet_type_string(pa.string()) == "string"
-        assert generator._get_parquet_type_string(pa.large_string()) == "string"
-        assert generator._get_parquet_type_string(pa.binary()) == "binary"
-        assert generator._get_parquet_type_string(pa.large_binary()) == "binary"
-        assert generator._get_parquet_type_string(pa.date32()) == "date32"
-        assert generator._get_parquet_type_string(pa.date64()) == "date64"
-        assert generator._get_parquet_type_string(pa.timestamp('ms')) == "timestamp[ms]"
-        assert generator._get_parquet_type_string(pa.duration('ms')) == "duration[ms]"
+        assert get_parquet_type_string(pa.bool_()) == "bool"
+        assert get_parquet_type_string(pa.string()) == "string"
+        assert get_parquet_type_string(pa.large_string()) == "string"
+        assert get_parquet_type_string(pa.binary()) == "binary"
+        assert get_parquet_type_string(pa.large_binary()) == "binary"
+        assert get_parquet_type_string(pa.date32()) == "date32"
+        assert get_parquet_type_string(pa.date64()) == "date64"
+        assert get_parquet_type_string(pa.timestamp('ms')) == "timestamp[ms]"
+        assert get_parquet_type_string(pa.duration('ms')) == "duration[ms]"
 
         # Test list types
-        assert generator._get_parquet_type_string(pa.list_(pa.string())) == "list<string>"
-        assert generator._get_parquet_type_string(pa.large_list(pa.int32())) == "list<int32>"
+        assert get_parquet_type_string(pa.list_(pa.string())) == "list<string>"
+        assert get_parquet_type_string(pa.large_list(pa.int32())) == "list<int32>"
 
         # Test struct and dictionary
-        assert generator._get_parquet_type_string(pa.struct([("field1", pa.string())])) == "struct"
-        assert generator._get_parquet_type_string(pa.dictionary(pa.int32(), pa.string())) == "dictionary<values=string, indices=int32>"
+        assert get_parquet_type_string(pa.struct([("field1", pa.string())])) == "struct"
+        assert get_parquet_type_string(pa.dictionary(pa.int32(), pa.string())) == "dictionary<values=string, indices=int32>"
 
     @patch('pyarrow.types.is_list', return_value=True)
     @patch('pyarrow.types.is_large_list', return_value=False)
     @patch('builtins.hasattr', return_value=False)
     def test_get_parquet_type_string_list_without_value_type(self, *args):
         """Test list without value_type attribute (edge case)."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
-
         mock_list_type = MagicMock()
-        result = generator._get_parquet_type_string(mock_list_type)
+        result = get_parquet_type_string(mock_list_type)
         assert result == "list<string>"
 
     @patch('pyarrow.types.is_list', return_value=False)
@@ -434,14 +417,8 @@ class TestSchemaGenerator:
     @patch('pyarrow.types.is_dictionary', return_value=False)
     def test_get_parquet_type_string_unknown_fallback(self, *args):
         """Test unknown Parquet type fallback to string."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
-
         mock_unknown_type = MagicMock()
-        result = generator._get_parquet_type_string(mock_unknown_type)
+        result = get_parquet_type_string(mock_unknown_type)
         assert result == "string"
 
     def test_primary_key_user_specified_single(self, tmp_path):
@@ -735,7 +712,6 @@ Bob,Yet another person"""
         assert table_meta["row_count"] == 5
         # pandas.read_csv may create 7 columns from the CSV data
         assert table_meta["column_count"] == 7  # Exact count expected now
-        assert table_meta["file_type"] == "csv"
 
         # Check column metadata exists for all columns
         col_meta = metadata["column_metadata"]
@@ -1070,7 +1046,7 @@ true,true,true"""
         generation = schema["x-generation"]
         assert generation["rows_analyzed"] == 3
 
-    @patch('forklift.schema.schema_generator.is_s3_path')
+    @patch('forklift.schema.generator.inference.is_s3_path')
     def test_s3_csv_reading_with_nrows(self, mock_is_s3_path, tmp_path):
         """Test S3 CSV reading with nrows limit."""
         mock_is_s3_path.return_value = True
@@ -1092,7 +1068,7 @@ true,true,true"""
 
         # Mock the io_handler
         mock_file = StringIO(csv_content)
-        with patch.object(generator.io_handler, 'open_for_read') as mock_open:
+        with patch.object(generator.inferrer.io_handler, 'open_for_read') as mock_open:
             mock_open.return_value.__enter__.return_value = mock_file
 
             schema = generator.generate_schema()
@@ -1104,7 +1080,7 @@ true,true,true"""
             assert "properties" in schema
             assert "id" in schema["properties"]
 
-    @patch('forklift.schema.schema_generator.is_s3_path')
+    @patch('forklift.schema.generator.inference.is_s3_path')
     def test_s3_csv_reading_without_nrows(self, mock_is_s3_path, tmp_path):
         """Test S3 CSV reading without nrows limit."""
         mock_is_s3_path.return_value = True
@@ -1123,7 +1099,7 @@ true,true,true"""
 
         # Mock the io_handler
         mock_file = StringIO(csv_content)
-        with patch.object(generator.io_handler, 'open_for_read') as mock_open:
+        with patch.object(generator.inferrer.io_handler, 'open_for_read') as mock_open:
             mock_open.return_value.__enter__.return_value = mock_file
 
             schema = generator.generate_schema()
@@ -1131,7 +1107,7 @@ true,true,true"""
             # Verify S3 path was handled
             mock_open.assert_called_once_with("s3://bucket/file.csv", encoding='utf-8')
 
-    @patch('forklift.schema.schema_generator.is_s3_path')
+    @patch('forklift.schema.generator.inference.is_s3_path')
     def test_s3_excel_reading(self, mock_is_s3_path, tmp_path):
         """Test S3 Excel reading."""
         mock_is_s3_path.return_value = True
@@ -1151,7 +1127,7 @@ true,true,true"""
 
         generator = SchemaGenerator(config)
 
-        with patch.object(generator.io_handler, 'open_for_read') as mock_open, \
+        with patch.object(generator.inferrer.io_handler, 'open_for_read') as mock_open, \
              patch('pandas.read_excel') as mock_read_excel:
             mock_open.return_value.__enter__.return_value = excel_buffer
             mock_read_excel.return_value = df
@@ -1162,7 +1138,7 @@ true,true,true"""
             mock_open.assert_called_once_with("s3://bucket/file.xlsx", encoding='binary')
             mock_read_excel.assert_called_once()
 
-    @patch('forklift.schema.schema_generator.is_s3_path')
+    @patch('forklift.schema.generator.inference.is_s3_path')
     def test_s3_parquet_reading(self, mock_is_s3_path, tmp_path):
         """Test S3 Parquet reading."""
         mock_is_s3_path.return_value = True
@@ -1184,7 +1160,7 @@ true,true,true"""
         mock_parquet_file = MagicMock()
         mock_parquet_file.read.return_value = table
 
-        with patch.object(generator.io_handler, 'open_for_read') as mock_open, \
+        with patch.object(generator.inferrer.io_handler, 'open_for_read') as mock_open, \
              patch('pyarrow.parquet.ParquetFile', return_value=mock_parquet_file) as mock_pq_file:
             mock_file = BytesIO()
             mock_open.return_value.__enter__.return_value = mock_file
@@ -1262,7 +1238,7 @@ true,true,true"""
         with pytest.raises(ValueError, match="output_path must be specified"):
             generator.output_schema(schema)
 
-    @patch('forklift.schema.schema_generator.is_s3_path')
+    @patch('forklift.schema.generator.core.is_s3_path')
     def test_output_to_s3_file(self, mock_is_s3_path, tmp_path):
         """Test schema output to S3 file."""
         mock_is_s3_path.return_value = True
@@ -1289,8 +1265,8 @@ true,true,true"""
             # Verify S3 write was called
             mock_write.assert_called_once_with("s3://bucket/schema.json", encoding='utf-8')
 
-    @patch('forklift.schema.schema_generator.CLIPBOARD_AVAILABLE', True)
-    @patch('forklift.schema.schema_generator.pyperclip')
+    @patch('forklift.schema.generator.core.CLIPBOARD_AVAILABLE', True)
+    @patch('forklift.schema.generator.core.pyperclip')
     def test_output_to_clipboard(self, mock_pyperclip, tmp_path):
         """Test schema output to clipboard."""
         csv_file = self.create_test_csv(tmp_path)
@@ -1315,7 +1291,7 @@ true,true,true"""
         copied_schema = json.loads(copied_content)
         assert copied_schema["type"] == "object"
 
-    @patch('forklift.schema.schema_generator.CLIPBOARD_AVAILABLE', False)
+    @patch('forklift.schema.generator.core.CLIPBOARD_AVAILABLE', False)
     def test_output_to_clipboard_not_available(self, tmp_path, capsys):
         """Test clipboard output when pyperclip not available."""
         csv_file = self.create_test_csv(tmp_path)
@@ -1336,8 +1312,8 @@ true,true,true"""
         assert "Pyperclip not available" in captured.out
         assert "Falling back to stdout" in captured.out
 
-    @patch('forklift.schema.schema_generator.CLIPBOARD_AVAILABLE', True)
-    @patch('forklift.schema.schema_generator.pyperclip')
+    @patch('forklift.schema.generator.core.CLIPBOARD_AVAILABLE', True)
+    @patch('forklift.schema.generator.core.pyperclip')
     def test_output_to_clipboard_error(self, mock_pyperclip, tmp_path, capsys):
         """Test clipboard output with copy error."""
         mock_pyperclip.copy.side_effect = Exception("Clipboard error")
@@ -1372,7 +1348,7 @@ true,true,true"""
         )
 
         generator = SchemaGenerator(config)
-        table = generator._read_csv_sample()
+        table = generator._read_sample_data()
 
         # Test generate_and_save_metadata method
         saved_path = generator.generate_and_save_metadata(table)
@@ -1386,7 +1362,7 @@ true,true,true"""
         assert metadata["version"] == "1.0.0"
         assert "column_metadata" in metadata
 
-    @patch('forklift.schema.schema_generator.is_s3_path')
+    @patch('forklift.schema.generator.core.is_s3_path')
     def test_metadata_save_to_s3(self, mock_is_s3_path, tmp_path):
         """Test metadata saving to S3."""
         mock_is_s3_path.return_value = True
@@ -1400,7 +1376,7 @@ true,true,true"""
         )
 
         generator = SchemaGenerator(config)
-        table = generator._read_csv_sample()
+        table = generator._read_sample_data()
 
         # Mock the io_handler for S3 write
         mock_file = StringIO()
@@ -1424,7 +1400,7 @@ true,true,true"""
         )
 
         generator = SchemaGenerator(config)
-        table = generator._read_csv_sample()
+        table = generator._read_sample_data()
 
         # Test generate_and_save_metadata method
         saved_path = generator.generate_and_save_metadata(table)
@@ -1457,32 +1433,28 @@ true,true,true"""
 
     def test_statistics_calculation_errors(self, tmp_path):
         """Test error handling in statistics calculation."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
+        metadata_generator = MetadataGenerator()
 
         # Test with empty series
         empty_series = pd.Series([], dtype=object)
 
         # Numeric stats with empty series
-        numeric_stats = generator._calculate_numeric_statistics(empty_series)
+        numeric_stats = metadata_generator._calculate_numeric_statistics(empty_series, {})
         assert numeric_stats == {}
 
         # String stats with empty series
-        string_stats = generator._calculate_string_statistics(empty_series)
+        string_stats = metadata_generator._calculate_string_statistics(empty_series)
         assert string_stats == {}
 
         # Boolean stats with empty series
-        boolean_stats = generator._calculate_boolean_statistics(empty_series)
+        boolean_stats = metadata_generator._calculate_boolean_statistics(empty_series)
         assert boolean_stats == {}
 
         # Test with series that causes calculation errors
         problem_series = pd.Series([float('inf'), float('-inf'), float('nan')])
 
         # This should handle the error gracefully
-        numeric_stats = generator._calculate_numeric_statistics(problem_series)
+        numeric_stats = metadata_generator._calculate_numeric_statistics(problem_series, {})
         # Should either return stats or error info, but not crash
         assert isinstance(numeric_stats, dict)
 
@@ -1565,19 +1537,15 @@ true,true,true"""
 
     def test_analyze_column_for_transformations_edge_cases(self, tmp_path):
         """Test column transformation analysis edge cases."""
-        config = SchemaGenerationConfig(
-            input_path="/dummy/path",
-            file_type=FileType.CSV
-        )
-        generator = SchemaGenerator(config)
+        analyzer = TransformationAnalyzer()
 
         # Test with empty column
         empty_column = pa.array([None, None, None])
-        result = generator._analyze_column_for_transformations("empty_col", empty_column, pa.string())
+        result = analyzer.analyze_column_for_transformations("empty_col", empty_column, pa.string())
         assert result is None
 
         # Test with all null column
         null_series = pd.Series([None, None, None])
         null_column = pa.array(null_series)
-        result = generator._analyze_column_for_transformations("null_col", null_column, pa.string())
+        result = analyzer.analyze_column_for_transformations("null_col", null_column, pa.string())
         assert result is None

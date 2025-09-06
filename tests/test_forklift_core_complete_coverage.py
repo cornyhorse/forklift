@@ -22,9 +22,9 @@ from forklift.engine.forklift_core import (
     import_csv,
     import_fwf,
     import_excel,
-    import_sql,
-    _create_default_excel_config
+    import_sql
 )
+from forklift.engine.importers.excel_importer import ExcelImporter
 
 
 class TestForkliftCoreCompleteCoverage:

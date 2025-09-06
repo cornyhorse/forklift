@@ -33,7 +33,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.SSNConfig') as mock_ssn_config:
+        with patch('forklift.utils.transformations.SSNConfig') as mock_ssn_config:
             transformer = SchemaBasedTransformer(schema)
 
             # Verify SSN config was created with correct parameters
@@ -59,7 +59,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.ZipCodeConfig') as mock_zip_config:
+        with patch('forklift.utils.transformations.ZipCodeConfig') as mock_zip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_zip_config.assert_called_once_with(
@@ -84,7 +84,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.ZipCodeConfig') as mock_zip_config:
+        with patch('forklift.utils.transformations.ZipCodeConfig') as mock_zip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_zip_config.assert_called_once_with(
@@ -106,7 +106,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.ZipCodeConfig') as mock_zip_config:
+        with patch('forklift.utils.transformations.ZipCodeConfig') as mock_zip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_zip_config.assert_called_once_with(
@@ -128,7 +128,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.PhoneNumberConfig') as mock_phone_config:
+        with patch('forklift.utils.transformations.PhoneNumberConfig') as mock_phone_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_phone_config.assert_called_once_with(
@@ -153,7 +153,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.EmailConfig') as mock_email_config:
+        with patch('forklift.utils.transformations.EmailConfig') as mock_email_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_email_config.assert_called_once_with(
@@ -178,7 +178,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.IPAddressConfig') as mock_ip_config:
+        with patch('forklift.utils.transformations.IPAddressConfig') as mock_ip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_ip_config.assert_called_once_with(
@@ -203,7 +203,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.IPAddressConfig') as mock_ip_config:
+        with patch('forklift.utils.transformations.IPAddressConfig') as mock_ip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_ip_config.assert_called_once_with(
@@ -225,7 +225,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.IPAddressConfig') as mock_ip_config:
+        with patch('forklift.utils.transformations.IPAddressConfig') as mock_ip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_ip_config.assert_called_once_with(
@@ -247,7 +247,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.MACAddressConfig') as mock_mac_config:
+        with patch('forklift.utils.transformations.MACAddressConfig') as mock_mac_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_mac_config.assert_called_once_with(
@@ -279,8 +279,8 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.SSNConfig'):
-            with patch('forklift.utils.data_transformations.EmailConfig'):
+        with patch('forklift.utils.transformations.SSNConfig'):
+            with patch('forklift.utils.transformations.EmailConfig'):
                 transformer = SchemaBasedTransformer(schema)
 
                 # Should have transformations for SSN and email, but not regular field
@@ -301,7 +301,7 @@ class TestSchemaBasedTransformerSpecialTypes:
             }
         }
 
-        with patch('forklift.utils.data_transformations.EmailConfig'):
+        with patch('forklift.utils.transformations.EmailConfig'):
             transformer = SchemaBasedTransformer(schema)
 
             # Should only process the dict property
@@ -347,7 +347,7 @@ class TestSchemaBasedTransformerSpecialTypes:
 class TestSchemaBasedTransformerIntegration:
     """Integration tests for SchemaBasedTransformer."""
 
-    @patch('forklift.utils.data_transformations.create_transformation_from_config')
+    @patch('forklift.utils.transformations.create_transformation_from_config')
     def test_parse_transformation_config_with_error(self, mock_create_transform):
         """Test parsing transformation config when creation fails."""
         mock_create_transform.side_effect = ValueError("Unknown transformation type: invalid_transform")
@@ -399,8 +399,8 @@ class TestSchemaBasedTransformerIntegration:
             }
         }
 
-        with patch('forklift.utils.data_transformations.SSNConfig'):
-            with patch('forklift.utils.data_transformations.create_transformation_from_config') as mock_create:
+        with patch('forklift.utils.transformations.SSNConfig'):
+            with patch('forklift.utils.transformations.create_transformation_from_config') as mock_create:
                 mock_transform = Mock()
                 mock_create.return_value = mock_transform
 
@@ -435,7 +435,7 @@ class TestSchemaBasedTransformerIntegration:
         def mock_transform(column):
             return pc.replace_substring_regex(column, "old", "new")
 
-        with patch('forklift.utils.data_transformations.create_transformation_from_config') as mock_create:
+        with patch('forklift.utils.transformations.create_transformation_from_config') as mock_create:
             mock_create.return_value = mock_transform
 
             transformer = SchemaBasedTransformer(schema)
@@ -466,7 +466,7 @@ class TestSchemaBasedTransformerIntegration:
         def failing_transform(column):
             raise ValueError("Transform failed")
 
-        with patch('forklift.utils.data_transformations.SSNConfig'):
+        with patch('forklift.utils.transformations.SSNConfig'):
             transformer = SchemaBasedTransformer(schema)
 
             # Replace the transformation with one that fails
@@ -834,4 +834,3 @@ class TestColumnTransformerEdgeCases:
         # Should apply both transformations in sequence
         assert len(validation_results) == 0
         assert result_batch.column("col1").to_pylist() == ["HELLO", "WORLD"]
-

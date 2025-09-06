@@ -1,7 +1,7 @@
 # Custom Acronyms Example
 # This example demonstrates how to use domain-specific acronyms in string cleaning configurations.
 
-from src.forklift.utils.data_transformations import DataTransformer, StringCleaningConfig
+from src.forklift.utils.transformations import DataTransformer, StringCleaningConfig
 import pyarrow as pa
 
 # Example 1: Healthcare/Medical Domain

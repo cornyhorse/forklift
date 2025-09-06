@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import pyarrow as pa
-from src.forklift.utils.data_transformations import DataTransformer, StringCleaningConfig
+from src.forklift.utils.transformations import DataTransformer, StringCleaningConfig
 
 def test_both_fixes():
     """Test both the tab replacement fix and the encoding error fix."""

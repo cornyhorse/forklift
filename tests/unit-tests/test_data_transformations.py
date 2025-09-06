@@ -693,7 +693,7 @@ class TestDataTransformer:
             # If PyArrow itself raises an error, that's expected behavior
             assert True
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.coerce_datetime')
     def test_apply_datetime_transformation_with_timezone(self, mock_coerce):
         """Test datetime transformation with timezone conversion."""
         import pytz
@@ -707,7 +707,7 @@ class TestDataTransformer:
         # Should handle timezone conversion
         assert result is not None
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.coerce_datetime')
     def test_apply_datetime_transformation_target_string_with_date(self, mock_coerce):
         """Test datetime transformation with target string and date object."""
         mock_coerce.return_value = datetime.date(2024, 1, 1)
@@ -787,7 +787,7 @@ class TestDataTransformer:
 
     def test_datetime_transformation_epoch_units(self):
         """Test datetime transformation with different epoch units."""
-        with patch('forklift.utils.data_transformations.coerce_datetime') as mock_coerce:
+        with patch('forklift.utils.transformations.coerce_datetime') as mock_coerce:
             # Test milliseconds
             mock_coerce.return_value = 1704110400000
             column = pa.array(["2024-01-01"])

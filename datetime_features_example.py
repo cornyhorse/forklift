@@ -13,7 +13,7 @@ This example shows all the new datetime parsing modes and features:
 """
 
 import pyarrow as pa
-from src.forklift.utils.data_transformations import DataTransformer, DateTimeTransformConfig
+from src.forklift.utils.transformations import DataTransformer, DateTimeTransformConfig
 from src.forklift.processors.transformations import SchemaBasedTransformer
 
 def main():

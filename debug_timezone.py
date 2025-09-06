@@ -3,7 +3,7 @@
 import datetime
 from unittest.mock import Mock, patch
 import pyarrow as pa
-from src.forklift.utils.data_transformations import DataTransformer, DateTimeTransformConfig
+from src.forklift.utils.transformations import DataTransformer, DateTimeTransformConfig
 
 def debug_timezone_test():
     """Debug the timezone handling to understand why pytz.timezone isn't being called."""

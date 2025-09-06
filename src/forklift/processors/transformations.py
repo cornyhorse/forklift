@@ -165,7 +165,7 @@ class SchemaBasedTransformer(BaseProcessor):
 
                 if special_type == "ssn":
                     # Auto-configure SSN formatting
-                    from ..utils.data_transformations import SSNConfig
+                    from ..utils.transformations import SSNConfig
                     ssn_config = SSNConfig(
                         format_with_dashes=True,
                         zero_pad=True,
@@ -177,7 +177,7 @@ class SchemaBasedTransformer(BaseProcessor):
 
                 elif special_type in ["zip-permissive", "zip-5", "zip-9"]:
                     # Auto-configure ZIP code formatting
-                    from ..utils.data_transformations import ZipCodeConfig
+                    from ..utils.transformations import ZipCodeConfig
                     zip_config = ZipCodeConfig(
                         zip_type=special_type,
                         format_with_dash=True,

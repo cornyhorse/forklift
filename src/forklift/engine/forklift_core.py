@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Import extracted configuration classes
-from .config import ImportConfig, ProcessingResults
+from .config import ImportConfig, ProcessingResults, HeaderMode, ExcessColumnMode
 
 # Import extracted processing components
 from .processors import CSVProcessor
@@ -18,10 +18,8 @@ from .processors import CSVProcessor
 # Import format-specific importers
 from .importers import ExcelImporter, SqlImporter
 
-
-class ProcessingError(Exception):
-    """Raised when data processing fails."""
-    pass
+# Import exceptions
+from .exceptions import ProcessingError
 
 
 class ForkliftCore:
@@ -258,3 +256,18 @@ def import_sql(
         }
     """
     return SqlImporter.import_sql(connection_string, output_path, schema_file, **kwargs)
+
+
+# Re-export for backwards compatibility with tests
+__all__ = [
+    'ForkliftCore',
+    'ProcessingError',
+    'import_csv',
+    'import_fwf',
+    'import_excel',
+    'import_sql',
+    'ImportConfig',
+    'ProcessingResults',
+    'HeaderMode',
+    'ExcessColumnMode'
+]

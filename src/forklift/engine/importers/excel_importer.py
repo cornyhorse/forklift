@@ -9,7 +9,7 @@ from typing import Union
 import pyarrow.parquet as pq
 
 from ..config import ProcessingResults
-from ..processors import ProcessingError
+from ..exceptions import ProcessingError
 
 
 class ExcelImporter:

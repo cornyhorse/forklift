@@ -9,7 +9,7 @@ from typing import Union
 from datetime import datetime
 
 from ..config import ProcessingResults
-from ..processors import ProcessingError
+from ..exceptions import ProcessingError
 from ...io import create_parquet_writer
 
 

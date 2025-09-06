@@ -14,7 +14,7 @@ from .batch_processor import BatchProcessor
 from ..config import ImportConfig, ProcessingResults
 from ...io import UnifiedIOHandler, is_s3_path, S3Path, create_parquet_writer
 from ...metadata import OutputMetadataCollector
-from ...transformations import create_row_hash_processor_from_schema
+from ...processors.row_hash_factory import create_row_hash_processor_from_schema
 
 
 class CSVProcessor(BaseProcessor):

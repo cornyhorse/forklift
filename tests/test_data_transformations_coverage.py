@@ -573,8 +573,8 @@ class TestNumericCleaning:
         transformer = DataTransformer()
         config = NumericCleaningConfig(allow_nan=True)
 
-        # Mock to trigger OverflowError
-        with patch.object(transformer, '_clean_numeric_string', side_effect=OverflowError):
+        # Mock the numeric transformer's method, not the delegated one
+        with patch.object(transformer.numeric_transformer, '_clean_numeric_string', side_effect=OverflowError):
             column = pa.array(["100"])
             result = transformer.apply_numeric_cleaning(column, config)
             expected = [None]
@@ -781,7 +781,7 @@ class TestHTMLXMLCleaning:
 class TestDateTimeTransformation:
     """Test datetime transformation functionality."""
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     @patch('pytz.timezone')
     def test_apply_datetime_transformation_enforce_mode(self, mock_timezone, mock_coerce):
         """Test datetime transformation in enforce mode."""
@@ -802,7 +802,7 @@ class TestDateTimeTransformation:
             to_epoch=None
         )
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_specify_formats_mode(self, mock_coerce):
         """Test datetime transformation in specify_formats mode."""
         transformer = DataTransformer()
@@ -825,7 +825,7 @@ class TestDateTimeTransformation:
             to_epoch=None
         )
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_common_formats_mode(self, mock_coerce):
         """Test datetime transformation in common_formats mode."""
         transformer = DataTransformer()
@@ -843,7 +843,7 @@ class TestDateTimeTransformation:
             to_epoch=None
         )
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_to_epoch(self, mock_coerce):
         """Test datetime transformation with to_epoch conversion."""
         transformer = DataTransformer()
@@ -856,7 +856,7 @@ class TestDateTimeTransformation:
 
         assert result.to_pylist() == [1672531200]
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     @patch('pytz.timezone')
     def test_apply_datetime_transformation_with_timezone(self, mock_timezone, mock_coerce):
         """Test datetime transformation with timezone conversion."""
@@ -880,7 +880,7 @@ class TestDateTimeTransformation:
         mock_timezone.assert_called_with("America/New_York")
         mock_dt.astimezone.assert_called_with(mock_tz)
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_target_date(self, mock_coerce):
         """Test datetime transformation with date target type."""
         transformer = DataTransformer()
@@ -894,7 +894,7 @@ class TestDateTimeTransformation:
 
         assert result.type == pa.date32()
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_target_timestamp(self, mock_coerce):
         """Test datetime transformation with timestamp target type."""
         transformer = DataTransformer()
@@ -911,7 +911,7 @@ class TestDateTimeTransformation:
         expected_timestamp = mock_dt.timestamp()
         assert result.to_pylist() == [expected_timestamp]
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_target_string_with_format(self, mock_coerce):
         """Test datetime transformation with string target type and custom format."""
         transformer = DataTransformer()
@@ -926,7 +926,7 @@ class TestDateTimeTransformation:
         expected = ["01/01/2023"]
         assert result.to_pylist() == expected
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_target_string_without_format(self, mock_coerce):
         """Test datetime transformation with string target type and no format."""
         transformer = DataTransformer()
@@ -953,7 +953,7 @@ class TestDateTimeTransformation:
         assert result.to_pylist()[1] is None
         assert result.to_pylist()[2] is None
 
-    @patch('forklift.utils.data_transformations.coerce_datetime')
+    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
     def test_apply_datetime_transformation_parse_error(self, mock_coerce):
         """Test datetime transformation with parse error."""
         transformer = DataTransformer()
@@ -998,7 +998,7 @@ class TestStringCleaning:
         config = StringCleaningConfig(unicode_normalize="NFC")
 
         # Test with composed characters
-        column = pa.array(["café"])  # é as single character
+        column = pa.array(["caf��"])  # é as single character
         result = transformer.apply_string_cleaning(column, config)
 
         # Should normalize the text
@@ -2096,7 +2096,7 @@ class TestStringCleaningHelperMethods:
         """Test case issue fixing with all caps text."""
         transformer = DataTransformer()
 
-        result = transformer._fix_case_issues("HELLO WORLD NASA", ["of", "the"])
+        result = transformer._fix_case_issues("HELLO WORLD NASA", ["of", "the"], ["NASA"])
         assert result == "Hello World NASA"
 
     def test_fix_case_issues_with_acronyms(self):
@@ -2110,14 +2110,14 @@ class TestStringCleaningHelperMethods:
         """Test case issue fixing with title case exceptions."""
         transformer = DataTransformer()
 
-        result = transformer._fix_case_issues("THE POWER OF LOVE", ["of", "the"])
+        result = transformer._fix_case_issues("THE POWER OF LOVE", ["of", "the"], [])
         assert result == "The Power of Love"
 
     def test_fix_case_issues_with_punctuation(self):
         """Test case issue fixing with punctuation."""
         transformer = DataTransformer()
 
-        result = transformer._fix_case_issues("HELLO, WORLD!", [])
+        result = transformer._fix_case_issues("HELLO, WORLD!", [], [])
         assert result == "Hello, World!"
 
     def test_fix_case_issues_not_all_caps(self):
@@ -2125,7 +2125,7 @@ class TestStringCleaningHelperMethods:
         transformer = DataTransformer()
 
         original = "Hello World"
-        result = transformer._fix_case_issues(original, [])
+        result = transformer._fix_case_issues(original, [], [])
         assert result == original
 
     def test_fix_case_issues_short_text(self):
@@ -2133,7 +2133,7 @@ class TestStringCleaningHelperMethods:
         transformer = DataTransformer()
 
         original = "HI"
-        result = transformer._fix_case_issues(original, [])
+        result = transformer._fix_case_issues(original, [], [])
         assert result == original
 
 

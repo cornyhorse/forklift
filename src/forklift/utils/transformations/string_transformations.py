@@ -314,7 +314,13 @@ class StringTransformer:
 
     def _to_ascii_only(self, text: str) -> str:
         """Convert to ASCII-only characters."""
-        return text.encode('ascii', 'ignore').decode('ascii')
+        # First remove accents to ensure proper ASCII conversion
+        text_no_accents = self._remove_accents(text)
+        try:
+            return text_no_accents.encode('ascii', 'ignore').decode('ascii')
+        except (UnicodeError, UnicodeEncodeError):
+            # Fallback: manually filter to ASCII characters
+            return ''.join(char for char in text_no_accents if ord(char) < 128)
 
     def _fix_case_issues(self, text: str, title_case_exceptions: list, acronyms: list) -> str:
         """Fix common case issues."""

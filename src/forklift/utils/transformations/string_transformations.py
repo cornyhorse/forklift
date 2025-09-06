@@ -361,8 +361,27 @@ class StringTransformer:
                         result += char
                 fixed_words.append(result)
             elif i == 0:
-                # First word is always capitalized (title case), even if it's an exception
-                fixed_words.append(word.title())
+                # First word is always capitalized, but handle hyphenated compound names
+                if '-' in word:
+                    # Handle hyphenated compound names even for first word
+                    parts = word.split('-')
+                    fixed_parts = []
+                    for j, part in enumerate(parts):
+                        part_clean = ''.join(c for c in part if c.isalpha())
+                        if part_clean.upper() in all_acronyms:
+                            fixed_parts.append(part.upper())
+                        elif j == 0:
+                            # Only the first part of a hyphenated compound gets title case
+                            fixed_parts.append(part.title())
+                        elif part_clean.lower() in title_case_exceptions:
+                            fixed_parts.append(part.lower())
+                        else:
+                            # All other parts in compound names stay lowercase
+                            fixed_parts.append(part.lower())
+                    fixed_words.append('-'.join(fixed_parts))
+                else:
+                    # Regular first word - convert to title case
+                    fixed_words.append(word.title())
             elif word_clean.lower() in title_case_exceptions:
                 # Use lowercase for exception words (but not the first word)
                 result = ""
@@ -373,7 +392,26 @@ class StringTransformer:
                         result += char
                 fixed_words.append(result)
             else:
-                # Convert to title case
-                fixed_words.append(word.title())
+                # Convert to title case, but handle hyphenated compound names
+                if '-' in word:
+                    # Handle hyphenated compound names
+                    parts = word.split('-')
+                    fixed_parts = []
+                    for j, part in enumerate(parts):
+                        part_clean = ''.join(c for c in part if c.isalpha())
+                        if part_clean.upper() in all_acronyms:
+                            fixed_parts.append(part.upper())
+                        elif j == 0:
+                            # Only the first part of a hyphenated compound gets title case
+                            fixed_parts.append(part.title())
+                        elif part_clean.lower() in title_case_exceptions:
+                            fixed_parts.append(part.lower())
+                        else:
+                            # All other parts in compound names stay lowercase
+                            fixed_parts.append(part.lower())
+                    fixed_words.append('-'.join(fixed_parts))
+                else:
+                    # Regular word - convert to title case
+                    fixed_words.append(word.title())
 
         return ' '.join(fixed_words)

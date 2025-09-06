@@ -21,6 +21,9 @@ from .format_transformations import FormatTransformer
 from .html_xml_transformations import HTMLXMLTransformer
 from .factory import create_transformation_from_config
 
+# Import date parser utilities for backward compatibility
+from ..date_parser import coerce_datetime
+
 # Main transformer class that combines all transformation capabilities
 __all__ = [
     'DataTransformer',
@@ -30,5 +33,6 @@ __all__ = [
     'FormatTransformer',
     'HTMLXMLTransformer',
     'create_transformation_from_config',
+    'coerce_datetime',
     # Config classes will be imported via configs module
 ]

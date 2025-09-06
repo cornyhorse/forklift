@@ -16,7 +16,7 @@ This demonstrates the new string cleaning capabilities including:
 
 import pytest
 import pyarrow as pa
-from forklift.utils.data_transformations import (
+from forklift.utils.transformations import (
     DataTransformer,
     StringCleaningConfig,
     create_transformation_from_config

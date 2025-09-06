@@ -16,7 +16,7 @@ import pyarrow as pa
 import datetime
 from dateutil import tz
 
-from forklift.utils.data_transformations import (
+from forklift.utils.transformations import (
     DataTransformer,
     DateTimeTransformConfig,
     create_transformation_from_config

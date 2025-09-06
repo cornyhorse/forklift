@@ -18,7 +18,7 @@ def test_datetime_strict_format():
     print("1. Testing datetime strict format enforcement...")
 
     try:
-        from forklift.utils.data_transformations import DateTimeTransformConfig, DataTransformer
+        from forklift.utils.transformations import DateTimeTransformConfig, DataTransformer
 
         config = DateTimeTransformConfig(
             mode="enforce",

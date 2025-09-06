@@ -2,7 +2,7 @@
 """Test script to verify all string cleaning fixes."""
 
 import pyarrow as pa
-from forklift.utils.data_transformations import DataTransformer, StringCleaningConfig
+from forklift.utils.transformations import DataTransformer, StringCleaningConfig
 
 def test_tab_handling_fix():
     """Test that tab replacement works correctly."""

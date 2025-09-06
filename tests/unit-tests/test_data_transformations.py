@@ -9,7 +9,7 @@ from decimal import Decimal
 from unittest.mock import patch, MagicMock
 import ipaddress
 
-from forklift.utils.data_transformations import (
+from forklift.utils.transformations import (
     DateTimeTransformConfig,
     RegexReplaceConfig,
     StringReplaceConfig,

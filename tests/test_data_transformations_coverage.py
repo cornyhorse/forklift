@@ -14,7 +14,7 @@ import pandas as pd
 # Add src to Python path for imports
 sys.path.insert(0, 'src')
 
-from forklift.utils.data_transformations import (
+from forklift.utils.transformations import (
     # Configuration classes
     DateTimeTransformConfig,
     RegexReplaceConfig,

@@ -224,7 +224,7 @@ class TestUltraPrecisionCoverage:
                     import_excel(str(test_file), "output", schema_file="schema.json")
 
             # Line 979: General exception during processing
-            with patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config:
+            with patch('forklift.engine.forklift_core.ExcelImporter._create_default_excel_config') as mock_config:
                 mock_config.side_effect = RuntimeError("Config creation failed")
                 with pytest.raises(RuntimeError, match="Config creation failed"):
                     import_excel(str(test_file), "output")
@@ -301,9 +301,9 @@ class TestUltraPrecisionCoverage:
 
     def test_excel_helper_functions_exact_lines(self):
         """Hit exact Excel helper function lines."""
-        # Lines 1542-1551: _create_default_excel_config
+        # Lines 1542-1551: ExcelImporter._create_default_excel_config
         try:
-            from forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
@@ -314,14 +314,14 @@ class TestUltraPrecisionCoverage:
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1', 'Sheet2']
 
                     # This hits lines 1542-1551
-                    config = _create_default_excel_config(test_file, engine='openpyxl')
+                    config = ExcelImporter._create_default_excel_config(test_file, engine='openpyxl')
                     assert config is not None
         except ImportError:
             pytest.skip("Helper function not accessible")
 
-        # Lines 1578-1592: _sanitize_filename
+        # Lines 1578-1592: ExcelImporter._sanitize_filename
         try:
-            from forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             # Test various edge cases to hit all sanitization lines
             test_cases = [
@@ -335,14 +335,14 @@ class TestUltraPrecisionCoverage:
 
             for case in test_cases:
                 # This hits lines 1578-1592
-                result = _sanitize_filename(case)
+                result = ExcelImporter._sanitize_filename(case)
                 assert isinstance(result, str)
         except ImportError:
             pytest.skip("Sanitize function not accessible")
 
-        # Lines 1596-1597: _create_excel_config_from_schema
+        # Lines 1596-1597: ExcelImporter._create_excel_config_from_schema
         try:
-            from forklift.engine.forklift_core import _create_excel_config_from_schema
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             mock_schema = MagicMock()
             mock_schema.get_sheet_configs.return_value = [
@@ -351,7 +351,7 @@ class TestUltraPrecisionCoverage:
             ]
 
             # This hits lines 1596-1597
-            config = _create_excel_config_from_schema(mock_schema)
+            config = ExcelImporter._create_excel_config_from_schema(mock_schema)
             assert config is not None
         except ImportError:
             pytest.skip("Config creation function not accessible")
@@ -411,8 +411,8 @@ class TestUltraPrecisionCoverage:
 
         try:
             # Mock all S3 operations with precise control
-            with patch('forklift.engine.forklift_core.is_s3_path', return_value=True), \
-                 patch('forklift.engine.forklift_core.S3Path') as mock_s3_path, \
+            with patch('forklift.io.is_s3_path', return_value=True), \
+                 patch('forklift.io.S3Path') as mock_s3_path, \
                  patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                  patch.object(engine.io_handler, 'exists', return_value=True), \
                  patch.object(engine.io_handler, 'get_size', return_value=1024), \

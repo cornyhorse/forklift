@@ -128,7 +128,7 @@ class TestForkliftCoreMissingLinesBatch3:
             core = ForkliftCore(config)
             
             # Mock S3 operations to trigger error in batch reader creation
-            with patch('forklift.engine.forklift_core.is_s3_path', return_value=True):
+            with patch('forklift.io.is_s3_path', return_value=True):
                 with patch.object(core, '_create_batch_reader', side_effect=Exception("S3 batch reader error")):
                     try:
                         # This should trigger the S3 batch reader error path
@@ -226,7 +226,7 @@ class TestForkliftCoreMissingLinesBatch3:
             # Test filename sanitization with invalid characters
             try:
                 # This should trigger helper function error handling
-                sanitized = core._sanitize_filename("invalid/filename:with*bad?chars")
+                sanitized = core.ExcelImporter._sanitize_filename("invalid/filename:with*bad?chars")
                 assert isinstance(sanitized, str)
             except Exception:
                 assert True
@@ -313,7 +313,7 @@ class TestForkliftCoreMissingLinesBatch3:
 
             # Test Excel config creation
             try:
-                excel_config = core._create_default_excel_config()
+                excel_config = core.ExcelImporter._create_default_excel_config()
                 assert isinstance(excel_config, dict) or excel_config is None
             except (AttributeError, Exception):
                 assert True  # Method might not exist or might fail

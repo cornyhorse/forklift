@@ -305,11 +305,11 @@ class TestForkliftCore100PercentCoverage:
 
                 # Test invalid sheet name (lines 1542-1551)
                 with pytest.raises(ValueError, match="Sheet 'Invalid' not found"):
-                    _create_default_excel_config(test_file, sheet='Invalid')
+                    ExcelImporter._create_default_excel_config(test_file, sheet='Invalid')
 
                 # Test invalid sheet index
                 with pytest.raises(ValueError, match="Sheet index 5 out of range"):
-                    _create_default_excel_config(test_file, sheet=5)
+                    ExcelImporter._create_default_excel_config(test_file, sheet=5)
 
         finally:
             test_file.unlink()

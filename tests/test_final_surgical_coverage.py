@@ -203,7 +203,7 @@ class TestFinalSurgicalCoverage:
                     import_excel(str(test_file), "output", schema_file="schema.json")
 
             # Line 979 - General exception
-            with patch('forklift.engine.forklift_core._create_default_excel_config', side_effect=Exception("Config error")):
+            with patch('forklift.engine.forklift_core.ExcelImporter._create_default_excel_config', side_effect=Exception("Config error")):
                 with pytest.raises(Exception):
                     import_excel(str(test_file), "output")
 
@@ -258,7 +258,7 @@ class TestFinalSurgicalCoverage:
         """Hit exact helper function lines."""
         # Lines 1542-1551 - Excel config creation
         try:
-            from forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
@@ -268,27 +268,27 @@ class TestFinalSurgicalCoverage:
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1']
 
-                    config = _create_default_excel_config(test_file)
+                    config = ExcelImporter._create_default_excel_config(test_file)
                     assert config is not None
         except ImportError:
             pass
 
         # Lines 1578-1592 - Filename sanitization
         try:
-            from forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
-            result = _sanitize_filename("test!@#$%")
+            result = ExcelImporter._sanitize_filename("test!@#$%")
             assert isinstance(result, str)
         except ImportError:
             pass
 
         # Lines 1596-1597 - Config from schema
         try:
-            from forklift.engine.forklift_core import _create_excel_config_from_schema
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             mock_schema = MagicMock()
             mock_schema.get_sheet_configs.return_value = [{"sheet_name": "Sheet1"}]
-            config = _create_excel_config_from_schema(mock_schema)
+            config = ExcelImporter._create_excel_config_from_schema(mock_schema)
             assert config is not None
         except ImportError:
             pass

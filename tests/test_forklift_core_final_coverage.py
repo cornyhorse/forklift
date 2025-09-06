@@ -329,7 +329,7 @@ class TestFinalMissingLines:
 
         try:
             # Mock to cause exception during Excel processing
-            with patch('forklift.engine.forklift_core._create_default_excel_config', side_effect=RuntimeError("Processing failed")):
+            with patch('forklift.engine.forklift_core.ExcelImporter._create_default_excel_config', side_effect=RuntimeError("Processing failed")):
                 with pytest.raises(RuntimeError, match="Processing failed"):
                     import_excel(str(test_file), "output")
         finally:
@@ -363,7 +363,7 @@ class TestFinalMissingLines:
             try:
                 # Test with kwargs overrides
                 with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
-                     patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
+                     patch('forklift.engine.forklift_core.ExcelImporter._create_default_excel_config') as mock_config, \
                      patch('pyarrow.parquet.write_table'):
 
                     # Mock Excel handler
@@ -390,7 +390,7 @@ class TestFinalMissingLines:
         with tempfile.TemporaryDirectory() as output_dir:
             try:
                 with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
-                     patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
+                     patch('forklift.engine.forklift_core.ExcelImporter._create_default_excel_config') as mock_config, \
                      patch('pyarrow.parquet.write_table'):
 
                     mock_handler_instance = MagicMock()
@@ -490,9 +490,9 @@ class TestFinalMissingLines:
 
     def test_lines_1537_1553_excel_helper_functions(self):
         """Test Excel helper functions (lines 1537-1553)."""
-        # Test _create_default_excel_config
+        # Test ExcelImporter._create_default_excel_config
         try:
-            from forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
@@ -503,17 +503,17 @@ class TestFinalMissingLines:
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1', 'Sheet2']
 
-                    config = _create_default_excel_config(test_file, engine='openpyxl')
+                    config = ExcelImporter._create_default_excel_config(test_file, engine='openpyxl')
                     assert config is not None
 
         except ImportError:
             # Function might be private/internal
-            pytest.skip("_create_default_excel_config not accessible")
+            pytest.skip("ExcelImporter._create_default_excel_config not accessible")
 
     def test_lines_1578_1592_filename_sanitization(self):
         """Test filename sanitization helper (lines 1578-1592)."""
         try:
-            from forklift.engine.forklift_core import _sanitize_filename
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             # Test various filename sanitization cases - adjusted for actual implementation
             test_cases = [
@@ -525,7 +525,7 @@ class TestFinalMissingLines:
             ]
 
             for input_name in test_cases:
-                result = _sanitize_filename(input_name)
+                result = ExcelImporter._sanitize_filename(input_name)
                 assert isinstance(result, str)
                 # Result should be a valid filename (non-empty for most cases)
                 if input_name:  # Non-empty input should produce non-empty output
@@ -533,12 +533,12 @@ class TestFinalMissingLines:
 
         except ImportError:
             # Function might be private/internal
-            pytest.skip("_sanitize_filename not accessible")
+            pytest.skip("ExcelImporter._sanitize_filename not accessible")
 
     def test_lines_1596_1597_excel_config_creation(self):
         """Test Excel config creation paths (lines 1596-1597)."""
         try:
-            from forklift.engine.forklift_core import _create_excel_config_from_schema
+            from forklift.engine.importers.excel_importer import ExcelImporter
 
             # Mock schema for testing
             mock_schema = MagicMock()
@@ -546,12 +546,12 @@ class TestFinalMissingLines:
                 {"sheet_name": "Sheet1", "header_row": 0}
             ]
 
-            config = _create_excel_config_from_schema(mock_schema)
+            config = ExcelImporter._create_excel_config_from_schema(mock_schema)
             assert config is not None
 
         except ImportError:
             # Function might be private/internal
-            pytest.skip("_create_excel_config_from_schema not accessible")
+            pytest.skip("ExcelImporter._create_excel_config_from_schema not accessible")
 
 
 # Run with: python -m pytest tests/test_forklift_core_final_coverage.py --cov=src/forklift/engine/forklift_core --cov-report=term-missing -v

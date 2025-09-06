@@ -328,14 +328,14 @@ class TestForkliftCoreFinalMissingLines:
                     'sheet_names': ['Sheet1', 'Sheet2']
                 }
 
-                from forklift.engine.forklift_core import _create_default_excel_config
+                from forklift.engine.importers.excel_importer import ExcelImporter
 
                 # Test edge cases for sheet selection
                 with pytest.raises(ValueError):
-                    _create_default_excel_config(test_file, sheet='NonExistent')
+                    ExcelImporter._create_default_excel_config(test_file, sheet='NonExistent')
 
                 with pytest.raises(ValueError):
-                    _create_default_excel_config(test_file, sheet=10)  # Index out of range
+                    ExcelImporter._create_default_excel_config(test_file, sheet=10)  # Index out of range
 
         finally:
             test_file.unlink()

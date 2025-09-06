@@ -430,8 +430,8 @@ class TestForkliftCoreCompleteCoverage:
         finally:
             schema_file.unlink()
 
-    def test_create_default_excel_config_specific_sheet(self):
-        """Test _create_default_excel_config with specific sheet (lines 1542-1551)."""
+    def testExcelImporter._create_default_excel_config_specific_sheet(self):
+        """Test ExcelImporter._create_default_excel_config with specific sheet (lines 1542-1551)."""
         with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
             test_file = Path(f.name)
 
@@ -444,26 +444,26 @@ class TestForkliftCoreCompleteCoverage:
                 }
 
                 # Test with sheet name
-                config = _create_default_excel_config(test_file, sheet='Data')
+                config = ExcelImporter._create_default_excel_config(test_file, sheet='Data')
                 assert len(config.sheets) == 1
 
                 # Test with sheet index
-                config = _create_default_excel_config(test_file, sheet=1)
+                config = ExcelImporter._create_default_excel_config(test_file, sheet=1)
                 assert len(config.sheets) == 1
 
                 # Test with invalid sheet name
                 with pytest.raises(ValueError, match="Sheet 'Invalid' not found"):
-                    _create_default_excel_config(test_file, sheet='Invalid')
+                    ExcelImporter._create_default_excel_config(test_file, sheet='Invalid')
 
                 # Test with invalid sheet index
                 with pytest.raises(ValueError, match="Sheet index 5 out of range"):
-                    _create_default_excel_config(test_file, sheet=5)
+                    ExcelImporter._create_default_excel_config(test_file, sheet=5)
 
         finally:
             test_file.unlink()
 
-    def test_create_default_excel_config_all_sheets(self):
-        """Test _create_default_excel_config with all sheets (lines 1578-1592)."""
+    def testExcelImporter._create_default_excel_config_all_sheets(self):
+        """Test ExcelImporter._create_default_excel_config with all sheets (lines 1578-1592)."""
         with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
             test_file = Path(f.name)
 
@@ -476,12 +476,12 @@ class TestForkliftCoreCompleteCoverage:
                 }
 
                 # Test processing all sheets (no sheet parameter)
-                config = _create_default_excel_config(test_file)
+                config = ExcelImporter._create_default_excel_config(test_file)
                 assert len(config.sheets) == 3
                 assert config.values_only is True
 
                 # Test with custom values_only
-                config = _create_default_excel_config(test_file, values_only=False)
+                config = ExcelImporter._create_default_excel_config(test_file, values_only=False)
                 assert config.values_only is False
 
         finally:
@@ -501,7 +501,7 @@ class TestForkliftCoreCompleteCoverage:
                 }
 
                 # Test with additional kwargs
-                config = _create_default_excel_config(
+                config = ExcelImporter._create_default_excel_config(
                     test_file,
                     values_only=False,
                     date_system=1904,

@@ -245,8 +245,8 @@ class TestForkliftCore100Percent:
 
         try:
             # Always mock S3 components to avoid actual S3 calls
-            with patch('forklift.engine.forklift_core.is_s3_path', return_value=True), \
-                 patch('forklift.engine.forklift_core.S3Path') as mock_s3_path, \
+            with patch('forklift.io.is_s3_path', return_value=True), \
+                 patch('forklift.io.S3Path') as mock_s3_path, \
                  patch('forklift.engine.forklift_core.create_parquet_writer') as mock_writer, \
                  patch.object(engine.io_handler, 'exists', return_value=False), \
                  patch.object(engine.io_handler, 'get_size', return_value=0), \
@@ -421,7 +421,7 @@ class TestForkliftCore100Percent:
 
         try:
             # Mock to raise exception during processing
-            with patch('forklift.engine.forklift_core._create_default_excel_config', side_effect=Exception("Processing error")):
+            with patch('forklift.engine.forklift_core.ExcelImporter._create_default_excel_config', side_effect=Exception("Processing error")):
                 with pytest.raises(Exception, match="Processing error"):
                     import_excel(str(test_file), "output")
         finally:
@@ -484,8 +484,8 @@ class TestMissingLargeSections:
             try:
                 # Mock Excel-related components since we can't create real Excel files easily
                 with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler, \
-                     patch('forklift.engine.forklift_core._create_default_excel_config') as mock_config, \
-                     patch('forklift.engine.forklift_core._sanitize_filename', return_value="test_sheet"), \
+                     patch('forklift.engine.forklift_core.ExcelImporter._create_default_excel_config') as mock_config, \
+                     patch('forklift.engine.forklift_core.ExcelImporter._sanitize_filename', return_value="test_sheet"), \
                      patch('pyarrow.parquet.write_table') as mock_write:
 
                     # Mock Excel handler
@@ -549,9 +549,9 @@ class TestMissingLargeSections:
 
     def test_helper_functions_section(self):
         """Test helper functions section (lines 1537-1553, 1563-1607, 1612-1618)."""
-        # Test _create_default_excel_config if it exists
+        # Test ExcelImporter._create_default_excel_config if it exists
         try:
-            from forklift.engine.forklift_core import _create_default_excel_config
+            from forklift.engine.importers.excel_importer import ExcelImporter
             with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
                 test_file = Path(f.name)
 
@@ -561,16 +561,16 @@ class TestMissingLargeSections:
                     mock_handler.return_value = mock_handler_instance
                     mock_handler_instance.get_sheet_names.return_value = ['Sheet1']
 
-                    config = _create_default_excel_config(test_file)
+                    config = ExcelImporter._create_default_excel_config(test_file)
                     assert config is not None
         except ImportError:
             # Function might not be directly importable
             pass
 
-        # Test _sanitize_filename if it exists
+        # Test ExcelImporter._sanitize_filename if it exists
         try:
-            from forklift.engine.forklift_core import _sanitize_filename
-            result = _sanitize_filename("test sheet name!@#")
+            from forklift.engine.importers.excel_importer import ExcelImporter
+            result = ExcelImporter._sanitize_filename("test sheet name!@#")
             assert isinstance(result, str)
         except ImportError:
             # Function might not be directly importable

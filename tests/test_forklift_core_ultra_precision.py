@@ -339,14 +339,14 @@ class TestForkliftCoreUltraPrecision:
 
                 # Test invalid sheet name to hit lines 1542-1551
                 try:
-                    _create_default_excel_config(test_file, sheet='InvalidSheetName')
+                    ExcelImporter._create_default_excel_config(test_file, sheet='InvalidSheetName')
                     assert False, "Should have raised ValueError"
                 except ValueError as e:
                     assert "not found" in str(e)
 
                 # Test invalid sheet index
                 try:
-                    _create_default_excel_config(test_file, sheet=999)
+                    ExcelImporter._create_default_excel_config(test_file, sheet=999)
                     assert False, "Should have raised ValueError"
                 except ValueError as e:
                     assert "out of range" in str(e)

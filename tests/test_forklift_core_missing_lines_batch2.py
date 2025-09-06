@@ -73,7 +73,7 @@ Jane,invalid_data_here_that_should_cause_error
             core = ForkliftCore(config)
 
             # Mock S3 operations to trigger error conditions
-            with patch('forklift.engine.forklift_core.is_s3_path', return_value=True):
+            with patch('forklift.io.is_s3_path', return_value=True):
                 with patch.object(core, '_create_s3_batch_reader', side_effect=Exception("S3 error")):
                     try:
                         result = core.process_csv()

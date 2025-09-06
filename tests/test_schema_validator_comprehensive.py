@@ -16,6 +16,7 @@ from forklift.processors.schema_validator import (
     create_schema_from_batch
 )
 from forklift.processors.base import ValidationResult
+from forklift.processors.schema_validator.type_converter import TypeConverter
 
 
 class TestSchemaValidationMode:
@@ -568,26 +569,23 @@ class TestSchemaValidatorTypeCompatibility:
 
     def test_can_coerce_type_string_source(self):
         """Test type coercion from string types."""
-        validator = SchemaValidator({})
-
-        assert validator._can_coerce_type(pa.string(), "int")
-        assert validator._can_coerce_type(pa.string(), "float")
-        assert validator._can_coerce_type(pa.string(), "bool")
+        # Use TypeConverter class instead of validator instance method
+        assert TypeConverter.can_coerce_type(pa.string(), "int")
+        assert TypeConverter.can_coerce_type(pa.string(), "float")
+        assert TypeConverter.can_coerce_type(pa.string(), "bool")
 
     def test_can_coerce_type_numeric_to_string(self):
         """Test type coercion from numeric to string."""
-        validator = SchemaValidator({})
-
-        assert validator._can_coerce_type(pa.int64(), "string")
-        assert validator._can_coerce_type(pa.float64(), "str")
-        assert validator._can_coerce_type(pa.int32(), "text")
+        # Use TypeConverter class instead of validator instance method
+        assert TypeConverter.can_coerce_type(pa.int64(), "string")
+        assert TypeConverter.can_coerce_type(pa.float64(), "str")
+        assert TypeConverter.can_coerce_type(pa.int32(), "text")
 
     def test_can_coerce_type_incompatible(self):
         """Test type coercion for incompatible types."""
-        validator = SchemaValidator({})
-
-        assert not validator._can_coerce_type(pa.bool_(), "int")
-        assert not validator._can_coerce_type(pa.date32(), "float")
+        # Use TypeConverter class instead of validator instance method
+        assert not TypeConverter.can_coerce_type(pa.bool_(), "int")
+        assert not TypeConverter.can_coerce_type(pa.date32(), "float")
 
     def test_type_compatibility_caching(self):
         """Test that type compatibility results are cached."""

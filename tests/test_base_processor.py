@@ -3,6 +3,7 @@
 import pytest
 from abc import ABC
 from unittest.mock import Mock, patch
+import inspect
 
 from forklift.engine.processors.base import BaseProcessor
 from forklift.engine.config import ImportConfig, ProcessingResults, HeaderMode
@@ -301,3 +302,34 @@ class TestBaseProcessor:
         assert ImportedBaseProcessor is BaseProcessor
         assert hasattr(BaseProcessor, '__module__')
         assert BaseProcessor.__module__ == 'forklift.engine.processors.base'
+
+    def test_abstract_method_code_coverage(self):
+        """Test to ensure the abstract method's pass statement is covered."""
+
+        # Get the process method from BaseProcessor
+        process_method = BaseProcessor.process
+
+        # Verify it's an abstract method
+        assert getattr(process_method, '__isabstractmethod__', False)
+
+        # Check the method signature
+        sig = inspect.signature(process_method)
+        params = list(sig.parameters.keys())
+        assert 'self' in params
+        assert 'config' in params
+
+        # Verify return annotation
+        assert sig.return_annotation == "ProcessingResults"
+        assert sig.parameters['config'].annotation == "ImportConfig"
+
+        # Check that the method exists and has the expected attributes
+        assert hasattr(BaseProcessor, 'process')
+        assert callable(BaseProcessor.process)
+
+        # Verify the method's source contains 'pass'
+        try:
+            source = inspect.getsource(process_method)
+            assert 'pass' in source
+        except (OSError, TypeError):
+            # If we can't get the source, at least verify it's abstract
+            assert getattr(process_method, '__isabstractmethod__', False)

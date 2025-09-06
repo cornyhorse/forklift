@@ -75,7 +75,7 @@ Alice,,ValidCity
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-   def test_batch_validation_no_schema_all_valid(self):
+    def test_batch_validation_no_schema_all_valid(self):
         """Test processing without schema validation (all rows should be valid)."""
         csv_content = """name,age,city
 John,25,NYC

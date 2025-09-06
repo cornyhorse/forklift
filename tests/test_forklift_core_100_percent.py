@@ -33,7 +33,7 @@ def s3_mock_flag(request):
 class TestForkliftCore100Percent:
     """Test cases to achieve 100% coverage for remaining missing lines."""
 
-                            def test_break_in_auto_detect_header_search_limit(self):
+    def test_break_in_auto_detect_header_search_limit(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 
@@ -42,7 +42,7 @@ class TestForkliftCore100Percent:
 class TestImportFunctions:
     """Test the public import functions for full coverage."""
 
-            def test_import_csv_with_all_parameters(self):
+    def test_import_csv_with_all_parameters(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 

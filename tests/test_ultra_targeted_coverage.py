@@ -26,7 +26,7 @@ from forklift.engine.forklift_core import (
 class TestUltraTargetedCoverage:
     """Ultra-targeted tests for the final 11% to reach 100% coverage."""
 
-            def test_line_287_exact_break_condition(self):
+    def test_line_287_exact_break_condition(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _create_batch_reader no longer exists after ForkliftCore refactoring")
 

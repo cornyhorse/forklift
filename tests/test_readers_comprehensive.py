@@ -27,7 +27,7 @@ class TestDataFrameReaderComprehensive:
         """Clear temp dirs before each test."""
         _temp_dirs.clear()
 
-                def test_init_with_temp_dir_registration(self):
+    def test_init_with_temp_dir_registration(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 

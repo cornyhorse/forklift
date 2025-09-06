@@ -21,7 +21,7 @@ from forklift.processors.base import ValidationResult
 class TestSchemaValidationMode:
     """Test SchemaValidationMode enum."""
 
-            def test_schema_validation_mode_values(self):
+    def test_schema_validation_mode_values(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _validate_batch no longer exists after ForkliftCore refactoring")
 

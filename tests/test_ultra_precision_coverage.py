@@ -26,7 +26,7 @@ from forklift.engine.forklift_core import (
 class TestUltraPrecisionCoverage:
     """Ultra-precision tests to hit every single remaining line for 100% coverage."""
 
-                def test_line_287_exact_header_search_break(self):
+    def test_line_287_exact_header_search_break(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method io_handler no longer exists after ForkliftCore refactoring")
 

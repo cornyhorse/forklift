@@ -13,7 +13,7 @@ from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 class TestForkliftCoreLine684Coverage:
     """Test suite targeting the specific missing line 684 in schema validation."""
 
-            def test_validate_batch_with_fewer_columns_than_schema(self):
+    def test_validate_batch_with_fewer_columns_than_schema(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _validate_batch no longer exists after ForkliftCore refactoring")
 

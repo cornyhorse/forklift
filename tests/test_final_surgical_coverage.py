@@ -26,7 +26,7 @@ from forklift.engine.forklift_core import (
 class TestFinalSurgicalCoverage:
     """Surgical precision tests for the final 10% to achieve 100% coverage."""
 
-                def test_line_287_empty_row_skip_exact(self):
+    def test_line_287_empty_row_skip_exact(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _handle_column_mismatch_reader no longer exists after ForkliftCore refactoring")
 

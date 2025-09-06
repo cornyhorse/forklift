@@ -18,7 +18,7 @@ from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 class TestForkliftCoreMissingLinesBatch3:
     """Test class to cover specific missing lines in forklift_core.py - Batch 3"""
 
-                def test_lines_1045_1049_1052_sql_import_error_conditions(self):
+    def test_lines_1045_1049_1052_sql_import_error_conditions(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 

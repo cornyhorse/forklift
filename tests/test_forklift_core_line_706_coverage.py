@@ -12,7 +12,7 @@ from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 class TestForkliftCoreLine706Coverage:
     """Test suite targeting the specific missing line 706 in batch validation."""
 
-            def test_batch_validation_all_rows_invalid(self):
+    def test_batch_validation_all_rows_invalid(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _load_schema no longer exists after ForkliftCore refactoring")
 
@@ -75,7 +75,7 @@ Alice,,ValidCity
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_batch_validation_no_schema_all_valid(self):
+   def test_batch_validation_no_schema_all_valid(self):
         """Test processing without schema validation (all rows should be valid)."""
         csv_content = """name,age,city
 John,25,NYC

@@ -22,7 +22,7 @@ from forklift.engine.forklift_core import (
 class TestForkliftCoreMissingCoverage:
     """Test cases specifically targeting missing coverage lines in forklift_core.py."""
 
-                        def test_auto_detect_header_no_suitable_header(self):
+    def test_auto_detect_header_no_suitable_header(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _create_metadata no longer exists after ForkliftCore refactoring")
 

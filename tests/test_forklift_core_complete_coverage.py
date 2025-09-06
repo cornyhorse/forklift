@@ -30,7 +30,6 @@ from forklift.engine.importers.excel_importer import ExcelImporter
 class TestForkliftCoreCompleteCoverage:
     """Test cases to achieve 100% coverage for all remaining missing lines."""
 
-                                    def test_json_schema_to_pyarrow_with_required_fields(self):
+    def test_json_schema_to_pyarrow_with_required_fields(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _create_manifest no longer exists after ForkliftCore refactoring")
-

@@ -11,7 +11,7 @@ from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 class TestForkliftCoreLine288Coverage:
     """Test suite targeting the specific missing line 288 in _detect_header_row method."""
 
-            def test_detect_header_row_with_empty_rows(self):
+    def test_detect_header_row_with_empty_rows(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _detect_header_row no longer exists after ForkliftCore refactoring")
 
@@ -51,7 +51,7 @@ John,25,NYC
             finally:
                 os.unlink(f.name)
 
-            def test_detect_header_row_all_empty_rows(self):
+           def test_detect_header_row_all_empty_rows(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _detect_header_row no longer exists after ForkliftCore refactoring")
 
@@ -87,7 +87,7 @@ John,25,NYC
             finally:
                 os.unlink(f.name)
 
-            def test_detect_header_row_with_comment_starting_with_hash(self):
+           def test_detect_header_row_with_comment_starting_with_hash(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _detect_header_row no longer exists after ForkliftCore refactoring")
 

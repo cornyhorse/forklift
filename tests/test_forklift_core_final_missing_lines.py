@@ -21,7 +21,7 @@ from forklift.engine.forklift_core import (
 class TestForkliftCoreFinalMissingLines:
     """Test cases to cover the final 38 missing lines for 100% coverage."""
 
-                                    def test_json_schema_properties_missing(self):
+    def test_json_schema_properties_missing(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 

@@ -26,7 +26,7 @@ from forklift.engine.forklift_core import (
 class TestFinalMissingLines:
     """Tests targeting the specific remaining missing lines for 100% coverage."""
 
-                    def test_line_287_break_in_find_first_data_row(self):
+    def test_line_287_break_in_find_first_data_row(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 

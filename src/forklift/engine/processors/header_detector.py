@@ -129,7 +129,8 @@ class HeaderDetector:
         if rows:
             return rows[0][0], [col.strip() for col in rows[0][1]]
 
-        raise ValueError("Could not detect header row")
+        # Handle empty files gracefully - return no header and empty columns
+        return -1, []
 
     def _looks_like_header(self, row: List[str]) -> bool:
         """Determine if a row looks like a header row.

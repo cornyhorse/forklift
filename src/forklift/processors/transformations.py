@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from .base import BaseProcessor, ValidationResult
-from ..utils.data_transformations import (
+from ..utils.transformations import (
     DataTransformer,
     create_transformation_from_config,
     RegexReplaceConfig,
@@ -190,7 +190,7 @@ class SchemaBasedTransformer(BaseProcessor):
 
                 elif special_type == "phone":
                     # Auto-configure phone number formatting
-                    from ..utils.data_transformations import PhoneNumberConfig
+                    from ..utils.transformations import PhoneNumberConfig
                     phone_config = PhoneNumberConfig(
                         format_style="us-standard",
                         use_parentheses=True,
@@ -203,7 +203,7 @@ class SchemaBasedTransformer(BaseProcessor):
 
                 elif special_type == "email":
                     # Auto-configure email formatting
-                    from ..utils.data_transformations import EmailConfig
+                    from ..utils.transformations import EmailConfig
                     email_config = EmailConfig(
                         normalize_case=True,
                         validate_format=True,
@@ -216,7 +216,7 @@ class SchemaBasedTransformer(BaseProcessor):
 
                 elif special_type in ["ipv4", "ipv6", "ip"]:
                     # Auto-configure IP address formatting
-                    from ..utils.data_transformations import IPAddressConfig
+                    from ..utils.transformations import IPAddressConfig
                     if special_type == "ipv4":
                         ip_version = "ipv4"
                     elif special_type == "ipv6":
@@ -236,7 +236,7 @@ class SchemaBasedTransformer(BaseProcessor):
 
                 elif special_type == "mac-address":
                     # Auto-configure MAC address formatting
-                    from ..utils.data_transformations import MACAddressConfig
+                    from ..utils.transformations import MACAddressConfig
                     mac_config = MACAddressConfig(
                         format_style="colon",
                         case_style="lower",

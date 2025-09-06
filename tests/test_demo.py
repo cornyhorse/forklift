@@ -58,10 +58,10 @@ def test_csv_import():
     try:
         # Test basic CSV import with schema
         results = fl.import_csv(
-            input_path=csv_file,
+            input_path=str(csv_file),
             output_path=output_dir,
-            schema_file=schema_file,
-            header_mode="present",
+            schema_file=str(schema_file),
+            header_mode=HeaderMode.PRESENT,
             comment_rows=[r"^#"],  # Skip lines starting with #
             batch_size=1000
         )
@@ -95,9 +95,9 @@ def test_csv_import():
 
         output_dir2 = tempfile.mkdtemp()
         results2 = fl.import_csv(
-            input_path=csv_file,
+            input_path=str(csv_file),
             output_path=output_dir2,
-            header_mode="auto",
+            header_mode=HeaderMode.AUTO,
             comment_rows=[r"^#"],
             batch_size=1000
         )

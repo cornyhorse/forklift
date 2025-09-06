@@ -46,10 +46,10 @@ class TestCSVImportBasics:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
-                schema_file=schema_file,
-                header_mode="present"
+                schema_file=str(schema_file),
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 20  # Corrected: file has 20 data rows
@@ -72,9 +72,9 @@ class TestCSVImportBasics:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
-                header_mode="absent"
+                header_mode=HeaderMode.ABSENT
             )
 
             assert results.total_rows > 0
@@ -95,9 +95,9 @@ class TestCSVImportBasics:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
-                header_mode="auto"
+                header_mode=HeaderMode.AUTO
             )
 
             assert results.total_rows == 20  # Corrected: same file, same row count
@@ -127,11 +127,11 @@ class TestCSVDelimitersAndQuoting:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=tsv_file,
+                input_path=str(tsv_file),
                 output_path=output_dir,
-                schema_file=schema_file,
+                schema_file=str(schema_file),
                 delimiter="\t",
-                header_mode="absent"
+                header_mode=HeaderMode.ABSENT
             )
 
             assert results.total_rows > 0
@@ -159,10 +159,10 @@ class TestCSVDelimitersAndQuoting:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     delimiter=";",
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 2
@@ -189,10 +189,10 @@ class TestCSVDelimitersAndQuoting:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     delimiter="|",
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 2
@@ -227,10 +227,10 @@ class TestCSVQuotingAndEscaping:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     quote_char='"',
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 2
@@ -257,10 +257,10 @@ class TestCSVQuotingAndEscaping:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     quote_char="'",
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 2
@@ -287,10 +287,10 @@ class TestCSVQuotingAndEscaping:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     quote_char='"',
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 2
@@ -328,10 +328,10 @@ class TestCSVCommentHandling:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     comment_rows=[r"^#"],
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 2  # Only data rows
@@ -360,10 +360,10 @@ class TestCSVCommentHandling:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     comment_rows=[r"^#", r"^//", r"^REM"],
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 1  # Only data row
@@ -395,9 +395,9 @@ class TestCSVValidationAndErrors:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
-                schema_file=schema_file,
+                schema_file=str(schema_file),
                 validate_schema=True
             )
 
@@ -421,7 +421,7 @@ class TestCSVValidationAndErrors:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 schema_file=schema_file
             )
@@ -457,10 +457,10 @@ class TestCSVEncodingAndSpecialCases:
         try:
             with tempfile.TemporaryDirectory() as output_dir:
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     encoding="utf-8-sig",  # Handles BOM
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 assert results.total_rows == 1
@@ -491,7 +491,7 @@ class TestCSVManifestAndMetadata:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 create_manifest=True,
                 create_metadata=True
@@ -524,7 +524,7 @@ class TestCSVManifestAndMetadata:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 create_metadata=True
             )
@@ -577,7 +577,7 @@ class TestCSVErrorHandling:
         with pytest.raises(FileNotFoundError):
             with tempfile.TemporaryDirectory() as output_dir:
                 import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
                     schema_file="/nonexistent/schema.json"
                 )
@@ -603,9 +603,9 @@ class TestCSVErrorHandling:
             with tempfile.TemporaryDirectory() as output_dir:
                 # Should handle gracefully
                 results = import_csv(
-                    input_path=csv_file,
+                    input_path=str(csv_file),
                     output_path=output_dir,
-                    header_mode="present"
+                    header_mode=HeaderMode.PRESENT
                 )
 
                 # May have parsing issues but shouldn't crash
@@ -636,10 +636,10 @@ class TestCSVEncodingVariations:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 encoding="latin1",
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 5
@@ -661,10 +661,10 @@ class TestCSVEncodingVariations:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 encoding="cp1252",
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 5
@@ -686,10 +686,10 @@ class TestCSVEncodingVariations:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 encoding="utf-8-sig",  # Handles BOM properly
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 5
@@ -719,12 +719,12 @@ class TestCSVFooterDetection:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 footer_detection={
                     "stop_on_blank": True
                 },
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             # Should stop at blank line, only process 4 data rows
@@ -746,13 +746,13 @@ class TestCSVFooterDetection:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 footer_detection={
                     "column_index": 0,
                     "patterns": [r"^TOTAL:", r"^Summary"]
                 },
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             # Should stop at TOTAL: pattern, only process 4 data rows
@@ -774,13 +774,13 @@ class TestCSVFooterDetection:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 footer_detection={
                     "column_index": 0,
                     "patterns": [r"^---", r"^Total Count"]
                 },
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             # Should stop at summary section, only process 4 data rows
@@ -811,10 +811,10 @@ class TestCSVAdvancedQuoting:
         with tempfile.TemporaryDirectory() as output_dir:
             # This might need special handling - for now test with double quotes
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 quote_char='"',
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows > 0
@@ -835,10 +835,10 @@ class TestCSVAdvancedQuoting:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 quote_char='"',
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 5
@@ -859,10 +859,10 @@ class TestCSVAdvancedQuoting:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
                 quote_char='"',
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             # Should handle multiline quoted fields
@@ -892,9 +892,9 @@ class TestCSVEdgeCases:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 0
@@ -916,9 +916,9 @@ class TestCSVEdgeCases:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 0  # No data rows
@@ -940,9 +940,9 @@ class TestCSVEdgeCases:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=csv_file,
+                input_path=str(csv_file),
                 output_path=output_dir,
-                header_mode="present"
+                header_mode=HeaderMode.PRESENT
             )
 
             # Should handle varying column counts gracefully

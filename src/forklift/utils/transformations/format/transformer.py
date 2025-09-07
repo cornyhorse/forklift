@@ -81,3 +81,22 @@ class FormatTransformer:
         """Format a single MAC address value."""
         formatter = MACAddressFormatter(config)
         return formatter.format_value(value)
+
+    # IP address specific methods that tests expect
+    def _normalize_ipv6_address(self, ipv6_address: str, compress: bool = True) -> str | None:
+        """Normalize an IPv6 address."""
+        # Create a temporary formatter to access the method
+        formatter = IPAddressFormatter(IPAddressConfig())
+        return formatter._normalize_ipv6_address(ipv6_address, compress)
+
+    def _is_valid_ipv4(self, ip_address: str) -> bool:
+        """Check if an IP address is a valid IPv4 address."""
+        # Create a temporary formatter to access the method
+        formatter = IPAddressFormatter(IPAddressConfig())
+        return formatter._is_valid_ipv4(ip_address)
+
+    def _is_valid_ipv6(self, ip_address: str) -> bool:
+        """Check if an IP address is a valid IPv6 address."""
+        # Create a temporary formatter to access the method
+        formatter = IPAddressFormatter(IPAddressConfig())
+        return formatter._is_valid_ipv6(ip_address)

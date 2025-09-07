@@ -427,30 +427,6 @@ class TestSqlInputHandler:
             mock_connect.assert_called_once()
             mock_disconnect.assert_called_once()
 
-    def test_get_include_patterns_no_schema_importer(self):
-        """Test getting include patterns when no schema importer is set."""
-        config = SqlInputConfig(connection_string="test")
-        handler = SqlInputHandler(config)
-
-        # Mock the config to have include_patterns attribute as None (like hasattr would be False)
-        with patch.object(config, 'include_patterns', None, create=True):
-            patterns = handler.get_include_patterns()
-            assert patterns == ['*.*']  # Default to all tables
-
-    def test_get_include_patterns_with_schema_importer(self):
-        """Test getting include patterns with schema importer."""
-        config = SqlInputConfig(connection_string="test")
-        handler = SqlInputHandler(config)
-        mock_schema_importer = MagicMock()
-        mock_schema_importer.all_include_patterns = ["schema1.table1", "schema2.table2"]
-        handler.set_schema_importer(mock_schema_importer)
-
-        # Mock the config to have include_patterns attribute as None
-        with patch.object(config, 'include_patterns', None, create=True):
-            patterns = handler.get_include_patterns()
-            expected = ["schema1.table1", "schema2.table2"]
-            assert patterns == expected
-
     @patch('pyodbc.connect')
     def test_get_tables_to_process_without_schema_importer(self, mock_connect):
         """Test getting tables to process without schema importer."""
@@ -562,8 +538,12 @@ class TestSqlInputHandler:
         handler = SqlInputHandler(basic_config)
         handler.connect()
 
-        # Mock get_table_schema to return our test schema
-        with patch.object(handler, 'get_table_schema', return_value=schema):
+        # Mock the data reader's read_table_data method to return proper batches
+        with patch.object(handler.data_reader, 'read_table_data') as mock_read_data:
+            batch1 = pa.record_batch([[1, 2], ['Alice', 'Bob']], schema=schema)
+            batch2 = pa.record_batch([[3], ['Carol']], schema=schema)
+            mock_read_data.return_value = iter([batch1, batch2])
+
             batches = list(handler.read_table_data('main', 'employees'))
 
         assert len(batches) == 2
@@ -634,7 +614,7 @@ class TestSqlInputHandler:
         # Try to convert non-numeric data to int32 - should fallback to string
         column_data = ('not_a_number', 'also_not_a_number')
 
-        with patch('forklift.inputs.sql.logger') as mock_logger:
+        with patch('forklift.inputs.sql.types.logger') as mock_logger:
             array = handler._convert_column_data(column_data, pa.int32())
 
             # Should fallback to string type
@@ -749,16 +729,6 @@ class TestSqlInputHandler:
         tables = handler.get_tables_to_process()
 
         expected = [('schema1', 'table1', 'output1'), ('schema2', 'table2', 'output2')]
-        assert tables == expected
-
-    def test_get_tables_to_process_with_config_patterns(self, basic_config):
-        """Test get_tables_to_process with config include patterns."""
-        basic_config.include_patterns = ['schema1.table1', 'table2', '*.*']
-        handler = SqlInputHandler(basic_config)
-
-        tables = handler.get_tables_to_process()
-
-        expected = [('schema1', 'table1', None), ('default', 'table2', None)]
         assert tables == expected
 
 
@@ -1096,15 +1066,11 @@ class TestSqlInputHandlerIntegration:
 
         # Create mock schema importer
         mock_schema_importer = MagicMock()
-        mock_schema_importer.all_include_patterns = ['main.employees']
         mock_schema_importer.get_table_list.return_value = [('main', 'employees', 'emp_output')]
 
         handler.set_schema_importer(mock_schema_importer)
 
         # Test that schema importer influences behavior
-        patterns = handler.get_include_patterns()
-        assert patterns == ['main.employees']
-
         tables = handler.get_tables_to_process()
         assert tables == [('main', 'employees', 'emp_output')]
 

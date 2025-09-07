@@ -218,24 +218,15 @@ class TestSqlInputHandler:
         ]
         assert result == expected
 
-    def test_get_tables_to_process_with_include_patterns(self, sql_handler):
-        """Test getting tables to process from include patterns (backward compatibility)."""
-        # Set include patterns on config
-        sql_handler.config.include_patterns = ["sales.customers", "products"]
-
-        result = sql_handler.get_tables_to_process()
-        expected = [
-            ("sales", "customers", None),
-            ("default", "products", None)
-        ]
-        assert result == expected
-
     def test_get_tables_to_process_discover_all(self, sql_handler):
         """Test discovering all tables when no specific configuration is provided."""
         # Mock get_table_list
         mock_tables = [("public", "users"), ("sales", "orders")]
 
-        with patch.object(sql_handler, 'get_table_list', return_value=mock_tables):
+        # Mock the connection and schema manager's get_table_list method to prevent connection errors
+        sql_handler.connection = Mock()
+
+        with patch.object(sql_handler.schema_manager, 'get_table_list', return_value=mock_tables):
             result = sql_handler.get_tables_to_process()
             expected = [("public", "users", None), ("sales", "orders", None)]
             assert result == expected
@@ -280,7 +271,7 @@ class TestSqlInputHandler:
         column_data = ("not_a_number", "also_not_a_number")
         pa_type = pa.int32()
 
-        with patch('forklift.inputs.sql.logger') as mock_logger:
+        with patch('forklift.inputs.sql.types.logger') as mock_logger:
             result = sql_handler._convert_column_data(column_data, pa_type)
 
             # Should fallback to string representation

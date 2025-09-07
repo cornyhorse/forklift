@@ -19,7 +19,7 @@ from .configs import (
 from .string_transformations import StringTransformer
 from .numeric_transformations import NumericTransformer
 from .datetime_transformations import DateTimeTransformer
-from .format_transformations import FormatTransformer
+from .format.transformer import FormatTransformer
 from .html_xml_transformations import HTMLXMLTransformer
 
 
@@ -188,4 +188,3 @@ class DataTransformer:
     def _format_mac_address(self, value: str, config: MACAddressConfig) -> str:
         """Format a single MAC address value."""
         return self.format_transformer._format_mac_address(value, config)
-

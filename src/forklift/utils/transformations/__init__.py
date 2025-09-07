@@ -17,7 +17,7 @@ from .base import DataTransformer
 from .string_transformations import StringTransformer
 from .numeric_transformations import NumericTransformer
 from .datetime_transformations import DateTimeTransformer
-from .format_transformations import FormatTransformer
+from .format.transformer import FormatTransformer  # Updated import path
 from .html_xml_transformations import HTMLXMLTransformer
 from .factory import create_transformation_from_config
 

@@ -329,8 +329,8 @@ class TestSchemaBasedTransformer:
                 raise RuntimeError("Transformation failed")
             return failing_transform
 
-        # Patch the function in the transformations module where it's actually imported and used
-        with patch('forklift.processors.transformations.create_transformation_from_config', failing_mock_create):
+        # Patch the function in the schema_transformer module where it's actually imported and used
+        with patch('forklift.processors.transformations.schema_transformer.create_transformation_from_config', failing_mock_create):
             transformer = SchemaBasedTransformer(schema_dict)
             result_batch, validation_results = transformer.process_batch(batch)
 

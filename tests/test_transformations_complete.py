@@ -558,7 +558,7 @@ class TestIntegration:
             else:
                 return lambda col: col
 
-        with patch('forklift.processors.transformations.create_transformation_from_config', mock_create_transform):
+        with patch('forklift.processors.transformations.schema_transformer.create_transformation_from_config', mock_create_transform):
             transformer = SchemaBasedTransformer(schema_dict)
             result_batch, validation_results = transformer.process_batch(batch)
 

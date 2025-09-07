@@ -594,8 +594,8 @@ class TestUtilityTransformationFunctions:
         result = lowercase(column)
         assert result.equals(column)
 
-    @patch('forklift.processors.transformations.MoneyTypeConfig')
-    @patch('forklift.processors.transformations.DataTransformer')
+    @patch('forklift.processors.transformations.factories.MoneyTypeConfig')
+    @patch('forklift.processors.transformations.factories.DataTransformer')
     def test_apply_money_conversion(self, mock_transformer_class, mock_config_class):
         """Test apply_money_conversion function."""
         from forklift.processors.transformations import apply_money_conversion
@@ -626,8 +626,8 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_money_conversion.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.NumericCleaningConfig')
-    @patch('forklift.processors.transformations.DataTransformer')
+    @patch('forklift.processors.transformations.factories.NumericCleaningConfig')
+    @patch('forklift.processors.transformations.factories.DataTransformer')
     def test_apply_numeric_cleaning(self, mock_transformer_class, mock_config_class):
         """Test apply_numeric_cleaning function."""
         from forklift.processors.transformations import apply_numeric_cleaning
@@ -657,8 +657,8 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_numeric_cleaning.assert_called_once_with(test_column, mock_config, "double")
 
-    @patch('forklift.processors.transformations.RegexReplaceConfig')
-    @patch('forklift.processors.transformations.DataTransformer')
+    @patch('forklift.processors.transformations.factories.RegexReplaceConfig')
+    @patch('forklift.processors.transformations.factories.DataTransformer')
     def test_apply_regex_replace(self, mock_transformer_class, mock_config_class):
         """Test apply_regex_replace function."""
         from forklift.processors.transformations import apply_regex_replace
@@ -687,8 +687,8 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_regex_replace.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.StringReplaceConfig')
-    @patch('forklift.processors.transformations.DataTransformer')
+    @patch('forklift.processors.transformations.factories.StringReplaceConfig')
+    @patch('forklift.processors.transformations.factories.DataTransformer')
     def test_apply_string_replace(self, mock_transformer_class, mock_config_class):
         """Test apply_string_replace function."""
         from forklift.processors.transformations import apply_string_replace
@@ -717,8 +717,8 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_string_replace.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.HTMLXMLConfig')
-    @patch('forklift.processors.transformations.DataTransformer')
+    @patch('forklift.processors.transformations.factories.HTMLXMLConfig')
+    @patch('forklift.processors.transformations.factories.DataTransformer')
     def test_apply_html_xml_cleaning(self, mock_transformer_class, mock_config_class):
         """Test apply_html_xml_cleaning function."""
         from forklift.processors.transformations import apply_html_xml_cleaning
@@ -747,8 +747,8 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_html_xml_cleaning.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.StringPaddingConfig')
-    @patch('forklift.processors.transformations.DataTransformer')
+    @patch('forklift.processors.transformations.factories.StringPaddingConfig')
+    @patch('forklift.processors.transformations.factories.DataTransformer')
     def test_apply_string_padding(self, mock_transformer_class, mock_config_class):
         """Test apply_string_padding function."""
         from forklift.processors.transformations import apply_string_padding
@@ -777,7 +777,7 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_string_padding.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.DataTransformer')
+    @patch('forklift.processors.transformations.factories.DataTransformer')
     def test_apply_string_trimming(self, mock_transformer_class):
         """Test apply_string_trimming function."""
         from forklift.processors.transformations import apply_string_trimming

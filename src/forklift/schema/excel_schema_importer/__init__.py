@@ -1,4 +1,4 @@
-"""Excel schema importer for processing Excel schema definitions.
+"""Excel schema importer package for processing Excel schema definitions.
 
 This module provides comprehensive schema import and validation capabilities
 for Excel-based data schemas. The original file has been refactored into a package
@@ -6,11 +6,11 @@ for better maintainability. All functionality is preserved for backward compatib
 """
 
 # Import all components from the refactored package
-from .excel_schema_importer.core import ExcelSchemaImporter
-from .excel_schema_importer.exceptions import SchemaValidationError
-from .excel_schema_importer.validator import SchemaValidator
-from .excel_schema_importer.type_validator import ParquetTypeValidator
-from .excel_schema_importer.utils import SchemaDataExtractor
+from .core import ExcelSchemaImporter
+from .exceptions import SchemaValidationError
+from .validator import SchemaValidator
+from .type_validator import ParquetTypeValidator
+from .utils import SchemaDataExtractor
 
 __all__ = [
     'ExcelSchemaImporter',

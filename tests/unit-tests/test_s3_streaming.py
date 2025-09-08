@@ -560,7 +560,7 @@ class TestUtilityFunctions:
 
     def test_get_s3_client(self):
         """Test get_s3_client function."""
-        with patch('forklift.io.s3_streaming.S3StreamingClient') as mock_client_class:
+        with patch('forklift.io.s3_streaming.utils.S3StreamingClient') as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 

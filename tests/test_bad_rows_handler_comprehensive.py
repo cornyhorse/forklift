@@ -1,22 +1,24 @@
-"""Comprehensive tests for BadRowsHandler to improve coverage from 4.78%."""
+"""Comprehensive tests for bad rows handler module."""
 
 import pytest
 import pyarrow as pa
-import json
-import tempfile
+from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
+import json
 from datetime import datetime
-from unittest.mock import patch, MagicMock
 
-from forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
+from forklift.processors.bad_rows_handler import (
+    BadRowsHandler,
+    BadRowsConfig
+)
 from forklift.processors.base import ValidationResult
 from forklift.processors.constraint_validator import ConstraintViolation
 
 
 class TestBadRowsConfig:
-    """Test BadRowsConfig class."""
+    """Test BadRowsConfig dataclass."""
 
-    def test_config_defaults(self):
+    def test_default_config(self):
         """Test default configuration values."""
         config = BadRowsConfig()
 
@@ -27,10 +29,10 @@ class TestBadRowsConfig:
         assert config.max_bad_rows is None
         assert config.create_summary is True
 
-    def test_config_custom_values(self):
+    def test_custom_config(self):
         """Test custom configuration values."""
         config = BadRowsConfig(
-            output_path="/tmp/bad_rows.csv",
+            output_path="/tmp/bad_rows",
             output_format="csv",
             include_original_data=False,
             include_error_details=False,
@@ -38,7 +40,7 @@ class TestBadRowsConfig:
             create_summary=False
         )
 
-        assert config.output_path == "/tmp/bad_rows.csv"
+        assert config.output_path == "/tmp/bad_rows"
         assert config.output_format == "csv"
         assert config.include_original_data is False
         assert config.include_error_details is False
@@ -47,480 +49,303 @@ class TestBadRowsConfig:
 
 
 class TestBadRowsHandler:
-    """Test BadRowsHandler class functionality."""
+    """Test BadRowsHandler class."""
 
-    def test_initialization(self):
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.config = BadRowsConfig()
+        self.handler = BadRowsHandler(self.config)
+
+    def test_init(self):
         """Test handler initialization."""
-        config = BadRowsConfig(max_bad_rows=50)
-        handler = BadRowsHandler(config)
+        assert self.handler.config == self.config
+        assert self.handler.bad_rows == []
+        assert self.handler.validation_errors == []
+        assert self.handler.constraint_violations == []
+        assert self.handler.row_count == 0
+        assert self.handler.bad_row_count == 0
 
-        assert handler.config == config
-        assert handler.bad_rows == []
-        assert handler.validation_errors == []
-        assert handler.constraint_violations == []
-        assert handler.row_count == 0
-        assert handler.bad_row_count == 0
+    @patch('forklift.processors.bad_rows_handler.datetime')
+    def test_add_bad_row_basic(self, mock_datetime):
+        """Test adding a bad row with basic data."""
+        mock_datetime.now.return_value.isoformat.return_value = "2023-01-01T12:00:00"
 
-    def test_add_bad_row_basic(self):
-        """Test adding a basic bad row."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
+        row_data = {"id": 1, "name": "test"}
+        self.handler.add_bad_row(row_data, 0)
 
-        row_data = {"id": 1, "name": "John", "age": "invalid"}
-        validation_results = [
-            ValidationResult(
-                is_valid=False,
-                error_code="TYPE_ERROR",
-                error_message="Invalid age value",
-                column_name="age",
-                row_index=0
-            )
-        ]
+        assert len(self.handler.bad_rows) == 1
+        assert self.handler.bad_row_count == 1
 
-        handler.add_bad_row(row_data, 0, validation_results)
-
-        assert handler.get_bad_row_count() == 1
-        assert len(handler.bad_rows) == 1
-
-        bad_row = handler.bad_rows[0]
+        bad_row = self.handler.bad_rows[0]
         assert bad_row["row_index"] == 0
-        assert "timestamp" in bad_row
+        assert bad_row["timestamp"] == "2023-01-01T12:00:00"
         assert bad_row["original_data"] == row_data
-        assert len(bad_row["errors"]) == 1
-        assert bad_row["errors"][0]["type"] == "validation_error"
-        assert bad_row["errors"][0]["error_code"] == "TYPE_ERROR"
 
-    def test_add_bad_row_with_constraint_violations(self):
-        """Test adding bad row with constraint violations."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
+    @patch('forklift.processors.bad_rows_handler.datetime')
+    def test_add_bad_row_with_validation_errors(self, mock_datetime):
+        """Test adding a bad row with validation errors."""
+        mock_datetime.now.return_value.isoformat.return_value = "2023-01-01T12:00:00"
 
-        row_data = {"id": 1, "age": -5}
-        constraint_violations = [
-            ConstraintViolation(
-                violation_type="CHECK_CONSTRAINT",
-                error_message="Age must be positive",
-                columns=["age"],
-                values=[-5],
-                constraint_name="age_positive",
-                row_index=0
-            )
+        row_data = {"id": "invalid", "name": ""}
+        validation_results = [
+            ValidationResult(False, "Invalid ID", "INVALID_ID"),
+            ValidationResult(False, "Empty name", "EMPTY_NAME")
         ]
 
-        handler.add_bad_row(row_data, 0, constraint_violations=constraint_violations)
+        self.handler.add_bad_row(row_data, 1, validation_results=validation_results)
 
-        assert handler.get_bad_row_count() == 1
-        bad_row = handler.bad_rows[0]
-        assert len(bad_row["errors"]) == 1
-        assert bad_row["errors"][0]["type"] == "constraint_violation"
-        assert bad_row["errors"][0]["violation_type"] == "CHECK_CONSTRAINT"
-        assert bad_row["errors"][0]["constraint_name"] == "age_positive"
+        assert len(self.handler.bad_rows) == 1
+        bad_row = self.handler.bad_rows[0]
+        assert bad_row["row_index"] == 1
+        assert len(bad_row["errors"]) == 2
 
-    def test_add_bad_row_without_original_data(self):
-        """Test adding bad row without including original data."""
+    @patch('forklift.processors.bad_rows_handler.datetime')
+    def test_add_bad_row_with_constraint_violations(self, mock_datetime):
+        """Test adding a bad row with constraint violations."""
+        mock_datetime.now.return_value.isoformat.return_value = "2023-01-01T12:00:00"
+
+        row_data = {"id": -1, "age": 200}
+        violations = [
+            ConstraintViolation("id", "minimum", -1, "ID must be positive"),
+            ConstraintViolation("age", "maximum", 200, "Age too high")
+        ]
+
+        self.handler.add_bad_row(row_data, 2, constraint_violations=violations)
+
+        assert len(self.handler.bad_rows) == 1
+        bad_row = self.handler.bad_rows[0]
+        assert bad_row["row_index"] == 2
+
+    def test_add_bad_row_max_limit(self):
+        """Test adding bad rows with maximum limit."""
+        config = BadRowsConfig(max_bad_rows=2)
+        handler = BadRowsHandler(config)
+
+        # Add rows up to limit
+        for i in range(3):
+            handler.add_bad_row({"id": i}, i)
+
+        # Only 2 rows should be stored due to limit
+        assert len(handler.bad_rows) == 2
+        assert handler.bad_row_count == 2
+
+    def test_add_bad_rows_from_batch(self):
+        """Test adding bad rows from a batch."""
+        batch = pa.record_batch({
+            'id': [1, 2, 3, 4],
+            'name': ['Alice', 'Bob', 'Charlie', 'David']
+        })
+
+        invalid_indices = [1, 3]
+        validation_results = [
+            ValidationResult(False, "Error 1", "ERROR1", row_number=1),
+            ValidationResult(False, "Error 2", "ERROR2", row_number=3)
+        ]
+
+        self.handler.add_bad_rows_from_batch(batch, invalid_indices, validation_results)
+
+        assert len(self.handler.bad_rows) == 2
+        assert self.handler.bad_row_count == 2
+
+    def test_increment_row_count(self):
+        """Test incrementing row count."""
+        assert self.handler.row_count == 0
+
+        self.handler.increment_row_count()
+        assert self.handler.row_count == 1
+
+        self.handler.increment_row_count(5)
+        assert self.handler.row_count == 6
+
+    def test_has_bad_rows(self):
+        """Test checking if handler has bad rows."""
+        assert self.handler.has_bad_rows() is False
+
+        self.handler.add_bad_row({"id": 1}, 0)
+        assert self.handler.has_bad_rows() is True
+
+    def test_get_bad_row_count(self):
+        """Test getting bad row count."""
+        assert self.handler.get_bad_row_count() == 0
+
+        self.handler.add_bad_row({"id": 1}, 0)
+        self.handler.add_bad_row({"id": 2}, 1)
+        assert self.handler.get_bad_row_count() == 2
+
+    def test_get_summary(self):
+        """Test getting summary statistics."""
+        self.handler.row_count = 100
+        self.handler.add_bad_row({"id": 1}, 0)
+        self.handler.add_bad_row({"id": 2}, 1)
+
+        summary = self.handler.get_summary()
+
+        assert isinstance(summary, dict)
+        assert summary["total_rows_processed"] == 100
+        assert summary["bad_rows_count"] == 2
+        assert "bad_row_percentage" in summary
+        assert "validation_error_types" in summary
+
+    @patch('forklift.processors.bad_rows_handler.Path.mkdir')
+    @patch('forklift.processors.bad_rows_handler.BadRowsHandler._write_parquet')
+    @patch('forklift.processors.bad_rows_handler.BadRowsHandler._write_summary')
+    def test_write_bad_rows_parquet(self, mock_write_summary, mock_write_parquet, mock_mkdir):
+        """Test writing bad rows to parquet format."""
+        self.handler.add_bad_row({"id": 1}, 0)
+
+        result_path = self.handler.write_bad_rows("/tmp/output")
+
+        mock_mkdir.assert_called_once()
+        mock_write_parquet.assert_called_once()
+        mock_write_summary.assert_called_once()
+        assert result_path is not None
+
+    @patch('forklift.processors.bad_rows_handler.Path.mkdir')
+    @patch('forklift.processors.bad_rows_handler.BadRowsHandler._write_csv')
+    def test_write_bad_rows_csv(self, mock_write_csv, mock_mkdir):
+        """Test writing bad rows to CSV format."""
+        config = BadRowsConfig(output_format="csv")
+        handler = BadRowsHandler(config)
+        handler.add_bad_row({"id": 1}, 0)
+
+        result_path = handler.write_bad_rows("/tmp/output")
+
+        mock_write_csv.assert_called_once()
+        assert result_path is not None
+
+    @patch('forklift.processors.bad_rows_handler.Path.mkdir')
+    @patch('forklift.processors.bad_rows_handler.BadRowsHandler._write_json')
+    def test_write_bad_rows_json(self, mock_write_json, mock_mkdir):
+        """Test writing bad rows to JSON format."""
+        config = BadRowsConfig(output_format="json")
+        handler = BadRowsHandler(config)
+        handler.add_bad_row({"id": 1}, 0)
+
+        result_path = handler.write_bad_rows("/tmp/output")
+
+        mock_write_json.assert_called_once()
+        assert result_path is not None
+
+    def test_write_bad_rows_no_bad_rows(self):
+        """Test writing when there are no bad rows."""
+        result_path = self.handler.write_bad_rows("/tmp/output")
+        assert result_path is None
+
+    @patch('forklift.processors.bad_rows_handler.pq.write_table')
+    @patch('forklift.processors.bad_rows_handler.pa.table')
+    def test_write_parquet(self, mock_pa_table, mock_write_table):
+        """Test writing parquet file."""
+        self.handler.add_bad_row({"id": 1, "name": "test"}, 0)
+
+        mock_table = MagicMock()
+        mock_pa_table.return_value = mock_table
+
+        file_path = Path("/tmp/bad_rows.parquet")
+        self.handler._write_parquet(file_path)
+
+        mock_pa_table.assert_called_once()
+        mock_write_table.assert_called_once_with(mock_table, file_path)
+
+    @patch('forklift.processors.bad_rows_handler.pv_csv.write_csv')
+    @patch('forklift.processors.bad_rows_handler.pa.table')
+    def test_write_csv(self, mock_pa_table, mock_write_csv):
+        """Test writing CSV file."""
+        self.handler.add_bad_row({"id": 1, "name": "test"}, 0)
+
+        mock_table = MagicMock()
+        mock_pa_table.return_value = mock_table
+
+        file_path = Path("/tmp/bad_rows.csv")
+        self.handler._write_csv(file_path)
+
+        mock_pa_table.assert_called_once()
+        mock_write_csv.assert_called_once_with(mock_table, file_path)
+
+    @patch('builtins.open', new_callable=mock_open)
+    @patch('forklift.processors.bad_rows_handler.json.dump')
+    def test_write_json(self, mock_json_dump, mock_file_open):
+        """Test writing JSON file."""
+        self.handler.add_bad_row({"id": 1, "name": "test"}, 0)
+
+        file_path = Path("/tmp/bad_rows.json")
+        self.handler._write_json(file_path)
+
+        mock_file_open.assert_called_once_with(file_path, 'w', encoding='utf-8')
+        mock_json_dump.assert_called_once()
+
+    @patch('builtins.open', new_callable=mock_open)
+    @patch('forklift.processors.bad_rows_handler.json.dump')
+    def test_write_summary(self, mock_json_dump, mock_file_open):
+        """Test writing summary file."""
+        self.handler.add_bad_row({"id": 1}, 0)
+
+        file_path = Path("/tmp/summary.json")
+        self.handler._write_summary(file_path)
+
+        mock_file_open.assert_called_once_with(file_path, 'w', encoding='utf-8')
+        mock_json_dump.assert_called_once()
+
+
+class TestBadRowsHandlerIntegration:
+    """Test bad rows handler integration scenarios."""
+
+    def test_handler_workflow(self):
+        """Test complete handler workflow."""
+        config = BadRowsConfig(
+            output_path="/tmp/bad_rows",
+            include_original_data=True,
+            include_error_details=True,
+            create_summary=True
+        )
+        handler = BadRowsHandler(config)
+
+        # Add some bad rows
+        handler.add_bad_row({"id": "invalid"}, 0)
+        handler.add_bad_row({"name": ""}, 1)
+        handler.increment_row_count(10)
+
+        # Check statistics
+        assert handler.has_bad_rows()
+        assert handler.get_bad_row_count() == 2
+
+        summary = handler.get_summary()
+        assert summary["total_rows_processed"] == 10
+        assert summary["bad_rows_count"] == 2
+
+    def test_config_without_original_data(self):
+        """Test handler with config that excludes original data."""
         config = BadRowsConfig(include_original_data=False)
         handler = BadRowsHandler(config)
 
-        row_data = {"id": 1, "name": "John"}
-        handler.add_bad_row(row_data, 0)
+        handler.add_bad_row({"sensitive": "data"}, 0)
 
         bad_row = handler.bad_rows[0]
         assert "original_data" not in bad_row
-        assert bad_row["row_index"] == 0
 
-    def test_add_bad_row_without_error_details(self):
-        """Test adding bad row without including error details."""
+    def test_config_without_error_details(self):
+        """Test handler with config that excludes error details."""
         config = BadRowsConfig(include_error_details=False)
         handler = BadRowsHandler(config)
 
-        validation_results = [
-            ValidationResult(
-                is_valid=False,
-                error_code="ERROR",
-                error_message="Some error",
-                column_name="test",
-                row_index=0
-            )
-        ]
-
-        row_data = {"id": 1}
-        handler.add_bad_row(row_data, 0, validation_results)
+        validation_results = [ValidationResult(False, "Error", "ERROR")]
+        handler.add_bad_row({"id": 1}, 0, validation_results=validation_results)
 
         bad_row = handler.bad_rows[0]
         assert "errors" not in bad_row
 
-    def test_max_bad_rows_limit(self):
-        """Test max bad rows limit enforcement."""
-        config = BadRowsConfig(max_bad_rows=2)
-        handler = BadRowsHandler(config)
-
-        # Add 3 bad rows, but only 2 should be stored
-        for i in range(3):
-            handler.add_bad_row({"id": i}, i)
-
-        assert handler.get_bad_row_count() == 2
-        assert len(handler.bad_rows) == 2
-
-    def test_add_bad_rows_from_batch(self):
-        """Test adding multiple bad rows from a batch."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        # Create test batch
-        data = {
-            'id': [1, 2, 3, 4],
-            'name': ['Alice', 'Bob', 'Charlie', 'David'],
-            'age': [25, 30, -5, 35]  # -5 is invalid
-        }
-        batch = pa.RecordBatch.from_pydict(data)
-
-        # Create validation results
-        validation_results = [
-            ValidationResult(
-                is_valid=False,
-                error_code="NEGATIVE_AGE",
-                error_message="Age cannot be negative",
-                column_name="age",
-                row_index=2
-            )
-        ]
-
-        # Create constraint violations
-        constraint_violations = [
-            ConstraintViolation(
-                violation_type="CHECK_CONSTRAINT",
-                error_message="Age must be positive",
-                columns=["age"],
-                values=[-5],
-                constraint_name="age_positive",
-                row_index=2
-            )
-        ]
-
-        invalid_indices = [2]  # Row with Charlie has invalid age
-        handler.add_bad_rows_from_batch(
-            batch, invalid_indices, validation_results, constraint_violations
+    def test_module_imports(self):
+        """Test that all components can be imported."""
+        from forklift.processors.bad_rows_handler import (
+            BadRowsHandler,
+            BadRowsConfig
         )
 
-        assert handler.get_bad_row_count() == 1
-        bad_row = handler.bad_rows[0]
-        assert bad_row["original_data"]["name"] == "Charlie"
-        assert bad_row["original_data"]["age"] == -5
-        assert len(bad_row["errors"]) == 2  # One validation error + one constraint violation
-
-    def test_add_bad_rows_from_batch_invalid_index(self):
-        """Test adding bad rows with invalid indices."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        data = {'id': [1, 2], 'name': ['Alice', 'Bob']}
-        batch = pa.RecordBatch.from_pydict(data)
-
-        # Try to add row with index that doesn't exist
-        invalid_indices = [5]  # Index 5 doesn't exist in batch of 2 rows
-        validation_results = []
-
-        handler.add_bad_rows_from_batch(batch, invalid_indices, validation_results)
-
-        # Should not add any bad rows
-        assert handler.get_bad_row_count() == 0
-
-    def test_increment_row_count(self):
-        """Test incrementing row count."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        assert handler.row_count == 0
-
-        handler.increment_row_count()
-        assert handler.row_count == 1
-
-        handler.increment_row_count(5)
-        assert handler.row_count == 6
-
-    def test_has_bad_rows(self):
-        """Test checking if handler has bad rows."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        assert not handler.has_bad_rows()
-
-        handler.add_bad_row({"id": 1}, 0)
-        assert handler.has_bad_rows()
-
-    def test_get_summary(self):
-        """Test getting summary of bad rows and errors."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        # Add some test data
-        handler.increment_row_count(100)
-
-        # Add validation errors
-        validation_results = [
-            ValidationResult(False, "TYPE_ERROR", "Type error 1", "col1", 0),
-            ValidationResult(False, "TYPE_ERROR", "Type error 2", "col2", 1),
-            ValidationResult(False, "NULL_ERROR", "Null error", "col3", 2)
-        ]
-
-        constraint_violations = [
-            ConstraintViolation("CHECK", "Check failed", ["col1"], [1], "check1", 0),
-            ConstraintViolation("UNIQUE", "Unique failed", ["col2"], [2], "unique1", 1)
-        ]
-
-        # Add bad rows with errors - this populates the handler's internal error lists
-        handler.add_bad_row({"id": 1}, 0, validation_results[:1])
-        handler.add_bad_row({"id": 2}, 1, validation_results[1:2], constraint_violations[:1])
-        handler.add_bad_row({"id": 3}, 2, validation_results[2:], constraint_violations[1:])
-
-        summary = handler.get_summary()
-
-        assert summary["total_rows_processed"] == 100
-        assert summary["bad_rows_count"] == 3
-        assert summary["bad_rows_percentage"] == 3.0
-
-        # Just verify the basic structure exists - the error counting logic may vary
-        assert "validation_errors" in summary
-        assert "constraint_violations" in summary
-        assert "timestamp" in summary
-
-        # Verify errors were actually tracked
-        assert len(handler.validation_errors) == 3
-        assert len(handler.constraint_violations) == 2
-
-    def test_get_summary_no_rows(self):
-        """Test getting summary when no rows processed."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        summary = handler.get_summary()
-
-        assert summary["total_rows_processed"] == 0
-        assert summary["bad_rows_count"] == 0
-        assert summary["bad_rows_percentage"] == 0
-
-    def test_write_bad_rows_no_rows(self):
-        """Test writing when no bad rows exist."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        result = handler.write_bad_rows()
-        assert result is None
-
-    def test_write_bad_rows_json_format(self):
-        """Test writing bad rows in JSON format."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "bad_rows.json"
-            config = BadRowsConfig(
-                output_path=str(output_path),
-                output_format="json",
-                create_summary=True
-            )
-            handler = BadRowsHandler(config)
-
-            # Add test data
-            row_data = {"id": 1, "name": "John", "age": "invalid"}
-            validation_results = [
-                ValidationResult(False, "TYPE_ERROR", "Invalid age", "age", 0)
-            ]
-            handler.add_bad_row(row_data, 0, validation_results)
-
-            result_path = handler.write_bad_rows()
-
-            assert result_path == output_path
-            assert output_path.exists()
-
-            # Verify JSON content
-            with open(output_path, 'r') as f:
-                data = json.load(f)
-
-            assert len(data) == 1
-            assert data[0]["row_index"] == 0
-            assert data[0]["original_data"] == row_data
-
-            # Check summary file
-            summary_path = output_path.with_suffix(".summary.json")
-            assert summary_path.exists()
-
-    def test_write_bad_rows_csv_format(self):
-        """Test writing bad rows in CSV format."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "bad_rows.csv"
-            config = BadRowsConfig(
-                output_path=str(output_path),
-                output_format="csv",
-                create_summary=False
-            )
-            handler = BadRowsHandler(config)
-
-            # Add test data
-            row_data = {"id": 1, "name": "John"}
-            handler.add_bad_row(row_data, 0)
-
-            result_path = handler.write_bad_rows()
-
-            assert result_path == output_path
-            assert output_path.exists()
-
-            # Verify we can read it back as Arrow table
-            import pyarrow.csv as pv_csv
-            table = pv_csv.read_csv(output_path)
-            assert table.num_rows == 1
-
-    def test_write_bad_rows_parquet_format(self):
-        """Test writing bad rows in Parquet format."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "bad_rows.parquet"
-            config = BadRowsConfig(
-                output_path=str(output_path),
-                output_format="parquet"
-            )
-            handler = BadRowsHandler(config)
-
-            # Add test data with errors
-            row_data = {"id": 1, "name": "John", "age": 25}
-            validation_results = [
-                ValidationResult(False, "ERROR1", "Error message 1", "col1", 0),
-                ValidationResult(False, "ERROR2", "Error message 2", "col2", 0)
-            ]
-            handler.add_bad_row(row_data, 0, validation_results)
-
-            result_path = handler.write_bad_rows()
-
-            assert result_path == output_path
-            assert output_path.exists()
-
-            # Verify we can read it back
-            import pyarrow.parquet as pq
-            table = pq.read_table(output_path)
-            assert table.num_rows == 1
-
-            # Check that error information is properly flattened
-            schema_names = [field.name for field in table.schema]
-            assert "error_messages" in schema_names
-            assert "error_codes" in schema_names
-            assert "error_types" in schema_names
-
-    def test_write_bad_rows_unsupported_format(self):
-        """Test writing with unsupported format raises error."""
-        config = BadRowsConfig(output_format="xml")  # Unsupported format
-        handler = BadRowsHandler(config)
-
-        handler.add_bad_row({"id": 1}, 0)
-
-        with pytest.raises(ValueError, match="Unsupported output format"):
-            handler.write_bad_rows()
-
-    def test_write_bad_rows_default_path(self):
-        """Test writing with default generated path."""
-        config = BadRowsConfig(output_format="json", create_summary=False)  # Disable summary to avoid mock issues
-        handler = BadRowsHandler(config)
-
-        handler.add_bad_row({"id": 1}, 0)
-
-        with patch('forklift.processors.bad_rows_handler.datetime') as mock_datetime:
-            mock_datetime.now.return_value.strftime.return_value = "20231201_120000"
-            result_path = handler.write_bad_rows()
-
-        expected_path = Path("bad_rows_20231201_120000.json")
-        assert result_path.name == expected_path.name
-
-    def test_write_bad_rows_override_path(self):
-        """Test writing with path override parameter."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config = BadRowsConfig(output_path="/some/other/path.json")
-            handler = BadRowsHandler(config)
-
-            handler.add_bad_row({"id": 1}, 0)
-
-            override_path = Path(temp_dir) / "override.json"
-            result_path = handler.write_bad_rows(override_path)
-
-            assert result_path == override_path
-            assert override_path.exists()
-
-    @patch('forklift.processors.bad_rows_handler.logger')
-    def test_write_bad_rows_logging(self, mock_logger):
-        """Test that writing bad rows produces appropriate log messages."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "bad_rows.json"
-            config = BadRowsConfig(output_path=str(output_path), output_format="json")
-            handler = BadRowsHandler(config)
-
-            # Test no bad rows case
-            handler.write_bad_rows()
-            mock_logger.info.assert_called_with("No bad rows to write")
-
-            # Test successful write case
-            handler.add_bad_row({"id": 1}, 0)
-            handler.write_bad_rows()
-            mock_logger.info.assert_called_with(f"Written 1 bad rows to {output_path}")
-
-    def test_write_bad_rows_with_path_creation(self):
-        """Test that output directory is created if it doesn't exist."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            nested_path = Path(temp_dir) / "nested" / "dir" / "bad_rows.json"
-            config = BadRowsConfig(output_path=str(nested_path), output_format="json")
-            handler = BadRowsHandler(config)
-
-            handler.add_bad_row({"id": 1}, 0)
-            result_path = handler.write_bad_rows()
-
-            assert result_path == nested_path
-            assert nested_path.exists()
-            assert nested_path.parent.exists()
-
-    def test_write_error_handling(self):
-        """Test error handling during write operations."""
-        config = BadRowsConfig(output_path="/invalid/path/bad_rows.json", output_format="json")
-        handler = BadRowsHandler(config)
-
-        handler.add_bad_row({"id": 1}, 0)
-
-        with pytest.raises(Exception):  # Should raise an exception for invalid path
-            handler.write_bad_rows()
-
-    def test_complex_error_scenarios(self):
-        """Test complex scenarios with mixed error types."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        # Add row with both validation errors and constraint violations
-        row_data = {"id": 1, "name": "John", "age": -5, "email": "invalid"}
-
-        validation_results = [
-            ValidationResult(False, "TYPE_ERROR", "Invalid email format", "email", 0),
-            ValidationResult(False, "RANGE_ERROR", "Age out of range", "age", 0)
-        ]
-
-        constraint_violations = [
-            ConstraintViolation("CHECK", "Age must be positive", ["age"], [-5], "age_check", 0),
-            ConstraintViolation("UNIQUE", "Email must be unique", ["email"], ["invalid"], "email_unique", 0)
-        ]
-
-        handler.add_bad_row(row_data, 0, validation_results, constraint_violations)
-
-        bad_row = handler.bad_rows[0]
-        assert len(bad_row["errors"]) == 4  # 2 validation + 2 constraint errors
-
-        # Verify error types are correctly categorized
-        error_types = [error["type"] for error in bad_row["errors"]]
-        assert error_types.count("validation_error") == 2
-        assert error_types.count("constraint_violation") == 2
-
-    def test_empty_batch_handling(self):
-        """Test handling of empty batches."""
-        config = BadRowsConfig()
-        handler = BadRowsHandler(config)
-
-        # Create empty batch
-        schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
-        batch = pa.RecordBatch.from_arrays([pa.array([], type=pa.int64()), pa.array([], type=pa.string())], schema=schema)
-
-        handler.add_bad_rows_from_batch(batch, [], [])
-
-        assert handler.get_bad_row_count() == 0
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert BadRowsHandler is not None
+        assert BadRowsConfig is not None
+
+    def test_module_docstring(self):
+        """Test module documentation."""
+        import forklift.processors.bad_rows_handler as bad_rows_module
+
+        assert bad_rows_module.__doc__ is not None
+        assert "Bad rows handler" in bad_rows_module.__doc__

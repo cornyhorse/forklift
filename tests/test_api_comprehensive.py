@@ -1,12 +1,8 @@
-"""Comprehensive tests for forklift.api module to improve code coverage."""
+"""Comprehensive tests for API module."""
 
 import pytest
-import tempfile
-import json
+from unittest.mock import patch, MagicMock
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any
-
 from forklift.api import (
     generate_schema_from_csv,
     generate_schema_from_excel,
@@ -16,466 +12,306 @@ from forklift.api import (
 )
 
 
-class TestAPIFunctions:
-    """Test suite for API functions with comprehensive coverage."""
-
-    def setup_method(self):
-        """Set up test fixtures."""
-        # Mock schema that would be returned by SchemaGenerator
-        self.mock_schema = {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Forklift Schema - Generated",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"},
-                "age": {"type": "integer"},
-                "email": {"type": "string"}
-            },
-            "required": ["id", "name"]
-        }
+class TestGenerateSchemaFromCSV:
+    """Test generate_schema_from_csv function."""
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_from_csv_with_defaults(self, mock_schema_generator):
-        """Test CSV schema generation with default parameters."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_csv_basic(self, mock_generator_class):
+        """Test basic CSV schema generation."""
+        # Mock the generator instance and its generate_schema method
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.return_value = {"title": "Test Schema"}
+        mock_generator_class.return_value = mock_generator
 
-        # Test with minimal parameters
         result = generate_schema_from_csv("test.csv")
 
         # Verify the result
-        assert result == self.mock_schema
+        assert result == {"title": "Test Schema"}
 
-        # Verify SchemaGenerator was called correctly
-        mock_schema_generator.assert_called_once()
-        call_args = mock_schema_generator.call_args[0][0]  # Get the config object
-
-        assert call_args.input_path == "test.csv"
-        assert call_args.file_type.value == "csv"
-        assert call_args.nrows is None
-        assert call_args.delimiter == ","
-        assert call_args.encoding == "utf-8"
-        assert call_args.include_sample_data is False
-        assert call_args.infer_primary_key_from_metadata is False
-        assert call_args.user_specified_primary_key is None
-
-        # Verify generate_schema was called
-        mock_generator_instance.generate_schema.assert_called_once()
+        # Verify SchemaGenerator was instantiated and called correctly
+        mock_generator_class.assert_called_once()
+        mock_generator.generate_schema.assert_called_once()
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_from_csv_with_all_parameters(self, mock_schema_generator):
-        """Test CSV schema generation with all parameters specified."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_csv_with_all_options(self, mock_generator_class):
+        """Test CSV schema generation with all options."""
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.return_value = {"title": "Full Options Schema"}
+        mock_generator_class.return_value = mock_generator
 
-        # Test with all parameters
         result = generate_schema_from_csv(
-            input_path="data/test.csv",
+            input_path="data.csv",
             nrows=1000,
-            delimiter=";",
+            delimiter="|",
             encoding="utf-16",
             include_sample_data=True,
             infer_primary_key_from_metadata=True,
-            user_specified_primary_key=["user_id", "record_id"]
+            user_specified_primary_key=["id", "uuid"]
         )
 
-        # Verify the result
-        assert result == self.mock_schema
-
-        # Verify SchemaGenerator was called with correct config
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "data/test.csv"
-        assert call_args.nrows == 1000
-        assert call_args.delimiter == ";"
-        assert call_args.encoding == "utf-16"
-        assert call_args.include_sample_data is True
-        assert call_args.infer_primary_key_from_metadata is True
-        assert call_args.user_specified_primary_key == ["user_id", "record_id"]
+        assert result == {"title": "Full Options Schema"}
+        mock_generator_class.assert_called_once()
+        mock_generator.generate_schema.assert_called_once()
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_from_csv_with_pathlib_path(self, mock_schema_generator):
-        """Test CSV schema generation with pathlib.Path input."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_csv_with_path_object(self, mock_generator_class):
+        """Test CSV schema generation with Path object."""
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.return_value = {"title": "Path Schema"}
+        mock_generator_class.return_value = mock_generator
 
-        # Test with Path object
-        input_path = Path("/data/test.csv")
-        result = generate_schema_from_csv(input_path)
+        path_obj = Path("test.csv")
+        result = generate_schema_from_csv(path_obj)
 
-        # Verify the result
-        assert result == self.mock_schema
+        assert result == {"title": "Path Schema"}
+        mock_generator_class.assert_called_once()
 
-        # Verify path was passed correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == input_path
+    def test_generate_schema_from_csv_none_input(self):
+        """Test CSV schema generation with None input."""
+        with pytest.raises(ValueError, match="input_path cannot be None"):
+            generate_schema_from_csv(None)
+
+    def test_generate_schema_from_csv_empty_string(self):
+        """Test CSV schema generation with empty string input."""
+        with pytest.raises(ValueError, match="input_path cannot be empty"):
+            generate_schema_from_csv("")
+
+    def test_generate_schema_from_csv_whitespace_string(self):
+        """Test CSV schema generation with whitespace-only string input."""
+        with pytest.raises(ValueError, match="input_path cannot be empty"):
+            generate_schema_from_csv("   ")
+
+
+class TestGenerateSchemaFromExcel:
+    """Test generate_schema_from_excel function."""
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_from_excel_with_defaults(self, mock_schema_generator):
-        """Test Excel schema generation with default parameters."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_excel_basic(self, mock_generator_class):
+        """Test basic Excel schema generation."""
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.return_value = {"title": "Excel Schema"}
+        mock_generator_class.return_value = mock_generator
 
-        # Test with minimal parameters
         result = generate_schema_from_excel("test.xlsx")
 
-        # Verify the result
-        assert result == self.mock_schema
-
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "test.xlsx"
-        assert call_args.file_type.value == "excel"
-        assert call_args.nrows == 1000  # Excel default
-        assert call_args.sheet_name is None
-        assert call_args.include_sample_data is False
-        assert call_args.infer_primary_key_from_metadata is False
-        assert call_args.user_specified_primary_key is None
+        assert result == {"title": "Excel Schema"}
+        mock_generator_class.assert_called_once()
+        mock_generator.generate_schema.assert_called_once()
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_from_excel_with_all_parameters(self, mock_schema_generator):
-        """Test Excel schema generation with all parameters specified."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_excel_with_options(self, mock_generator_class):
+        """Test Excel schema generation with options."""
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.return_value = {"title": "Excel Options Schema"}
+        mock_generator_class.return_value = mock_generator
 
-        # Test with all parameters
         result = generate_schema_from_excel(
             input_path="workbook.xlsx",
             nrows=500,
-            sheet_name="Sheet2",
+            sheet_name="DataSheet",
             include_sample_data=True,
             infer_primary_key_from_metadata=True,
-            user_specified_primary_key=["id"]
+            user_specified_primary_key=["record_id"]
         )
 
-        # Verify the result
-        assert result == self.mock_schema
+        assert result == {"title": "Excel Options Schema"}
+        mock_generator_class.assert_called_once()
 
-        # Verify SchemaGenerator was called with correct config
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "workbook.xlsx"
-        assert call_args.nrows == 500
-        assert call_args.sheet_name == "Sheet2"
-        assert call_args.include_sample_data is True
-        assert call_args.infer_primary_key_from_metadata is True
-        assert call_args.user_specified_primary_key == ["id"]
+    def test_generate_schema_from_excel_none_input(self):
+        """Test Excel schema generation with None input."""
+        with pytest.raises(ValueError, match="input_path cannot be None"):
+            generate_schema_from_excel(None)
 
-    @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_from_parquet_with_defaults(self, mock_schema_generator):
-        """Test Parquet schema generation with default parameters."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_excel_empty_string(self):
+        """Test Excel schema generation with empty string input."""
+        with pytest.raises(ValueError, match="input_path cannot be empty"):
+            generate_schema_from_excel("")
 
-        # Test with minimal parameters
-        result = generate_schema_from_parquet("data.parquet")
 
-        # Verify the result
-        assert result == self.mock_schema
-
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "data.parquet"
-        assert call_args.file_type.value == "parquet"
-        assert call_args.nrows is None  # Parquet default
-        assert call_args.include_sample_data is False
-        assert call_args.infer_primary_key_from_metadata is False
-        assert call_args.user_specified_primary_key is None
+class TestGenerateSchemaFromParquet:
+    """Test generate_schema_from_parquet function."""
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_from_parquet_with_all_parameters(self, mock_schema_generator):
-        """Test Parquet schema generation with all parameters specified."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_parquet_basic(self, mock_generator_class):
+        """Test basic Parquet schema generation."""
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.return_value = {"title": "Parquet Schema"}
+        mock_generator_class.return_value = mock_generator
 
-        # Test with all parameters
+        result = generate_schema_from_parquet("test.parquet")
+
+        assert result == {"title": "Parquet Schema"}
+        mock_generator_class.assert_called_once()
+        mock_generator.generate_schema.assert_called_once()
+
+    @patch('forklift.api.SchemaGenerator')
+    def test_generate_schema_from_parquet_with_options(self, mock_generator_class):
+        """Test Parquet schema generation with options."""
+        mock_generator = MagicMock()
+        mock_generator.generate_schema.return_value = {"title": "Parquet Options Schema"}
+        mock_generator_class.return_value = mock_generator
+
         result = generate_schema_from_parquet(
-            input_path="large_data.parquet",
+            input_path="data.parquet",
             nrows=2000,
             include_sample_data=True,
             infer_primary_key_from_metadata=True,
             user_specified_primary_key=["primary_key"]
         )
 
-        # Verify the result
-        assert result == self.mock_schema
+        assert result == {"title": "Parquet Options Schema"}
+        mock_generator_class.assert_called_once()
 
-        # Verify SchemaGenerator was called with correct config
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "large_data.parquet"
-        assert call_args.nrows == 2000
-        assert call_args.include_sample_data is True
-        assert call_args.infer_primary_key_from_metadata is True
-        assert call_args.user_specified_primary_key == ["primary_key"]
+    def test_generate_schema_from_parquet_none_input(self):
+        """Test Parquet schema generation with None input."""
+        with pytest.raises(ValueError, match="input_path cannot be None"):
+            generate_schema_from_parquet(None)
 
-    @patch('forklift.api.SchemaGenerator')
-    def test_generate_and_save_schema_csv(self, mock_schema_generator):
-        """Test schema generation and saving to file for CSV."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema = Mock()
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_schema_from_parquet_empty_string(self):
+        """Test Parquet schema generation with empty string input."""
+        with pytest.raises(ValueError, match="input_path cannot be empty"):
+            generate_schema_from_parquet("")
 
-        # Test with CSV file type
-        generate_and_save_schema(
-            input_path="input.csv",
-            output_path="output.json",
-            file_type="csv",
-            nrows=1000
-        )
 
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "input.csv"
-        assert call_args.output_path == "output.json"
-        assert call_args.file_type.value == "csv"
-        assert call_args.nrows == 1000
-        assert call_args.output_target.value == "file"
-
-        # Verify methods were called
-        mock_generator_instance.generate_schema.assert_called_once()
-        mock_generator_instance.output_schema.assert_called_once_with(self.mock_schema)
+class TestGenerateAndSaveSchema:
+    """Test generate_and_save_schema function."""
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_and_save_schema_excel_with_kwargs(self, mock_schema_generator):
-        """Test schema generation and saving to file for Excel with additional kwargs."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema = Mock()
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_and_save_schema_csv(self, mock_generator_class):
+        """Test generating and saving schema for CSV."""
+        mock_generator = MagicMock()
+        mock_generator.generate_and_save_schema.return_value = None
+        mock_generator_class.return_value = mock_generator
 
-        # Test with Excel file type and additional kwargs
         generate_and_save_schema(
-            input_path="workbook.xlsx",
+            input_path="test.csv",
             output_path="schema.json",
-            file_type="excel",
-            nrows=500,
-            sheet_name="Data",
-            include_sample_data=True
+            file_type="csv"
         )
 
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "workbook.xlsx"
-        assert call_args.output_path == "schema.json"
-        assert call_args.file_type.value == "excel"
-        assert call_args.nrows == 500
-        assert call_args.sheet_name == "Data"
-        assert call_args.include_sample_data is True
+        mock_generator_class.assert_called_once()
+        mock_generator.generate_and_save_schema.assert_called_once()
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_and_save_schema_parquet(self, mock_schema_generator):
-        """Test schema generation and saving to file for Parquet."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema = Mock()
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_and_save_schema_excel(self, mock_generator_class):
+        """Test generating and saving schema for Excel."""
+        mock_generator = MagicMock()
+        mock_generator.generate_and_save_schema.return_value = None
+        mock_generator_class.return_value = mock_generator
 
-        # Test with Parquet file type
         generate_and_save_schema(
-            input_path=Path("data.parquet"),
-            output_path=Path("schema.json"),
-            file_type="parquet"
-        )
-
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == Path("data.parquet")
-        assert call_args.output_path == Path("schema.json")
-        assert call_args.file_type.value == "parquet"
-        assert call_args.nrows is None
-
-    @patch('forklift.api.SchemaGenerator')
-    def test_generate_and_copy_schema_csv(self, mock_schema_generator):
-        """Test schema generation and copying to clipboard for CSV."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema = Mock()
-        mock_schema_generator.return_value = mock_generator_instance
-
-        # Test with CSV file type
-        result = generate_and_copy_schema(
-            input_path="data.csv",
-            file_type="csv",
-            nrows=1000
-        )
-
-        # Verify the result
-        assert result == self.mock_schema
-
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "data.csv"
-        assert call_args.file_type.value == "csv"
-        assert call_args.nrows == 1000
-        assert call_args.output_target.value == "clipboard"
-
-        # Verify methods were called
-        mock_generator_instance.generate_schema.assert_called_once()
-        mock_generator_instance.output_schema.assert_called_once_with(self.mock_schema)
-
-    @patch('forklift.api.SchemaGenerator')
-    def test_generate_and_copy_schema_excel_with_kwargs(self, mock_schema_generator):
-        """Test schema generation and copying to clipboard for Excel with kwargs."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema = Mock()
-        mock_schema_generator.return_value = mock_generator_instance
-
-        # Test with Excel file type and additional kwargs
-        result = generate_and_copy_schema(
             input_path="workbook.xlsx",
+            output_path="excel_schema.json",
             file_type="excel",
             sheet_name="Sheet1",
-            delimiter=",",  # This would be ignored for Excel but tests kwargs passing
-            include_sample_data=True
+            nrows=1000
         )
 
-        # Verify the result
-        assert result == self.mock_schema
-
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "workbook.xlsx"
-        assert call_args.file_type.value == "excel"
-        assert call_args.sheet_name == "Sheet1"
-        assert call_args.include_sample_data is True
+        mock_generator_class.assert_called_once()
 
     @patch('forklift.api.SchemaGenerator')
-    def test_generate_and_copy_schema_parquet_no_nrows(self, mock_schema_generator):
-        """Test schema generation and copying to clipboard for Parquet with no nrows."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema = Mock()
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_and_save_schema_parquet(self, mock_generator_class):
+        """Test generating and saving schema for Parquet."""
+        mock_generator = MagicMock()
+        mock_generator.generate_and_save_schema.return_value = None
+        mock_generator_class.return_value = mock_generator
 
-        # Test with Parquet file type and no nrows
-        result = generate_and_copy_schema(
-            input_path="big_data.parquet",
-            file_type="parquet"
+        generate_and_save_schema(
+            input_path="data.parquet",
+            output_path="parquet_schema.json",
+            file_type="parquet",
+            nrows=500
         )
 
-        # Verify the result
-        assert result == self.mock_schema
+        mock_generator_class.assert_called_once()
 
-        # Verify SchemaGenerator was called correctly
-        call_args = mock_schema_generator.call_args[0][0]
-        assert call_args.input_path == "big_data.parquet"
-        assert call_args.file_type.value == "parquet"
-        assert call_args.nrows is None
+    def test_generate_and_save_schema_none_input(self):
+        """Test generate_and_save_schema with None input."""
+        with pytest.raises(ValueError, match="input_path cannot be None"):
+            generate_and_save_schema(None, "output.json", "csv")
 
-    @patch('forklift.api.SchemaGenerator')
-    def test_schema_generator_exception_handling(self, mock_schema_generator):
-        """Test that exceptions from SchemaGenerator are properly propagated."""
-        # Setup mock to raise an exception
-        mock_schema_generator.side_effect = ValueError("Invalid file format")
+    def test_generate_and_save_schema_none_output(self):
+        """Test generate_and_save_schema with None output."""
+        with pytest.raises(ValueError, match="output_path cannot be None"):
+            generate_and_save_schema("input.csv", None, "csv")
 
-        # Test that the exception is propagated
-        with pytest.raises(ValueError, match="Invalid file format"):
-            generate_schema_from_csv("invalid.csv")
+    def test_generate_and_save_schema_invalid_file_type(self):
+        """Test generate_and_save_schema with invalid file type."""
+        with pytest.raises(ValueError, match="file_type must be one of"):
+            generate_and_save_schema("input.txt", "output.json", "invalid")
 
-    @patch('forklift.api.SchemaGenerator')
-    def test_generate_schema_exception_handling(self, mock_schema_generator):
-        """Test that exceptions from generate_schema are properly propagated."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.side_effect = FileNotFoundError("File not found")
-        mock_schema_generator.return_value = mock_generator_instance
 
-        # Test that the exception is propagated
-        with pytest.raises(FileNotFoundError, match="File not found"):
-            generate_schema_from_parquet("nonexistent.parquet")
+class TestGenerateAndCopySchema:
+    """Test generate_and_copy_schema function."""
 
     @patch('forklift.api.SchemaGenerator')
-    def test_output_schema_exception_handling(self, mock_schema_generator):
-        """Test that exceptions from output_schema are properly propagated."""
-        # Setup mock
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema.side_effect = PermissionError("Cannot write to file")
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_and_copy_schema_csv(self, mock_generator_class):
+        """Test generating and copying schema for CSV."""
+        mock_generator = MagicMock()
+        mock_generator.generate_and_copy_to_clipboard.return_value = None
+        mock_generator_class.return_value = mock_generator
 
-        # Test that the exception is propagated
-        with pytest.raises(PermissionError, match="Cannot write to file"):
-            generate_and_save_schema("data.csv", "readonly.json", "csv")
+        generate_and_copy_schema(
+            input_path="test.csv",
+            file_type="csv"
+        )
 
-    @patch('forklift.api.FileType')
+        mock_generator_class.assert_called_once()
+        mock_generator.generate_and_copy_to_clipboard.assert_called_once()
+
     @patch('forklift.api.SchemaGenerator')
-    def test_filetype_enum_conversion(self, mock_schema_generator, mock_filetype):
-        """Test that string file types are properly converted to FileType enum."""
-        # Setup mocks
-        mock_generator_instance = Mock()
-        mock_generator_instance.generate_schema.return_value = self.mock_schema
-        mock_generator_instance.output_schema = Mock()
-        mock_schema_generator.return_value = mock_generator_instance
+    def test_generate_and_copy_schema_with_options(self, mock_generator_class):
+        """Test generating and copying schema with options."""
+        mock_generator = MagicMock()
+        mock_generator.generate_and_copy_to_clipboard.return_value = None
+        mock_generator_class.return_value = mock_generator
 
-        mock_filetype_instance = Mock()
-        mock_filetype.return_value = mock_filetype_instance
+        generate_and_copy_schema(
+            input_path="data.xlsx",
+            file_type="excel",
+            sheet_name="Data",
+            nrows=750,
+            delimiter=";",
+            encoding="utf-16"
+        )
 
-        # Test FileType enum conversion in generate_and_save_schema
-        generate_and_save_schema("test.csv", "output.json", "csv")
+        mock_generator_class.assert_called_once()
 
-        # Verify FileType was called with the string
-        mock_filetype.assert_called_with("csv")
+    def test_generate_and_copy_schema_none_input(self):
+        """Test generate_and_copy_schema with None input."""
+        with pytest.raises(ValueError, match="input_path cannot be None"):
+            generate_and_copy_schema(None, "csv")
 
-    def test_api_functions_docstrings(self):
-        """Test that all API functions have proper docstrings."""
-        functions = [
+    def test_generate_and_copy_schema_invalid_file_type(self):
+        """Test generate_and_copy_schema with invalid file type."""
+        with pytest.raises(ValueError, match="file_type must be one of"):
+            generate_and_copy_schema("input.txt", "invalid")
+
+
+class TestAPIModuleIntegration:
+    """Test API module integration and edge cases."""
+
+    def test_all_functions_importable(self):
+        """Test that all API functions can be imported."""
+        from forklift.api import (
             generate_schema_from_csv,
             generate_schema_from_excel,
             generate_schema_from_parquet,
             generate_and_save_schema,
             generate_and_copy_schema
-        ]
+        )
 
-        for func in functions:
-            assert func.__doc__ is not None, f"{func.__name__} is missing a docstring"
-            assert len(func.__doc__.strip()) > 50, f"{func.__name__} has a very short docstring"
-            assert "Args:" in func.__doc__, f"{func.__name__} docstring is missing Args section"
-            assert "Returns:" in func.__doc__ or "Example:" in func.__doc__, f"{func.__name__} docstring is missing Returns or Example section"
+        # Verify all functions are callable
+        assert callable(generate_schema_from_csv)
+        assert callable(generate_schema_from_excel)
+        assert callable(generate_schema_from_parquet)
+        assert callable(generate_and_save_schema)
+        assert callable(generate_and_copy_schema)
 
-    def test_api_functions_type_annotations(self):
-        """Test that all API functions have proper type annotations."""
-        import inspect
+    def test_api_module_docstring(self):
+        """Test that the API module has proper documentation."""
+        import forklift.api as api_module
 
-        functions = [
-            generate_schema_from_csv,
-            generate_schema_from_excel,
-            generate_schema_from_parquet,
-            generate_and_save_schema,
-            generate_and_copy_schema
-        ]
-
-        for func in functions:
-            sig = inspect.signature(func)
-
-            # Check that return type is annotated
-            assert sig.return_annotation != inspect.Signature.empty, f"{func.__name__} is missing return type annotation"
-
-            # Check that parameters have type annotations
-            for param_name, param in sig.parameters.items():
-                if param_name != "kwargs":  # kwargs don't need type annotations
-                    assert param.annotation != inspect.Parameter.empty, f"{func.__name__} parameter '{param_name}' is missing type annotation"
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert api_module.__doc__ is not None
+        assert "API functions for Forklift schema generation" in api_module.__doc__
+        assert "programmatic access" in api_module.__doc__

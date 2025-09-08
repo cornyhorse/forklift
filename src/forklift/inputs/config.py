@@ -52,13 +52,15 @@ class CsvInputConfig:
     skip_rows_after_names: int = 0
     check_utf8: bool = True
     column_types: Optional[Dict[str, pa.DataType]] = None
-    null_values: List[str] = field(default_factory=lambda: ['', 'NULL', 'null', 'None', 'N/A', 'NA', '#N/A'])
-    true_values: List[str] = field(default_factory=lambda: ['1', 'True', 'true', 'TRUE', 'yes', 'Yes', 'YES'])
-    false_values: List[str] = field(default_factory=lambda: ['0', 'False', 'false', 'FALSE', 'no', 'No', 'NO'])
+    null_values: List[str] = field(default_factory=lambda: ['', 'NULL', 'null', 'None'])
+    true_values: List[str] = field(default_factory=lambda: ['true', 'True', 'TRUE', '1'])
+    false_values: List[str] = field(default_factory=lambda: ['false', 'False', 'FALSE', '0'])
     strings_can_be_null: bool = True
     include_columns: Optional[List[str]] = None
     include_missing_columns: bool = False
-    has_header: Optional[bool] = None
+    has_header: Optional[bool] = True  # Change default to True instead of None
+    dtype_inference: bool = True  # Add missing attribute that tests expect
+    max_rows: Optional[int] = None  # Add missing attribute that tests expect
 
     def __post_init__(self):
         """Post-initialization to handle backward compatibility."""

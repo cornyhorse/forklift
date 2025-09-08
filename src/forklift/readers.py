@@ -158,19 +158,69 @@ def read_csv(source_path: Union[str, Path], **kwargs) -> DataFrameReader:
 
     Args:
         source_path: Path to CSV file
-        **kwargs: Additional arguments for CSV processing
+        **kwargs: Additional arguments for CSV processing (delimiter, encoding, etc.)
 
     Returns:
-        DataFrameReader instance
+        DataFrameReader instance for converting to various DataFrame formats
 
     Example:
-        >>> reader = read_csv("data.csv")
-        >>> df = reader.as_polars()
-        >>> pdf = reader.as_pandas()
+        >>> reader = read_csv('data.csv')
+        >>> df = reader.as_pandas()
+        >>> reader.cleanup()
     """
-    # This is a simplified implementation for the refactored version
-    # In practice, you'd want to use the actual CSV input handler
-    raise NotImplementedError("read_csv has been refactored. Use CsvInputHandler from forklift.inputs.csv directly.")
+    from .inputs.csv import CsvInputHandler
+    from .inputs.config import CsvInputConfig
+
+    # Create temporary directory for processing
+    temp_dir = tempfile.mkdtemp()
+    _temp_dirs.add(temp_dir)
+
+    try:
+        # Create CSV config from kwargs
+        csv_config = CsvInputConfig(
+            delimiter=kwargs.get('delimiter', ','),
+            encoding=kwargs.get('encoding', 'utf-8'),
+            has_header=kwargs.get('has_header', True),
+            quote_char=kwargs.get('quote_char', '"'),
+            escape_char=kwargs.get('escape_char', '\\'),
+            null_values=kwargs.get('null_values', ["", "NULL", "null", "None"])
+        )
+
+        # Use the refactored CSV input handler
+        csv_handler = CsvInputHandler(csv_config)
+
+        # Read the CSV file using the proper methods
+        source_path = Path(source_path)
+
+        # Find header row if header is expected
+        if csv_config.has_header:
+            header_row_idx, column_names = csv_handler.find_header_row(source_path)
+            skip_rows = header_row_idx + 1
+        else:
+            # Generate column names if no header
+            with open(source_path, 'r', encoding=csv_config.encoding) as f:
+                first_line = f.readline()
+                num_cols = len(first_line.split(csv_config.delimiter))
+                column_names = [f"column_{i}" for i in range(num_cols)]
+            skip_rows = 0
+
+        # Create arrow reader and read the table
+        reader = csv_handler.create_arrow_reader(source_path, column_names, skip_rows)
+        table = reader.read_all()
+
+        # Write to temporary parquet file
+        output_path = Path(temp_dir) / "data.parquet"
+
+        import pyarrow.parquet as pq
+        pq.write_table(table, output_path)
+
+        return DataFrameReader([str(output_path)], temp_dir)
+
+    except Exception as e:
+        # Clean up on error
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        _temp_dirs.discard(temp_dir)
+        raise RuntimeError(f"Failed to read CSV file: {str(e)}")
 
 def read_excel(source_path: Union[str, Path], **kwargs) -> DataFrameReader:
     """Read Excel file and return DataFrameReader for DataFrame conversion.

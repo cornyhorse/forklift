@@ -113,7 +113,7 @@ class DataQualityProcessor(BaseProcessor):
                         validation_results.append(ValidationResult(
                             is_valid=False,
                             error_message=f"Value length {length} below minimum {min_len}",
-                            error_code="MIN_LENGTH_VIOLATION",
+                            error_code="STRING_TOO_SHORT",
                             row_index=i,
                             column_name=column_name
                         ))
@@ -122,7 +122,7 @@ class DataQualityProcessor(BaseProcessor):
                         validation_results.append(ValidationResult(
                             is_valid=False,
                             error_message=f"Value length {length} exceeds maximum {max_len}",
-                            error_code="MAX_LENGTH_VIOLATION",
+                            error_code="STRING_TOO_LONG",
                             row_index=i,
                             column_name=column_name
                         ))
@@ -142,7 +142,11 @@ class DataQualityProcessor(BaseProcessor):
         if not pa.types.is_string(column.type):
             return
 
-        compiled_pattern = re.compile(pattern)
+        try:
+            compiled_pattern = re.compile(pattern)
+        except re.error:
+            # Invalid regex pattern - raise the error as expected by tests
+            raise
 
         for i in range(len(column)):
             if column[i].is_valid:
@@ -151,7 +155,7 @@ class DataQualityProcessor(BaseProcessor):
                     validation_results.append(ValidationResult(
                         is_valid=False,
                         error_message=f"Value '{value}' does not match pattern '{pattern}'",
-                        error_code="PATTERN_VIOLATION",
+                        error_code="PATTERN_MISMATCH",
                         row_index=i,
                         column_name=column_name
                     ))
@@ -168,8 +172,7 @@ class DataQualityProcessor(BaseProcessor):
             column_name: Name of the column being validated
             validation_results: List to append validation results to
         """
-        # Check if column type is numeric (integer or floating point)
-        if not (pa.types.is_integer(column.type) or pa.types.is_floating(column.type)):
+        if not pa.types.is_numeric(column.type):
             return
 
         min_val = rules.get("min_value")
@@ -183,7 +186,7 @@ class DataQualityProcessor(BaseProcessor):
                         validation_results.append(ValidationResult(
                             is_valid=False,
                             error_message=f"Value {value} below minimum {min_val}",
-                            error_code="MIN_VALUE_VIOLATION",
+                            error_code="VALUE_TOO_LOW",
                             row_index=i,
                             column_name=column_name
                         ))
@@ -192,7 +195,100 @@ class DataQualityProcessor(BaseProcessor):
                         validation_results.append(ValidationResult(
                             is_valid=False,
                             error_message=f"Value {value} exceeds maximum {max_val}",
-                            error_code="MAX_VALUE_VIOLATION",
+                            error_code="VALUE_TOO_HIGH",
                             row_index=i,
                             column_name=column_name
                         ))
+
+    def validate_string_length_min_length(self, value: str, min_length: int) -> str:
+        """Validate minimum string length and return appropriate error code.
+
+        Args:
+            value: String value to validate
+            min_length: Minimum required length
+
+        Returns:
+            Error code if validation fails, empty string if passes
+        """
+        if len(value) < min_length:
+            return "STRING_TOO_SHORT"
+        return ""
+
+    def validate_string_length_max_length(self, value: str, max_length: int) -> str:
+        """Validate maximum string length and return appropriate error code.
+
+        Args:
+            value: String value to validate
+            max_length: Maximum allowed length
+
+        Returns:
+            Error code if validation fails, empty string if passes
+        """
+        if len(value) > max_length:
+            return "STRING_TOO_LONG"
+        return ""
+
+    def validate_pattern_valid_pattern(self, value: str, pattern: str) -> str:
+        """Validate string against pattern and return appropriate error code.
+
+        Args:
+            value: String value to validate
+            pattern: Regular expression pattern
+
+        Returns:
+            Error code if validation fails, empty string if passes
+        """
+        try:
+            if not re.match(pattern, value):
+                return "PATTERN_MISMATCH"
+        except re.error:
+            raise
+        return ""
+
+    def validate_numeric_range_min_value(self, value: float, min_value: float) -> str:
+        """Validate minimum numeric value and return appropriate error code.
+
+        Args:
+            value: Numeric value to validate
+            min_value: Minimum required value
+
+        Returns:
+            Error code if validation fails, empty string if passes
+        """
+        if value < min_value:
+            return "VALUE_TOO_LOW"
+        return ""
+
+    def validate_numeric_range_max_value(self, value: float, max_value: float) -> str:
+        """Validate maximum numeric value and return appropriate error code.
+
+        Args:
+            value: Numeric value to validate
+            max_value: Maximum allowed value
+
+        Returns:
+            Error code if validation fails, empty string if passes
+        """
+        if value > max_value:
+            return "VALUE_TOO_HIGH"
+        return ""
+
+    def get_quality_summary(self) -> Dict[str, Any]:
+        """Get a summary of data quality rules and their configuration.
+
+        Returns:
+            Dictionary containing summary of configured quality rules
+        """
+        summary = {
+            "total_rules": 0,
+            "column_rules": {},
+            "rule_types": set()
+        }
+
+        for column_name, column_rules in self.rules.get("column_rules", {}).items():
+            summary["column_rules"][column_name] = list(column_rules.keys())
+            summary["total_rules"] += len(column_rules)
+            summary["rule_types"].update(column_rules.keys())
+
+        summary["rule_types"] = list(summary["rule_types"])
+        return summary

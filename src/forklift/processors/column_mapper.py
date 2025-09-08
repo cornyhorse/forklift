@@ -149,96 +149,106 @@ class ColumnMapper(BaseProcessor):
         Returns:
             Mapped column name, or None if column should be dropped
         """
-        # Step 1: Check explicit mappings
-        mapped_name = self._apply_explicit_mapping(column_name)
+        # Start with the original name
+        mapped_name = column_name
 
-        # Step 2: Apply naming convention if specified
+        # Step 1: Apply explicit mappings first
+        if self.config.explicit_mappings:
+            if self.config.case_sensitive:
+                if mapped_name in self.config.explicit_mappings:
+                    mapped_name = self.config.explicit_mappings[mapped_name]
+            else:
+                # Case-insensitive mapping
+                for source, target in self.config.explicit_mappings.items():
+                    if mapped_name.lower() == source.lower():
+                        mapped_name = target
+                        break
+
+        # Step 2: Apply naming convention
         if self.config.naming_convention:
-            mapped_name = self._apply_naming_convention(mapped_name)
+            mapped_name = self.apply_naming_convention(mapped_name, self.config.naming_convention)
 
-        # Step 3: Apply custom transform if specified
+        # Step 3: Apply custom transform if provided
         if self.config.custom_transform:
             mapped_name = self.config.custom_transform(mapped_name)
 
-        # Step 4: Check if we should keep unmapped columns
-        if mapped_name == column_name and not self.config.allow_unmapped and self.config.drop_unmapped:
-            return None
+        # Step 4: Check if we should drop unmapped columns
+        if self.config.drop_unmapped and mapped_name == column_name:
+            # Column wasn't mapped and we should drop unmapped columns
+            if not self.config.explicit_mappings or column_name not in self.config.explicit_mappings:
+                return None
 
         return mapped_name
 
-    def _apply_explicit_mapping(self, column_name: str) -> str:
-        """Apply explicit column mappings.
+    def apply_naming_convention(self, name: str, convention: str) -> str:
+        """Apply a naming convention to a column name.
 
         Args:
-            column_name: Original column name
-
-        Returns:
-            Mapped column name
-        """
-        if not self.config.explicit_mappings:
-            return column_name
-
-        # Handle case sensitivity
-        if self.config.case_sensitive:
-            return self.config.explicit_mappings.get(column_name, column_name)
-        else:
-            # Case-insensitive lookup
-            for source, target in self.config.explicit_mappings.items():
-                if source.lower() == column_name.lower():
-                    return target
-            return column_name
-
-    def _apply_naming_convention(self, column_name: str) -> str:
-        """Apply naming convention transformation.
-
-        Args:
-            column_name: Column name to transform
+            name: Column name to transform
+            convention: Naming convention to apply
 
         Returns:
             Transformed column name
         """
-        if not self.config.naming_convention:
-            return column_name
-
-        if self.config.naming_convention == 'snake_case':
-            return self._to_snake_case(column_name)
-        elif self.config.naming_convention == 'camelCase':
-            return self._to_camel_case(column_name)
-        elif self.config.naming_convention == 'PascalCase':
-            return self._to_pascal_case(column_name)
-        elif self.config.naming_convention == 'lowercase':
-            return column_name.lower()
-        elif self.config.naming_convention == 'UPPERCASE':
-            return column_name.upper()
-
-        return column_name
-
-    def _to_snake_case(self, name: str) -> str:
-        """Convert name to snake_case.
-
-        Examples:
-            StateID -> state_id
-            firstName -> first_name
-            XMLParser -> xml_parser
-        """
-        # Insert underscore before uppercase letters that follow lowercase letters
-        s1 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', name)
-        # Insert underscore before uppercase letters that are followed by lowercase letters
-        s2 = re.sub('([A-Z])([A-Z][a-z])', r'\1_\2', s1)
-        return s2.lower()
-
-    def _to_camel_case(self, name: str) -> str:
-        """Convert name to camelCase.
-
-        Examples:
-            state_id -> stateId
-            StateID -> stateID
-        """
-        components = re.split('[_\\s-]+', name)
-        if not components:
+        if convention == 'snake_case':
+            return self.to_snake_case(name)
+        elif convention == 'camelCase':
+            return self.to_camel_case(name)
+        elif convention == 'PascalCase':
+            return self.to_pascal_case(name)
+        elif convention == 'lowercase':
+            return name.lower()
+        elif convention == 'UPPERCASE':
+            return name.upper()
+        else:
             return name
 
-        # First component stays lowercase, rest are capitalized
+    def to_snake_case(self, name: str) -> str:
+        """Convert string to snake_case."""
+        # Handle empty string
+        if not name:
+            return name
+
+        # Replace spaces and hyphens with underscores
+        s1 = re.sub(r'[\s\-]+', '_', name)
+
+        # Insert underscore before uppercase letters that follow lowercase letters
+        s1 = re.sub(r'([a-z0-9])([A-Z])', r'\1_\2', s1)
+
+        # Convert to lowercase
+        result = s1.lower()
+
+        # Clean up multiple underscores
+        result = re.sub(r'_+', '_', result)
+
+        # Remove leading/trailing underscores
+        result = result.strip('_')
+
+        return result
+
+    def to_camel_case(self, name: str) -> str:
+        """Convert string to camelCase."""
+        if not name:
+            return name
+
+        # Handle leading underscores specially
+        leading_underscores = ''
+        stripped_name = name.lstrip('_')
+        if len(stripped_name) < len(name):
+            # There were leading underscores, but we want to handle them specially
+            # For camelCase, leading underscores should typically be preserved
+            pass
+
+        # Split on non-alphanumeric characters
+        components = re.split(r'[^a-zA-Z0-9]+', stripped_name)
+
+        # Filter out empty components
+        components = [comp for comp in components if comp]
+
+        if not components:
+            return name.lower()
+
+        # First component stays lowercase, rest get title case
         result = components[0].lower()
         for component in components[1:]:
             if component:
@@ -246,15 +256,48 @@ class ColumnMapper(BaseProcessor):
 
         return result
 
-    def _to_pascal_case(self, name: str) -> str:
-        """Convert name to PascalCase.
+    def to_pascal_case(self, name: str) -> str:
+        """Convert string to PascalCase."""
+        if not name:
+            return name
 
-        Examples:
-            state_id -> StateId
-            firstName -> FirstName
+        # Split on non-alphanumeric characters
+        components = re.split(r'[^a-zA-Z0-9]+', name)
+
+        # Filter out empty components and capitalize each
+        components = [comp.capitalize() for comp in components if comp]
+
+        return ''.join(components)
+
+    def get_column_mapping(self, input_schema: pa.Schema) -> Dict[str, str]:
+        """Get the column mapping that would be applied to a schema.
+
+        Args:
+            input_schema: Input PyArrow schema
+
+        Returns:
+            Dictionary mapping original column names to new names
         """
-        components = re.split('[_\\s-]+', name)
-        return ''.join(component.capitalize() for component in components if component)
+        mapping = {}
+        for field in input_schema:
+            mapped_name = self._map_column_name(field.name)
+            if mapped_name is not None:
+                mapping[field.name] = mapped_name
+        return mapping
+
+    def preview_mapping(self, column_names: List[str]) -> Dict[str, Optional[str]]:
+        """Preview the column mapping without processing data.
+
+        Args:
+            column_names: List of column names to preview
+
+        Returns:
+            Dictionary mapping original names to new names (None means dropped)
+        """
+        mapping = {}
+        for name in column_names:
+            mapping[name] = self._map_column_name(name)
+        return mapping
 
 
 def create_postgres_mapper() -> ColumnMapper:

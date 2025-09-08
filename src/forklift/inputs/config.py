@@ -1,8 +1,9 @@
 """Configuration classes for input operations."""
 
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
+import pyarrow as pa
 
 
 @dataclass
@@ -19,16 +20,56 @@ class CsvInputConfig:
         skip_blank_lines: Whether to skip blank lines during processing
         comment_patterns: List of regex patterns for comment row detection
         footer_detection: Configuration for footer detection and stopping
+        double_quote: Whether to handle double quotes (default: True)
+        newlines_in_values: Whether to allow newlines in values (default: False)
+        autogenerate_column_names: Whether to auto-generate column names (default: False)
+        skip_rows: Number of rows to skip at start (default: 0)
+        skip_rows_after_names: Number of rows to skip after header (default: 0)
+        check_utf8: Whether to check UTF-8 validity (default: True)
+        column_types: Dictionary mapping column names to PyArrow types
+        null_values: List of strings to treat as null (default: common null values)
+        true_values: List of strings to treat as True (default: common true values)
+        false_values: List of strings to treat as False (default: common false values)
+        strings_can_be_null: Whether string columns can be null (default: True)
+        include_columns: List of columns to include (None for all)
+        include_missing_columns: Whether to include missing columns (default: False)
+        has_header: Whether the file has a header row (alias for header_mode)
+        skip_rows: Alternative name for skip_rows parameter
     """
     delimiter: str = ","
     quote_char: str = '"'
-    escape_char: Optional[str] = None
+    escape_char: Optional[str] = '\\'
     encoding: str = "utf-8"
     header_mode: str = "present"  # present, absent, auto
     header_search_rows: int = 10
     skip_blank_lines: bool = True
     comment_patterns: Optional[List[str]] = None
     footer_detection: Optional[Dict[str, Any]] = None
+    double_quote: bool = True
+    newlines_in_values: bool = False
+    autogenerate_column_names: bool = False
+    skip_rows: int = 0
+    skip_rows_after_names: int = 0
+    check_utf8: bool = True
+    column_types: Optional[Dict[str, pa.DataType]] = None
+    null_values: List[str] = field(default_factory=lambda: ['', 'NULL', 'null', 'None', 'N/A', 'NA', '#N/A'])
+    true_values: List[str] = field(default_factory=lambda: ['1', 'True', 'true', 'TRUE', 'yes', 'Yes', 'YES'])
+    false_values: List[str] = field(default_factory=lambda: ['0', 'False', 'false', 'FALSE', 'no', 'No', 'NO'])
+    strings_can_be_null: bool = True
+    include_columns: Optional[List[str]] = None
+    include_missing_columns: bool = False
+    has_header: Optional[bool] = None
+
+    def __post_init__(self):
+        """Post-initialization to handle backward compatibility."""
+        if self.comment_patterns is None:
+            self.comment_patterns = []
+        if self.column_types is None:
+            self.column_types = {}
+
+        # Handle has_header backward compatibility
+        if self.has_header is not None:
+            self.header_mode = "present" if self.has_header else "absent"
 
 
 @dataclass

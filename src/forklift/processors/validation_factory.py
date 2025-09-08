@@ -102,101 +102,66 @@ class ValidationFactory:
     @staticmethod
     def _create_constraint_validator(config: Dict[str, Any], **kwargs) -> ConstraintValidator:
         """Create a constraint validator."""
-        error_mode_str = config.get('error_mode', kwargs.get('error_mode', 'bad_rows'))
-        if isinstance(error_mode_str, str):
-            error_mode = ErrorMode(error_mode_str)
-        else:
-            error_mode = error_mode_str
+        constraint_config = ConstraintConfig()
 
-        constraint_config = ConstraintConfig(
-            error_mode=error_mode,
-            check_constraints=config.get('check_constraints', kwargs.get('check_constraints', {})),
-            unique_constraints=config.get('unique_constraints', kwargs.get('unique_constraints', [])),
-            foreign_key_constraints=config.get('foreign_key_constraints', kwargs.get('foreign_key_constraints', {}))
-        )
+        # Map common configuration keys
+        if 'error_mode' in config:
+            try:
+                constraint_config.error_mode = ErrorMode(config['error_mode'])
+            except ValueError:
+                constraint_config.error_mode = ErrorMode.BAD_ROWS
+
+        if 'field_constraints' in config:
+            constraint_config.field_constraints = config['field_constraints']
+
+        if 'check_constraints' in config:
+            constraint_config.check_constraints = config['check_constraints']
+
+        if 'unique_constraints' in config:
+            constraint_config.unique_constraints = config['unique_constraints']
+
+        if 'max_violations' in config:
+            constraint_config.max_violations = config['max_violations']
 
         return ConstraintValidator(constraint_config)
 
     @staticmethod
     def _create_data_validator(config: Dict[str, Any], **kwargs) -> DataValidationProcessor:
-        """Create a data validator."""
-        validation_rules = config.get('field_validations', kwargs.get('field_validations', []))
+        """Create a data validation processor."""
+        validation_config = ValidationConfig()
 
-        # Convert dict rules to FieldValidationRule objects if needed
-        if validation_rules and isinstance(validation_rules[0], dict):
-            rule_objects = []
-            for rule_dict in validation_rules:
-                rule = FieldValidationRule(**rule_dict)
-                rule_objects.append(rule)
-            validation_rules = rule_objects
+        # Map configuration
+        if 'rules' in config:
+            validation_config.rules = config['rules']
+        elif 'field_rules' in config:
+            validation_config.rules = config['field_rules']
 
-        # Create bad rows config
-        bad_rows_config_dict = config.get('bad_rows_config', kwargs.get('bad_rows_config', {}))
-        bad_rows_config = BadRowsConfig(**bad_rows_config_dict) if bad_rows_config_dict else BadRowsConfig()
-
-        validation_config = ValidationConfig(
-            field_validations=validation_rules,
-            bad_rows_config=bad_rows_config,
-            uniqueness_strategy=config.get('uniqueness_strategy', kwargs.get('uniqueness_strategy', 'first_wins'))
-        )
+        if 'bad_rows_config' in config:
+            validation_config.bad_rows_config = BadRowsConfig(**config['bad_rows_config'])
 
         return DataValidationProcessor(validation_config)
 
     @staticmethod
     def _create_write_time_validator(config: Dict[str, Any], **kwargs) -> WriteTimeValidator:
         """Create a write time validator."""
-        write_config = WriteTimeConfig(
-            expected_schema=config.get('expected_schema', kwargs.get('expected_schema')),
-            fail_on_schema_mismatch=config.get('fail_on_schema_mismatch', kwargs.get('fail_on_schema_mismatch', False)),
-            required_columns=config.get('required_columns', kwargs.get('required_columns')),
-            check_empty_tables=config.get('check_empty_tables', kwargs.get('check_empty_tables', True)),
-            check_duplicate_rows=config.get('check_duplicate_rows', kwargs.get('check_duplicate_rows', False)),
-            check_null_primary_keys=config.get('check_null_primary_keys', kwargs.get('check_null_primary_keys', False)),
-            check_null_percentages=config.get('check_null_percentages', kwargs.get('check_null_percentages', False)),
-            primary_key_columns=config.get('primary_key_columns', kwargs.get('primary_key_columns', [])),
-            max_null_percentage=config.get('max_null_percentage', kwargs.get('max_null_percentage', 50.0)),
-            min_row_count=config.get('min_row_count', kwargs.get('min_row_count', 1))
-        )
+        write_time_config = WriteTimeConfig()
 
-        return WriteTimeValidator(write_config)
+        # Map configuration
+        if 'timezone' in config:
+            write_time_config.timezone = config['timezone']
 
-    @staticmethod
-    def create_validators_from_config(configs: List[ValidationFactoryConfig]) -> List[BaseProcessor]:
-        """Create multiple validators from a list of configurations.
+        if 'format' in config:
+            write_time_config.format = config['format']
 
-        Args:
-            configs: List of validation factory configurations
-
-        Returns:
-            List of configured validator instances
-        """
-        validators = []
-        for config in configs:
-            validator = ValidationFactory.create_validator(
-                config.validator_type,
-                config.config,
-                strict_mode=config.strict_mode
-            )
-            validators.append(validator)
-
-        return validators
-
-    @staticmethod
-    def get_supported_validators() -> List[str]:
-        """Get list of supported validator types.
-
-        Returns:
-            List of supported validator type names
-        """
-        return [validator_type.value for validator_type in ValidatorType]
+        return WriteTimeValidator(write_time_config)
 
     @staticmethod
     def validate_config(validator_type: Union[ValidatorType, str], config: Dict[str, Any]) -> bool:
-        """Validate configuration for a specific validator type.
+        """Validate configuration for a given validator type.
 
         Args:
             validator_type: Type of validator to validate config for
-            config: Configuration to validate
+            config: Configuration dictionary to validate
 
         Returns:
             True if configuration is valid
@@ -205,46 +170,60 @@ class ValidationFactory:
             ValueError: If configuration is invalid
         """
         if isinstance(validator_type, str):
-            validator_type = ValidatorType(validator_type)
+            try:
+                validator_type = ValidatorType(validator_type)
+            except ValueError:
+                raise ValueError(f"Unsupported validator type: {validator_type}")
 
         if validator_type == ValidatorType.SCHEMA:
-            if 'schema' not in config and not isinstance(config.get('schema'), (pa.Schema, dict)):
+            if 'schema' not in config:
                 raise ValueError("Schema validator requires 'schema' parameter")
+
         elif validator_type == ValidatorType.CONSTRAINT:
-            # Constraint validator has optional parameters, so any config is valid
-            pass
+            # Constraint validator config is optional, but validate if present
+            if 'rules' in config and not config['rules']:
+                return False
+
         elif validator_type == ValidatorType.DATA:
-            # Data validator has optional parameters, so any config is valid
-            pass
+            # Data validator config is optional, but validate if present
+            if 'rules' in config and not config['rules']:
+                return False
+
         elif validator_type == ValidatorType.WRITE_TIME:
-            # Write time validator has optional parameters, so any config is valid
+            # Write time validator config is always valid
             pass
         else:
-            raise ValueError(f"Unknown validator type: {validator_type}")
+            raise ValueError(f"Unsupported validator type: {validator_type}")
 
         return True
 
+    @staticmethod
+    def create_from_schema_file(
+        schema_file_path: str,
+        validator_type: Union[ValidatorType, str] = ValidatorType.SCHEMA,
+        **kwargs
+    ) -> BaseProcessor:
+        """Create a validator from a schema file.
 
-def create_validation_processor_from_schema(schema_config: Optional[Dict[str, Any]]) -> Optional[BaseProcessor]:
-    """Create a validation processor from schema configuration.
+        Args:
+            schema_file_path: Path to the schema file
+            validator_type: Type of validator to create
+            **kwargs: Additional configuration
 
-    This function provides backward compatibility for existing tests that expect
-    a simple factory function interface.
+        Returns:
+            Configured validator instance
+        """
+        import json
 
-    Args:
-        schema_config: Schema configuration dictionary
+        try:
+            with open(schema_file_path, 'r') as f:
+                schema_dict = json.load(f)
+        except FileNotFoundError:
+            raise ValueError(f"Schema file not found: {schema_file_path}")
+        except json.JSONDecodeError:
+            raise ValueError(f"Invalid JSON in schema file: {schema_file_path}")
 
-    Returns:
-        Validation processor instance or None if config is empty/None
-    """
-    if not schema_config:
-        return None
+        config = {'schema': schema_dict}
+        config.update(kwargs)
 
-    # Determine validator type from config
-    validator_type = schema_config.get('type', 'schema')
-
-    try:
-        return ValidationFactory.create_validator(validator_type, schema_config)
-    except (ValueError, TypeError):
-        # Return None for invalid configurations to match expected behavior
-        return None
+        return ValidationFactory.create_validator(validator_type, config)

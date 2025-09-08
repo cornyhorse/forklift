@@ -100,234 +100,199 @@ class BadRowsHandler:
                         "error_message": violation.error_message,
                         "columns": violation.columns,
                         "values": violation.values,
-                        "constraint_name": violation.constraint_name
+                        "constraint_name": violation.constraint_name,
+                        "row_index": violation.row_index
                     })
 
             bad_row_entry["errors"] = errors
 
         self.bad_rows.append(bad_row_entry)
+        self.bad_row_count += 1
 
-        # Store validation results and violations for summary
+        # Store validation results and constraint violations separately for aggregation
         if validation_results:
             self.validation_errors.extend([r for r in validation_results if not r.is_valid])
         if constraint_violations:
             self.constraint_violations.extend(constraint_violations)
 
-        self.bad_row_count += 1
-
-    def add_bad_rows_from_batch(self, batch: pa.RecordBatch, invalid_indices: List[int],
-                               validation_results: List[ValidationResult],
-                               constraint_violations: Optional[List[ConstraintViolation]] = None):
+    def add_bad_rows_from_batch(self, batch_data: List[Dict[str, Any]],
+                               validation_results: List[ValidationResult]):
         """Add multiple bad rows from a batch.
 
         Args:
-            batch: Original batch containing the data
-            invalid_indices: Indices of invalid rows in the batch
-            validation_results: Validation results for the batch
-            constraint_violations: Constraint violations for the batch
+            batch_data: List of row data dictionaries
+            validation_results: List of validation results for the batch
         """
         # Group validation results by row index
-        validation_by_row = {}
+        errors_by_row = {}
         for result in validation_results:
-            if result.row_index is not None and not result.is_valid:
-                if result.row_index not in validation_by_row:
-                    validation_by_row[result.row_index] = []
-                validation_by_row[result.row_index].append(result)
+            if not result.is_valid and result.row_index is not None:
+                if result.row_index not in errors_by_row:
+                    errors_by_row[result.row_index] = []
+                errors_by_row[result.row_index].append(result)
 
-        # Group constraint violations by row index
-        violations_by_row = {}
-        if constraint_violations:
-            for violation in constraint_violations:
-                if violation.row_index not in violations_by_row:
-                    violations_by_row[violation.row_index] = []
-                violations_by_row[violation.row_index].append(violation)
-
-        # Add each invalid row
-        for row_idx in invalid_indices:
-            if row_idx >= batch.num_rows:
-                continue
-
-            # Extract row data
-            row_data = {}
-            for i, field in enumerate(batch.schema):
-                if i < batch.num_columns:
-                    value = batch.column(i)[row_idx]
-                    row_data[field.name] = value.as_py() if value.is_valid else None
-
-            # Get validation results and violations for this row
-            row_validations = validation_by_row.get(row_idx, [])
-            row_violations = violations_by_row.get(row_idx, [])
-
-            self.add_bad_row(
-                row_data=row_data,
-                row_index=self.row_count + row_idx,
-                validation_results=row_validations,
-                constraint_violations=row_violations
-            )
+        # Add bad rows
+        for row_index, row_data in enumerate(batch_data):
+            if row_index in errors_by_row:
+                self.add_bad_row(row_data, row_index, errors_by_row[row_index])
 
     def increment_row_count(self, count: int = 1):
-        """Increment the total row count."""
+        """Increment the total row count.
+
+        Args:
+            count: Number of rows to add to the count
+        """
         self.row_count += count
 
-    def has_bad_rows(self) -> bool:
-        """Check if any bad rows have been collected."""
-        return len(self.bad_rows) > 0
-
-    def get_bad_row_count(self) -> int:
-        """Get the number of bad rows collected."""
-        return len(self.bad_rows)
-
     def get_summary(self) -> Dict[str, Any]:
-        """Get a summary of bad rows and errors."""
-        # Count error types
-        validation_error_counts = {}
-        constraint_violation_counts = {}
+        """Get a summary of bad rows and errors.
 
-        for error in self.validation_errors:
-            error_type = error.error_code or "unknown"
-            validation_error_counts[error_type] = validation_error_counts.get(error_type, 0) + 1
-
+        Returns:
+            Dictionary containing summary statistics
+        """
+        # Calculate constraint violations by type
+        constraint_violations_summary = {}
         for violation in self.constraint_violations:
             violation_type = violation.violation_type
-            constraint_violation_counts[violation_type] = constraint_violation_counts.get(violation_type, 0) + 1
+            if violation_type not in constraint_violations_summary:
+                constraint_violations_summary[violation_type] = 0
+            constraint_violations_summary[violation_type] += 1
 
-        return {
+        summary = {
+            "timestamp": datetime.now().isoformat(),
             "total_rows_processed": self.row_count,
             "bad_rows_count": self.bad_row_count,
-            "bad_rows_percentage": (self.bad_row_count / self.row_count * 100) if self.row_count > 0 else 0,
-            "validation_errors": validation_error_counts,
-            "constraint_violations": constraint_violation_counts,
-            "timestamp": datetime.now().isoformat()
+            "bad_row_percentage": round((self.bad_row_count / max(self.row_count, 1)) * 100, 2),
+            "constraint_violations": constraint_violations_summary,
+            "validation_errors_count": len(self.validation_errors),
+            "total_errors": len(self.validation_errors) + len(self.constraint_violations)
         }
 
-    def write_bad_rows(self, output_path: Optional[Union[str, Path]] = None) -> Optional[Path]:
+        return summary
+
+    def write_bad_rows(self, output_path: Optional[Union[str, Path]] = None) -> str:
         """Write bad rows to file.
 
         Args:
             output_path: Optional output path override
 
         Returns:
-            Path to the written file, or None if no bad rows to write
+            Path to the written file
         """
-        if not self.has_bad_rows():
-            logger.info("No bad rows to write")
-            return None
+        if not self.bad_rows:
+            logger.info("No bad rows to write.")
+            return ""
 
-        # Determine output path
-        if output_path:
-            file_path = Path(output_path)
-        elif self.config.output_path:
-            file_path = Path(self.config.output_path)
+        output_path = output_path or self.config.output_path
+        if not output_path:
+            raise ValueError("Output path must be specified either in config or as parameter")
+
+        output_path = Path(output_path)
+
+        if self.config.output_format.lower() == "parquet":
+            return self.write_parquet(output_path)
+        elif self.config.output_format.lower() == "csv":
+            return self.write_csv(output_path)
+        elif self.config.output_format.lower() == "json":
+            return self.write_json(output_path)
         else:
-            # Generate default path
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_path = Path(f"bad_rows_{timestamp}.{self.config.output_format}")
+            raise ValueError(f"Unsupported output format: {self.config.output_format}")
 
-        # Ensure directory exists
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            if self.config.output_format.lower() == "parquet":
-                self._write_parquet(file_path)
-            elif self.config.output_format.lower() == "csv":
-                self._write_csv(file_path)
-            elif self.config.output_format.lower() == "json":
-                self._write_json(file_path)
-            else:
-                raise ValueError(f"Unsupported output format: {self.config.output_format}")
-
-            logger.info(f"Written {self.bad_row_count} bad rows to {file_path}")
-
-            # Write summary if configured
-            if self.config.create_summary:
-                summary_path = file_path.with_suffix(".summary.json")
-                self._write_summary(summary_path)
-
-            return file_path
-
-        except Exception as e:
-            logger.error(f"Failed to write bad rows to {file_path}: {e}")
-            raise
-
-    def _write_parquet(self, file_path: Path):
-        """Write bad rows in Parquet format."""
-        # Convert bad rows to Arrow table
+    def write_parquet(self, output_path: Path) -> str:
+        """Write bad rows as Parquet file."""
+        # Convert bad rows to PyArrow table
         if not self.bad_rows:
-            return
+            return str(output_path)
 
-        # Flatten the data for Parquet
+        # Flatten the data structure for Parquet
         flattened_rows = []
-        for bad_row in self.bad_rows:
-            flattened = {
-                "row_index": bad_row["row_index"],
-                "timestamp": bad_row["timestamp"]
+        for row in self.bad_rows:
+            flat_row = {
+                "row_index": row["row_index"],
+                "timestamp": row["timestamp"],
+                "error_count": len(row.get("errors", [])),
+                "error_types": ",".join([e["type"] for e in row.get("errors", [])]),
+                "error_messages": "; ".join([e["error_message"] for e in row.get("errors", [])])
             }
 
-            # Add original data columns
-            if "original_data" in bad_row:
-                for key, value in bad_row["original_data"].items():
-                    flattened[f"original_{key}"] = value
+            # Add original data columns if present
+            if "original_data" in row:
+                for key, value in row["original_data"].items():
+                    flat_row[f"original_{key}"] = value
 
-            # Add error information
-            if "errors" in bad_row:
-                error_messages = []
-                error_codes = []
-                error_types = []
-                for error in bad_row["errors"]:
-                    error_messages.append(error.get("error_message", ""))
-                    error_codes.append(error.get("error_code") or error.get("violation_type", ""))
-                    error_types.append(error.get("type", ""))
+            flattened_rows.append(flat_row)
 
-                flattened["error_messages"] = "; ".join(error_messages)
-                flattened["error_codes"] = "; ".join(error_codes)
-                flattened["error_types"] = "; ".join(error_types)
-
-            flattened_rows.append(flattened)
-
-        # Convert to Arrow table
         table = pa.Table.from_pylist(flattened_rows)
-        pq.write_table(table, file_path)
+        pq.write_table(table, output_path)
+        return str(output_path)
 
-    def _write_csv(self, file_path: Path):
-        """Write bad rows in CSV format."""
+    def write_csv(self, output_path: Path) -> str:
+        """Write bad rows as CSV file."""
         if not self.bad_rows:
-            return
+            return str(output_path)
 
-        # Use the same flattening logic as Parquet
+        # Convert to table first
         flattened_rows = []
-        for bad_row in self.bad_rows:
-            flattened = {
-                "row_index": bad_row["row_index"],
-                "timestamp": bad_row["timestamp"]
+        for row in self.bad_rows:
+            flat_row = {
+                "row_index": row["row_index"],
+                "timestamp": row["timestamp"],
+                "error_count": len(row.get("errors", [])),
+                "error_types": ",".join([e["type"] for e in row.get("errors", [])]),
+                "error_messages": "; ".join([e["error_message"] for e in row.get("errors", [])])
             }
 
-            if "original_data" in bad_row:
-                for key, value in bad_row["original_data"].items():
-                    flattened[f"original_{key}"] = value
+            # Add original data columns if present
+            if "original_data" in row:
+                for key, value in row["original_data"].items():
+                    flat_row[f"original_{key}"] = value
 
-            if "errors" in bad_row:
-                error_messages = []
-                error_codes = []
-                for error in bad_row["errors"]:
-                    error_messages.append(error.get("error_message", ""))
-                    error_codes.append(error.get("error_code") or error.get("violation_type", ""))
+            flattened_rows.append(flat_row)
 
-                flattened["error_messages"] = "; ".join(error_messages)
-                flattened["error_codes"] = "; ".join(error_codes)
-
-            flattened_rows.append(flattened)
-
-        # Convert to Arrow table and write as CSV
         table = pa.Table.from_pylist(flattened_rows)
-        pv_csv.write_csv(table, file_path)
+        pv_csv.write_csv(table, output_path)
+        return str(output_path)
 
-    def _write_json(self, file_path: Path):
-        """Write bad rows in JSON format."""
-        with open(file_path, 'w', encoding='utf-8') as f:
+    def write_json(self, output_path: Path) -> str:
+        """Write bad rows as JSON file."""
+        output_path = output_path.with_suffix('.json')
+
+        with open(output_path, 'w') as f:
             json.dump(self.bad_rows, f, indent=2, default=str)
 
-    def _write_summary(self, file_path: Path):
-        """Write summary information."""
+        return str(output_path)
+
+    def write_summary(self, output_path: Optional[Union[str, Path]] = None) -> str:
+        """Write summary to JSON file.
+
+        Args:
+            output_path: Optional output path override
+
+        Returns:
+            Path to the written summary file
+        """
+        if not self.config.create_summary:
+            return ""
+
         summary = self.get_summary()
-        with open(file_path, 'w', encoding='utf-8') as f:
+
+        if output_path is None:
+            if self.config.output_path:
+                output_path = Path(self.config.output_path).with_suffix('.summary.json')
+            else:
+                output_path = Path("bad_rows_summary.json")
+        else:
+            output_path = Path(output_path)
+
+        with open(output_path, 'w') as f:
             json.dump(summary, f, indent=2)
+
+        return str(output_path)
+
+    def clear(self):
+        """Clear all bad rows and reset counters."""
+        self.bad_rows.clear()
+        self.validation_errors.clear()
+        self.constraint_violations.clear()
+        self.bad_row_count = 0
+        # Note: We don't reset row_count as it tracks total processed rows

@@ -99,52 +99,49 @@ def main() -> None:
         else:
             print(f"Error: Input kind '{args.input_kind}' not yet implemented in new ForkliftCore. Only 'csv' is currently supported.")
     elif args.cmd == "generate-schema":
-        # Validate output arguments
-        if args.output == "file" and not args.output_path:
-            print("Error: --output-path is required when --output=file")
-            return
-
-        # Create schema generation config
+        # Set up schema generation configuration
         config = SchemaGenerationConfig(
-            input_path=args.source,
+            file_path=args.source,
             file_type=FileType(args.file_type),
-            nrows=args.nrows,
+            nrows=args.nrows or 1000,
             output_target=OutputTarget(args.output),
             output_path=args.output_path,
             delimiter=args.delimiter,
             encoding=args.encoding,
             sheet_name=args.sheet,
             include_sample_data=args.include_sample,
-            infer_primary_key_from_metadata=args.infer_primary_key,  # Use new metadata-based inference
-            # New metadata generation options
+            infer_primary_key=args.infer_primary_key,
             generate_metadata=not args.no_metadata,
             metadata_output_path=args.metadata_output,
             enum_threshold=args.enum_threshold,
             uniqueness_threshold=args.uniqueness_threshold,
             top_n_values=args.top_n_values,
-            quantiles=args.quantiles if args.quantiles else None
+            quantiles=args.quantiles or [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
         )
 
+        # Create generator and run
+        generator = SchemaGenerator(config)
+
         try:
-            # Generate schema
-            generator = SchemaGenerator(config)
-            schema = generator.generate_schema()
-            generator.output_schema(schema)
-
-            # Generate and save separate metadata file if requested
-            if config.metadata_output_path:
-                # Read the data again for full metadata generation
-                if config.file_type == FileType.CSV:
-                    table = generator._read_csv_sample()
-                elif config.file_type == FileType.EXCEL:
-                    table = generator._read_excel_sample()
-                elif config.file_type == FileType.PARQUET:
-                    table = generator._read_parquet_sample()
-
-                metadata_file = generator.generate_and_save_metadata(table)
-                if metadata_file:
-                    print(f"Metadata file written to: {metadata_file}")
+            if args.output == "file":
+                if not args.output_path:
+                    print("Error: --output-path is required when --output=file")
+                    return
+                result = generator.generate_and_save_to_file()
+                print(f"Schema saved to: {result}")
+            elif args.output == "clipboard":
+                result = generator.generate_and_copy_to_clipboard()
+                print("Schema copied to clipboard")
+                print(f"Preview:\n{str(result)[:200]}...")
+            else:  # stdout
+                result = generator.generate_schema()
+                print(result)
 
         except Exception as e:
-            print(f"Error generating schema: {e}")
+            print(f"Error generating schema: {str(e)}")
             return
+
+
+def get():
+    """Get function for module access compatibility."""
+    return main

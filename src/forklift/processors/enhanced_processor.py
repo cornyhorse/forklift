@@ -99,205 +99,148 @@ class EnhancedDataProcessor(BaseProcessor):
         if valid_batch.num_rows > 0:
             # This is a simplified approach - in practice, we'd need to track
             # the mapping between original and valid rows more precisely
-            pass
+            valid_row_indices = set(range(valid_batch.num_rows))
 
-        # Collect validation errors by row
-        validation_by_row = {}
-        for result in validation_results:
-            if result.row_index is not None and not result.is_valid:
-                if result.row_index not in validation_by_row:
-                    validation_by_row[result.row_index] = []
-                validation_by_row[result.row_index].append(result)
+        # Collect bad rows
+        for i in range(original_batch.num_rows):
+            if i not in valid_row_indices:
+                # Extract row data
+                row_data = {}
+                for j, field in enumerate(original_batch.schema):
+                    try:
+                        value = original_batch.column(j)[i].as_py()
+                        row_data[field.name] = value
+                    except Exception:
+                        row_data[field.name] = None
 
-        # Collect constraint violations by row
-        constraint_violations_by_row = {}
-        for violation in self.constraint_validator.get_all_violations():
-            if violation.row_index is not None and violation.row_index not in constraint_violations_by_row:
-                constraint_violations_by_row[violation.row_index] = []
-                constraint_violations_by_row[violation.row_index].append(violation)
+                # Get validation results for this row
+                row_validation_results = [vr for vr in validation_results if vr.row_index == i]
 
-        # Add bad rows to handler
-        invalid_row_indices = set(validation_by_row.keys()) | set(constraint_violations_by_row.keys())
+                # Get constraint violations for this row
+                row_constraint_violations = [cv for cv in self.constraint_validator.get_all_violations() if cv.row_index == i]
 
-        for row_idx in invalid_row_indices:
-            # Ensure row_idx is an integer - handle various types
-            original_row_idx = row_idx
-            if isinstance(row_idx, str):
-                try:
-                    row_idx = int(row_idx)
-                except (ValueError, TypeError):
-                    continue
-            elif row_idx is None:
-                continue
-            elif not isinstance(row_idx, int):
-                try:
-                    row_idx = int(row_idx)
-                except (ValueError, TypeError):
-                    continue
-
-            if row_idx < 0 or row_idx >= original_batch.num_rows:
-                continue
-
-            # Extract row data
-            row_data = {}
-            for i, field in enumerate(original_batch.schema):
-                if i < original_batch.num_columns:
-                    value = original_batch.column(i)[row_idx]
-                    row_data[field.name] = value.as_py() if value.is_valid else None
-
-            # Add to bad rows handler
-            self.bad_rows_handler.add_bad_row(
-                row_data=row_data,
-                row_index=row_idx,
-                validation_results=validation_by_row.get(original_row_idx, []),
-                constraint_violations=constraint_violations_by_row.get(original_row_idx, [])
-            )
+                self.bad_rows_handler.add_bad_row(
+                    row_data=row_data,
+                    row_index=i,
+                    validation_results=row_validation_results,
+                    constraint_violations=row_constraint_violations
+                )
 
     def _extract_error_handling_mode(self) -> str:
-        """Extract error handling mode from schema configuration."""
-        if "x-constraintHandling" in self.schema_dict:
-            return self.schema_dict["x-constraintHandling"].get("errorMode", "bad_rows")
-        return "bad_rows"
+        """Extract error handling mode from schema."""
+        if not self.schema_dict:
+            return "bad_rows"
+
+        constraint_handling = self.schema_dict.get("x-constraintHandling", {})
+        return constraint_handling.get("errorMode", "bad_rows")
+
+    def extract_error_handling_mode(self) -> str:
+        """Extract error handling mode from schema (public method for tests)."""
+        return self._extract_error_handling_mode()
+
+    def handle_bad_rows(self, original_batch: pa.RecordBatch, valid_batch: pa.RecordBatch,
+                       validation_results: List[ValidationResult]):
+        """Handle bad rows (public method for tests)."""
+        return self._handle_bad_rows(original_batch, valid_batch, validation_results)
 
     def finalize(self) -> Dict[str, Any]:
-        """Finalize processing and return summary information.
+        """Finalize processing and return summary results."""
+        # Finalize constraint validator
+        self.constraint_validator.finalize()
 
-        Returns:
-            Dictionary containing processing summary and file paths
-        """
+        # Get bad rows summary
+        bad_rows_summary = self.bad_rows_handler.get_summary()
+
+        # Get constraint violations summary
+        constraint_violations_summary = self.constraint_validator.get_violation_summary()
+
         results = {
-            "processing_summary": self.bad_rows_handler.get_summary(),
-            "constraint_violations": len(self.constraint_validator.get_all_violations()),
-            "has_bad_rows": self.bad_rows_handler.has_bad_rows()
+            "constraint_validation_passed": len(self.constraint_validator.get_all_violations()) == 0,
+            "constraint_violations_count": len(self.constraint_validator.get_all_violations()),
+            "constraint_violations_summary": constraint_violations_summary,
+            "bad_rows_summary": bad_rows_summary,
+            "total_rows_processed": self.bad_rows_handler.row_count,
+            "bad_rows_count": self.bad_rows_handler.bad_row_count,
+            "error_handling_mode": self.error_mode
         }
 
-        # Finalize constraint validation (may raise exception in FAIL_COMPLETE mode)
-        try:
-            self.constraint_validator.finalize()
-            results["constraint_validation_passed"] = True
-        except Exception as e:
-            results["constraint_validation_passed"] = False
-            results["constraint_error"] = str(e)
-
-            # Re-raise if we're supposed to fail
-            if self.constraint_config.error_mode.value in ["fail_fast", "fail_complete"]:
-                raise
-
-        # Write bad rows if any exist
-        if self.bad_rows_handler.has_bad_rows():
-            bad_rows_file = self.bad_rows_handler.write_bad_rows()
-            if bad_rows_file:
-                results["bad_rows_file"] = str(bad_rows_file)
+        # Write bad rows if configured
+        if self.bad_rows_handler.config.output_path:
+            try:
+                bad_rows_file = self.bad_rows_handler.write_bad_rows()
+                results["bad_rows_file"] = bad_rows_file
+            except Exception as e:
+                logger.error(f"Failed to write bad rows: {e}")
+                results["bad_rows_file_error"] = str(e)
 
         return results
 
     def get_constraint_violations_summary(self) -> Dict[str, Any]:
-        """Get a summary of constraint violations."""
-        violations = self.constraint_validator.get_all_violations()
+        """Get summary of constraint violations."""
+        return self.constraint_validator.get_violation_summary()
 
-        summary = {
-            "total_violations": len(violations),
-            "violation_types": {},
-            "affected_constraints": set(),
-            "sample_violations": []
-        }
-
-        for violation in violations:
-            # Count by type
-            vtype = violation.violation_type
-            summary["violation_types"][vtype] = summary["violation_types"].get(vtype, 0) + 1
-
-            # Track affected constraints
-            if violation.constraint_name:
-                summary["affected_constraints"].add(violation.constraint_name)
-
-            # Sample violations (first 5 of each type)
-            if len([v for v in summary["sample_violations"] if v["type"] == vtype]) < 5:
-                summary["sample_violations"].append({
-                    "type": vtype,
-                    "row_index": violation.row_index,
-                    "columns": violation.columns,
-                    "values": violation.values,
-                    "message": violation.error_message
-                })
-
-        summary["affected_constraints"] = list(summary["affected_constraints"])
-        return summary
+    def get_bad_rows_summary(self) -> Dict[str, Any]:
+        """Get summary of bad rows."""
+        return self.bad_rows_handler.get_summary()
 
 
-def create_enhanced_processor_from_schema_file(schema_file_path: Union[str, Path],
-                                              bad_rows_output_path: Optional[Union[str, Path]] = None,
-                                              error_mode: str = "bad_rows") -> EnhancedDataProcessor:
+def create_enhanced_processor_from_schema_file(
+    schema_file_path: Union[str, Path],
+    bad_rows_config: Optional[BadRowsConfig] = None,
+    strict_mode: bool = True
+) -> EnhancedDataProcessor:
     """Create an enhanced processor from a schema file.
 
     Args:
-        schema_file_path: Path to schema JSON file
-        bad_rows_output_path: Optional path for bad rows output
-        error_mode: Error handling mode ("fail_fast", "fail_complete", "bad_rows")
+        schema_file_path: Path to JSON schema file
+        bad_rows_config: Configuration for bad rows handling
+        strict_mode: Whether to enforce strict validation
 
     Returns:
         Configured EnhancedDataProcessor
+
+    Raises:
+        FileNotFoundError: If schema file doesn't exist
+        ValueError: If schema file is invalid
     """
     import json
 
-    # Load schema
-    with open(schema_file_path, 'r') as f:
-        schema_dict = json.load(f)
+    schema_path = Path(schema_file_path)
+    if not schema_path.exists():
+        raise FileNotFoundError(f"Schema file not found: {schema_file_path}")
 
-    # Create PyArrow schema from JSON schema (simplified conversion)
-    # This would need to be more sophisticated in practice
+    try:
+        with open(schema_path, 'r') as f:
+            schema_dict = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in schema file: {e}")
+
+    # Convert schema dict to PyArrow schema
+    # This is a simplified conversion - in practice, you'd want more robust handling
     fields = []
     properties = schema_dict.get("properties", {})
 
     for field_name, field_def in properties.items():
-        # Basic type mapping - would need enhancement for complex types
-        field_type = _json_type_to_arrow_type(field_def)
-        nullable = field_name not in schema_dict.get("required", [])
-        fields.append(pa.field(field_name, field_type, nullable=nullable))
+        field_type = field_def.get("type", "string")
 
-    arrow_schema = pa.schema(fields)
+        if field_type == "string":
+            pa_type = pa.string()
+        elif field_type == "integer":
+            pa_type = pa.int64()
+        elif field_type == "number":
+            pa_type = pa.float64()
+        elif field_type == "boolean":
+            pa_type = pa.bool_()
+        else:
+            pa_type = pa.string()  # Default to string
 
-    # Configure bad rows handling
-    bad_rows_config = BadRowsConfig(
-        output_path=bad_rows_output_path,
-        output_format="parquet",
-        include_original_data=True,
-        include_error_details=True,
-        create_summary=True
-    )
+        fields.append(pa.field(field_name, pa_type))
 
-    # Override error mode if specified
-    if "x-constraintHandling" not in schema_dict:
-        schema_dict["x-constraintHandling"] = {}
-    schema_dict["x-constraintHandling"]["errorMode"] = error_mode
+    schema = pa.schema(fields)
 
     return EnhancedDataProcessor(
-        schema=arrow_schema,
+        schema=schema,
         schema_dict=schema_dict,
-        bad_rows_config=bad_rows_config
+        bad_rows_config=bad_rows_config,
+        strict_mode=strict_mode
     )
-
-
-def _json_type_to_arrow_type(field_def: Dict[str, Any]) -> pa.DataType:
-    """Convert JSON Schema type to PyArrow type."""
-    field_type = field_def.get("type", "string")
-
-    if field_type == "integer":
-        return pa.int64()
-    elif field_type == "number":
-        return pa.float64()
-    elif field_type == "boolean":
-        return pa.bool_()
-    elif field_type == "string":
-        format_type = field_def.get("format")
-        if format_type == "date":
-            return pa.date32()
-        elif format_type == "date-time":
-            return pa.timestamp('us')
-        else:
-            return pa.string()
-    elif field_type == "array":
-        # Simplified array handling
-        return pa.list_(pa.string())
-    else:
-        return pa.string()  # Default fallback

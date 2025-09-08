@@ -145,3 +145,4 @@ class CsvInputHandler:
             read_options=read_options,
             convert_options=convert_options,
         )
+

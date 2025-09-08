@@ -441,7 +441,7 @@ class TestS3ParquetWriter:
         if mock_session:  # Using mocked S3
             schema = pa.schema([('col1', pa.string()), ('col2', pa.int64())])
 
-            with patch('forklift.io.unified_io.S3Path') as mock_s3_path:
+            with patch('forklift.io.unified_io.parquet_operations.S3Path') as mock_s3_path:
                 with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
                     with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
                         with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer:

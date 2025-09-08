@@ -1,4 +1,4 @@
-"""CSV schema importer for processing CSV schema definitions.
+"""CSV schema importer package for processing CSV schema definitions.
 
 This module provides comprehensive schema import and validation capabilities
 for CSV-based data schemas. The original file has been refactored into a package
@@ -6,11 +6,11 @@ for better maintainability. All functionality is preserved for backward compatib
 """
 
 # Import all components from the refactored package
-from .csv_schema_importer.core import CsvSchemaImporter
-from .csv_schema_importer.exceptions import SchemaValidationError
-from .csv_schema_importer.validator import SchemaValidator
-from .csv_schema_importer.type_validator import ParquetTypeValidator
-from .csv_schema_importer.utils import SchemaDataExtractor
+from .core import CsvSchemaImporter
+from .exceptions import SchemaValidationError
+from .validator import SchemaValidator
+from .type_validator import ParquetTypeValidator
+from .utils import SchemaDataExtractor
 
 __all__ = [
     'CsvSchemaImporter',

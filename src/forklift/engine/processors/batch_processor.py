@@ -48,7 +48,7 @@ class BatchProcessor:
         """
         # Check if file is empty before processing
         if file_path.stat().st_size == 0:
-            return iter([])  # Return empty iterator for empty files
+            return  # Return empty generator for empty files
 
         # Skip to data start (after header/comments)
         skip_rows = 0
@@ -84,32 +84,41 @@ class BatchProcessor:
         # Create streaming reader
         try:
             with open(actual_file_path, 'rb') as f:
-                try:
-                    csv_reader = pv_csv.open_csv(
-                        f,
-                        parse_options=parse_options,
-                        read_options=read_options,
-                        convert_options=convert_options,
-                    )
+                csv_reader = pv_csv.open_csv(
+                    f,
+                    parse_options=parse_options,
+                    read_options=read_options,
+                    convert_options=convert_options,
+                )
 
-                    # Read in batches
-                    while True:
-                        try:
-                            batch = csv_reader.read_next_batch()
-                            if batch is None or len(batch) == 0:
-                                break
-                            yield batch
-                        except StopIteration:
+                # Read in batches
+                while True:
+                    try:
+                        batch = csv_reader.read_next_batch()
+                        if batch is None:
                             break
-                except pa.ArrowInvalid as e:
-                    if "Empty CSV file" in str(e):
-                        # Handle empty CSV files gracefully
-                        return iter([])
-                    elif "Expected" in str(e) and "columns, got" in str(e):
-                        # Handle column count mismatches with new row handling
-                        yield from self._handle_column_mismatch_reader(actual_file_path, skip_rows, column_names)
-                    else:
-                        raise
+                        # Only yield non-empty batches
+                        if len(batch) > 0:
+                            yield batch
+                    except StopIteration:
+                        break
+
+        except pa.ArrowInvalid as e:
+            if "Empty CSV file" in str(e):
+                # Handle empty CSV files gracefully
+                return
+            elif "Expected" in str(e) and "columns, got" in str(e):
+                # Before falling back to column mismatch handler, check if this might be
+                # due to data corruption (null bytes, encoding issues, etc.)
+                error_line = self._extract_error_line_from_exception(str(e))
+                if error_line and self._contains_problematic_content(error_line):
+                    # This appears to be data corruption, not a legitimate column mismatch
+                    raise
+
+                # Handle legitimate column count mismatches with new row handling
+                yield from self._handle_column_mismatch_reader(actual_file_path, skip_rows, column_names)
+            else:
+                raise
         finally:
             # Clean up temporary filtered file if created
             if self.config.footer_detection and actual_file_path != file_path:
@@ -153,7 +162,7 @@ class BatchProcessor:
             PyArrow RecordBatch objects
         """
         if not column_names:
-            return iter([])
+            return  # Return empty generator for empty column names
 
         rows_buffer = []
         batch_size = self.config.batch_size
@@ -218,7 +227,7 @@ class BatchProcessor:
             PyArrow RecordBatch objects
         """
         if not column_names:
-            return iter([])
+            return  # Return empty generator for empty column names
 
         expected_columns = len(column_names)
         rows_buffer = []
@@ -334,3 +343,51 @@ class BatchProcessor:
             os.close(temp_fd)
 
         return Path(temp_path)
+
+    def _extract_error_line_from_exception(self, error_message: str) -> str:
+        """Extract the problematic line content from PyArrow exception message.
+
+        Args:
+            error_message: The exception message from PyArrow
+
+        Returns:
+            The line content that caused the error, or empty string if not found
+        """
+        # PyArrow error messages often include the problematic line content
+        # Format: "CSV parse error: Expected X columns, got Y: actual_line_content"
+        if ": " in error_message:
+            parts = error_message.split(": ")
+            if len(parts) >= 3:
+                # The last part after the last colon should be the line content
+                return parts[-1].strip()
+        return ""
+
+    def _contains_problematic_content(self, line_content: str) -> bool:
+        """Check if line content contains problematic characters that indicate corruption.
+
+        Args:
+            line_content: The line content to check
+
+        Returns:
+            True if the content appears to be corrupted, False otherwise
+        """
+        if not line_content:
+            return False
+
+        # Check for null bytes and other control characters that shouldn't be in CSV
+        problematic_chars = {'\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07',
+                           '\x08', '\x0b', '\x0c', '\x0e', '\x0f', '\x10', '\x11', '\x12',
+                           '\x13', '\x14', '\x15', '\x16', '\x17', '\x18', '\x19', '\x1a',
+                           '\x1b', '\x1c', '\x1d', '\x1e', '\x1f'}
+
+        # Check if any problematic characters are present
+        for char in line_content:
+            if char in problematic_chars:
+                return True
+
+        # Check for other signs of corruption like invalid UTF-8 sequences
+        # that might have been converted to replacement characters
+        if '\ufffd' in line_content:  # Unicode replacement character
+            return True
+
+        return False

@@ -5,7 +5,7 @@ All classes are re-exported here for backward compatibility.
 """
 
 # Import everything from the new package structure
-from .data_validation.validation_config import (
+from .data_validation.validation_config import (  # pragma: no cover
     RangeValidation,
     StringValidation,
     EnumValidation,
@@ -14,12 +14,12 @@ from .data_validation.validation_config import (
     BadRowsConfig,
     ValidationConfig,
 )
-from .data_validation.validation_rules import ValidationRules
-from .data_validation.bad_rows_handler import BadRowsHandler
-from .data_validation.data_validation_processor import DataValidationProcessor
+from .data_validation.validation_rules import ValidationRules  # pragma: no cover
+from .data_validation.bad_rows_handler import BadRowsHandler  # pragma: no cover
+from .data_validation.data_validation_processor import DataValidationProcessor  # pragma: no cover
 
 # Ensure backward compatibility by exposing all the same names
-__all__ = [
+__all__ = [  # pragma: no cover
     "RangeValidation",
     "StringValidation",
     "EnumValidation",

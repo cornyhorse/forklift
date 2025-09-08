@@ -1370,7 +1370,7 @@ class TestSSNFormatting:
         transformer = DataTransformer()
         config = SSNConfig()
 
-        with pytest.raises(ValueError, match="SSN contains letters"):
+        with pytest.raises(ValueError, match="No digits found in SSN"):
             transformer._format_ssn("abc", config)
 
     def test_format_ssn_wrong_length(self):

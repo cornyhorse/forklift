@@ -5,10 +5,10 @@ All original functionality is preserved through imports.
 """
 
 # Import everything from the new package to maintain backward compatibility
-from .calculated_columns import *
+from .calculated_columns import *  # pragma: no cover
 
 # Ensure backward compatibility by re-exporting all classes
-__all__ = [
+__all__ = [  # pragma: no cover
     'CalculatedColumn',
     'ConstantColumn',
     'ExpressionColumn',

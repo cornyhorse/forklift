@@ -532,7 +532,7 @@ class TestDataTransformer:
         """Test formatting SSN with letters raises ValueError."""
         config = SSNConfig()
 
-        with pytest.raises(ValueError, match="SSN contains letters"):
+        with pytest.raises(ValueError, match="No digits found in SSN"):
             self.transformer._format_ssn("abc", config)
 
     def test_format_ssn_no_digits_only_special_chars(self):

@@ -227,3 +227,18 @@ class ValidationFactory:
         config.update(kwargs)
 
         return ValidationFactory.create_validator(validator_type, config)
+
+
+# Add missing factory function that tests expect as a module-level function
+def create_validation_processor_from_schema(schema_dict: Dict[str, Any], **kwargs):
+    """Create a validation processor from a schema dictionary.
+
+    Args:
+        schema_dict: Schema dictionary containing validation rules
+        **kwargs: Additional configuration options
+
+    Returns:
+        Configured validation processor
+    """
+    # This is a compatibility wrapper - tests can use the ValidationFactory directly
+    return ValidationFactory.create_validator("schema", {"schema": schema_dict}, **kwargs)

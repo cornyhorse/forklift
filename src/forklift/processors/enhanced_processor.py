@@ -244,3 +244,26 @@ def create_enhanced_processor_from_schema_file(
         bad_rows_config=bad_rows_config,
         strict_mode=strict_mode
     )
+
+
+# Add missing utility function that tests expect
+def _json_type_to_arrow_type(json_type: str) -> pa.DataType:
+    """Convert JSON schema type to PyArrow data type.
+
+    Args:
+        json_type: JSON schema type string
+
+    Returns:
+        Corresponding PyArrow data type
+    """
+    type_mapping = {
+        "string": pa.string(),
+        "integer": pa.int64(),
+        "number": pa.float64(),
+        "boolean": pa.bool_(),
+        "array": pa.list_(pa.string()),  # Default to list of strings
+        "object": pa.string(),  # Serialize objects as JSON strings
+        "null": pa.null()
+    }
+
+    return type_mapping.get(json_type, pa.string())

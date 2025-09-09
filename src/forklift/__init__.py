@@ -10,7 +10,7 @@ from .api import (
     generate_and_copy_schema
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
 
 __all__ = [
     # Primary ETL pipeline functions (write to Parquet files)

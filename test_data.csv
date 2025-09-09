@@ -1,6 +1,0 @@
-id,name,age,salary,category,active,score
-1,John Doe,25,50000,A,True,85.5
-2,Jane Smith,30,75000,B,True,92.0
-3,Bob Johnson,35,60000,A,False,78.5
-4,Alice Brown,28,55000,C,True,88.0
-5,Charlie Davis,42,85000,B,True,95.5

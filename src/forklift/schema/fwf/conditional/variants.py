@@ -37,7 +37,7 @@ class VariantManager:
         Returns:
             List of all valid flag values
         """
-        return [variant.get("flagValue") for variant in self.schema_variants if variant.get("flagValue")]
+        return [variant.get("flagValue") for variant in self.schema_variants if variant.get("flagValue") is not None]
 
     def get_variant_fields(self, flag_value: str) -> List[Dict[str, Any]]:
         """Get the fields for a specific variant.

@@ -126,13 +126,13 @@ class ConfigurationParser:
                 elif uniqueness_ratio >= 0.95:
                     score += 5
 
-                # Bonus for good naming patterns
-                if 'id' in column_name.lower():
-                    score += 5
+                # Bonus for good naming patterns - check specific patterns first
+                if any(pattern in column_name.lower() for pattern in ['uuid', 'guid']):
+                    score += 4
                 elif any(pattern in column_name.lower() for pattern in ['key', 'pk']):
                     score += 3
-                elif any(pattern in column_name.lower() for pattern in ['uuid', 'guid']):
-                    score += 4
+                elif 'id' in column_name.lower():
+                    score += 5
 
                 # Penalty for very large distinct counts
                 if distinct_count > 100000:

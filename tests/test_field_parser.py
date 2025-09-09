@@ -1,6 +1,5 @@
 """Tests for FWF field parsing utilities."""
 
-import pytest
 from unittest.mock import patch
 
 from forklift.schema.fwf.fields.parser import FieldParser

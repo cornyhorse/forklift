@@ -1,7 +1,5 @@
 """Tests for FWF field position calculation utilities."""
 
-import pytest
-
 from forklift.schema.fwf.fields.positions import PositionCalculator
 
 

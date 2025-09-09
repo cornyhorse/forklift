@@ -1,74 +1,134 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "forklift"
 version = "0.1.0"
-description = "Data processing pipeline with PyArrow"
-authors = [{name = "Forklift Team"}]
+description = "A powerful data processing and schema generation tool with PyArrow streaming, validation, and S3 support"
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "Matt", email = "matt@mattkingsbury.com"}
+]
+maintainers = [
+    {name = "Matt", email = "matt@mattkingsbury.com"}
+]
+keywords = [
+    "data-processing",
+    "etl",
+    "schema-generation",
+    "validation",
+    "pyarrow",
+    "csv",
+    "excel",
+    "parquet",
+    "s3"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Database",
+    "Topic :: Utilities"
+]
+requires-python = ">=3.8"
 dependencies = [
     "pyarrow>=10.0.0",
-    "pandas>=1.5.0",
+    "pandas>=1.3.0",
+    "jsonschema>=4.0.0",
+    "boto3>=1.20.0",
+    "botocore>=1.23.0",
     "python-dateutil>=2.8.0",
+    "typing-extensions>=4.0.0; python_version < '3.10'"
 ]
 
 [project.optional-dependencies]
-test = [
+excel = ["openpyxl>=3.0.0"]
+clipboard = ["pyperclip>=1.8.0"]
+polars = ["polars>=0.18.0"]
+spark = ["pyspark>=3.0.0"]
+dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "coverage[toml]>=7.0.0"
+    "black>=22.0.0",
+    "flake8>=5.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=2.20.0"
 ]
+all = [
+    "openpyxl>=3.0.0",
+    "pyperclip>=1.8.0",
+    "polars>=0.18.0",
+    "pyspark>=3.0.0"
+]
+
+[project.urls]
+Homepage = "https://github.com/cornyhorse/forklift"
+Documentation = "https://github.com/cornyhorse/forklift/blob/main/docs/"
+Repository = "https://github.com/cornyhorse/forklift"
+"Bug Tracker" = "https://github.com/cornyhorse/forklift/issues"
+Changelog = "https://github.com/cornyhorse/forklift/blob/main/CHANGELOG.md"
+
+[project.scripts]
+forklift = "forklift.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/forklift"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/docs",
+    "/examples",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md"
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+include = '\.pyi?$'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "--cov=src/forklift",
-    "--cov-report=html",
-    "--cov-report=term-missing",
-    "--cov-config=pyproject.toml",
-    "--strict-markers",
-    "--disable-warnings"
-]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "integration: marks tests as integration tests",
-    "s3: marks tests as requiring S3 access",
-    "mock: marks tests as using mocks",
-    "unit: marks tests as unit tests",
-    "excel: marks tests as Excel-related",
-    "fwf: marks tests as fixed-width file related",
-    "csv: marks tests as CSV-related",
-    "sql: marks tests as SQL-related",
-    "performance: marks tests as performance tests (deselect with '-m \"not performance\"')"
-]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "--strict-markers --strict-config --cov=forklift --cov-report=term-missing --cov-report=html"
 
-[tool.coverage.run]
-source = ["src/forklift"]
-branch = true
-omit = [
-    "*/tests/*",
-    "*/test_*",
-    "*/__pycache__/*",
-    "*/site-packages/*",
-    "*/venv/*",
-    "*/.venv/*"
-]
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
 
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
+[[tool.mypy.overrides]]
+module = [
+    "polars.*",
+    "pyarrow.*",
+    "pandas.*",
+    "boto3.*",
+    "botocore.*"
 ]
-show_missing = true
-precision = 2
-
-[tool.coverage.html]
-directory = "htmlcov"
+ignore_missing_imports = true

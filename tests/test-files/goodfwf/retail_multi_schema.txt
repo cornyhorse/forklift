@@ -1,0 +1,14 @@
+# Retail Inventory Multi-Schema FWF Test Data
+# Record types: H=Header, P=Product, I=Inventory, A=Adjustment, T=Trailer
+# Complex product inventory file with adjustments
+H20241201INV001 Quarterly Inventory Report     Store Manager System
+P000001WIDGET_A         Electronics     000012500Regular Item
+I000001000000050000001000000000450STK 20241201Initial Stock
+A000001000000010000000100000000045ADJ+20241201Damaged Return
+P000002GADGET_B         Home & Garden   000008750Seasonal Item
+I000002000000025000000500000000200STK 20241201Initial Stock
+A000002000000005000000050000000040ADJ-20241201Shrinkage
+P000003TOOL_C           Hardware        000015200Professional Tool
+I000003000000100000002000000002000STK 20241201Initial Stock
+T20241201000003000000175000003500000000700020241201Inventory Complete
+

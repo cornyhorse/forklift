@@ -1,4 +1,5 @@
 {
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/parquet_types.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Parquet Types CSV Row",
   "type": "object",
@@ -14,11 +15,11 @@
     "ts_millis_col": { "type": "string", "format": "date-time" },
     "ts_micros_col": { "type": "string", "format": "date-time" },
     "string_utf8_col": { "type": "string" },
-    "binary_base64_col": { "type": "binary" },
-    "fixed_len_16_hex_col": { "type": "binary" },
-    "decimal_9_2_col": { "type": "decimal", "precision": 9, "scale": 2 },
-    "decimal_18_6_col": { "type": "decimal", "precision": 18, "scale": 6 },
-    "decimal_38_10_col": { "type": "decimal", "precision": 38, "scale": 10 },
+    "binary_base64_col": { "type": "string", "format": "byte" },
+    "fixed_len_16_hex_col": { "type": "string", "format": "byte" },
+    "decimal_9_2_col": { "type": "number" },
+    "decimal_18_6_col": { "type": "number" },
+    "decimal_38_10_col": { "type": "number" },
     "uuid_col": { "type": "string", "format": "uuid" },
     "json_col": { "type": "string" },
     "list_int_col": { "type": "string" },
@@ -32,4 +33,3 @@
     "nulls": { "global": [""] }
   }
 }
-

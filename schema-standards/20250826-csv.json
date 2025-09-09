@@ -1,30 +1,767 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-csv.json",
-  "title": "Forklift CSV Row",
+  "title": "Forklift CSV Row - Comprehensive Parquet Data Types",
+  "description": "Schema for CSV file processing demonstrating all supported Parquet data types with delimiter handling, encoding detection, header scanning, and data type validation for Parquet output.",
   "type": "object",
   "properties": {
     "id": { "type": "integer", "minimum": 1 },
     "name": { "type": "string", "minLength": 1 },
-    "dob": { "type": "string", "format": "date" },
-    "email": { "type": "string", "format": "email", "x-private": true },
-    "amount": { "type": "number", "minimum": 0 }
+    "age": { "type": "integer", "minimum": 0, "maximum": 150 },
+    "salary": { "type": "number", "minimum": 0 },
+    "is_active": { "type": "boolean" },
+    "birth_date": { "type": "string", "format": "date" },
+    "created_timestamp": { "type": "string", "format": "date-time" },
+    "duration_seconds": { "type": "integer", "minimum": 0 },
+    "score": { "type": "number", "multipleOf": 0.01 },
+    "category": { "type": "string", "enum": ["A", "B", "C"] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "metadata": { "type": "object", "additionalProperties": true },
+    "binary_data": { "type": "string", "contentEncoding": "base64" },
+    "uuid": { "type": "string", "format": "uuid" },
+    "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$" },
+    "ssn": {
+      "type": "string",
+      "x-special-type": "ssn",
+      "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+      "description": "Social Security Number in XXX-XX-XXXX format"
+    },
+    "zip_code": {
+      "type": "string",
+      "x-special-type": "zip-permissive",
+      "pattern": "^\\d{5}(-\\d{4})?$",
+      "description": "ZIP code in XXXXX or XXXXX-XXXX format"
+    },
+    "zip_5": {
+      "type": "string",
+      "x-special-type": "zip-5",
+      "pattern": "^\\d{5}$",
+      "description": "5-digit ZIP code"
+    },
+    "zip_9": {
+      "type": "string",
+      "x-special-type": "zip-9",
+      "pattern": "^\\d{5}-\\d{4}$",
+      "description": "9-digit ZIP+4 code in XXXXX-XXXX format"
+    },
+    "phone_number": {
+      "type": "string",
+      "x-special-type": "phone",
+      "pattern": "^(1?\\(\\d{3}\\) \\d{3}-\\d{4}|\\d{10,11})$",
+      "description": "US phone number in (XXX) XXX-XXXX or 1(XXX) XXX-XXXX format"
+    },
+    "email_address": {
+      "type": "string",
+      "x-special-type": "email",
+      "format": "email",
+      "description": "Email address with validation and normalization"
+    },
+    "ipv4_address": {
+      "type": "string",
+      "x-special-type": "ipv4",
+      "pattern": "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$",
+      "description": "IPv4 address in dotted decimal notation"
+    },
+    "ipv6_address": {
+      "type": "string",
+      "x-special-type": "ipv6",
+      "description": "IPv6 address with normalization and compression"
+    },
+    "ip_address": {
+      "type": "string",
+      "x-special-type": "ip",
+      "description": "IP address (IPv4 or IPv6) with auto-detection"
+    },
+    "mac_address": {
+      "type": "string",
+      "x-special-type": "mac-address",
+      "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
+      "description": "MAC address in colon or dash separated format"
+    }
   },
-  "required": ["id", "name", "amount"],
+  "required": ["id", "name"],
   "additionalProperties": false,
+
+  "x-primaryKey": {
+    "description": "Primary key configuration for data uniqueness and referential integrity",
+    "columns": ["id"],
+    "type": "single",
+    "enforceUniqueness": true,
+    "allowNulls": false,
+    "description_detail": "Single column primary key on 'id' field ensuring row uniqueness"
+  },
+
+  "x-constraintHandling": {
+    "description": "Configuration for handling constraint violations and data quality issues",
+    "errorMode": "bad_rows",
+    "primaryKeyViolations": {
+      "duplicates": "bad_rows",
+      "nulls": "bad_rows"
+    },
+    "uniqueConstraintViolations": "bad_rows",
+    "notNullViolations": "bad_rows",
+    "badRowsOutput": {
+      "enabled": true,
+      "format": "parquet",
+      "includeOriginalData": true,
+      "includeErrorDetails": true,
+      "maxBadRows": null,
+      "createSummary": true
+    },
+    "validationOptions": {
+      "continueOnError": true,
+      "collectAllErrors": true,
+      "maxErrorsPerRow": 10
+    }
+  },
+
+  "x-uniqueConstraints": [
+    {
+      "name": "unique_email",
+      "columns": ["name", "birth_date"],
+      "description": "Ensure unique combination of name and birth date"
+    }
+  ],
+
+  "x-metadata-generation": {
+    "description": "Configuration for metadata file generation during processing",
+    "enabled": true,
+    "output_path": "auto",
+    "enum_detection": {
+      "enabled": true,
+      "uniqueness_threshold": 0.1,
+      "max_distinct_values": 50
+    },
+    "statistics": {
+      "numeric": {
+        "enabled": true,
+        "include_quantiles": true,
+        "quantiles": [0.25, 0.5, 0.75, 0.9, 0.95, 0.99],
+        "include_outlier_detection": true
+      },
+      "string": {
+        "enabled": true,
+        "include_length_stats": true,
+        "include_pattern_analysis": true
+      },
+      "categorical": {
+        "enabled": true,
+        "top_n_values": 10,
+        "include_frequency_analysis": true
+      }
+    },
+    "performance": {
+      "skip_if_too_large": true,
+      "max_rows_for_full_analysis": 1000000,
+      "sample_size_for_large_files": 10000
+    }
+  },
 
   "x-csv": {
     "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
     "delimiter": "auto",
     "quotechar": "\"",
-    "escapechar": "\\\\",
+    "escapechar": "\\",
     "multiline": true,
-    "header": { "mode": "stability_scan", "keywords": ["id", "name", "amount"] },
+    "header": { "mode": "stability_scan", "keywords": ["id", "name", "age", "salary"] },
     "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" },
     "nulls": {
-      "global": ["", "NA", "N/A", "-"],
-      "perColumn": { "amount": ["", "NA"] }
+      "global": ["", "NA", "N/A", "-", "NULL"],
+      "perColumn": {
+        "salary": ["", "0.00"],
+        "tags": ["", "[]"],
+        "metadata": ["", "{}"]
+      }
     },
-    "case": { "standardizeNames": "postgres", "dedupeNames": "suffix" }
+    "case": { "standardizeNames": "postgres", "dedupeNames": "suffix" },
+    "parquetTypeMapping": {
+      "id": "int64",
+      "name": "string",
+      "age": "int32",
+      "salary": "double",
+      "is_active": "bool",
+      "birth_date": "date32",
+      "created_timestamp": "timestamp[us]",
+      "duration_seconds": "duration[s]",
+      "score": "float32",
+      "category": "dictionary<values=string, indices=int32>",
+      "tags": "list<string>",
+      "metadata": "struct",
+      "binary_data": "binary",
+      "uuid": "string",
+      "decimal_amount": "decimal128(10,2)"
+    }
+  },
+
+  "x-pii": {
+    "description": "Personally Identifiable Information (PII) field marking for data privacy and masking applications",
+    "fields": {
+      "name": {
+        "isPII": true,
+        "category": "direct_identifier",
+        "description": "Full name is direct PII requiring masking"
+      },
+      "birth_date": {
+        "isPII": true,
+        "category": "quasi_identifier",
+        "description": "Birth date can be used to identify individuals when combined with other data"
+      },
+      "salary": {
+        "isPII": true,
+        "category": "sensitive",
+        "description": "Financial information requiring protection"
+      },
+      "uuid": {
+        "isPII": false,
+        "category": "identifier",
+        "description": "System-generated UUID, not personally identifying but may link records"
+      }
+    },
+    "maskingRules": {
+      "direct_identifier": {
+        "method": "hash",
+        "preserveFormat": false,
+        "description": "Hash direct identifiers to protect individual privacy"
+      },
+      "quasi_identifier": {
+        "method": "generalize",
+        "preserveFormat": true,
+        "description": "Generalize quasi-identifiers (e.g., birth year only)"
+      },
+      "sensitive": {
+        "method": "range",
+        "preserveFormat": true,
+        "description": "Replace with ranges or categories to maintain utility while protecting privacy"
+      }
+    }
+  },
+
+  "x-rowHash": {
+    "description": "Configuration for generating row-level hash columns and metadata for change detection and data integrity",
+    "enabled": false,
+    "columnName": "row_hash",
+    "algorithm": "sha256",
+    "includeColumns": null,
+    "excludeColumns": [],
+    "nullValue": "NULL",
+    "separator": "||",
+    "inputHashEnabled": false,
+    "inputHashColumnName": "_input_hash",
+    "sourceUriEnabled": false,
+    "sourceUriColumnName": "_source_uri",
+    "ingestedAtEnabled": false,
+    "ingestedAtColumnName": "_ingested_at_utc",
+    "rowNumberEnabled": false,
+    "sourceRowNumberColumnName": "_rownum_in_source_file",
+    "processingRowNumberColumnName": "_rownum",
+    "description_detail": "Row hash and metadata columns disabled by default. When enabled, can generate: output row hash (SHA256 default), input row hash, source URI, ingestion timestamp, and row numbers. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
+  },
+
+  "x-calculatedColumns": {
+    "description": "Configuration for adding calculated columns including constants, expressions, and computed fields",
+    "constants": [
+      {
+        "name": "data_source",
+        "value": "census_2020",
+        "dataType": "string",
+        "description": "Source identifier for data lineage and partitioning"
+      },
+      {
+        "name": "load_date",
+        "value": "2024-08-26",
+        "dataType": "date32",
+        "description": "Date when data was loaded for temporal partitioning"
+      },
+      {
+        "name": "processing_version",
+        "value": "v1.0",
+        "dataType": "string",
+        "description": "Version of processing pipeline for change tracking"
+      }
+    ],
+    "expressions": [
+      {
+        "name": "full_name",
+        "expression": "name",
+        "dataType": "string",
+        "dependencies": ["name"],
+        "description": "Full name field derived from existing name column"
+      },
+      {
+        "name": "age_category",
+        "expression": "CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END",
+        "dataType": "string",
+        "dependencies": ["age"],
+        "description": "Categorical age grouping for analytics"
+      },
+      {
+        "name": "salary_tier",
+        "expression": "CASE WHEN salary < 50000 THEN 'entry' WHEN salary < 100000 THEN 'mid' ELSE 'senior' END",
+        "dataType": "string",
+        "dependencies": ["salary"],
+        "description": "Salary tier classification for reporting"
+      }
+    ],
+    "calculated": [
+      {
+        "name": "years_since_created",
+        "function": "years_from_timestamp",
+        "dependencies": ["created_timestamp"],
+        "dataType": "int32",
+        "description": "Years elapsed since record creation"
+      },
+      {
+        "name": "name_length",
+        "function": "string_length",
+        "dependencies": ["name"],
+        "dataType": "int32",
+        "description": "Character count of name field"
+      }
+    ],
+    "partitionColumns": ["data_source", "load_date"],
+    "indexColumns": ["id", "name"],
+    "options": {
+      "skipIfExists": false,
+      "validateDependencies": true,
+      "allowNullDependencies": true
+    }
+  },
+
+  "x-transformations": {
+    "description": "Data transformation and standardization configuration for comprehensive data cleaning and normalization",
+    "stringCleaning": {
+      "description": "String cleaning and normalization options",
+      "normalizeQuotes": true,
+      "normalizeDashes": true,
+      "normalizeSpaces": true,
+      "collapseWhitespace": true,
+      "stripWhitespace": true,
+      "removeZeroWidth": true,
+      "removeControlChars": true,
+      "preserveNewlines": true,
+      "unicodeNormalize": "NFKC"
+    },
+    "caseTransformation": {
+      "description": "Case normalization and transformation options",
+      "caseTransform": "title",
+      "fixCaseIssues": true,
+      "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
+      "customCaseMappings": {
+        "ca": "CA",
+        "ny": "NY",
+        "tx": "TX",
+        "usa": "USA",
+        "uk": "UK"
+      },
+      "caseMappingMode": "exact"
+    },
+    "numericCleaning": {
+      "description": "Numeric field cleaning and standardization",
+      "thousandsSeparator": ",",
+      "decimalSeparator": ".",
+      "allowNaN": true,
+      "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!"],
+      "stripWhitespace": true
+    },
+    "moneyType": {
+      "description": "Currency and monetary value cleaning",
+      "currencySymbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
+      "thousandsSeparator": ",",
+      "decimalSeparator": ".",
+      "parenthesesNegative": true,
+      "stripWhitespace": true
+    },
+    "dateTimeParsing": {
+      "description": "DateTime parsing and standardization configuration",
+      "mode": "common_formats",
+      "allowFuzzy": false,
+      "fromEpoch": false,
+      "targetType": "datetime",
+      "timezone": "UTC",
+      "commonFormats": [
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%d/%m/%Y",
+        "%Y-%m-%d %H:%M:%S",
+        "%m/%d/%Y %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%SZ"
+      ]
+    },
+    "htmlXmlCleaning": {
+      "description": "HTML/XML tag and entity cleaning",
+      "stripTags": true,
+      "decodeEntities": true,
+      "preserveWhitespace": false
+    },
+    "stringPadding": {
+      "description": "String padding and formatting options",
+      "enabled": false,
+      "width": 10,
+      "fillChar": " ",
+      "side": "left"
+    },
+    "regexReplacements": [
+      {
+        "description": "Remove extra whitespace",
+        "pattern": "\\s+",
+        "replacement": " ",
+        "flags": 0
+      },
+      {
+        "description": "Standardize phone numbers",
+        "pattern": "[^\\d]",
+        "replacement": "",
+        "flags": 0,
+        "applyToColumns": ["phone", "mobile", "telephone"]
+      }
+    ],
+    "stringReplacements": [
+      {
+        "description": "Replace common abbreviations",
+        "old": "St.",
+        "new": "Street",
+        "applyToColumns": ["address", "street"]
+      },
+      {
+        "description": "Standardize state names",
+        "old": "California",
+        "new": "CA",
+        "applyToColumns": ["state", "state_name"]
+      }
+    ],
+    "columnSpecific": {
+      "name": {
+        "transformations": ["stringCleaning", "caseTransformation"],
+        "caseTransform": "title"
+      },
+      "email": {
+        "transformations": ["stringCleaning"],
+        "caseTransform": "lower"
+      },
+      "salary": {
+        "transformations": ["moneyType", "numericCleaning"]
+      },
+      "birth_date": {
+        "transformations": ["dateTimeParsing"],
+        "dateTimeConfig": {
+          "mode": "specify_formats",
+          "formats": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
+        }
+      },
+      "created_timestamp": {
+        "transformations": ["dateTimeParsing"],
+        "dateTimeConfig": {
+          "mode": "common_formats",
+          "targetType": "timestamp"
+        }
+      },
+      "ssn": {
+        "transformations": ["ssn_formatting"],
+        "ssnConfig": {
+          "format_with_dashes": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_code": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-permissive",
+          "format_with_dash": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_5": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-5",
+          "format_with_dash": false,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      },
+      "zip_9": {
+        "transformations": ["zip_code_formatting"],
+        "zipCodeConfig": {
+          "zip_type": "zip-9",
+          "format_with_dash": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
+      }
+    }
+  },
+
+  "x-columnMapping": {
+    "description": "Column name mapping and standardization configuration",
+    "explicitMappings": {
+      "FirstName": "first_name",
+      "LastName": "last_name",
+      "DOB": "birth_date",
+      "SSN": "social_security_number",
+      "Addr1": "address_line_1",
+      "Addr2": "address_line_2",
+      "City": "city",
+      "State": "state",
+      "ZIP": "zip_code",
+      "Phone": "phone_number",
+      "Email": "email_address"
+    },
+    "namingConvention": "snake_case",
+    "caseSensitive": false,
+    "allowUnmapped": true,
+    "dropUnmapped": false,
+    "standardizationRules": {
+      "removeSpecialChars": true,
+      "replaceSpaces": "_",
+      "maxLength": 64,
+      "reservedWords": ["index", "table", "column", "select", "from", "where"],
+      "reservedWordPrefix": "col_"
+    }
+  },
+
+  "x-dataQuality": {
+    "description": "Data quality validation and metrics configuration",
+    "completeness": {
+      "enabled": true,
+      "requiredFields": ["id", "name"],
+      "minimumFillRate": 0.95,
+      "reportMissingValues": true
+    },
+    "uniqueness": {
+      "enabled": true,
+      "uniqueFields": ["id", "email"],
+      "allowDuplicates": false,
+      "duplicateHandling": "error"
+    },
+    "consistency": {
+      "enabled": true,
+      "dataTypeValidation": true,
+      "formatValidation": true,
+      "rangeValidation": true
+    },
+    "accuracy": {
+      "enabled": true,
+      "emailValidation": true,
+      "phoneValidation": true,
+      "dateValidation": true,
+      "numericValidation": true
+    },
+    "fieldSpecificRules": {
+      "age": {
+        "min": 0,
+        "max": 150,
+        "dataType": "integer"
+      },
+      "salary": {
+        "min": 0,
+        "max": 10000000,
+        "dataType": "number"
+      },
+      "email": {
+        "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+        "required": false
+      },
+      "phone": {
+        "pattern": "^\\+?[1-9]\\d{1,14}$",
+        "standardizeFormat": true
+      }
+    }
+  },
+
+  "x-validation": {
+    "description": "Comprehensive field validation rules with bad row handling for data quality enforcement",
+    "badRowsHandling": {
+      "enabled": true,
+      "outputPath": "bad_rows",
+      "fileFormat": "parquet",
+      "includeOriginalRow": true,
+      "includeValidationErrors": true,
+      "maxBadRowsPercent": 10.0,
+      "failOnExceedThreshold": true
+    },
+    "uniquenessHandling": {
+      "strategy": "first_wins",
+      "options": ["first_wins", "last_wins", "fail_on_duplicate", "mark_all_duplicates"]
+    },
+    "fieldValidations": {
+      "id": {
+        "required": true,
+        "unique": true,
+        "range": {
+          "min": 1,
+          "max": 999999999,
+          "inclusive": true
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "range": "bad_rows"
+        }
+      },
+      "name": {
+        "required": true,
+        "unique": false,
+        "stringValidation": {
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^[A-Za-z\\s\\-\\.]+$",
+          "allowEmpty": false
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "age": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0,
+          "max": 150,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "salary": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0,
+          "max": 10000000,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "email": {
+        "required": true,
+        "unique": true,
+        "stringValidation": {
+          "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+          "maxLength": 254
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "birth_date": {
+        "required": false,
+        "unique": false,
+        "dateValidation": {
+          "minDate": "1900-01-01",
+          "maxDate": "2100-12-31",
+          "format": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
+        },
+        "onViolation": {
+          "dateValidation": "bad_rows"
+        }
+      },
+      "score": {
+        "required": false,
+        "unique": false,
+        "range": {
+          "min": 0.0,
+          "max": 100.0,
+          "inclusive": true
+        },
+        "onViolation": {
+          "range": "bad_rows"
+        }
+      },
+      "category": {
+        "required": true,
+        "unique": false,
+        "enumValidation": {
+          "allowedValues": ["A", "B", "C"],
+          "caseSensitive": true
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "enumValidation": "bad_rows"
+        }
+      },
+      "ssn": {
+        "required": false,
+        "unique": true,
+        "stringValidation": {
+          "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+          "maxLength": 11
+        },
+        "onViolation": {
+          "required": "bad_rows",
+          "unique": "bad_rows",
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_code": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}(-\\d{4})?$",
+          "maxLength": 10
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_5": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}$",
+          "maxLength": 5
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      },
+      "zip_9": {
+        "required": false,
+        "unique": false,
+        "stringValidation": {
+          "pattern": "^\\d{5}-\\d{4}$",
+          "maxLength": 10
+        },
+        "onViolation": {
+          "stringValidation": "bad_rows"
+        }
+      }
+    },
+    "crossFieldValidations": [
+      {
+        "name": "salary_age_consistency",
+        "description": "Salary should be reasonable for age",
+        "rule": "IF age < 16 THEN salary MUST BE NULL OR 0",
+        "dependencies": ["age", "salary"],
+        "onViolation": "bad_rows"
+      },
+      {
+        "name": "birth_date_age_consistency",
+        "description": "Birth date should be consistent with age",
+        "rule": "CALCULATED_AGE(birth_date) SHOULD BE WITHIN 1 YEAR OF age",
+        "dependencies": ["birth_date", "age"],
+        "onViolation": "warning"
+      }
+    ],
+    "globalValidations": {
+      "maxNullFieldsPerRow": 3,
+      "requiredFieldsCompletePercent": 95.0,
+      "onViolation": {
+        "maxNullFieldsPerRow": "bad_rows",
+        "requiredFieldsCompletePercent": "warning"
+      }
+    }
   }
 }

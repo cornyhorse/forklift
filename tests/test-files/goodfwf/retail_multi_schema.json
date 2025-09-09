@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Retail Inventory Multi-Schema FWF",
+  "description": "Product inventory file with Header, Product, Inventory, Adjustment, and Trailer records",
+  "type": "object",
+  "x-fwf": {
+    "encoding": "utf-8",
+    "trim": {
+      "rstrip": true
+    },
+    "conditionalSchemas": {
+      "flagColumn": {
+        "name": "record_type",
+        "start": 1,
+        "length": 1,
+        "parquetType": "string"
+      },
+      "schemas": [
+        {
+          "flagValue": "H",
+          "description": "Header records - report information",
+          "fields": [
+            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
+            {"name": "report_date", "start": 2, "length": 8, "parquetType": "string"},
+            {"name": "report_id", "start": 10, "length": 8, "parquetType": "string", "trim": true},
+            {"name": "report_title", "start": 18, "length": 32, "parquetType": "string", "trim": true},
+            {"name": "system_name", "start": 50, "length": 24, "parquetType": "string", "trim": true}
+          ]
+        },
+        {
+          "flagValue": "P",
+          "description": "Product records - product master data",
+          "fields": [
+            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
+            {"name": "product_id", "start": 2, "length": 6, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "product_code", "start": 8, "length": 16, "parquetType": "string", "trim": true},
+            {"name": "category", "start": 24, "length": 16, "parquetType": "string", "trim": true},
+            {"name": "unit_price_cents", "start": 40, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "description", "start": 49, "length": 24, "parquetType": "string", "trim": true}
+          ]
+        },
+        {
+          "flagValue": "I",
+          "description": "Inventory records - stock levels",
+          "fields": [
+            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
+            {"name": "product_id", "start": 2, "length": 6, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "quantity_on_hand", "start": 8, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "quantity_reserved", "start": 17, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "quantity_available", "start": 26, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "location_code", "start": 35, "length": 4, "parquetType": "string"},
+            {"name": "last_updated", "start": 39, "length": 8, "parquetType": "string"},
+            {"name": "status", "start": 47, "length": 24, "parquetType": "string", "trim": true}
+          ]
+        },
+        {
+          "flagValue": "A",
+          "description": "Adjustment records - inventory adjustments",
+          "fields": [
+            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
+            {"name": "product_id", "start": 2, "length": 6, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "adjustment_qty", "start": 8, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "adjustment_value_cents", "start": 17, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "adjustment_type", "start": 26, "length": 4, "parquetType": "string"},
+            {"name": "adjustment_date", "start": 30, "length": 8, "parquetType": "string"},
+            {"name": "reason_code", "start": 38, "length": 24, "parquetType": "string", "trim": true}
+          ]
+        },
+        {
+          "flagValue": "T",
+          "description": "Trailer records - summary totals",
+          "fields": [
+            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
+            {"name": "trailer_date", "start": 2, "length": 8, "parquetType": "string"},
+            {"name": "product_count", "start": 10, "length": 6, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "total_quantity", "start": 16, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "total_value_cents", "start": 25, "length": 12, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "process_date", "start": 37, "length": 8, "parquetType": "string"},
+            {"name": "completion_status", "start": 45, "length": 24, "parquetType": "string", "trim": true}
+          ]
+        }
+      ]
+    },
+    "nulls": {
+      "global": ["", "NULL", "N/A"]
+    }
+  }
+}
+

@@ -1,27 +1,48 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-sql.json",
-  "title": "Forklift SQL Input Glob / Table Schema Standard",
-  "description": "Specify which schemas/tables to include from the SQL source using glob-like patterns OR extended x-sql configuration. Patterns supported: '*.*' (all schemas/tables), 'table_name' (table in default schema), 'schema.table' (specific schema/table), 'schema.*' (all tables/views in schema). Optional x-sql block allows richer configuration including per-table selection and column schema.",
+  "title": "Forklift SQL Input - One Schema Per Table Schema Standard",
+  "description": "Schema for SQL database processing with simplified one-to-one schema/table mapping. Each table is explicitly specified with its schema and table name, eliminating glob patterns and making configuration predictable.",
   "type": "object",
-  "properties": {
-    "include": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "description": "Glob pattern for schema and table. Examples: '*.*', 'table_name', 'schema.table', 'schema.*'"
-      },
-      "minItems": 1,
-      "description": "List of glob patterns specifying which schemas/tables to include. If omitted and no x-sql.include/tables present, defaults to ['*.*'] (all)."
+
+  "x-metadata-generation": {
+    "description": "Configuration for metadata file generation during SQL processing",
+    "enabled": true,
+    "output_path": "auto",
+    "enum_detection": {
+      "enabled": true,
+      "uniqueness_threshold": 0.1,
+      "max_distinct_values": 50
     },
+    "statistics": {
+      "numeric": {
+        "enabled": true,
+        "include_quantiles": true,
+        "quantiles": [0.25, 0.5, 0.75, 0.9, 0.95, 0.99],
+        "include_outlier_detection": true
+      },
+      "string": {
+        "enabled": true,
+        "include_length_stats": true,
+        "include_pattern_analysis": true
+      },
+      "categorical": {
+        "enabled": true,
+        "top_n_values": 10,
+        "include_frequency_analysis": true
+      }
+    },
+    "performance": {
+      "skip_if_too_large": true,
+      "max_rows_for_full_analysis": 1000000,
+      "sample_size_for_large_files": 10000
+    }
+  },
+
+  "properties": {
     "x-sql": {
       "type": "object",
       "properties": {
-        "include": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Additional include patterns merged with root-level include (order preserved, duplicates removed)."
-        },
         "tables": {
           "type": "array",
           "items": {
@@ -30,15 +51,110 @@
               "select": {
                 "type": "object",
                 "properties": {
-                  "schema": { "type": "string" },
-                  "name": { "type": "string" },
-                  "pattern": { "type": "string", "description": "Explicit include pattern override (e.g. sales.*)." }
+                  "schema": {
+                    "type": "string",
+                    "description": "Database schema name (e.g., 'public', 'sales', 'main'). Use 'default' or omit for default schema."
+                  },
+                  "name": {
+                    "type": "string",
+                    "description": "Exact table name to import"
+                  }
                 },
+                "required": ["name"],
                 "additionalProperties": false
+              },
+              "outputName": {
+                "type": "string",
+                "description": "Optional custom name for the output parquet file (without extension). If omitted, uses 'schema_tablename' or just 'tablename' if no schema."
               },
               "columns": {
                 "type": "object",
-                "description": "Optional per-table column schema: each property is a column with standard JSON Schema spec.",
+                "description": "Per-table column schema with Parquet type mapping: each property is a column with standard JSON Schema spec and parquetType.",
+                "properties": {
+                  "id": { "type": "integer", "minimum": 1, "parquetType": "int64" },
+                  "name": { "type": "string", "minLength": 1, "parquetType": "string" },
+                  "age": { "type": "integer", "minimum": 0, "maximum": 150, "parquetType": "int32" },
+                  "salary": { "type": "number", "minimum": 0, "parquetType": "double" },
+                  "is_active": { "type": "boolean", "parquetType": "bool" },
+                  "birth_date": { "type": "string", "format": "date", "parquetType": "date32" },
+                  "created_timestamp": { "type": "string", "format": "date-time", "parquetType": "timestamp[us]" },
+                  "duration_seconds": { "type": "integer", "minimum": 0, "parquetType": "duration[s]" },
+                  "score": { "type": "number", "multipleOf": 0.01, "parquetType": "float32" },
+                  "category": { "type": "string", "enum": ["A", "B", "C"], "parquetType": "dictionary<values=string, indices=int32>" },
+                  "tags": { "type": "array", "items": { "type": "string" }, "parquetType": "list<string>" },
+                  "metadata": { "type": "object", "additionalProperties": true, "parquetType": "struct" },
+                  "binary_data": { "type": "string", "contentEncoding": "base64", "parquetType": "binary" },
+                  "uuid": { "type": "string", "format": "uuid", "parquetType": "string" },
+                  "decimal_amount": { "type": "string", "pattern": "^\\d+\\.\\d{2}$", "parquetType": "decimal128(10,2)" },
+                  "ssn": {
+                    "type": "string",
+                    "x-special-type": "ssn",
+                    "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+                    "description": "Social Security Number in XXX-XX-XXXX format",
+                    "parquetType": "string"
+                  },
+                  "zip_code": {
+                    "type": "string",
+                    "x-special-type": "zip-permissive",
+                    "pattern": "^\\d{5}(-\\d{4})?$",
+                    "description": "ZIP code in XXXXX or XXXXX-XXXX format",
+                    "parquetType": "string"
+                  },
+                  "zip_5": {
+                    "type": "string",
+                    "x-special-type": "zip-5",
+                    "pattern": "^\\d{5}$",
+                    "description": "5-digit ZIP code",
+                    "parquetType": "string"
+                  },
+                  "zip_9": {
+                    "type": "string",
+                    "x-special-type": "zip-9",
+                    "pattern": "^\\d{5}-\\d{4}$",
+                    "description": "9-digit ZIP+4 code in XXXXX-XXXX format",
+                    "parquetType": "string"
+                  },
+                  "phone_number": {
+                    "type": "string",
+                    "x-special-type": "phone",
+                    "pattern": "^(1?\\(\\d{3}\\) \\d{3}-\\d{4}|\\d{10,11})$",
+                    "description": "US phone number in (XXX) XXX-XXXX or 1(XXX) XXX-XXXX format",
+                    "parquetType": "string"
+                  },
+                  "email_address": {
+                    "type": "string",
+                    "x-special-type": "email",
+                    "format": "email",
+                    "description": "Email address with validation and normalization",
+                    "parquetType": "string"
+                  },
+                  "ipv4_address": {
+                    "type": "string",
+                    "x-special-type": "ipv4",
+                    "pattern": "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$",
+                    "description": "IPv4 address in dotted decimal notation",
+                    "parquetType": "string"
+                  },
+                  "ipv6_address": {
+                    "type": "string",
+                    "x-special-type": "ipv6",
+                    "description": "IPv6 address with normalization and compression",
+                    "parquetType": "string"
+                  },
+                  "ip_address": {
+                    "type": "string",
+                    "x-special-type": "ip",
+                    "description": "IP address (IPv4 or IPv6) with auto-detection",
+                    "parquetType": "string"
+                  },
+                  "mac_address": {
+                    "type": "string",
+                    "x-special-type": "mac-address",
+                    "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
+                    "description": "MAC address in colon or dash separated format",
+                    "parquetType": "string"
+                  }
+                },
                 "additionalProperties": { "type": "object" }
               },
               "required": {
@@ -50,11 +166,423 @@
             "required": ["select"],
             "additionalProperties": false
           },
-          "description": "Per-table configuration blocks. Each produces an include pattern derived from select (schema+name, name, or explicit pattern)."
+          "minItems": 1,
+          "description": "List of tables to import. Each table must be explicitly specified with schema and table name."
+        },
+        "parquetTypeMapping": {
+          "type": "object",
+          "description": "SQL to Parquet type mapping reference for all supported data types.",
+          "properties": {
+            "sqlToParquet": {
+              "type": "object",
+              "properties": {
+                "INTEGER": "int64",
+                "BIGINT": "int64",
+                "SMALLINT": "int32",
+                "TINYINT": "int8",
+                "DECIMAL": "decimal128(precision,scale)",
+                "NUMERIC": "decimal128(precision,scale)",
+                "FLOAT": "float32",
+                "DOUBLE": "double",
+                "REAL": "float32",
+                "BOOLEAN": "bool",
+                "VARCHAR": "string",
+                "TEXT": "string",
+                "CHAR": "string",
+                "DATE": "date32",
+                "TIMESTAMP": "timestamp[us]",
+                "DATETIME": "timestamp[us]",
+                "TIME": "duration[us]",
+                "INTERVAL": "duration[us]",
+                "BINARY": "binary",
+                "VARBINARY": "binary",
+                "BLOB": "binary",
+                "ARRAY": "list<type>",
+                "JSON": "struct",
+                "UUID": "string"
+              }
+            }
+          }
         }
       },
+      "required": ["tables"],
       "additionalProperties": false
+    },
+    "x-calculatedColumns": {
+      "description": "Configuration for adding calculated columns including constants, expressions, and computed fields",
+      "constants": [
+        {
+          "name": "data_source",
+          "value": "sql_query",
+          "dataType": "string",
+          "description": "Source identifier for data lineage and partitioning"
+        },
+        {
+          "name": "load_date",
+          "value": "2024-08-26",
+          "dataType": "date32",
+          "description": "Date when data was loaded for temporal partitioning"
+        },
+        {
+          "name": "query_version",
+          "value": "v1.0",
+          "dataType": "string",
+          "description": "SQL query version for change tracking"
+        }
+      ],
+      "expressions": [
+        {
+          "name": "full_employee_name",
+          "expression": "first_name + ' ' + last_name",
+          "dataType": "string",
+          "dependencies": ["first_name", "last_name"],
+          "description": "Concatenated full name from first and last name fields"
+        },
+        {
+          "name": "salary_grade",
+          "expression": "CASE WHEN salary < 50000 THEN 'Grade_1' WHEN salary < 100000 THEN 'Grade_2' ELSE 'Grade_3' END",
+          "dataType": "string",
+          "dependencies": ["salary"],
+          "description": "Salary grade classification for HR reporting"
+        }
+      ],
+      "calculated": [
+        {
+          "name": "tenure_years",
+          "function": "years_from_timestamp",
+          "dependencies": ["hire_date"],
+          "dataType": "int32",
+          "description": "Employee tenure in years calculated from hire date"
+        },
+        {
+          "name": "email_domain",
+          "function": "extract_email_domain",
+          "dependencies": ["email"],
+          "dataType": "string",
+          "description": "Domain part extracted from email address"
+        }
+      ],
+      "partitionColumns": ["data_source", "load_date", "department"],
+      "indexColumns": ["employee_id", "department", "salary_grade"],
+      "options": {
+        "skipIfExists": false,
+        "validateDependencies": true,
+        "allowNullDependencies": true
+      }
+    },
+    "x-transformations": {
+      "description": "Data transformation and standardization configuration for SQL database processing with comprehensive data cleaning and normalization",
+      "stringCleaning": {
+        "description": "String cleaning and normalization options for SQL text columns",
+        "normalizeQuotes": true,
+        "normalizeDashes": true,
+        "normalizeSpaces": true,
+        "collapseWhitespace": true,
+        "stripWhitespace": true,
+        "removeZeroWidth": true,
+        "removeControlChars": true,
+        "preserveNewlines": true,
+        "unicodeNormalize": "NFKC",
+        "sqlSpecific": {
+          "handleNullStrings": true,
+          "emptyStringToNull": false,
+          "trimVarcharPadding": true
+        }
+      },
+      "caseTransformation": {
+        "description": "Case normalization and transformation options for SQL text data",
+        "caseTransform": "title",
+        "fixCaseIssues": true,
+        "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
+        "customCaseMappings": {
+          "ca": "CA",
+          "ny": "NY",
+          "tx": "TX",
+          "usa": "USA",
+          "uk": "UK"
+        },
+        "caseMappingMode": "exact"
+      },
+      "numericCleaning": {
+        "description": "Numeric field cleaning and standardization for SQL numeric columns",
+        "thousandsSeparator": ",",
+        "decimalSeparator": ".",
+        "allowNaN": true,
+        "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan"],
+        "stripWhitespace": true,
+        "sqlSpecific": {
+          "handleSqlNull": true,
+          "preservePrecision": true,
+          "scaleHandling": "preserve"
+        }
+      },
+      "moneyType": {
+        "description": "Currency and monetary value cleaning for SQL financial columns",
+        "currencySymbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
+        "thousandsSeparator": ",",
+        "decimalSeparator": ".",
+        "parenthesesNegative": true,
+        "stripWhitespace": true,
+        "sqlSpecific": {
+          "respectMoneyType": true,
+          "currencyConversion": false
+        }
+      },
+      "dateTimeParsing": {
+        "description": "DateTime parsing and standardization for SQL date/time columns",
+        "mode": "sql_aware",
+        "allowFuzzy": false,
+        "fromEpoch": false,
+        "targetType": "timestamp",
+        "timezone": "UTC",
+        "sqlSpecific": {
+          "handleSqlDateTypes": true,
+          "timezoneAware": true,
+          "preserveTimestamp": true
+        },
+        "commonFormats": [
+          "%Y-%m-%d",
+          "%Y-%m-%d %H:%M:%S",
+          "%Y-%m-%dT%H:%M:%S",
+          "%Y-%m-%dT%H:%M:%SZ"
+        ]
+      },
+      "tableSpecific": {
+        "employees": {
+          "columns": {
+            "first_name": {
+              "transformations": ["stringCleaning", "caseTransformation"],
+              "caseTransform": "title"
+            },
+            "last_name": {
+              "transformations": ["stringCleaning", "caseTransformation"],
+              "caseTransform": "title"
+            },
+            "email": {
+              "transformations": ["stringCleaning"],
+              "caseTransform": "lower"
+            },
+            "salary": {
+              "transformations": ["moneyType", "numericCleaning"]
+            },
+            "hire_date": {
+              "transformations": ["dateTimeParsing"],
+              "dateTimeConfig": {
+                "mode": "sql_aware",
+                "targetType": "date"
+              }
+            }
+          }
+        },
+        "orders": {
+          "columns": {
+            "amount": {
+              "transformations": ["moneyType", "numericCleaning"]
+            },
+            "order_date": {
+              "transformations": ["dateTimeParsing"]
+            }
+          }
+        }
+      }
+    },
+    "x-columnMapping": {
+      "description": "Column name mapping and standardization configuration for SQL database tables",
+      "globalMappings": {
+        "emp_id": "employee_id",
+        "fname": "first_name",
+        "lname": "last_name",
+        "dob": "birth_date",
+        "ssn": "social_security_number",
+        "addr": "address",
+        "ph_num": "phone_number",
+        "email_addr": "email_address",
+        "hire_dt": "hire_date",
+        "dept_code": "department_code",
+        "pos_title": "position_title",
+        "sal_amt": "salary_amount"
+      },
+      "tableSpecificMappings": {
+        "employees": {
+          "EmpID": "employee_id",
+          "FirstName": "first_name",
+          "LastName": "last_name",
+          "DateOfBirth": "birth_date",
+          "HireDate": "hire_date",
+          "DeptID": "department_id"
+        },
+        "orders": {
+          "OrderID": "order_id",
+          "CustID": "customer_id",
+          "OrderAmt": "order_amount",
+          "OrderDt": "order_date"
+        }
+      },
+      "namingConvention": "snake_case",
+      "caseSensitive": false,
+      "allowUnmapped": true,
+      "dropUnmapped": false,
+      "sqlSpecific": {
+        "respectSqlKeywords": true,
+        "quoteIdentifiers": false,
+        "schemaPrefix": false
+      },
+      "standardizationRules": {
+        "removeSpecialChars": true,
+        "replaceSpaces": "_",
+        "maxLength": 63,
+        "reservedWords": ["index", "table", "column", "select", "from", "where", "order", "group", "having"],
+        "reservedWordPrefix": "col_"
+      }
+    },
+    "x-dataQuality": {
+      "description": "Data quality validation and metrics configuration for SQL database data",
+      "completeness": {
+        "enabled": true,
+        "requiredFields": ["id"],
+        "minimumFillRate": 0.90,
+        "reportMissingValues": true,
+        "sqlSpecific": {
+          "handleSqlNulls": true,
+          "nullVsEmpty": "distinguish",
+          "checkConstraints": true
+        }
+      },
+      "uniqueness": {
+        "enabled": true,
+        "uniqueFields": ["id", "email"],
+        "allowDuplicates": false,
+        "duplicateHandling": "error",
+        "sqlSpecific": {
+          "respectPrimaryKeys": true,
+          "checkUniqueConstraints": true
+        }
+      },
+      "consistency": {
+        "enabled": true,
+        "dataTypeValidation": true,
+        "formatValidation": true,
+        "rangeValidation": true,
+        "sqlSpecific": {
+          "validateForeignKeys": true,
+          "checkReferentialIntegrity": true,
+          "enforceConstraints": true
+        }
+      },
+      "accuracy": {
+        "enabled": true,
+        "emailValidation": true,
+        "phoneValidation": true,
+        "dateValidation": true,
+        "numericValidation": true
+      },
+      "tableSpecificRules": {
+        "employees": {
+          "employee_id": {
+            "min": 1,
+            "max": 999999,
+            "dataType": "integer",
+            "unique": true
+          },
+          "salary": {
+            "min": 0,
+            "max": 10000000,
+            "dataType": "decimal",
+            "precision": 10,
+            "scale": 2
+          },
+          "email": {
+            "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+            "unique": true,
+            "required": true
+          },
+          "hire_date": {
+            "minDate": "1950-01-01",
+            "maxDate": "2100-12-31",
+            "dataType": "date"
+          }
+        },
+        "orders": {
+          "order_id": {
+            "min": 1,
+            "dataType": "integer",
+            "unique": true
+          },
+          "amount": {
+            "min": 0,
+            "max": 1000000,
+            "dataType": "decimal",
+            "precision": 10,
+            "scale": 2
+          }
+        }
+      }
     }
   },
-  "additionalProperties": false
+  "required": ["x-sql"],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "x-sql": {
+        "tables": [
+          {
+            "select": {
+              "schema": "public",
+              "name": "users"
+            },
+            "outputName": "users_data",
+            "columns": {
+              "id": { "type": "integer", "parquetType": "int64" },
+              "name": { "type": "string", "parquetType": "string" },
+              "email": { "type": "string", "format": "email", "parquetType": "string" },
+              "created_at": { "type": "string", "format": "date-time", "parquetType": "timestamp[us]" }
+            },
+            "required": ["id", "name"]
+          },
+          {
+            "select": {
+              "schema": "sales",
+              "name": "orders"
+            },
+            "columns": {
+              "order_id": { "type": "integer", "parquetType": "int64" },
+              "customer_id": { "type": "integer", "parquetType": "int64" },
+              "amount": { "type": "number", "parquetType": "decimal128(10,2)" },
+              "order_date": { "type": "string", "format": "date", "parquetType": "date32" }
+            }
+          },
+          {
+            "select": {
+              "name": "products"
+            },
+            "columns": {
+              "product_id": { "type": "integer", "parquetType": "int64" },
+              "name": { "type": "string", "parquetType": "string" },
+              "price": { "type": "number", "parquetType": "double" }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "x-rowHash": {
+    "description": "Configuration for generating row-level hash columns and metadata for change detection and data integrity",
+    "enabled": false,
+    "columnName": "row_hash",
+    "algorithm": "sha256",
+    "includeColumns": null,
+    "excludeColumns": [],
+    "nullValue": "NULL",
+    "separator": "||",
+    "inputHashEnabled": false,
+    "inputHashColumnName": "_input_hash",
+    "sourceUriEnabled": false,
+    "sourceUriColumnName": "_source_uri",
+    "ingestedAtEnabled": false,
+    "ingestedAtColumnName": "_ingested_at_utc",
+    "rowNumberEnabled": false,
+    "sourceRowNumberColumnName": "_rownum_in_source_file",
+    "processingRowNumberColumnName": "_rownum",
+    "description_detail": "Row hash and metadata columns disabled by default. When enabled, can generate: output row hash (SHA256 default), input row hash, source URI, ingestion timestamp, and row numbers. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
+  }
 }

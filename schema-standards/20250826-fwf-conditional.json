@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-fwf-conditional.json",
+  "title": "Forklift FWF Row - Conditional Schema Support",
+  "description": "Enhanced schema for Fixed Width File processing with conditional schema support based on flag columns. Allows different field layouts depending on flag values.",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "age": { "type": "integer", "minimum": 0, "maximum": 150 },
+    "salary": { "type": "number", "minimum": 0 },
+    "is_active": { "type": "boolean" },
+    "birth_date": { "type": "string", "format": "date" },
+    "foo": { "type": "string" },
+    "bar": { "type": "integer" },
+    "baz": { "type": "string" },
+    "ssn": {
+      "type": "string",
+      "x-special-type": "ssn",
+      "pattern": "^\\d{3}-\\d{2}-\\d{4}$",
+      "description": "Social Security Number in XXX-XX-XXXX format"
+    },
+    "zip_code": {
+      "type": "string",
+      "x-special-type": "zip-permissive",
+      "pattern": "^\\d{5}(-\\d{4})?$",
+      "description": "ZIP code in XXXXX or XXXXX-XXXX format"
+    },
+    "zip_5": {
+      "type": "string",
+      "x-special-type": "zip-5",
+      "pattern": "^\\d{5}$",
+      "description": "5-digit ZIP code"
+    },
+    "zip_9": {
+      "type": "string",
+      "x-special-type": "zip-9",
+      "pattern": "^\\d{5}-\\d{4}$",
+      "description": "9-digit ZIP+4 code in XXXXX-XXXX format"
+    },
+    "phone_number": {
+      "type": "string",
+      "x-special-type": "phone",
+      "pattern": "^(1?\\(\\d{3}\\) \\d{3}-\\d{4}|\\d{10,11})$",
+      "description": "US phone number in (XXX) XXX-XXXX or 1(XXX) XXX-XXXX format"
+    },
+    "email_address": {
+      "type": "string",
+      "x-special-type": "email",
+      "format": "email",
+      "description": "Email address with validation and normalization"
+    },
+    "ipv4_address": {
+      "type": "string",
+      "x-special-type": "ipv4",
+      "pattern": "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$",
+      "description": "IPv4 address in dotted decimal notation"
+    },
+    "ipv6_address": {
+      "type": "string",
+      "x-special-type": "ipv6",
+      "description": "IPv6 address with normalization and compression"
+    },
+    "ip_address": {
+      "type": "string",
+      "x-special-type": "ip",
+      "description": "IP address (IPv4 or IPv6) with auto-detection"
+    },
+    "mac_address": {
+      "type": "string",
+      "x-special-type": "mac-address",
+      "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$",
+      "description": "MAC address in colon or dash separated format"
+    }
+  },
+  "required": ["id"],
+  "additionalProperties": false,
+
+  "x-metadata-generation": {
+    "description": "Configuration for metadata file generation during processing",
+    "enabled": true,
+    "output_path": "auto",
+    "enum_detection": {
+      "enabled": true,
+      "uniqueness_threshold": 0.1,
+      "max_distinct_values": 50
+    },
+    "statistics": {
+      "numeric": {
+        "enabled": true,
+        "include_quantiles": true,
+        "quantiles": [0.25, 0.5, 0.75, 0.9, 0.95, 0.99],
+        "include_outlier_detection": true
+      },
+      "string": {
+        "enabled": true,
+        "include_length_stats": true,
+        "include_pattern_analysis": true
+      },
+      "categorical": {
+        "enabled": true,
+        "top_n_values": 10,
+        "include_frequency_analysis": true
+      }
+    },
+    "performance": {
+      "skip_if_too_large": true,
+      "max_rows_for_full_analysis": 1000000,
+      "sample_size_for_large_files": 10000
+    }
+  },
+
+  "x-primaryKey": {
+    "description": "Primary key configuration for data uniqueness and referential integrity",
+    "columns": ["id"],
+    "type": "single",
+    "enforceUniqueness": true,
+    "allowNulls": false,
+    "description_detail": "Single column primary key on 'id' field ensuring row uniqueness across all conditional schemas"
+  },
+
+  "x-rowHash": {
+    "description": "Configuration for generating row-level hash columns and metadata for change detection and data integrity",
+    "enabled": false,
+    "columnName": "row_hash",
+    "algorithm": "sha256",
+    "includeColumns": null,
+    "excludeColumns": [],
+    "nullValue": "NULL",
+    "separator": "||",
+    "inputHashEnabled": false,
+    "inputHashColumnName": "_input_hash",
+    "sourceUriEnabled": false,
+    "sourceUriColumnName": "_source_uri",
+    "ingestedAtEnabled": false,
+    "ingestedAtColumnName": "_ingested_at_utc",
+    "rowNumberEnabled": false,
+    "sourceRowNumberColumnName": "_rownum_in_source_file",
+    "processingRowNumberColumnName": "_rownum",
+    "description_detail": "Row hash and metadata columns disabled by default. When enabled, can generate: output row hash (SHA256 default), input row hash, source URI, ingestion timestamp, and row numbers. Supports MD5, SHA1, SHA256, SHA384, SHA512 algorithms."
+  },
+
+  "x-fwf": {
+    "encoding": "utf-8",
+    "trim": { "lstrip": false, "rstrip": true },
+    "conditionalSchemas": {
+      "flagColumn": {
+        "name": "record_type",
+        "start": 1,
+        "length": 1,
+        "parquetType": "string"
+      },
+      "schemas": [
+        {
+          "flagValue": "F",
+          "description": "Format F: Standard employee record",
+          "fields": [
+            { "name": "record_type", "start": 1, "length": 1, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "id", "start": 4, "length": 3, "align": "right", "pad": "0", "parquetType": "int64" },
+            { "name": "foo", "start": 7, "length": 4, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "baz", "start": 11, "length": 5, "align": "left", "pad": " ", "parquetType": "string" }
+          ]
+        },
+        {
+          "flagValue": "G",
+          "description": "Format G: Compact employee record",
+          "fields": [
+            { "name": "record_type", "start": 1, "length": 1, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "id", "start": 4, "length": 2, "align": "right", "pad": "0", "parquetType": "int64" },
+            { "name": "foo", "start": 6, "length": 2, "align": "left", "pad": " ", "parquetType": "string" },
+            { "name": "bar", "start": 8, "length": 3, "align": "right", "pad": "0", "parquetType": "int32" }
+          ]
+        }
+      ]
+    },
+    "nulls": {
+      "global": ["", "NULL", "N/A"],
+      "perColumn": {
+        "salary": ["", "          "],
+        "foo": ["", "    "],
+        "baz": ["", "     "]
+      }
+    },
+    "footer": { "mode": "regex", "pattern": "^(TOTAL|SUMMARY)\\b" }
+  },
+
+  "x-pii": {
+    "description": "Personally Identifiable Information (PII) field marking for data privacy and masking applications with conditional schema support",
+    "fields": {
+      "id": {
+        "isPII": true,
+        "category": "direct_identifier",
+        "description": "Employee ID is direct PII requiring masking",
+        "conditionalPositions": {
+          "F": { "start": 4, "length": 3 },
+          "G": { "start": 4, "length": 2 }
+        }
+      },
+      "foo": {
+        "isPII": true,
+        "category": "quasi_identifier",
+        "description": "Field foo may contain identifying information",
+        "conditionalPositions": {
+          "F": { "start": 7, "length": 4 },
+          "G": { "start": 6, "length": 2 }
+        }
+      },
+      "bar": {
+        "isPII": false,
+        "category": "identifier",
+        "description": "Numeric identifier, not personally identifying",
+        "conditionalPositions": {
+          "G": { "start": 8, "length": 3 }
+        }
+      },
+      "baz": {
+        "isPII": true,
+        "category": "sensitive",
+        "description": "Field baz contains sensitive information",
+        "conditionalPositions": {
+          "F": { "start": 11, "length": 5 }
+        }
+      }
+    },
+    "maskingRules": {
+      "direct_identifier": {
+        "method": "hash",
+        "preserveFormat": false,
+        "description": "Hash direct identifiers to protect individual privacy"
+      },
+      "quasi_identifier": {
+        "method": "generalize",
+        "preserveFormat": true,
+        "description": "Generalize quasi-identifiers to reduce re-identification risk"
+      },
+      "sensitive": {
+        "method": "suppress",
+        "preserveFormat": false,
+        "description": "Suppress sensitive fields entirely for maximum protection"
+      }
+    }
+  }
+}

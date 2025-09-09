@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Multi-Schema FWF Example",
+  "description": "Example of fixed width file with Header, Detail, and Trailer records",
+  "type": "object",
+  "x-fwf": {
+    "encoding": "utf-8",
+    "trim": {
+      "rstrip": true
+    },
+    "conditionalSchemas": {
+      "flagColumn": {
+        "name": "record_type",
+        "start": 1,
+        "length": 1,
+        "parquetType": "string"
+      },
+      "schemas": [
+        {
+          "flagValue": "H",
+          "description": "Header records - batch information",
+          "fields": [
+            {
+              "name": "record_type",
+              "start": 1,
+              "length": 1,
+              "parquetType": "string"
+            },
+            {
+              "name": "batch_date",
+              "start": 2,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "batch_id",
+              "start": 10,
+              "length": 10,
+              "parquetType": "string",
+              "trim": true
+            },
+            {
+              "name": "description",
+              "start": 20,
+              "length": 33,
+              "parquetType": "string",
+              "trim": true
+            }
+          ]
+        },
+        {
+          "flagValue": "D",
+          "description": "Detail records - transaction data",
+          "fields": [
+            {
+              "name": "record_type",
+              "start": 1,
+              "length": 1,
+              "parquetType": "string"
+            },
+            {
+              "name": "transaction_id",
+              "start": 2,
+              "length": 6,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "product_code",
+              "start": 8,
+              "length": 13,
+              "parquetType": "string",
+              "trim": true
+            },
+            {
+              "name": "amount_cents",
+              "start": 21,
+              "length": 9,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "currency",
+              "start": 30,
+              "length": 3,
+              "parquetType": "string"
+            },
+            {
+              "name": "transaction_date",
+              "start": 33,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "quantity",
+              "start": 41,
+              "length": 2,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int32"
+            }
+          ]
+        },
+        {
+          "flagValue": "T",
+          "description": "Trailer records - summary information",
+          "fields": [
+            {
+              "name": "record_type",
+              "start": 1,
+              "length": 1,
+              "parquetType": "string"
+            },
+            {
+              "name": "record_count",
+              "start": 2,
+              "length": 6,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "total_amount_cents",
+              "start": 8,
+              "length": 9,
+              "align": "right",
+              "pad": "0",
+              "parquetType": "int64"
+            },
+            {
+              "name": "currency",
+              "start": 17,
+              "length": 3,
+              "parquetType": "string"
+            },
+            {
+              "name": "summary_date",
+              "start": 20,
+              "length": 8,
+              "parquetType": "string"
+            },
+            {
+              "name": "notes",
+              "start": 28,
+              "length": 25,
+              "parquetType": "string",
+              "trim": true
+            }
+          ]
+        }
+      ]
+    },
+    "nulls": {
+      "global": ["", "NULL", "N/A"]
+    }
+  }
+}

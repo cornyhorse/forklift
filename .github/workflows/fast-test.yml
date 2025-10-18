@@ -2,7 +2,7 @@ name: Fast Test Suite
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, develop, "feature/*", "feat/*", "bugfix/*", "hotfix/*", 'v*' ]
   pull_request:
     branches: [ main, develop ]
 

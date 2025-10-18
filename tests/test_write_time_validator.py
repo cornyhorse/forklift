@@ -5,8 +5,11 @@ import pytest
 
 from forklift.processors.base import ValidationResult
 from forklift.processors.write_time_validator import (
-    WriteTimeConfig, WriteTimeValidator, create_basic_write_validator,
-    create_strict_write_validator)
+    WriteTimeConfig,
+    WriteTimeValidator,
+    create_basic_write_validator,
+    create_strict_write_validator,
+)
 
 
 class TestWriteTimeConfig:

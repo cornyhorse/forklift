@@ -61,7 +61,9 @@ class ConstraintValidator(BaseProcessor):
         self.config = config
         self.violations: List[ConstraintViolation] = []
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process batch and validate against constraints.
 
         Args:

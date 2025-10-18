@@ -6,8 +6,7 @@ for string columns in the schema standard.
 
 import pyarrow as pa
 
-from forklift.utils.transformations import (DataTransformer,
-                                            StringCleaningConfig)
+from forklift.utils.transformations import DataTransformer, StringCleaningConfig
 
 
 def test_case_transformations():

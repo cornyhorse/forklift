@@ -9,9 +9,14 @@ import pytest
 
 from forklift.processors.base import ValidationResult
 from forklift.processors.schema_validator import (
-    ColumnSchema, NullabilityMode, SchemaValidationMode, SchemaValidator,
-    SchemaValidatorConfig, create_schema_from_batch,
-    create_schema_validator_from_json)
+    ColumnSchema,
+    NullabilityMode,
+    SchemaValidationMode,
+    SchemaValidator,
+    SchemaValidatorConfig,
+    create_schema_from_batch,
+    create_schema_validator_from_json,
+)
 from forklift.processors.schema_validator.type_converter import TypeConverter
 
 
@@ -302,7 +307,9 @@ class TestSchemaValidatorConstraints:
                 {
                     "name": "email",
                     "type": "string",
-                    "constraints": {"pattern": r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"},
+                    "constraints": {
+                        "pattern": r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+                    },
                 }
             ]
         }
@@ -588,7 +595,12 @@ class TestSchemaValidatorUtilityMethods:
             "columns": [
                 {"name": "id", "type": "int64", "nullable": False, "constraints": {"min": 1}},
                 {"name": "name", "type": "string", "nullable": True},
-                {"name": "email", "type": "string", "nullable": False, "description": "User email"},
+                {
+                    "name": "email",
+                    "type": "string",
+                    "nullable": False,
+                    "description": "User email",
+                },
             ]
         }
         validator = SchemaValidator(schema_dict)

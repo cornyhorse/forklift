@@ -7,11 +7,9 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 import pytest
 
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
-from forklift.inputs.fwf_utils import (create_fwf_config_from_schema,
-                                       create_simple_fwf_config)
+from forklift.inputs.fwf_utils import create_fwf_config_from_schema, create_simple_fwf_config
 
 
 class TestFwfFieldSpec:

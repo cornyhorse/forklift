@@ -38,9 +38,15 @@ class TestCalculatedColumnsModule:
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
         from forklift.processors.calculated_columns import (
-            CalculatedColumn, CalculatedColumnsConfig,
-            CalculatedColumnsProcessor, ConstantColumn, ExpressionColumn,
-            ExpressionEvaluator, get_available_functions, get_constants)
+            CalculatedColumn,
+            CalculatedColumnsConfig,
+            CalculatedColumnsProcessor,
+            ConstantColumn,
+            ExpressionColumn,
+            ExpressionEvaluator,
+            get_available_functions,
+            get_constants,
+        )
 
         # Verify they are the same as the module attributes
         assert CalculatedColumn is calculated_columns.CalculatedColumn

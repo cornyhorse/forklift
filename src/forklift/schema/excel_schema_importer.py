@@ -213,7 +213,9 @@ class ExcelSchemaImporter:
 
         return errors
 
-    def _validate_sheet_columns(self, columns: List[Dict[str, Any]], sheet_index: int) -> List[str]:
+    def _validate_sheet_columns(
+        self, columns: List[Dict[str, Any]], sheet_index: int
+    ) -> List[str]:
         """Validate column configurations for a sheet."""
         errors = []
         positions_used = set()
@@ -236,7 +238,9 @@ class ExcelSchemaImporter:
                 if not re.match(r"^[A-Z]+$", position):
                     errors.append(f"Sheet {sheet_index} column {j} invalid position '{position}'")
                 elif position in positions_used:
-                    errors.append(f"Sheet {sheet_index} column {j} duplicate position '{position}'")
+                    errors.append(
+                        f"Sheet {sheet_index} column {j} duplicate position '{position}'"
+                    )
                 else:
                     positions_used.add(position)
             elif isinstance(position, int):
@@ -282,7 +286,9 @@ class ExcelSchemaImporter:
                 if isinstance(column, dict):
                     parquet_type = column.get("parquetType")
                     if parquet_type and not self._is_valid_parquet_type(parquet_type):
-                        errors.append(f"Sheet {i} column {j} invalid Parquet type '{parquet_type}'")
+                        errors.append(
+                            f"Sheet {i} column {j} invalid Parquet type '{parquet_type}'"
+                        )
 
         return errors
 

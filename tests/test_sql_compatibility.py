@@ -15,9 +15,13 @@ class TestSqlCompatibility:
     def test_import_all_classes(self):
         """Test importing all classes from the SQL compatibility module."""
         # Import from the backward-compatibility module
-        from forklift.inputs.sql import (SqlConnectionManager, SqlDataReader,
-                                         SqlInputHandler, SqlSchemaManager,
-                                         SqlTypeConverter)
+        from forklift.inputs.sql import (
+            SqlConnectionManager,
+            SqlDataReader,
+            SqlInputHandler,
+            SqlSchemaManager,
+            SqlTypeConverter,
+        )
 
         # Verify all classes are imported and are callable
         assert callable(SqlInputHandler)
@@ -98,11 +102,10 @@ class TestSqlCompatibility:
     def test_imports_are_same_as_source_modules(self):
         """Test that imports from compatibility module are the same as source modules."""
         # Import from compatibility module
-        from forklift.inputs.sql import \
-            SqlInputHandler as CompatSqlInputHandler
+        from forklift.inputs.sql import SqlInputHandler as CompatSqlInputHandler
+
         # Import from source module directly
-        from forklift.inputs.sql.handler import \
-            SqlInputHandler as SourceSqlInputHandler
+        from forklift.inputs.sql.handler import SqlInputHandler as SourceSqlInputHandler
 
         # They should be the same class
         assert CompatSqlInputHandler is SourceSqlInputHandler
@@ -125,9 +128,13 @@ class TestSqlCompatibility:
 
     def test_classes_have_expected_attributes(self):
         """Test that imported classes have expected attributes without instantiating."""
-        from forklift.inputs.sql import (SqlConnectionManager, SqlDataReader,
-                                         SqlInputHandler, SqlSchemaManager,
-                                         SqlTypeConverter)
+        from forklift.inputs.sql import (
+            SqlConnectionManager,
+            SqlDataReader,
+            SqlInputHandler,
+            SqlSchemaManager,
+            SqlTypeConverter,
+        )
 
         # Test that classes have expected methods/attributes (without instantiating)
         # This ensures the imports are working correctly
@@ -184,9 +191,13 @@ class TestSqlCompatibility:
     def test_comprehensive_compatibility_scenario(self):
         """Test a comprehensive scenario using the backward compatibility interface."""
         # Import all exports through the compatibility interface
-        from forklift.inputs.sql import (SqlConnectionManager, SqlDataReader,
-                                         SqlInputHandler, SqlSchemaManager,
-                                         SqlTypeConverter)
+        from forklift.inputs.sql import (
+            SqlConnectionManager,
+            SqlDataReader,
+            SqlInputHandler,
+            SqlSchemaManager,
+            SqlTypeConverter,
+        )
 
         # Verify all exports are accessible and have expected properties
         exports_to_test = [

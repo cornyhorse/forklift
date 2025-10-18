@@ -184,7 +184,9 @@ class TestCLI100PercentCoverage:
                 # The function should return early without proceeding further
                 result = main()
                 # Verify the error message is printed
-                mock_print.assert_called_with("Error: --output-path is required when --output=file")
+                mock_print.assert_called_with(
+                    "Error: --output-path is required when --output=file"
+                )
                 # The function should return None (early return)
                 assert result is None
 

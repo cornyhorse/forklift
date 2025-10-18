@@ -37,10 +37,8 @@ class TestFwfUtilsInit:
 
     def test_direct_imports(self):
         """Test direct imports from the utils package."""
-        from forklift.schema.fwf.utils import \
-            ColumnNameProcessor as DirectProcessor
-        from forklift.schema.fwf.utils import \
-            ParquetMappingUtils as DirectUtils
+        from forklift.schema.fwf.utils import ColumnNameProcessor as DirectProcessor
+        from forklift.schema.fwf.utils import ParquetMappingUtils as DirectUtils
 
         assert DirectProcessor is ColumnNameProcessor
         assert DirectUtils is ParquetMappingUtils

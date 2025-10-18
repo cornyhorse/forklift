@@ -92,7 +92,9 @@ class TestCompatibilityValidator:
 
             assert errors == []
 
-    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
+    @patch(
+        "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+    )
     def test_validate_schema_compatibility_incompatible_parquet_types(self, mock_compatible):
         """Test validation with incompatible Parquet types."""
         mock_compatible.return_value = False
@@ -121,7 +123,9 @@ class TestCompatibilityValidator:
         assert "Field 'id' has incompatible Parquet types across variants" in errors[0]
         assert "string" in errors[0] and "int64" in errors[0]
 
-    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
+    @patch(
+        "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+    )
     def test_validate_schema_compatibility_overlapping_incompatible_positions(
         self, mock_compatible
     ):
@@ -157,7 +161,9 @@ class TestCompatibilityValidator:
             or "incompatible overlapping positions" in error_text
         )
 
-    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
+    @patch(
+        "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+    )
     def test_validate_schema_compatibility_overlapping_compatible_positions(self, mock_compatible):
         """Test validation with overlapping positions but compatible types."""
         # Mock to return True for type compatibility checks
@@ -289,7 +295,9 @@ class TestCompatibilityValidator:
         # Should not generate error because no parquet types to check compatibility
         assert errors == []
 
-    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
+    @patch(
+        "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+    )
     def test_validate_field_compatibility_position_overlap_one_missing_type(self, mock_compatible):
         """Test field compatibility with position overlap and one missing parquet type."""
         mock_compatible.return_value = False

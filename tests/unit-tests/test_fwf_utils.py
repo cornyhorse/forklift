@@ -6,10 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
-from forklift.inputs.fwf_utils import (create_fwf_config_from_schema,
-                                       create_simple_fwf_config)
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
+from forklift.inputs.fwf_utils import create_fwf_config_from_schema, create_simple_fwf_config
 
 
 class TestCreateSimpleFwfConfig:

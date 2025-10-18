@@ -13,8 +13,10 @@ from forklift.processors.bad_rows_handler import BadRowsConfig
 from forklift.processors.base import ValidationResult
 from forklift.processors.constraint_validator import ConstraintViolation
 from forklift.processors.enhanced_processor import (
-    EnhancedDataProcessor, _json_type_to_arrow_type,
-    create_enhanced_processor_from_schema_file)
+    EnhancedDataProcessor,
+    _json_type_to_arrow_type,
+    create_enhanced_processor_from_schema_file,
+)
 
 
 class TestEnhancedDataProcessor:
@@ -549,7 +551,9 @@ class TestEnhancedDataProcessor:
                 call_args = mock_processor.call_args
                 schema_arg = call_args[1]["schema_dict"]
                 assert schema_arg["x-constraintHandling"]["errorMode"] == "fail_complete"
-                assert schema_arg["x-constraintHandling"]["existingConfig"] == "should_be_preserved"
+                assert (
+                    schema_arg["x-constraintHandling"]["existingConfig"] == "should_be_preserved"
+                )
 
         finally:
             Path(schema_file_path).unlink()

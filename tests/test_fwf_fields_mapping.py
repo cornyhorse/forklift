@@ -391,7 +391,9 @@ class TestFieldMapper:
         )
 
         # Should have flag column + all unique fields
-        assert len(all_fields) == 8  # record_type + 7 unique fields (1 common + 6 variant-specific)
+        assert (
+            len(all_fields) == 8
+        )  # record_type + 7 unique fields (1 common + 6 variant-specific)
         assert "record_type" in all_fields
         assert "name" in all_fields  # Common field
         assert "employee_id" in all_fields

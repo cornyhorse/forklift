@@ -577,7 +577,9 @@ class TestEdgeCases:
 
         # Create large batch
         large_values = list(range(2000))
-        batch = pa.record_batch([pa.array(large_values, type=pa.float64())], names=["many_numbers"])
+        batch = pa.record_batch(
+            [pa.array(large_values, type=pa.float64())], names=["many_numbers"]
+        )
 
         collector.add_batch(batch)
 

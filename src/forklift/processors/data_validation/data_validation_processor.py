@@ -40,7 +40,9 @@ class DataValidationProcessor(BaseProcessor):
             if rule.unique:
                 self.unique_value_tracker[rule.field_name] = set()
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch with validation and bad row handling.
 
         Args:

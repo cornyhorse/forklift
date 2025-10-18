@@ -10,17 +10,23 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from forklift.utils.transformations import (DataTransformer,
-                                            DateTimeTransformConfig,
-                                            EmailConfig, HTMLXMLConfig,
-                                            IPAddressConfig, MACAddressConfig,
-                                            MoneyTypeConfig,
-                                            NumericCleaningConfig,
-                                            PhoneNumberConfig,
-                                            RegexReplaceConfig, SSNConfig,
-                                            StringCleaningConfig,
-                                            StringPaddingConfig,
-                                            StringReplaceConfig, ZipCodeConfig)
+from forklift.utils.transformations import (
+    DataTransformer,
+    DateTimeTransformConfig,
+    EmailConfig,
+    HTMLXMLConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    PhoneNumberConfig,
+    RegexReplaceConfig,
+    SSNConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+    ZipCodeConfig,
+)
 
 
 class TestDateTimeTransformConfig:

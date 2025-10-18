@@ -7,9 +7,14 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 
-from forklift.processors import (BaseProcessor, ColumnTransformer,
-                                 DataQualityProcessor, ProcessorPipeline,
-                                 SchemaValidator, ValidationResult)
+from forklift.processors import (
+    BaseProcessor,
+    ColumnTransformer,
+    DataQualityProcessor,
+    ProcessorPipeline,
+    SchemaValidator,
+    ValidationResult,
+)
 
 
 class TestValidationResult:
@@ -185,7 +190,8 @@ class TestDataQualityProcessor:
 
         schema = pa.schema([pa.field("name", pa.string())])
         batch = pa.RecordBatch.from_arrays(
-            [pa.array(["Al", "Alice", "VeryLongName123"])], schema=schema  # Too short, OK, too long
+            [pa.array(["Al", "Alice", "VeryLongName123"])],
+            schema=schema,  # Too short, OK, too long
         )
 
         result_batch, validation_results = processor.process_batch(batch)
@@ -471,7 +477,9 @@ class TestIntegrationScenarios:
         batch = pa.RecordBatch.from_arrays(
             [
                 pa.array([1, 2, 3, 4]),
-                pa.array([" alice smith ", "x", " bob jones ", " charlie brown "]),  # One too short
+                pa.array(
+                    [" alice smith ", "x", " bob jones ", " charlie brown "]
+                ),  # One too short
                 pa.array(
                     ["alice@example.com", "invalid-email", "bob@test.org", "charlie@demo.com"]
                 ),

@@ -8,14 +8,16 @@ import pyarrow as pa
 import pytest
 
 from forklift.processors.base import ValidationResult
-from forklift.processors.data_validation import (BadRowsConfig,
-                                                 DataValidationProcessor,
-                                                 DateValidation,
-                                                 EnumValidation,
-                                                 FieldValidationRule,
-                                                 RangeValidation,
-                                                 StringValidation,
-                                                 ValidationConfig)
+from forklift.processors.data_validation import (
+    BadRowsConfig,
+    DataValidationProcessor,
+    DateValidation,
+    EnumValidation,
+    FieldValidationRule,
+    RangeValidation,
+    StringValidation,
+    ValidationConfig,
+)
 
 
 class TestRangeValidation:
@@ -246,7 +248,9 @@ class TestDataValidationProcessor:
         rule2 = FieldValidationRule(field_name="field2", required=True)
         bad_rows_config = BadRowsConfig()
 
-        config = ValidationConfig(field_validations=[rule1, rule2], bad_rows_config=bad_rows_config)
+        config = ValidationConfig(
+            field_validations=[rule1, rule2], bad_rows_config=bad_rows_config
+        )
 
         processor = DataValidationProcessor(config)
 
@@ -874,7 +878,9 @@ class TestDataValidationProcessor:
         rule1 = FieldValidationRule(field_name="email", unique=True)
         rule2 = FieldValidationRule(field_name="age", required=True)
         bad_rows_config = BadRowsConfig()
-        config = ValidationConfig(field_validations=[rule1, rule2], bad_rows_config=bad_rows_config)
+        config = ValidationConfig(
+            field_validations=[rule1, rule2], bad_rows_config=bad_rows_config
+        )
 
         processor = DataValidationProcessor(config)
 

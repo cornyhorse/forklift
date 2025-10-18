@@ -3,8 +3,7 @@
 
 import pyarrow as pa
 
-from forklift.utils.transformations import (DataTransformer,
-                                            StringCleaningConfig)
+from forklift.utils.transformations import DataTransformer, StringCleaningConfig
 
 
 def test_tab_handling_fix():

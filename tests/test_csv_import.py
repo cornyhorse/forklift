@@ -23,8 +23,7 @@ from pathlib import Path
 
 import pytest
 
-from forklift.engine.forklift_core import (HeaderMode, ProcessingResults,
-                                           import_csv)
+from forklift.engine.forklift_core import HeaderMode, ProcessingResults, import_csv
 
 
 class TestCSVImportBasics:
@@ -596,7 +595,9 @@ class TestCSVErrorHandling:
             with tempfile.TemporaryDirectory() as output_dir:
                 # Should handle gracefully
                 results = import_csv(
-                    input_path=str(csv_file), output_path=output_dir, header_mode=HeaderMode.PRESENT
+                    input_path=str(csv_file),
+                    output_path=output_dir,
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 # May have parsing issues but shouldn't crash

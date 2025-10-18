@@ -9,9 +9,14 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 import pytest
 
-from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
-                                           ImportConfig, ProcessingError,
-                                           ProcessingResults, import_csv)
+from forklift.engine.forklift_core import (
+    ForkliftCore,
+    HeaderMode,
+    ImportConfig,
+    ProcessingError,
+    ProcessingResults,
+    import_csv,
+)
 
 
 class TestForkliftCoreFinalMissingLines:
@@ -34,8 +39,7 @@ class TestForkliftCoreFinalMissingLines:
                     "sheet_names": ["Sheet1", "Sheet2"]
                 }
 
-                from forklift.engine.importers.excel_importer import \
-                    ExcelImporter
+                from forklift.engine.importers.excel_importer import ExcelImporter
 
                 # Test edge cases for sheet selection
                 with pytest.raises(ValueError):

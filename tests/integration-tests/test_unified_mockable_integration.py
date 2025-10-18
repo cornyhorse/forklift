@@ -11,10 +11,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
-                                           ImportConfig)
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
+from forklift.engine.forklift_core import ForkliftCore, HeaderMode, ImportConfig
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
 from forklift.inputs.fwf_utils import create_fwf_config_from_schema
 from forklift.io.s3_streaming import S3Path, S3StreamingClient
@@ -496,7 +494,9 @@ class TestMockableFileUploadIntegration:
                     upload_file = parquet_path
 
                 # Upload to S3
-                test_key = f"forklift/integration-test/batch-{file_type}-{int(time.time())}.parquet"
+                test_key = (
+                    f"forklift/integration-test/batch-{file_type}-{int(time.time())}.parquet"
+                )
                 s3_path = f"s3://{s3_test_bucket}/{test_key}"
                 cleanup_s3_objects.append(s3_path)
 

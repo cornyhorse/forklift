@@ -5,8 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec
-from forklift.inputs.fwf.validators import (FwfFieldValidator,
-                                            FwfSchemaValidator)
+from forklift.inputs.fwf.validators import FwfFieldValidator, FwfSchemaValidator
 
 
 class TestFwfFieldValidator:

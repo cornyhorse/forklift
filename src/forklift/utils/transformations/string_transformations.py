@@ -12,8 +12,12 @@ from typing import Optional
 import pandas as pd
 import pyarrow as pa
 
-from .configs import (RegexReplaceConfig, StringCleaningConfig,
-                      StringPaddingConfig, StringReplaceConfig)
+from .configs import (
+    RegexReplaceConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+)
 
 
 class StringTransformer:

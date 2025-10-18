@@ -7,8 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
-                                           ImportConfig)
+from forklift.engine.forklift_core import ForkliftCore, HeaderMode, ImportConfig
 
 
 class TestForkliftCoreLine561Coverage:

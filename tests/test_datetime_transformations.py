@@ -9,8 +9,7 @@ import pytest
 import pytz
 
 from forklift.utils.transformations.configs import DateTimeTransformConfig
-from forklift.utils.transformations.datetime_transformations import \
-    DateTimeTransformer
+from forklift.utils.transformations.datetime_transformations import DateTimeTransformer
 
 
 class TestDateTimeTransformer:
@@ -228,7 +227,9 @@ class TestDateTimeTransformer:
                 call_count += 1
                 if call_count == 1:
                     raise pa.ArrowTypeError("Mock conversion error")
-                return original_array([None], type=kwargs.get("type", pa.timestamp("us", tz="UTC")))
+                return original_array(
+                    [None], type=kwargs.get("type", pa.timestamp("us", tz="UTC"))
+                )
 
             with patch("pyarrow.array", side_effect=mock_array):
                 result = self.transformer.apply_datetime_transformation(test_data, config)
@@ -256,7 +257,9 @@ class TestDateTimeTransformer:
                 call_count += 1
                 if call_count == 1:
                     raise TypeError("Type conversion error")
-                return original_array([None], type=kwargs.get("type", pa.timestamp("us", tz="UTC")))
+                return original_array(
+                    [None], type=kwargs.get("type", pa.timestamp("us", tz="UTC"))
+                )
 
             with patch("pyarrow.array", side_effect=mock_array):
                 result = self.transformer.apply_datetime_transformation(test_data, config)
@@ -294,7 +297,9 @@ class TestDateTimeTransformer:
                 # Check that Mock objects were filtered to None
                 values = args[0]
                 assert all(v is None for v in values), f"Expected all None values, got {values}"
-                return original_array(values, type=kwargs.get("type", pa.timestamp("us", tz="UTC")))
+                return original_array(
+                    values, type=kwargs.get("type", pa.timestamp("us", tz="UTC"))
+                )
 
             with patch("pyarrow.array", side_effect=mock_array):
                 result = self.transformer.apply_datetime_transformation(test_data, config)

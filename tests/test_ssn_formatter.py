@@ -14,7 +14,9 @@ class TestSSNFormatter:
     @pytest.fixture
     def default_config(self):
         """Create default SSN configuration."""
-        return SSNConfig(format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False)
+        return SSNConfig(
+            format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False
+        )
 
     @pytest.fixture
     def permissive_config(self):

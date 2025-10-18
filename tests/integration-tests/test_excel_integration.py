@@ -87,7 +87,9 @@ class TestExcelIntegration:
         # Configuration for multiple sheets using indices instead of names
         sheet_configs = [
             ExcelSheetConfig(
-                select={"index": 0}, header={"mode": "present"}, skip_blank_rows=True  # First sheet
+                select={"index": 0},
+                header={"mode": "present"},
+                skip_blank_rows=True,  # First sheet
             )
         ]
 

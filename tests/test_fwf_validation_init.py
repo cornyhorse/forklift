@@ -4,11 +4,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from forklift.schema.fwf.validation import (CompatibilityValidator,
-                                            FieldValidator,
-                                            FwfExtensionValidator,
-                                            JsonSchemaValidator,
-                                            ParquetTypeValidator)
+from forklift.schema.fwf.validation import (
+    CompatibilityValidator,
+    FieldValidator,
+    FwfExtensionValidator,
+    JsonSchemaValidator,
+    ParquetTypeValidator,
+)
 
 
 class TestFwfValidationInit:
@@ -65,16 +67,11 @@ class TestFwfValidationInit:
 
     def test_direct_imports(self):
         """Test direct imports from the validation package."""
-        from forklift.schema.fwf.validation import \
-            CompatibilityValidator as DirectCompat
-        from forklift.schema.fwf.validation import \
-            FieldValidator as DirectField
-        from forklift.schema.fwf.validation import \
-            FwfExtensionValidator as DirectFwf
-        from forklift.schema.fwf.validation import \
-            JsonSchemaValidator as DirectJson
-        from forklift.schema.fwf.validation import \
-            ParquetTypeValidator as DirectParquet
+        from forklift.schema.fwf.validation import CompatibilityValidator as DirectCompat
+        from forklift.schema.fwf.validation import FieldValidator as DirectField
+        from forklift.schema.fwf.validation import FwfExtensionValidator as DirectFwf
+        from forklift.schema.fwf.validation import JsonSchemaValidator as DirectJson
+        from forklift.schema.fwf.validation import ParquetTypeValidator as DirectParquet
 
         assert DirectJson is JsonSchemaValidator
         assert DirectFwf is FwfExtensionValidator

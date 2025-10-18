@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import pyarrow as pa
 
-from ..configs import (EmailConfig, IPAddressConfig, MACAddressConfig,
-                       PhoneNumberConfig, SSNConfig, ZipCodeConfig)
+from ..configs import (
+    EmailConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    PhoneNumberConfig,
+    SSNConfig,
+    ZipCodeConfig,
+)
 from .email import EmailFormatter
 from .network import IPAddressFormatter, MACAddressFormatter
 from .phone import PhoneNumberFormatter

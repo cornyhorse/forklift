@@ -6,10 +6,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
-from forklift.inputs.fwf.detectors import (FwfEncodingDetector,
-                                           FwfSchemaDetector)
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
+from forklift.inputs.fwf.detectors import FwfEncodingDetector, FwfSchemaDetector
 
 
 class TestFwfEncodingDetector:

@@ -28,10 +28,17 @@ class TestDataValidationModule:
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
         from forklift.processors.data_validation import (
-            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
-            DateValidation, EnumValidation, FieldValidationRule,
-            RangeValidation, StringValidation, ValidationConfig,
-            ValidationRules)
+            BadRowsConfig,
+            BadRowsHandler,
+            DataValidationProcessor,
+            DateValidation,
+            EnumValidation,
+            FieldValidationRule,
+            RangeValidation,
+            StringValidation,
+            ValidationConfig,
+            ValidationRules,
+        )
 
         # Verify they are the same as the module attributes
         assert RangeValidation is data_validation.RangeValidation

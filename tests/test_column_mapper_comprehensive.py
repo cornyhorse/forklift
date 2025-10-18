@@ -7,10 +7,12 @@ import pyarrow as pa
 import pytest
 
 from forklift.processors.base import ValidationResult
-from forklift.processors.column_mapper import (ColumnMapper,
-                                               ColumnMappingConfig,
-                                               create_custom_mapper,
-                                               create_postgres_mapper)
+from forklift.processors.column_mapper import (
+    ColumnMapper,
+    ColumnMappingConfig,
+    create_custom_mapper,
+    create_postgres_mapper,
+)
 
 
 class TestColumnMappingConfig:
@@ -92,7 +94,8 @@ class TestColumnMapper:
     def test_explicit_mapping_case_sensitive(self):
         """Test explicit column mapping with case sensitivity."""
         config = ColumnMappingConfig(
-            explicit_mappings={"OldName": "NewName", "AnotherCol": "MappedCol"}, case_sensitive=True
+            explicit_mappings={"OldName": "NewName", "AnotherCol": "MappedCol"},
+            case_sensitive=True,
         )
         mapper = ColumnMapper(config)
 
@@ -111,7 +114,9 @@ class TestColumnMapper:
 
     def test_explicit_mapping_case_insensitive(self):
         """Test explicit column mapping without case sensitivity."""
-        config = ColumnMappingConfig(explicit_mappings={"oldname": "NewName"}, case_sensitive=False)
+        config = ColumnMappingConfig(
+            explicit_mappings={"oldname": "NewName"}, case_sensitive=False
+        )
         mapper = ColumnMapper(config)
 
         data = {

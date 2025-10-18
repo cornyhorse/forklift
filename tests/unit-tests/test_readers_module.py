@@ -8,8 +8,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from forklift.readers import (DataFrameReader, _cleanup_temp_dirs, _temp_dirs,
-                              read_csv)
+from forklift.readers import DataFrameReader, _cleanup_temp_dirs, _temp_dirs, read_csv
 
 
 class TestDataFrameReader:

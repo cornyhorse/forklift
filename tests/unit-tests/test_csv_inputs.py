@@ -402,7 +402,9 @@ class TestCsvInputHandlerEdgeCases:
             f.write("// Second comment\n")
             f.write("   \n")  # Blank line with spaces
             f.write("# Third comment\n")
-            f.write("name,age,email\n")  # This is beyond search limit of 5 (0-indexed, so rows 0-4)
+            f.write(
+                "name,age,email\n"
+            )  # This is beyond search limit of 5 (0-indexed, so rows 0-4)
             temp_path = Path(f.name)
 
         try:

@@ -77,7 +77,9 @@ class ColumnMapper(BaseProcessor):
         """
         self.config = config
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch by mapping column names.
 
         Args:

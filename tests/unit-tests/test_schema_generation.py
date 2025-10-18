@@ -15,9 +15,13 @@ import pytest
 from forklift.schema.generator.core import CLIPBOARD_AVAILABLE
 from forklift.schema.generator.inference import DataTypeInferrer
 from forklift.schema.processors.metadata import MetadataGenerator
-from forklift.schema.schema_generator import (FileType, OutputTarget,
-                                              SchemaGenerationConfig,
-                                              SchemaGenerator)
+from forklift.schema.schema_generator import (
+    FileType,
+    OutputTarget,
+    SchemaGenerationConfig,
+    SchemaGenerator,
+)
+
 # Import additional components for testing
 from forklift.schema.types.data_types import DataTypeConverter
 from forklift.schema.types.transformations import TransformationAnalyzer
@@ -1480,7 +1484,9 @@ true,true,true"""
 
         # Test with empty column
         empty_column = pa.array([None, None, None])
-        result = analyzer.analyze_column_for_transformations("empty_col", empty_column, pa.string())
+        result = analyzer.analyze_column_for_transformations(
+            "empty_col", empty_column, pa.string()
+        )
         assert result is None
 
         # Test with all null column

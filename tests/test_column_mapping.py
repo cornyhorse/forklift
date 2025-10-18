@@ -5,10 +5,12 @@ Test demonstrating the new column mapping capabilities for the Forklift schema s
 
 import pyarrow as pa
 
-from forklift.processors.column_mapper import (ColumnMapper,
-                                               ColumnMappingConfig,
-                                               create_custom_mapper,
-                                               create_postgres_mapper)
+from forklift.processors.column_mapper import (
+    ColumnMapper,
+    ColumnMappingConfig,
+    create_custom_mapper,
+    create_postgres_mapper,
+)
 
 
 def test_basic_column_mapping():

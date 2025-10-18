@@ -3,7 +3,9 @@
 import pytest
 
 from forklift.utils.column_name_utilities import (
-    dedupe_column_names, standardize_postgres_column_name)
+    dedupe_column_names,
+    standardize_postgres_column_name,
+)
 
 
 class TestDedupeColumnNames:

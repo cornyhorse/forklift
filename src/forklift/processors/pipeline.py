@@ -30,7 +30,9 @@ class ProcessorPipeline:
         """
         self.processors = processors
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process batch through all processors in sequence.
 
         Passes the batch through each processor in the pipeline, accumulating

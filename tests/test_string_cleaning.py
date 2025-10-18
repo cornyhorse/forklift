@@ -18,9 +18,11 @@ import pyarrow as pa
 import pytest
 
 from forklift.processors.transformations import SchemaBasedTransformer
-from forklift.utils.transformations import (DataTransformer,
-                                            StringCleaningConfig,
-                                            create_transformation_from_config)
+from forklift.utils.transformations import (
+    DataTransformer,
+    StringCleaningConfig,
+    create_transformation_from_config,
+)
 
 
 class TestStringCleaningTransformations:

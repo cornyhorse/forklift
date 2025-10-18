@@ -7,8 +7,7 @@ from unittest.mock import mock_open, patch
 
 import pytest
 
-from forklift.schema.excel_schema_importer import (ExcelSchemaImporter,
-                                                   SchemaValidationError)
+from forklift.schema.excel_schema_importer import ExcelSchemaImporter, SchemaValidationError
 
 
 class TestExcelSchemaImporter:

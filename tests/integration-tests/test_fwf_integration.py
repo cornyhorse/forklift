@@ -9,11 +9,9 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
-from forklift.inputs.fwf_utils import (create_fwf_config_from_schema,
-                                       create_simple_fwf_config)
+from forklift.inputs.fwf_utils import create_fwf_config_from_schema, create_simple_fwf_config
 from forklift.io.s3_streaming import S3Path, S3StreamingClient
 
 
@@ -164,7 +162,9 @@ class TestFwfS3Integration:
                 except Exception:
                     pass  # Best effort cleanup
 
-    def test_single_schema_fwf_to_parquet_s3_upload(self, s3_client, s3_config, cleanup_s3_objects):
+    def test_single_schema_fwf_to_parquet_s3_upload(
+        self, s3_client, s3_config, cleanup_s3_objects
+    ):
         """Test processing single-schema FWF file and uploading parquet to S3."""
         # Define field specification for the test file
         fields = [
@@ -210,7 +210,9 @@ class TestFwfS3Integration:
                 pa.parquet.write_table(table, parquet_path)
 
                 # Upload to S3
-                test_key = f"forklift/integration-test/fwf-single-schema-{int(time.time())}.parquet"
+                test_key = (
+                    f"forklift/integration-test/fwf-single-schema-{int(time.time())}.parquet"
+                )
                 s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
                 cleanup_s3_objects.append(s3_path)
 

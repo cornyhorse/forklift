@@ -9,10 +9,14 @@ import datetime
 
 import pytest
 
-from forklift.utils.date_parser import (COMMON_DATE_FORMATS,
-                                        COMMON_DATETIME_FORMATS,
-                                        SCHEMA_TOKEN_MAP, coerce_date,
-                                        coerce_datetime, parse_date)
+from forklift.utils.date_parser import (
+    COMMON_DATE_FORMATS,
+    COMMON_DATETIME_FORMATS,
+    SCHEMA_TOKEN_MAP,
+    coerce_date,
+    coerce_datetime,
+    parse_date,
+)
 
 
 class TestParseDate:

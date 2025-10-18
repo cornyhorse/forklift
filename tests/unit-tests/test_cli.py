@@ -8,8 +8,7 @@ import pytest
 
 from forklift.cli import main
 from forklift.engine.forklift_core import HeaderMode, ImportConfig
-from forklift.schema.schema_generator import (FileType, OutputTarget,
-                                              SchemaGenerationConfig)
+from forklift.schema.schema_generator import FileType, OutputTarget, SchemaGenerationConfig
 
 
 class TestCLIArgumentParsing:
@@ -61,7 +60,9 @@ class TestCLIArgumentParsing:
         with patch("sys.argv", test_args):
             with patch("builtins.print") as mock_print:
                 main()
-                mock_print.assert_called_with("Error: --output-path is required when --output=file")
+                mock_print.assert_called_with(
+                    "Error: --output-path is required when --output=file"
+                )
 
     @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_with_all_options(self, mock_forklift):

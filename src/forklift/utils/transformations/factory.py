@@ -12,11 +12,22 @@ from typing import Any, Callable, Dict
 import pyarrow as pa
 
 from .base import DataTransformer
-from .configs import (DateTimeTransformConfig, EmailConfig, HTMLXMLConfig,
-                      IPAddressConfig, MACAddressConfig, MoneyTypeConfig,
-                      NumericCleaningConfig, PhoneNumberConfig,
-                      RegexReplaceConfig, SSNConfig, StringCleaningConfig,
-                      StringPaddingConfig, StringReplaceConfig, ZipCodeConfig)
+from .configs import (
+    DateTimeTransformConfig,
+    EmailConfig,
+    HTMLXMLConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    PhoneNumberConfig,
+    RegexReplaceConfig,
+    SSNConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+    ZipCodeConfig,
+)
 
 
 def create_transformation_from_config(

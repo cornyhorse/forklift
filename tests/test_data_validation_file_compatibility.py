@@ -13,10 +13,17 @@ class TestDataValidationBackwardCompatibilityFile:
     def test_import_from_file_works(self):
         """Test that importing from the file works correctly."""
         from forklift.processors.data_validation import (
-            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
-            DateValidation, EnumValidation, FieldValidationRule,
-            RangeValidation, StringValidation, ValidationConfig,
-            ValidationRules)
+            BadRowsConfig,
+            BadRowsHandler,
+            DataValidationProcessor,
+            DateValidation,
+            EnumValidation,
+            FieldValidationRule,
+            RangeValidation,
+            StringValidation,
+            ValidationConfig,
+            ValidationRules,
+        )
 
         # Verify all classes are imported and are callable
         assert callable(RangeValidation)
@@ -114,11 +121,12 @@ class TestDataValidationBackwardCompatibilityFile:
     def test_backward_compatibility_maintained(self):
         """Test that backward compatibility is maintained."""
         # Import from the compatibility file
-        from forklift.processors.data_validation import \
-            DataValidationProcessor as FileProcessor
+        from forklift.processors.data_validation import DataValidationProcessor as FileProcessor
+
         # Import from the package directly
-        from forklift.processors.data_validation.data_validation_processor import \
-            DataValidationProcessor as PackageProcessor
+        from forklift.processors.data_validation.data_validation_processor import (
+            DataValidationProcessor as PackageProcessor,
+        )
 
         # They should be the same class
         assert FileProcessor is PackageProcessor

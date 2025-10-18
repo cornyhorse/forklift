@@ -13,12 +13,22 @@ class TestTransformationsBackwardCompatibilityFile:
     def test_import_from_file_works(self):
         """Test that importing from the file works correctly."""
         from forklift.processors.transformations import (
-            ColumnTransformer, DataTransformer, MoneyTypeConfig,
-            SchemaBasedTransformer, apply_html_xml_cleaning,
-            apply_money_conversion, apply_numeric_cleaning,
-            apply_regex_replace, apply_string_padding, apply_string_replace,
-            apply_string_trimming, create_transformation_from_config,
-            lowercase, trim_whitespace, uppercase)
+            ColumnTransformer,
+            DataTransformer,
+            MoneyTypeConfig,
+            SchemaBasedTransformer,
+            apply_html_xml_cleaning,
+            apply_money_conversion,
+            apply_numeric_cleaning,
+            apply_regex_replace,
+            apply_string_padding,
+            apply_string_replace,
+            apply_string_trimming,
+            create_transformation_from_config,
+            lowercase,
+            trim_whitespace,
+            uppercase,
+        )
 
         # Verify all classes and functions are imported and are callable
         assert callable(ColumnTransformer)
@@ -157,11 +167,12 @@ class TestTransformationsBackwardCompatibilityFile:
     def test_backward_compatibility_maintained(self):
         """Test that backward compatibility is maintained."""
         # Import from the compatibility file
-        from forklift.processors.transformations import \
-            ColumnTransformer as FileTransformer
+        from forklift.processors.transformations import ColumnTransformer as FileTransformer
+
         # Import from the package directly
-        from forklift.processors.transformations.column_transformer import \
-            ColumnTransformer as PackageTransformer
+        from forklift.processors.transformations.column_transformer import (
+            ColumnTransformer as PackageTransformer,
+        )
 
         # They should be the same class
         assert FileTransformer is PackageTransformer

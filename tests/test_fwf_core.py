@@ -55,7 +55,12 @@ class TestFwfSchemaImporter:
                                     "length": 1,
                                     "parquetType": "string",
                                 },
-                                {"name": "data", "start": 1, "length": 10, "parquetType": "string"},
+                                {
+                                    "name": "data",
+                                    "start": 1,
+                                    "length": 10,
+                                    "parquetType": "string",
+                                },
                             ],
                         },
                         {
@@ -67,7 +72,12 @@ class TestFwfSchemaImporter:
                                     "length": 1,
                                     "parquetType": "string",
                                 },
-                                {"name": "data", "start": 1, "length": 15, "parquetType": "string"},
+                                {
+                                    "name": "data",
+                                    "start": 1,
+                                    "length": 15,
+                                    "parquetType": "string",
+                                },
                             ],
                         },
                     ],
@@ -177,7 +187,10 @@ class TestFwfSchemaImporter:
 
     def test_init_with_non_dict_case_config(self):
         """Test initialization when case config is not a dict."""
-        schema = {"type": "object", "x-fwf": {"case": "invalid_type"}}  # Should be dict, not string
+        schema = {
+            "type": "object",
+            "x-fwf": {"case": "invalid_type"},
+        }  # Should be dict, not string
         importer = FwfSchemaImporter(schema, validate=False)
 
         assert importer.standardize_names is None
@@ -498,7 +511,9 @@ class TestFwfSchemaImporter:
             mock_method.assert_called_once_with("A")
             assert positions == [(0, 1), (1, 11)]
 
-    def test_get_field_positions_for_flag_value_without_variant_manager(self, minimal_valid_schema):
+    def test_get_field_positions_for_flag_value_without_variant_manager(
+        self, minimal_valid_schema
+    ):
         """Test getting field positions for flag value without variant manager."""
         importer = FwfSchemaImporter(minimal_valid_schema, validate=False)
 

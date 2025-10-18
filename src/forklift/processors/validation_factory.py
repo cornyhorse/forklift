@@ -9,10 +9,13 @@ from typing import Any, Dict, List, Optional, Union
 import pyarrow as pa
 
 from .base import BaseProcessor
-from .constraint_validator import (ConstraintConfig, ConstraintValidator,
-                                   ErrorMode)
-from .data_validation import (BadRowsConfig, DataValidationProcessor,
-                              FieldValidationRule, ValidationConfig)
+from .constraint_validator import ConstraintConfig, ConstraintValidator, ErrorMode
+from .data_validation import (
+    BadRowsConfig,
+    DataValidationProcessor,
+    FieldValidationRule,
+    ValidationConfig,
+)
 from .schema_validator import SchemaValidator
 from .write_time_validator import WriteTimeConfig, WriteTimeValidator
 
@@ -44,7 +47,9 @@ class ValidationFactory:
 
     @staticmethod
     def create_validator(
-        validator_type: Union[ValidatorType, str], config: Optional[Dict[str, Any]] = None, **kwargs
+        validator_type: Union[ValidatorType, str],
+        config: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ) -> BaseProcessor:
         """Create a validator based on type and configuration.
 

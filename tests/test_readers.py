@@ -9,8 +9,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from forklift.readers import (DataFrameReader, _cleanup_temp_dirs, _temp_dirs,
-                              read_csv, read_excel)
+from forklift.readers import DataFrameReader, _cleanup_temp_dirs, _temp_dirs, read_csv, read_excel
 
 
 class TestDataFrameReader:

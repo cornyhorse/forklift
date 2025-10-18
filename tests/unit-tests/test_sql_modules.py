@@ -10,8 +10,7 @@ import pytest
 
 from forklift.inputs.config import SqlInputConfig
 from forklift.inputs.sql import SqlInputHandler
-from forklift.schema.sql_schema_importer import (SchemaValidationError,
-                                                 SqlSchemaImporter)
+from forklift.schema.sql_schema_importer import SchemaValidationError, SqlSchemaImporter
 
 
 @pytest.fixture
@@ -149,7 +148,9 @@ class TestSqlInputHandler:
         handler = SqlInputHandler(config)
         handler.connect()
 
-        expected_conn_str = "DRIVER={SQLite3 ODBC Driver};Database=test.db;;Timeout=30;ReadOnly=Yes"
+        expected_conn_str = (
+            "DRIVER={SQLite3 ODBC Driver};Database=test.db;;Timeout=30;ReadOnly=Yes"
+        )
         mock_connect.assert_called_once_with(expected_conn_str, timeout=config.connection_timeout)
 
     def test_connect_pyodbc_not_installed(self, basic_config):

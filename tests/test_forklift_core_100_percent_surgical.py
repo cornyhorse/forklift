@@ -10,10 +10,16 @@ from unittest.mock import MagicMock, mock_open, patch
 import pyarrow as pa
 import pytest
 
-from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
-                                           ImportConfig, ProcessingError,
-                                           ProcessingResults, import_csv,
-                                           import_excel, import_sql)
+from forklift.engine.forklift_core import (
+    ForkliftCore,
+    HeaderMode,
+    ImportConfig,
+    ProcessingError,
+    ProcessingResults,
+    import_csv,
+    import_excel,
+    import_sql,
+)
 from forklift.engine.importers.excel_importer import ExcelImporter
 
 

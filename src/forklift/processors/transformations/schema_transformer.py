@@ -6,8 +6,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import pyarrow as pa
 
-from ...utils.transformations import (DataTransformer,
-                                      create_transformation_from_config)
+from ...utils.transformations import DataTransformer, create_transformation_from_config
 from ..base import BaseProcessor, ValidationResult
 
 
@@ -63,7 +62,9 @@ class SchemaBasedTransformer(BaseProcessor):
 
         return transformations
 
-    def _add_special_type_transformations(self, transformations: Dict[str, List[Callable]]) -> None:
+    def _add_special_type_transformations(
+        self, transformations: Dict[str, List[Callable]]
+    ) -> None:
         """Automatically add transformations for fields with x-special-type markers.
 
         Scans schema properties for fields with x-special-type and adds appropriate
@@ -178,7 +179,9 @@ class SchemaBasedTransformer(BaseProcessor):
                     )
                     transformations.setdefault(field_name, []).append(transform_func)
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Apply schema-based transformations to batch columns.
 
         Args:

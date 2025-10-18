@@ -29,7 +29,9 @@ class TestCLIPreciseBranches:
                 result = main()
 
                 # Verify error message and early return
-                mock_print.assert_called_with("Error: --output-path is required when --output=file")
+                mock_print.assert_called_with(
+                    "Error: --output-path is required when --output=file"
+                )
                 # This should hit the return statement at line 101
                 assert result is None
 

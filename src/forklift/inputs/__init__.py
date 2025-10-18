@@ -13,9 +13,16 @@ The module is organized with separate files for each responsibility:
 """
 
 # Import configuration
-from .config import (CsvInputConfig, ExcelInputConfig, ExcelSheetConfig,
-                     FwfConditionalSchema, FwfFieldSpec, FwfInputConfig,
-                     SqlInputConfig)
+from .config import (
+    CsvInputConfig,
+    ExcelInputConfig,
+    ExcelSheetConfig,
+    FwfConditionalSchema,
+    FwfFieldSpec,
+    FwfInputConfig,
+    SqlInputConfig,
+)
+
 # Import core input handlers
 from .csv import CsvInputHandler
 from .excel import ExcelInputHandler

@@ -19,9 +19,14 @@ class TestSchemaValidatorCompatibility:
         """Test importing all classes and functions from the compatibility module."""
         # Import from the backward-compatibility module
         from forklift.processors.schema_validator import (
-            ColumnSchema, NullabilityMode, SchemaValidationMode,
-            SchemaValidator, SchemaValidatorConfig, create_schema_from_batch,
-            create_schema_validator_from_json)
+            ColumnSchema,
+            NullabilityMode,
+            SchemaValidationMode,
+            SchemaValidator,
+            SchemaValidatorConfig,
+            create_schema_from_batch,
+            create_schema_validator_from_json,
+        )
 
         # Verify all classes and functions are imported and are callable/classes
         assert callable(SchemaValidator)
@@ -102,14 +107,12 @@ class TestSchemaValidatorCompatibility:
         assert callable(ColumnSchema)
 
         # Test create_schema_validator_from_json
-        from forklift.processors.schema_validator import \
-            create_schema_validator_from_json
+        from forklift.processors.schema_validator import create_schema_validator_from_json
 
         assert callable(create_schema_validator_from_json)
 
         # Test create_schema_from_batch
-        from forklift.processors.schema_validator import \
-            create_schema_from_batch
+        from forklift.processors.schema_validator import create_schema_from_batch
 
         assert callable(create_schema_from_batch)
 
@@ -133,11 +136,12 @@ class TestSchemaValidatorCompatibility:
     def test_imports_are_same_as_source_modules(self):
         """Test that imports from compatibility module are the same as source modules."""
         # Import from compatibility module
-        from forklift.processors.schema_validator import \
-            SchemaValidator as CompatSchemaValidator
+        from forklift.processors.schema_validator import SchemaValidator as CompatSchemaValidator
+
         # Import from source module directly
-        from forklift.processors.schema_validator.core import \
-            SchemaValidator as SourceSchemaValidator
+        from forklift.processors.schema_validator.core import (
+            SchemaValidator as SourceSchemaValidator,
+        )
 
         # They should be the same class
         assert CompatSchemaValidator is SourceSchemaValidator
@@ -145,8 +149,12 @@ class TestSchemaValidatorCompatibility:
     def test_classes_have_expected_attributes(self):
         """Test that imported classes have expected attributes without instantiating."""
         from forklift.processors.schema_validator import (
-            ColumnSchema, SchemaValidator, SchemaValidatorConfig,
-            create_schema_from_batch, create_schema_validator_from_json)
+            ColumnSchema,
+            SchemaValidator,
+            SchemaValidatorConfig,
+            create_schema_from_batch,
+            create_schema_validator_from_json,
+        )
 
         # Test that classes have expected methods/attributes (without instantiating)
         # This ensures the imports are working correctly
@@ -223,7 +231,9 @@ class TestSchemaValidatorCompatibility:
         mock_config_module.SchemaValidatorConfig = mock_classes_and_functions[
             "SchemaValidatorConfig"
         ]
-        mock_config_module.SchemaValidationMode = mock_classes_and_functions["SchemaValidationMode"]
+        mock_config_module.SchemaValidationMode = mock_classes_and_functions[
+            "SchemaValidationMode"
+        ]
         mock_config_module.NullabilityMode = mock_classes_and_functions["NullabilityMode"]
 
         mock_schema_module = MagicMock()
@@ -289,7 +299,11 @@ class TestSchemaValidatorCompatibility:
         """Test the docstring of the schema_validator.py module."""
         # Read the file directly to get the docstring without executing imports
         schema_validator_py_path = (
-            Path(__file__).parent.parent / "src" / "forklift" / "processors" / "schema_validator.py"
+            Path(__file__).parent.parent
+            / "src"
+            / "forklift"
+            / "processors"
+            / "schema_validator.py"
         )
         content = schema_validator_py_path.read_text()
 
@@ -308,9 +322,14 @@ class TestSchemaValidatorCompatibility:
         """Test a comprehensive scenario using the backward compatibility interface."""
         # Import all exports through the compatibility interface
         from forklift.processors.schema_validator import (
-            ColumnSchema, NullabilityMode, SchemaValidationMode,
-            SchemaValidator, SchemaValidatorConfig, create_schema_from_batch,
-            create_schema_validator_from_json)
+            ColumnSchema,
+            NullabilityMode,
+            SchemaValidationMode,
+            SchemaValidator,
+            SchemaValidatorConfig,
+            create_schema_from_batch,
+            create_schema_validator_from_json,
+        )
 
         # Verify all exports are accessible and have expected properties
         exports_to_test = [

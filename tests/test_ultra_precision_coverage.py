@@ -11,11 +11,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from forklift.engine.forklift_core import (ExcessColumnMode, ForkliftCore,
-                                           HeaderMode, ImportConfig,
-                                           ProcessingResults, import_csv,
-                                           import_excel, import_fwf,
-                                           import_sql)
+from forklift.engine.forklift_core import (
+    ExcessColumnMode,
+    ForkliftCore,
+    HeaderMode,
+    ImportConfig,
+    ProcessingResults,
+    import_csv,
+    import_excel,
+    import_fwf,
+    import_sql,
+)
 
 
 class TestUltraPrecisionCoverage:

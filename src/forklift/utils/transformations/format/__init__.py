@@ -10,6 +10,7 @@ from .network import IPAddressFormatter, MACAddressFormatter
 from .phone import PhoneNumberFormatter
 from .postal import ZipCodeFormatter
 from .ssn import SSNFormatter
+
 # For backward compatibility, maintain the original FormatTransformer interface
 from .transformer import FormatTransformer
 

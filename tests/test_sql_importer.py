@@ -169,7 +169,9 @@ class TestSqlImporter:
                 mock_schema_importer_class.return_value = mock_schema_importer
                 mock_schema_importer.get_table_list.return_value = []
 
-                with pytest.raises(ValueError, match="Schema file must specify at least one table"):
+                with pytest.raises(
+                    ValueError, match="Schema file must specify at least one table"
+                ):
                     SqlImporter.import_sql(
                         connection_string=connection_string,
                         output_path=output_directory,

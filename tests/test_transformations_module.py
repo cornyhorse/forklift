@@ -30,10 +30,19 @@ class TestTransformationsModule:
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
         from forklift.processors.transformations import (
-            ColumnTransformer, SchemaBasedTransformer, apply_html_xml_cleaning,
-            apply_money_conversion, apply_numeric_cleaning,
-            apply_regex_replace, apply_string_padding, apply_string_replace,
-            apply_string_trimming, lowercase, trim_whitespace, uppercase)
+            ColumnTransformer,
+            SchemaBasedTransformer,
+            apply_html_xml_cleaning,
+            apply_money_conversion,
+            apply_numeric_cleaning,
+            apply_regex_replace,
+            apply_string_padding,
+            apply_string_replace,
+            apply_string_trimming,
+            lowercase,
+            trim_whitespace,
+            uppercase,
+        )
 
         # Verify they are the same as the module attributes
         assert ColumnTransformer is transformations.ColumnTransformer

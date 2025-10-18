@@ -4,8 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from forklift.schema.fwf.conditional import (ConditionalSchemaManager,
-                                             VariantManager)
+from forklift.schema.fwf.conditional import ConditionalSchemaManager, VariantManager
 
 
 class TestFwfConditionalInit:
@@ -38,10 +37,8 @@ class TestFwfConditionalInit:
 
     def test_direct_imports(self):
         """Test direct imports from the conditional package."""
-        from forklift.schema.fwf.conditional import \
-            ConditionalSchemaManager as DirectManager
-        from forklift.schema.fwf.conditional import \
-            VariantManager as DirectVariant
+        from forklift.schema.fwf.conditional import ConditionalSchemaManager as DirectManager
+        from forklift.schema.fwf.conditional import VariantManager as DirectVariant
 
         assert DirectManager is ConditionalSchemaManager
         assert DirectVariant is VariantManager

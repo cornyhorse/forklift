@@ -10,9 +10,16 @@ For new code, consider importing directly from the format package:
 """
 
 # Import individual formatters for direct use
-from .format import (BaseFormatter, EmailFormatter, IPAddressFormatter,
-                     MACAddressFormatter, PhoneNumberFormatter, SSNFormatter,
-                     ZipCodeFormatter)
+from .format import (
+    BaseFormatter,
+    EmailFormatter,
+    IPAddressFormatter,
+    MACAddressFormatter,
+    PhoneNumberFormatter,
+    SSNFormatter,
+    ZipCodeFormatter,
+)
+
 # Import the refactored FormatTransformer for backward compatibility
 from .format.transformer import FormatTransformer
 

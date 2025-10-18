@@ -49,7 +49,9 @@ class ConditionalSchemaManager:
             List of all valid flag values
         """
         return [
-            variant.get("flagValue") for variant in self.schema_variants if variant.get("flagValue")
+            variant.get("flagValue")
+            for variant in self.schema_variants
+            if variant.get("flagValue")
         ]
 
     def validate_flag_value(self, flag_value: str) -> bool:

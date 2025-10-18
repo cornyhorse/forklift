@@ -15,6 +15,7 @@ The module is organized with separate files for each responsibility:
 from .config import OutputConfig
 from .manifest import ManifestGenerator
 from .metadata import MetadataGenerator
+
 # Import core output handlers
 from .parquet import ParquetOutputHandler
 

@@ -4,8 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from forklift.schema.fwf.fields import (FieldMapper, FieldParser,
-                                        PositionCalculator)
+from forklift.schema.fwf.fields import FieldMapper, FieldParser, PositionCalculator
 
 
 class TestFwfFieldsInit:
@@ -46,8 +45,7 @@ class TestFwfFieldsInit:
         """Test direct imports from the fields package."""
         from forklift.schema.fwf.fields import FieldMapper as DirectMapper
         from forklift.schema.fwf.fields import FieldParser as DirectParser
-        from forklift.schema.fwf.fields import \
-            PositionCalculator as DirectCalculator
+        from forklift.schema.fwf.fields import PositionCalculator as DirectCalculator
 
         assert DirectParser is FieldParser
         assert DirectCalculator is PositionCalculator

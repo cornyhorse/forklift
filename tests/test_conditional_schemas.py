@@ -39,7 +39,9 @@ class TestConditionalSchemaManager:
 
         # Configuration with missing flagColumn
         self.schemas_no_flag_column = {
-            "schemas": [{"flagValue": "A", "fields": [{"name": "field1", "start": 1, "length": 5}]}]
+            "schemas": [
+                {"flagValue": "A", "fields": [{"name": "field1", "start": 1, "length": 5}]}
+            ]
         }
 
         # Configuration with missing schemas
@@ -211,7 +213,9 @@ class TestConditionalSchemaManager:
         fields = manager.get_fields_for_flag_value("A")
         assert fields == []
 
-    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
+    @patch(
+        "forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row"
+    )
     def test_get_record_mapping_for_row_with_valid_flag(self, mock_extract):
         """Test getting record mapping for row with valid flag value."""
         mock_extract.return_value = "H"
@@ -223,9 +227,13 @@ class TestConditionalSchemaManager:
         assert mapping["flagValue"] == "H"
         assert mapping["variant"]["flagValue"] == "H"
         assert len(mapping["fields"]) == 2
-        mock_extract.assert_called_once_with("H123456789012345678901234567890", manager.flag_column)
+        mock_extract.assert_called_once_with(
+            "H123456789012345678901234567890", manager.flag_column
+        )
 
-    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
+    @patch(
+        "forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row"
+    )
     def test_get_record_mapping_for_row_with_invalid_flag(self, mock_extract):
         """Test getting record mapping for row with invalid flag value."""
         mock_extract.return_value = "X"
@@ -234,9 +242,13 @@ class TestConditionalSchemaManager:
         mapping = manager.get_record_mapping_for_row("X123456789012345678901234567890")
 
         assert mapping is None
-        mock_extract.assert_called_once_with("X123456789012345678901234567890", manager.flag_column)
+        mock_extract.assert_called_once_with(
+            "X123456789012345678901234567890", manager.flag_column
+        )
 
-    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
+    @patch(
+        "forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row"
+    )
     def test_get_record_mapping_for_row_with_none_flag_value(self, mock_extract):
         """Test getting record mapping when flag value extraction returns None."""
         mock_extract.return_value = None
@@ -247,7 +259,9 @@ class TestConditionalSchemaManager:
         assert mapping is None
         mock_extract.assert_called_once_with("123456789012345678901234567890", manager.flag_column)
 
-    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
+    @patch(
+        "forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row"
+    )
     def test_get_record_mapping_for_row_with_empty_flag_value(self, mock_extract):
         """Test getting record mapping when flag value extraction returns empty string."""
         mock_extract.return_value = ""

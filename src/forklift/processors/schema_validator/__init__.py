@@ -9,8 +9,8 @@ This package provides modular schema validation capabilities with the following 
 - Utility functions
 """
 
-from .config import (NullabilityMode, SchemaValidationMode,
-                     SchemaValidatorConfig)
+from .config import NullabilityMode, SchemaValidationMode, SchemaValidatorConfig
+
 # Import main classes and functions for backward compatibility
 from .core import SchemaValidator
 from .schema import ColumnSchema

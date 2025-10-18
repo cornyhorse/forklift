@@ -10,8 +10,7 @@ import pyarrow as pa
 
 from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
 from ...metadata import OutputMetadataCollector
-from ...processors.row_hash_factory import \
-    create_row_hash_processor_from_schema
+from ...processors.row_hash_factory import create_row_hash_processor_from_schema
 from ..config import ImportConfig, ProcessingResults
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
@@ -325,7 +324,9 @@ class CSVProcessor(BaseProcessor):
                 json.dump(manifest, f, indent=2)
             return str(manifest_path)
 
-    def _create_s3_metadata(self, output_path: Union[str, Path], results: ProcessingResults) -> str:
+    def _create_s3_metadata(
+        self, output_path: Union[str, Path], results: ProcessingResults
+    ) -> str:
         """Create metadata file supporting S3 output locations."""
         from datetime import datetime
 

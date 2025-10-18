@@ -12,8 +12,7 @@ import pytest
 
 from forklift.inputs.config import ExcelInputConfig, ExcelSheetConfig
 from forklift.inputs.excel import ExcelInputHandler
-from forklift.schema.excel_schema_importer import (ExcelSchemaImporter,
-                                                   SchemaValidationError)
+from forklift.schema.excel_schema_importer import ExcelSchemaImporter, SchemaValidationError
 
 
 class TestExcelInputHandler:
@@ -113,7 +112,9 @@ class TestExcelInputHandler:
         handler = ExcelInputHandler(basic_config)
 
         with patch("builtins.__import__", side_effect=ImportError("No module named 'openpyxl'")):
-            with pytest.raises(ImportError, match="Required library for openpyxl engine not found"):
+            with pytest.raises(
+                ImportError, match="Required library for openpyxl engine not found"
+            ):
                 handler.open_workbook(Path("test.xlsx"))
 
     def test_open_workbook_unsupported_engine(self):

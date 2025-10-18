@@ -5,8 +5,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..utils.column_name_utilities import (dedupe_column_names,
-                                           standardize_postgres_column_name)
+from ..utils.column_name_utilities import dedupe_column_names, standardize_postgres_column_name
 
 
 class SchemaValidationError(Exception):
@@ -230,7 +229,9 @@ class CsvSchemaImporter:
                     errors.append(f"Parquet type mapping for unknown field '{field_name}'")
 
                 if not self._is_valid_parquet_type(parquet_type):
-                    errors.append(f"Invalid Parquet type '{parquet_type}' for field '{field_name}'")
+                    errors.append(
+                        f"Invalid Parquet type '{parquet_type}' for field '{field_name}'"
+                    )
 
         return errors
 

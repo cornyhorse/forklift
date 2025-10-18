@@ -6,10 +6,15 @@ from typing import Callable, List, Optional
 
 import pyarrow as pa
 
-from ...utils.transformations import (DataTransformer, HTMLXMLConfig,
-                                      MoneyTypeConfig, NumericCleaningConfig,
-                                      RegexReplaceConfig, StringPaddingConfig,
-                                      StringReplaceConfig)
+from ...utils.transformations import (
+    DataTransformer,
+    HTMLXMLConfig,
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    RegexReplaceConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+)
 
 
 def apply_money_conversion(

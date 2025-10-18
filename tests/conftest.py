@@ -124,7 +124,9 @@ def aws_credentials():
 
     # Check if we have valid credentials
     if not credentials.get("aws_access_key_id") or not credentials.get("aws_secret_access_key"):
-        pytest.skip("AWS credentials not available in ~/.credentials/.env or environment variables")
+        pytest.skip(
+            "AWS credentials not available in ~/.credentials/.env or environment variables"
+        )
 
     return credentials
 
@@ -163,7 +165,9 @@ def s3_mock_conditional(request, use_s3_mock):
     else:
         # Use real S3 - load credentials only when needed
         credentials = _load_credentials_from_env()
-        if not credentials.get("aws_access_key_id") or not credentials.get("aws_secret_access_key"):
+        if not credentials.get("aws_access_key_id") or not credentials.get(
+            "aws_secret_access_key"
+        ):
             pytest.skip("Real S3 testing requested but AWS credentials not available")
 
         # Return None to indicate no mocking

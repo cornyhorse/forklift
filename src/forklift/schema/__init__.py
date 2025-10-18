@@ -5,8 +5,7 @@ schema objects that conform to the Forklift schema standards.
 """
 
 # Import from the new modular structure
-from .generator.core import (FileType, OutputTarget, SchemaGenerationConfig,
-                             SchemaGenerator)
+from .generator.core import FileType, OutputTarget, SchemaGenerationConfig, SchemaGenerator
 from .processors.json_schema import JSONSchemaProcessor
 from .processors.metadata import MetadataGenerator
 from .types.data_types import DataTypeConverter

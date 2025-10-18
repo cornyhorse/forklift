@@ -12,8 +12,7 @@ from pathlib import Path
 import pyarrow as pa
 import pytest
 
-from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
-                                           ImportConfig)
+from forklift.engine.forklift_core import ForkliftCore, HeaderMode, ImportConfig
 
 
 class TestForkliftCoreMissingLinesBatch1:

@@ -8,8 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-from .engine.forklift_core import (import_csv, import_excel, import_fwf,
-                                   import_sql)
+from .engine.forklift_core import import_csv, import_excel, import_fwf, import_sql
 
 # Global registry of temporary directories for cleanup
 _temp_dirs = set()

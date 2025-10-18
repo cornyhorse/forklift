@@ -12,9 +12,11 @@ import pytest
 sys.path.insert(0, "src")
 
 from forklift.processors.base import ValidationResult
-from forklift.processors.transformations import (ColumnTransformer,
-                                                 SchemaBasedTransformer,
-                                                 trim_whitespace)
+from forklift.processors.transformations import (
+    ColumnTransformer,
+    SchemaBasedTransformer,
+    trim_whitespace,
+)
 
 
 class TestSchemaBasedTransformerSpecialTypes:
@@ -669,8 +671,7 @@ class TestColumnTransformerEdgeCases:
 
     def test_column_transformer_with_multiple_transforms_per_column(self):
         """Test ColumnTransformer with multiple transformations per column."""
-        from forklift.processors.transformations import (trim_whitespace,
-                                                         uppercase)
+        from forklift.processors.transformations import trim_whitespace, uppercase
 
         transformations = {"col1": [trim_whitespace, uppercase]}
         transformer = ColumnTransformer(transformations)

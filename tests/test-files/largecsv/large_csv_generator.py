@@ -86,7 +86,9 @@ def main():
             ts_micros = (
                 ""
                 if is_null
-                else (epoch + dt.timedelta(microseconds=i * 977)).isoformat().replace("+00:00", "Z")
+                else (epoch + dt.timedelta(microseconds=i * 977))
+                .isoformat()
+                .replace("+00:00", "Z")
             )
 
             utf8_samples = ["naïve", "café", "mañana", "über", "façade", "smile🙂"]

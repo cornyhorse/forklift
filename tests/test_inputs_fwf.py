@@ -40,11 +40,16 @@ class TestFwfInputsModule:
     def test_backward_compatibility_imports(self):
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
-        from forklift.inputs.fwf import (FwfConfigValidator,
-                                         FwfEncodingDetector,
-                                         FwfFieldExtractor, FwfInputHandler,
-                                         FwfLineParser, FwfSchemaDetector,
-                                         FwfTypeConverter, FwfValueProcessor)
+        from forklift.inputs.fwf import (
+            FwfConfigValidator,
+            FwfEncodingDetector,
+            FwfFieldExtractor,
+            FwfInputHandler,
+            FwfLineParser,
+            FwfSchemaDetector,
+            FwfTypeConverter,
+            FwfValueProcessor,
+        )
 
         # Verify they are the same as the module attributes
         assert FwfInputHandler is fwf.FwfInputHandler

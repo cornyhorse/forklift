@@ -278,13 +278,16 @@ def coerce_datetime_value(
                     for candidate_fmt in candidates:
                         try:
                             parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
-                            # For strict format enforcement with schema tokens (no %), always check exact match
+                            # For strict format enforcement with schema
+                            # tokens (no %), always check exact match
                             if fmt and "%" not in fmt:
-                                # This is a schema token format like "YYYY-MM-DD", enforce exact match
+                                # This is a schema token format like
+                                # "YYYY-MM-DD", enforce exact match
                                 if not matches_format_exact(value, candidate_fmt):
                                     parsed_dt = None
                                     continue
-                            # For strptime formats with %, also check exact match if it was the original format
+                            # For strptime formats with %, also check
+                            # exact match if it was the original format
                             elif (
                                 fmt
                                 and "%" in fmt

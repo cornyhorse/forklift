@@ -155,7 +155,8 @@ class DataValidationProcessor(BaseProcessor):
                         )
                     elif self.config.uniqueness_strategy == "fail_on_duplicate":
                         errors.append(
-                            f"Field '{rule.field_name}' value '{value}' violates uniqueness constraint"
+                            f"Field '{rule.field_name}' value '{value}' "
+                            f"violates uniqueness constraint"
                         )
                 else:
                     self.unique_value_tracker[rule.field_name].add(value)

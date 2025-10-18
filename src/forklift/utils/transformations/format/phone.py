@@ -42,11 +42,13 @@ class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
                 if len(digits_only) == 11 and digits_only.startswith("1"):
                     if len(phone_digits) != 10:
                         raise ValueError(
-                            f"Phone number must have {self.config.min_digits}-{self.config.max_digits} digits, got {len(phone_digits)}"
+                            f"Phone number must have {self.config.min_digits}-"
+                            f"{self.config.max_digits} digits, got {len(phone_digits)}"
                         )
                 else:
                     raise ValueError(
-                        f"Phone number must have {self.config.min_digits}-{self.config.max_digits} digits, got {len(phone_digits)}"
+                        f"Phone number must have {self.config.min_digits}-"
+                        f"{self.config.max_digits} digits, got {len(phone_digits)}"
                     )
 
         # Format according to style

@@ -78,7 +78,10 @@ class ValidationRules:
 
         # Check minimum length
         if string_val.min_length is not None and len(value) < string_val.min_length:
-            return f"Field '{field_name}' length {len(value)} is below minimum {string_val.min_length}"
+            return (
+                f"Field '{field_name}' length {len(value)} "
+                f"is below minimum {string_val.min_length}"
+            )
 
         # Check maximum length
         if string_val.max_length is not None and len(value) > string_val.max_length:

@@ -34,7 +34,8 @@ class ConstraintValidator:
                     results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Column '{col_name}' value {column[i].as_py()} is below minimum {min_val}",
+                            error_message=f"Column '{col_name}' value {column[i].as_py()} "
+                            f"is below minimum {min_val}",
                             error_code="MIN_VALUE_VIOLATION",
                             column_name=col_name,
                             row_index=i,
@@ -76,7 +77,8 @@ class ConstraintValidator:
                     results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Column '{col_name}' value '{value}' is not in allowed values: {allowed_values}",
+                            error_message=f"Column '{col_name}' value '{value}' "
+                            f"is not in allowed values: {allowed_values}",
                             error_code="ENUM_VIOLATION",
                             column_name=col_name,
                             row_index=i,
@@ -149,7 +151,8 @@ class ConstraintValidator:
                     results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Column '{col_name}' value length {length} is below minimum {min_length}",
+                            error_message=f"Column '{col_name}' value length {length} "
+                            f"is below minimum {min_length}",
                             error_code="MIN_LENGTH_VIOLATION",
                             column_name=col_name,
                             row_index=i,
@@ -160,7 +163,8 @@ class ConstraintValidator:
                     results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Column '{col_name}' value length {length} exceeds maximum {max_length}",
+                            error_message=f"Column '{col_name}' value length {length} "
+                            f"exceeds maximum {max_length}",
                             error_code="MAX_LENGTH_VIOLATION",
                             column_name=col_name,
                             row_index=i,

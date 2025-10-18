@@ -55,9 +55,11 @@ class SchemaFormatter:
         """
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$id": f"https://github.com/cornyhorse/forklift/schema-standards/{datetime.now().strftime('%Y%m%d')}-{file_type}.json",
+            "$id": f"https://github.com/cornyhorse/forklift/schema-standards/"
+            f"{datetime.now().strftime('%Y%m%d')}-{file_type}.json",
             "title": f"Forklift {file_type.upper()} Schema - Generated",
-            "description": f"Auto-generated schema for {file_type.upper()} file processing with Forklift",
+            "description": f"Auto-generated schema for "
+            f"{file_type.upper()} file processing with Forklift",
             "type": "object",
             "properties": {},
             "required": [],

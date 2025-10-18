@@ -23,7 +23,8 @@ class MetadataGenerator:
             Dict: Comprehensive metadata object
         """
         metadata = {
-            "description": "Column-level metadata analysis for data profiling and enum type suggestions",
+            "description": "Column-level metadata analysis for data "
+            "profiling and enum type suggestions",
             "version": "1.0.0",
             "generated_at": datetime.now().isoformat(),
             "analysis_config": {
@@ -166,13 +167,16 @@ class MetadataGenerator:
                 "distribution_balance": distribution_balance,
                 "top_value_dominance_percentage": float(top_value_percentage),
                 "suggested_enum_values": value_counts.index.tolist(),
-                "recommendation": f"Column '{column_name}' appears to be categorical with {distinct_count} distinct values. "
-                f"Consider using enum type with values: {', '.join(map(str, value_counts.head(10).index.tolist()))}",
+                "recommendation": f"Column '{column_name}' appears "
+                f"to be categorical with {distinct_count} distinct values. "
+                f"Consider using enum type with values: "
+                f"{', '.join(map(str, value_counts.head(10).index.tolist()))}",
             }
 
         return {
             "is_enum_candidate": False,
-            "reason": f"Too unique ({uniqueness_ratio:.2%}) or too many distinct values ({distinct_count})",
+            "reason": f"Too unique ({uniqueness_ratio:.2%}) or "
+            f"too many distinct values ({distinct_count})",
             "distinct_count": int(distinct_count),
             "uniqueness_ratio": float(uniqueness_ratio),
         }

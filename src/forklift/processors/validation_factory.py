@@ -105,7 +105,8 @@ class ValidationFactory:
         strict_mode = config.get("strict_mode", kwargs.get("strict_mode", True))
 
         # Use the old interface that tests expect: SchemaValidator(schema, strict_mode)
-        # This will map to our new constructor as: SchemaValidator(schema, config=None, strict_mode=strict_mode)
+        # This will map to our new constructor as:
+        # SchemaValidator(schema, config=None, strict_mode=strict_mode)
         return SchemaValidator(schema, strict_mode)
 
     @staticmethod

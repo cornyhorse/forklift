@@ -171,7 +171,8 @@ class SchemaValidator(BaseProcessor):
                     )
                 )
 
-        # Check for extra columns - only flag as error if we're in strict mode and extra columns aren't allowed
+        # Check for extra columns - only flag as error if we're in
+        # strict mode and extra columns aren't allowed
         if (
             not self.config.extra_columns_allowed
             and self.config.validation_mode == SchemaValidationMode.STRICT
@@ -196,7 +197,8 @@ class SchemaValidator(BaseProcessor):
                 results.append(
                     ValidationResult(
                         is_valid=False,
-                        error_message=f"Column order mismatch. Expected: {expected_order}, Got: {actual_order}",
+                        error_message=f"Column order mismatch. "
+                        f"Expected: {expected_order}, Got: {actual_order}",
                         error_code="COLUMN_ORDER_MISMATCH",
                     )
                 )
@@ -232,7 +234,9 @@ class SchemaValidator(BaseProcessor):
                         results.append(
                             ValidationResult(
                                 is_valid=False,
-                                error_message=f"Column '{col_name}' type mismatch: expected {expected_schema.data_type}, got {actual_type}",
+                                error_message=f"Column '{col_name}' type mismatch:"
+                                f" expected {expected_schema.data_type}"
+                                f", got {actual_type}",
                                 error_code="TYPE_MISMATCH",
                                 column_name=col_name,
                             )
@@ -263,7 +267,8 @@ class SchemaValidator(BaseProcessor):
                             results.append(
                                 ValidationResult(
                                     is_valid=not is_error,
-                                    error_message=f"Column '{col_name}' contains null value but is marked as non-nullable",
+                                    error_message=f"Column '{col_name}' contains null value"
+                                    f" but is marked as non-nullable",
                                     error_code=(
                                         "NULL_IN_REQUIRED_FIELD" if is_error else "NULL_WARNING"
                                     ),
@@ -282,7 +287,9 @@ class SchemaValidator(BaseProcessor):
                         results.append(
                             ValidationResult(
                                 is_valid=False,
-                                error_message=f"Column '{col_name}' null percentage ({null_percentage:.2f}%) exceeds threshold ({self.config.max_null_percentage}%)",
+                                error_message=f"Column '{col_name}' null percentage"
+                                f" ({null_percentage:.2f}%) exceeds"
+                                f" threshold ({self.config.max_null_percentage}%)",
                                 error_code="NULL_PERCENTAGE_EXCEEDED",
                                 column_name=col_name,
                             )
@@ -354,7 +361,8 @@ class SchemaValidator(BaseProcessor):
             results.append(
                 ValidationResult(
                     is_valid=False,
-                    error_message=f"Batch has {batch.num_rows} rows, exceeds maximum {self.config.max_row_count}",
+                    error_message=f"Batch has {batch.num_rows} rows,"
+                    f" exceeds maximum {self.config.max_row_count}",
                     error_code="MAX_ROW_COUNT_VIOLATION",
                 )
             )

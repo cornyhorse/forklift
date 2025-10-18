@@ -63,7 +63,8 @@ class ColumnTransformer(BaseProcessor):
                     validation_results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Transformation failed for column '{column_name}': {str(e)}",
+                            error_message=f"Transformation failed for column"
+                            f" '{column_name}': {str(e)}",
                             error_code="TRANSFORMATION_ERROR",
                             column_name=column_name,
                         )

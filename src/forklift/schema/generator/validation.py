@@ -129,11 +129,13 @@ class SchemaValidator:
                         for transform_name, transform_def in transforms.items():
                             if not isinstance(transform_def, dict):
                                 errors.append(
-                                    f"Transform '{transform_name}' for column '{col_name}' must be a dictionary"
+                                    f"Transform '{transform_name}' for column "
+                                    f"'{col_name}' must be a dictionary"
                                 )
                             elif "enabled" not in transform_def:
                                 errors.append(
-                                    f"Transform '{transform_name}' for column '{col_name}' missing 'enabled' field"
+                                    f"Transform '{transform_name}' for column"
+                                    f" '{col_name}' missing 'enabled' field"
                                 )
 
         return len(errors) == 0, errors

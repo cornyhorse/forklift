@@ -23,6 +23,8 @@ SPECIFIC_MODULE=""
 RUN_BLACK=true  # Default to running Black linting
 BLACK_ONLY=false  # New option for Black-only mode
 APPLY_BLACK=false  # New option to apply Black formatting instead of just checking
+RUN_FLAKE8=false  # New option for flake8 linting
+FLAKE8_ONLY=false  # New option for flake8-only mode
 PROJECT_ROOT="/Users/matt/PycharmProjects/forklift"
 
 # Function to show help
@@ -38,6 +40,8 @@ show_help() {
     echo "  --black-only        Run only Black code formatting check (skip tests/coverage)"
     echo "  --no-black          Skip Black code formatting check"
     echo "  --apply-black       Apply Black code formatting automatically"
+    echo "  --flake8            Run flake8 linting check"
+    echo "  --flake8-only       Run only flake8 linting check (skip tests/coverage)"
     echo "  --help              Show this help message"
     echo ""
     echo "Examples:"
@@ -47,6 +51,8 @@ show_help() {
     echo "  ./run_coverage.sh --no-black               # Run tests without Black formatting check"
     echo "  ./run_coverage.sh --black-only             # Run only Black formatting check"
     echo "  ./run_coverage.sh --apply-black            # Apply Black formatting automatically"
+    echo "  ./run_coverage.sh --flake8                 # Run tests + Black + flake8"
+    echo "  ./run_coverage.sh --flake8-only            # Run only flake8 linting check"
     echo "  ./run_coverage.sh --module batch_processor --html  # Test batch_processor with HTML + Black"
 }
 
@@ -77,6 +83,15 @@ while [[ $# -gt 0 ]]; do
         --apply-black)
             APPLY_BLACK=true
             RUN_BLACK=true
+            shift
+            ;;
+        --flake8)
+            RUN_FLAKE8=true
+            shift
+            ;;
+        --flake8-only)
+            FLAKE8_ONLY=true
+            RUN_FLAKE8=true
             shift
             ;;
         --help)
@@ -140,6 +155,32 @@ apply_black_formatting() {
     fi
 }
 
+# Function to run flake8 linting check
+run_flake8_check() {
+    echo -e "${BLUE}Running flake8 Linting Check${NC}"
+    echo -e "${BLUE}============================${NC}"
+    echo ""
+
+    # Check if flake8 is installed
+    if ! command -v flake8 &> /dev/null; then
+        echo -e "${YELLOW}flake8 is not installed. Installing flake8...${NC}"
+        pip install flake8
+    fi
+
+    echo -e "${YELLOW}Running flake8 linting (src only, matching GitHub workflow)...${NC}"
+
+    # Run flake8 with the same settings as GitHub workflow
+    # flake8 src/ --max-line-length=99 --extend-ignore=E203,W503
+    if flake8 src/ --max-line-length=99 --extend-ignore=E203,W503; then
+        echo -e "${GREEN}✓ All Python files pass flake8 linting!${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ flake8 linting issues found!${NC}"
+        echo -e "${YELLOW}To see details, run: flake8 src/ --max-line-length=99 --extend-ignore=E203,W503${NC}"
+        return 1
+    fi
+}
+
 # Change to project root
 cd "$PROJECT_ROOT"
 
@@ -147,6 +188,9 @@ cd "$PROJECT_ROOT"
 if [[ "$BLACK_ONLY" == true ]]; then
     echo -e "${BLUE}Forklift Black Code Formatting Check${NC}"
     echo -e "${BLUE}====================================${NC}"
+elif [[ "$FLAKE8_ONLY" == true ]]; then
+    echo -e "${BLUE}Forklift flake8 Linting Check${NC}"
+    echo -e "${BLUE}=============================${NC}"
 elif [[ "$APPLY_BLACK" == true ]]; then
     echo -e "${BLUE}Forklift Apply Black Formatting${NC}"
     echo -e "${BLUE}==============================${NC}"
@@ -172,6 +216,22 @@ if [[ "$RUN_BLACK" == true ]]; then
     fi
 fi
 
+# Run flake8 linting check if enabled
+FLAKE8_PASSED=true
+if [[ "$RUN_FLAKE8" == true ]]; then
+    if ! run_flake8_check; then
+        FLAKE8_PASSED=false
+        if [[ "$FLAKE8_ONLY" == true ]]; then
+            echo -e "${RED}flake8 linting check failed.${NC}"
+        else
+            echo -e "${RED}flake8 linting check failed. Continuing with tests...${NC}"
+        fi
+        echo ""
+    else
+        echo ""
+    fi
+fi
+
 # If BLACK_ONLY mode, skip tests and coverage
 if [[ "$BLACK_ONLY" == true ]]; then
     echo -e "${BLUE}Black-only mode: Skipping tests and coverage analysis${NC}"
@@ -187,6 +247,25 @@ if [[ "$BLACK_ONLY" == true ]]; then
     else
         echo -e "${RED}✗ Black formatting check: FAILED${NC}"
         echo -e "${YELLOW}  Run 'black src/ tests/ examples/' to fix formatting${NC}"
+        exit 1
+    fi
+fi
+
+# If FLAKE8_ONLY mode, skip tests and coverage
+if [[ "$FLAKE8_ONLY" == true ]]; then
+    echo -e "${BLUE}flake8-only mode: Skipping tests and coverage analysis${NC}"
+
+    # Final summary for flake8-only mode
+    echo ""
+    echo -e "${BLUE}Final Summary:${NC}"
+    echo -e "${BLUE}==============${NC}"
+    if [[ "$FLAKE8_PASSED" == true ]]; then
+        echo -e "${GREEN}✓ flake8 linting check: PASSED${NC}"
+        echo -e "${GREEN}All Python files pass flake8 linting!${NC}"
+        exit 0
+    else
+        echo -e "${RED}✗ flake8 linting check: FAILED${NC}"
+        echo -e "${YELLOW}  Run 'flake8 src/ --max-line-length=99 --extend-ignore=E203,W503' to see details${NC}"
         exit 1
     fi
 fi
@@ -279,8 +358,24 @@ else
     echo -e "${YELLOW}⚬ Black formatting check: SKIPPED${NC}"
 fi
 
+if [[ "$RUN_FLAKE8" == true ]]; then
+    if [[ "$FLAKE8_PASSED" == true ]]; then
+        echo -e "${GREEN}✓ flake8 linting check: PASSED${NC}"
+    else
+        echo -e "${RED}✗ flake8 linting check: FAILED${NC}"
+        echo -e "${YELLOW}  Run 'flake8 src/ --max-line-length=99 --extend-ignore=E203,W503' to see details${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚬ flake8 linting check: SKIPPED${NC}"
+fi
+
 # Exit with appropriate code
 if [[ "$RUN_BLACK" == true && "$BLACK_PASSED" == false ]]; then
     echo -e "${RED}Script completed with formatting issues. Please fix Black formatting errors.${NC}"
+    exit 1
+fi
+
+if [[ "$RUN_FLAKE8" == true && "$FLAKE8_PASSED" == false ]]; then
+    echo -e "${RED}Script completed with linting issues. Please fix flake8 linting errors.${NC}"
     exit 1
 fi

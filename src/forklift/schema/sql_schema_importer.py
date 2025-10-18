@@ -262,7 +262,8 @@ class SqlSchemaImporter:
             parquet_type = col_def.get("parquetType")
             if parquet_type and not self._is_valid_parquet_type(parquet_type):
                 errors.append(
-                    f"Table {table_index} column '{col_name}' invalid Parquet type '{parquet_type}'"
+                    f"Table {table_index} column '{col_name}'"
+                    f" invalid Parquet type '{parquet_type}'"
                 )
 
             # Validate constraints based on type

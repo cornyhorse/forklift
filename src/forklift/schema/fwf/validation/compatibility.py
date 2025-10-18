@@ -77,7 +77,8 @@ class CompatibilityValidator:
             compatible = ParquetTypeValidator.are_types_compatible(list(parquet_types))
             if not compatible:
                 errors.append(
-                    f"Field '{field_name}' has incompatible Parquet types across variants: {list(parquet_types)}"
+                    f"Field '{field_name}' has incompatible Parquet"
+                    f" types across variants: {list(parquet_types)}"
                 )
 
         # Check for overlapping positions that might cause issues
@@ -112,7 +113,8 @@ class CompatibilityValidator:
                         )
                     ):
                         errors.append(
-                            f"Field '{field_name}' has incompatible overlapping positions and types between variants {v1_idx} and {v2_idx}"
+                            f"Field '{field_name}' has incompatible overlapping"
+                            f" positions and types between variants {v1_idx} and {v2_idx}"
                         )
 
         return errors

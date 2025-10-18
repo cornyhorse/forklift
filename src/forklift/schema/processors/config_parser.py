@@ -38,7 +38,8 @@ class ConfigurationParser:
                 column_transformations[column_name] = suggestions
 
         return {
-            "description": "Data transformation configurations for cleaning and standardizing data",
+            "description": "Data transformation configurations "
+            "for cleaning and standardizing data",
             "version": "1.0.0",
             "global_settings": {
                 "nan_handling": {
@@ -87,7 +88,8 @@ class ConfigurationParser:
                 "type": "composite" if len(pk_columns) > 1 else "single",
                 "enforceUniqueness": True,
                 "allowNulls": False,
-                "description_detail": f"User-defined primary key on {', '.join(pk_columns)} field(s)",
+                "description_detail": f"User-defined primary key"
+                f" on {', '.join(pk_columns)} field(s)",
             }
         elif config.infer_primary_key_from_metadata:
             # Infer primary key from the metadata

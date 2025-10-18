@@ -1,4 +1,5 @@
-"""Enhanced data processor that combines schema validation, constraint checking, and bad rows handling."""
+"""Enhanced data processor that combines schema validation,
+constraint checking, and bad rows handling."""
 
 from __future__ import annotations
 

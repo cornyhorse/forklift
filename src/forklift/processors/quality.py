@@ -60,7 +60,8 @@ class DataQualityProcessor(BaseProcessor):
                 self._apply_column_rules(column, column_rules, column_name, validation_results)
 
         # For now, return the original batch (no filtering based on quality rules)
-        # In a more sophisticated implementation, you might filter out rows that fail quality checks
+        # In a more sophisticated implementation, you might filter out rows
+        # that fail quality checks
         return batch, validation_results
 
     def _apply_column_rules(

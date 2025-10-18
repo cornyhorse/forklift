@@ -11,7 +11,8 @@ from ..base import BaseProcessor, ValidationResult
 
 
 class SchemaBasedTransformer(BaseProcessor):
-    """Schema-driven data transformer that applies transformations based on x-transformations schema extension.
+    """Schema-driven data transformer that applies transformations
+    based on x-transformations schema extension.
 
     This processor reads transformation configurations from the schema's x-transformations
     extension and applies them automatically during data processing.
@@ -54,7 +55,8 @@ class SchemaBasedTransformer(BaseProcessor):
                     except ValueError as e:
                         # Log warning but continue processing
                         print(
-                            f"Warning: Could not create transformation {transform_type} for column {column_name}: {e}"
+                            f"Warning: Could not create"
+                            f" transformation {transform_type} for column {column_name}: {e}"
                         )
 
             if column_transforms:
@@ -211,7 +213,8 @@ class SchemaBasedTransformer(BaseProcessor):
                     validation_results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Schema-based transformation failed for column '{column_name}': {str(e)}",
+                            error_message=f"Schema-based transformation failed for column "
+                            f"'{column_name}': {str(e)}",
                             error_code="SCHEMA_TRANSFORMATION_ERROR",
                             column_name=column_name,
                         )

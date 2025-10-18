@@ -145,7 +145,8 @@ class FieldValidator:
         alignment = field.get("alignment")
         if alignment and alignment not in {"left", "right", "center"}:
             errors.append(
-                f"Field {field_id} invalid alignment '{alignment}', must be 'left', 'right', or 'center'"
+                f"Field {field_id} invalid alignment '{alignment}'"
+                f", must be 'left', 'right', or 'center'"
             )
 
         # Validate padding character

@@ -5,14 +5,14 @@ from __future__ import annotations
 import re
 import warnings
 from pathlib import Path
-from typing import List, Tuple
-
-# Suppress NumPy re-import warnings from pandas
-warnings.filterwarnings("ignore", message=".*NumPy module was reloaded.*", category=UserWarning)
+from typing import Iterator, List, Tuple
 
 import pandas as pd
 
 from .config import ExcelInputConfig, ExcelSheetConfig
+
+# Suppress the NumPy reload warning that can occur with openpyxl
+warnings.filterwarnings("ignore", message=".*NumPy module was reloaded.*", category=UserWarning)
 
 
 class ExcelInputHandler:

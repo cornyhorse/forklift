@@ -125,7 +125,8 @@ class SqlImporter:
                         if table_rows > 0:
                             output_files.append(str(output_file))
                             logger.info(
-                                f"Completed {schema_name}.{table_name}: {table_rows} rows -> {output_file}"
+                                f"Completed {schema_name}.{table_name}: {table_rows} rows "
+                                f"-> {output_file}"
                             )
                         else:
                             logger.warning(f"Table {schema_name}.{table_name} contained no data")

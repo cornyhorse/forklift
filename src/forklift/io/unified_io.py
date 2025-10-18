@@ -9,7 +9,7 @@ from __future__ import annotations
 import csv
 import tempfile
 from pathlib import Path
-from typing import BinaryIO, Iterator, List, Optional, TextIO, Tuple, Union
+from typing import Iterator, List, Optional, TextIO, Union
 
 import pyarrow as pa
 import pyarrow.parquet as pq

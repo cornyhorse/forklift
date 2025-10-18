@@ -60,13 +60,13 @@ def main() -> None:
         )
 
         print("✅ Processing completed successfully!")
-        print(f"\n=== Results ===")
+        print("\n=== Results ===")
         print(f"Total rows processed: {results.total_rows:,}")
         print(f"Valid rows: {results.valid_rows:,}")
         print(f"Invalid rows: {results.invalid_rows:,}")
         print(f"Execution time: {results.execution_time:.2f} seconds")
 
-        print(f"\n=== Output Files ===")
+        print("\n=== Output Files ===")
         for file_path in results.output_files:
             file_size = Path(file_path).stat().st_size if Path(file_path).exists() else 0
             print(f"📄 {Path(file_path).name}: {file_size:,} bytes")
@@ -78,7 +78,7 @@ def main() -> None:
             print(f"📊 Metadata: {Path(results.metadata_file).name}")
 
         if results.errors:
-            print(f"\n⚠️  Errors encountered:")
+            print("\n⚠️  Errors encountered:")
             for error in results.errors:
                 print(f"  - {error}")
 

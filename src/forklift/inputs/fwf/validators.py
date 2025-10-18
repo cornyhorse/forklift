@@ -152,8 +152,10 @@ class FwfSchemaValidator:
                     or field2.start <= field1.start <= field2_end
                 ):
                     raise ValueError(
-                        f"Field positions overlap: '{field1.name}' (positions {field1.start}-{field1_end}) "
-                        f"overlaps with '{field2.name}' (positions {field2.start}-{field2_end})"
+                        f"Field positions overlap: '{field1.name}' "
+                        f"(positions {field1.start}-{field1_end}) "
+                        f"overlaps with '{field2.name}' "
+                        f"(positions {field2.start}-{field2_end})"
                     )
 
     @staticmethod

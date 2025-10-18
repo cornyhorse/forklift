@@ -24,7 +24,6 @@ class ExcelImporter:
         **kwargs,
     ) -> ProcessingResults:
         """Import Excel file with multi-sheet support."""
-        from ...inputs.config import ExcelInputConfig, ExcelSheetConfig
         from ...inputs.excel import ExcelInputHandler
         from ...schema.excel_schema_importer import ExcelSchemaImporter
 
@@ -75,7 +74,8 @@ class ExcelImporter:
             # Get file information for logging
             file_info = excel_handler.get_sheet_info(input_path)
             logger.info(
-                f"Processing Excel file with {file_info['sheet_count']} sheets using {file_info['engine']} engine"
+                f"Processing Excel file with {file_info['sheet_count']} sheets "
+                f"using {file_info['engine']} engine"
             )
 
             # Process sheets and collect results

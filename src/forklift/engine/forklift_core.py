@@ -224,7 +224,10 @@ def import_sql(
         PostgreSQL with custom configuration::
 
             results = import_sql(
-                connection_string="Driver={PostgreSQL ODBC Driver};Server=localhost;Database=mydb;Uid=user;Pwd=pass",
+                connection_string=(
+                    "Driver={PostgreSQL ODBC Driver};Server=localhost;"
+                    "Database=mydb;Uid=user;Pwd=pass"
+                ),
                 output_path="output/",
                 schema_file="pg_schema.json",
                 batch_size=5000,

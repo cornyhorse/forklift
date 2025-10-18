@@ -150,8 +150,8 @@ class TestSqlInputHandlerComplete:
         assert tables == expected
         mock_cursor.execute.assert_called_once_with(
             """
-                    SELECT 'main' as schema_name, name as table_name 
-                    FROM sqlite_master 
+                    SELECT 'main' as schema_name, name as table_name
+                    FROM sqlite_master
                     WHERE type IN ('table', 'view')
                 """
         )

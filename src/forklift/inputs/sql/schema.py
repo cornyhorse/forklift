@@ -74,8 +74,8 @@ class SqlSchemaManager:
                 # Try SQLite-style system tables
                 cursor.execute(
                     """
-                    SELECT 'main' as schema_name, name as table_name 
-                    FROM sqlite_master 
+                    SELECT 'main' as schema_name, name as table_name
+                    FROM sqlite_master
                     WHERE type IN ('table', 'view')
                 """
                 )

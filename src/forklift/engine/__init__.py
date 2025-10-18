@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Optional
-
 from .config import HeaderMode, ImportConfig, ProcessingResults
 from .exceptions import ProcessingError
 from .forklift_core import ForkliftCore

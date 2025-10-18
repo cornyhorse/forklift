@@ -10,7 +10,6 @@ import pyarrow as pa
 
 from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
 from ...metadata import OutputMetadataCollector
-from ...processors.row_hash_factory import create_row_hash_processor_from_schema
 from ..config import ImportConfig, ProcessingResults
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
@@ -275,7 +274,7 @@ class CSVProcessor(BaseProcessor):
                 }
 
                 # Generate comprehensive metadata about the final output data
-                output_metadata = output_metadata_collector.generate_metadata(
+                output_metadata_collector.generate_metadata(
                     output_schema, source_info
                 )
 

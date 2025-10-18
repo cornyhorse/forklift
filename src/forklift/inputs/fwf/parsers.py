@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from ..config import FwfFieldSpec, FwfInputConfig
 from .converters import FwfTypeConverter, FwfValueProcessor
@@ -54,7 +54,8 @@ class FwfFieldExtractor:
             # Strip leading pad characters, but preserve at least one character if all are pad chars
             stripped = raw_value.lstrip(field.pad)
             if not stripped and raw_value:
-                raw_value = field.pad  # Keep one pad character if that's all we have
+                # Keep one pad character if that's all we have
+                raw_value = field.pad
             else:
                 raw_value = stripped
         elif field.align == "left" and field.pad != " ":

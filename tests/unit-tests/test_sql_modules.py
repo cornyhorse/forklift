@@ -268,8 +268,8 @@ class TestSqlInputHandler:
         # Verify SQLite fallback query was executed
         mock_cursor.execute.assert_called_with(
             """
-                    SELECT 'main' as schema_name, name as table_name 
-                    FROM sqlite_master 
+                    SELECT 'main' as schema_name, name as table_name
+                    FROM sqlite_master
                     WHERE type IN ('table', 'view')
                 """
         )

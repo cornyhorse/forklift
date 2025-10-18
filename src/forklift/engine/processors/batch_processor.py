@@ -5,10 +5,9 @@ from __future__ import annotations
 import csv
 import tempfile
 from pathlib import Path
-from typing import Iterator, List, Tuple, Union
+from typing import Iterator, List, Union
 
 import pyarrow as pa
-import pyarrow.compute as pc
 import pyarrow.csv as pv_csv
 
 from ...io import S3Path, UnifiedIOHandler, is_s3_path
@@ -128,7 +127,7 @@ class BatchProcessor:
             if self.config.footer_detection and actual_file_path != file_path:
                 try:
                     Path(actual_file_path).unlink()
-                except:
+                except OSError:
                     pass
 
     def create_s3_batch_reader(

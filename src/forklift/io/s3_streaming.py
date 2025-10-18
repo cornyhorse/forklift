@@ -7,16 +7,13 @@ chunked uploads for large files.
 
 from __future__ import annotations
 
-import csv
 import io
-import os
-import tempfile
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, Iterator, Optional, TextIO, Union
 from urllib.parse import urlparse
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError
 
 
 class S3Path:
@@ -313,7 +310,7 @@ class S3StreamingWriter:
             raise TypeError(f"Unsupported data type: {type(data)}. Expected str or bytes.")
 
         # Write to buffer
-        bytes_written = self._buffer.write(data_bytes)
+        self._buffer.write(data_bytes)
         self._position += return_count
 
         # Upload part if buffer is large enough

@@ -363,7 +363,7 @@ class TestS3StreamingClient:
                 invalid_client = S3StreamingClient(
                     aws_access_key_id="invalid_key",
                     aws_secret_access_key="invalid_secret",
-                    region_name="us-east-1"
+                    region_name="us-east-1",
                 )
                 with pytest.raises(ClientError) as exc_info:
                     invalid_client.exists(s3_path)

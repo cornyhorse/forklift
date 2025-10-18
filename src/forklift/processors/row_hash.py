@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from .base import BaseProcessor, ValidationResult
 
@@ -29,10 +28,13 @@ class RowHashConfig:
         source_uri_enabled: Whether to add source URI column (default: False)
         source_uri_column_name: Name of the source URI column (default: "_source_uri")
         ingested_at_enabled: Whether to add ingestion timestamp (default: False)
-        ingested_at_column_name: Name of the ingestion timestamp column (default: "_ingested_at_utc")
+        ingested_at_column_name: Name of the ingestion timestamp column
+            (default: "_ingested_at_utc")
         row_number_enabled: Whether to add row numbers (default: False)
-        source_row_number_column_name: Name of source row number column (default: "_rownum_in_source_file")
-        processing_row_number_column_name: Name of processing row number column (default: "_rownum")
+        source_row_number_column_name: Name of source row number column
+            (default: "_rownum_in_source_file")
+        processing_row_number_column_name: Name of processing row number column
+            (default: "_rownum")
     """
 
     enabled: bool = False

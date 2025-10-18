@@ -51,7 +51,8 @@ class FwfFieldExtractor:
 
         # Remove padding characters based on alignment - handle edge cases
         if field.align == "right" and field.pad != " ":
-            # Strip leading pad characters, but preserve at least one character if all are pad chars
+            # Strip leading pad characters, but preserve at least one character
+            # if all are pad chars
             stripped = raw_value.lstrip(field.pad)
             if not stripped and raw_value:
                 # Keep one pad character if that's all we have

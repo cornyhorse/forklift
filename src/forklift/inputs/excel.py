@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import warnings
 from pathlib import Path
-from typing import Iterator, List, Tuple
+from typing import List, Tuple
 
 import pandas as pd
 

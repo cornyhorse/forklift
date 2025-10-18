@@ -118,7 +118,9 @@ class CalculatedColumnsProcessor(BaseProcessor):
                         validation_results.append(
                             ValidationResult(
                                 is_valid=True,
-                                error_message=f"Successfully calculated column '{column_config.name}'",
+                                error_message=(
+                                    f"Successfully calculated column '{column_config.name}'"
+                                ),
                                 error_code="CALCULATION_SUCCESS",
                                 column_name=column_config.name,
                             )

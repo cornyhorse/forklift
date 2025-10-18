@@ -110,7 +110,6 @@ class EnhancedDataProcessor(BaseProcessor):
     ):
         """Handle bad rows collection and processing."""
         # Determine which rows are invalid
-        valid_row_indices = set()
         if valid_batch.num_rows > 0:
             # This is a simplified approach - in practice, we'd need to track
             # the mapping between original and valid rows more precisely

@@ -86,7 +86,7 @@ class S3StreamingClient:
             aws_secret_access_key: AWS secret access key (optional)
             aws_session_token: AWS session token (optional, for temporary credentials)
             region_name: AWS region name (optional, uses boto3 default)
-            endpoint_url: Custom S3 endpoint URL (optional, for S3-compatible services like Hetzner)
+            endpoint_url: Custom S3 endpoint URL (optional, for S3-compatible services)
             **kwargs: Additional boto3 client parameters
         """
         self._session = boto3.Session(

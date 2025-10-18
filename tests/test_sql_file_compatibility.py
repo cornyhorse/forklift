@@ -152,15 +152,15 @@ class TestSqlBackwardCompatibilityFile:
 
         # Verify the file defines the same exports as the package
         expected_in_all = [
-            "'SqlInputHandler'",
-            "'SqlConnectionManager'",
-            "'SqlSchemaManager'",
-            "'SqlDataReader'",
-            "'SqlTypeConverter'",
+            "SqlInputHandler",
+            "SqlConnectionManager",
+            "SqlSchemaManager",
+            "SqlDataReader",
+            "SqlTypeConverter",
         ]
 
         for export in expected_in_all:
-            assert export in content, f"Expected export {export} not found in sql.py __all__"
+            assert f'"{export}"' in content, f"Expected export '{export}' not found in sql.py __all__"
 
     def test_coverage_explanation(self):
         """Test that explains why this file shows 0% coverage."""

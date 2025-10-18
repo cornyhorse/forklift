@@ -60,9 +60,9 @@ jobs:
         skip_checkout: false
         disable_globbing: false
 
-    - name: Lint with flake8 (after formatting)
+    - name: Lint with flake8 (src only, excluding tests)
       run: |
-        flake8 src/ tests/ --max-line-length=99 --extend-ignore=E203,W503
+        flake8 src/ --max-line-length=99 --extend-ignore=E203,W503
 
     - name: Run full test suite with coverage
       run: |

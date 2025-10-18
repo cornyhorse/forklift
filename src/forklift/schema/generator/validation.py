@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Tuple
 import pyarrow as pa
 
 
-
 class SchemaValidator:
     """Validates schema structures and data compatibility."""
 

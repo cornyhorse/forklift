@@ -4,7 +4,6 @@ import re
 from typing import Any, Dict, List, Optional
 
 
-
 class SpecialTypeDetector:
     """Detects and suggests special data types based on content patterns."""
 

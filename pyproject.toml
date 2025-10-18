@@ -58,6 +58,7 @@ excel = ["openpyxl>=3.0.0"]
 clipboard = ["pyperclip>=1.8.0"]
 polars = ["polars>=0.18.0"]
 spark = ["pyspark>=3.0.0"]
+sql = ["pyodbc>=4.0.0"]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
@@ -70,7 +71,8 @@ all = [
     "openpyxl>=3.0.0",
     "pyperclip>=1.8.0",
     "polars>=0.18.0",
-    "pyspark>=3.0.0"
+    "pyspark>=3.0.0",
+    "pyodbc>=4.0.0"
 ]
 
 [project.urls]

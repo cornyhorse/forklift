@@ -274,9 +274,7 @@ class CSVProcessor(BaseProcessor):
                 }
 
                 # Generate comprehensive metadata about the final output data
-                output_metadata_collector.generate_metadata(
-                    output_schema, source_info
-                )
+                output_metadata_collector.generate_metadata(output_schema, source_info)
 
                 # Save output metadata to separate file
                 output_metadata_path = output_metadata_collector.save_metadata(

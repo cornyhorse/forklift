@@ -6,6 +6,7 @@
 #   --integration    Include integration tests
 #   --performance    Include performance tests
 #   --no-s3-mock     Use real S3 instead of mocking (requires AWS credentials)
+#   --s3-bucket BUCKET  Specify custom S3 bucket for testing
 #   --no-coverage    Skip coverage reporting (just run tests)
 #   --no-html        Generate coverage report without HTML (terminal only)
 #   --module MODULE  Test specific module only
@@ -29,6 +30,7 @@ GENERATE_COVERAGE=true
 HTML_REPORT=true
 SPECIFIC_MODULE=""
 VERBOSE=false
+S3_TEST_BUCKET=""
 PROJECT_ROOT="/Users/matt/PycharmProjects/forklift"
 
 # Function to show help
@@ -41,17 +43,24 @@ show_help() {
     echo "  --integration       Include integration tests"
     echo "  --performance       Include performance tests (normally excluded)"
     echo "  --no-s3-mock        Use real S3 instead of mocking (uses Hetzner backend)"
+    echo "  --s3-bucket BUCKET  Specify custom S3 bucket for testing"
     echo "  --no-coverage       Skip coverage reporting (just run tests)"
     echo "  --no-html           Generate coverage report without HTML (terminal only)"
     echo "  --module MODULE     Test specific module only (e.g. date_parser)"
     echo "  --verbose           Verbose test output"
     echo "  --help              Show this help message"
     echo ""
+    echo "S3 Testing Modes:"
+    echo "  Default: Uses S3 mocking for unit tests (fast, no AWS costs)"
+    echo "  --no-s3-mock: Uses real S3 (requires AWS credentials)"
+    echo "  --integration: Always uses real S3 for integration tests"
+    echo ""
     echo "Examples:"
     echo "  ./run-tests.sh                                    # Basic tests with coverage + HTML report (DEFAULT)"
     echo "  ./run-tests.sh --no-coverage                      # Just run tests, no coverage"
     echo "  ./run-tests.sh --integration                      # Integration tests with coverage + HTML"
     echo "  ./run-tests.sh --integration --no-s3-mock        # Integration tests with real S3 + coverage"
+    echo "  ./run-tests.sh --no-s3-mock --s3-bucket my-test-bucket  # Real S3 with custom bucket"
     echo "  ./run-tests.sh --performance                      # Include performance tests + coverage"
     echo "  ./run-tests.sh --no-html                          # Coverage report to terminal only"
     echo "  ./run-tests.sh --module date_parser --verbose     # Test specific module with verbose output"
@@ -72,6 +81,10 @@ while [[ $# -gt 0 ]]; do
         --no-s3-mock)
             USE_REAL_S3=true
             shift
+            ;;
+        --s3-bucket)
+            S3_TEST_BUCKET="$2"
+            shift 2
             ;;
         --no-coverage)
             GENERATE_COVERAGE=false
@@ -154,6 +167,9 @@ if [[ "$GENERATE_COVERAGE" == true ]]; then
     fi
     # Add coverage config to ensure proper module measurement
     PYTEST_CMD="$PYTEST_CMD --cov-config=pyproject.toml"
+else
+    # Explicitly disable coverage when not requested
+    PYTEST_CMD="$PYTEST_CMD --no-cov"
 fi
 
 # Add integration test flag
@@ -164,6 +180,11 @@ fi
 # Add S3 mocking flag
 if [[ "$USE_REAL_S3" == true ]]; then
     PYTEST_CMD="$PYTEST_CMD --no-s3-mock"
+fi
+
+# Add S3 bucket flag if specified
+if [[ -n "$S3_TEST_BUCKET" ]]; then
+    PYTEST_CMD="$PYTEST_CMD --s3-bucket $S3_TEST_BUCKET"
 fi
 
 # Add test markers for performance tests
@@ -178,7 +199,21 @@ fi
 # Add specific module if requested
 if [[ -n "$SPECIFIC_MODULE" ]]; then
     echo -e "${YELLOW}Testing module: ${SPECIFIC_MODULE}${NC}"
-
+    # Try different possible test file locations
+    if [[ -f "tests/unit-tests/test_${SPECIFIC_MODULE}.py" ]]; then
+        PYTEST_CMD="$PYTEST_CMD tests/unit-tests/test_${SPECIFIC_MODULE}.py"
+    elif [[ -f "tests/test_${SPECIFIC_MODULE}.py" ]]; then
+        PYTEST_CMD="$PYTEST_CMD tests/test_${SPECIFIC_MODULE}.py"
+    else
+        echo -e "${RED}Test file not found for module: ${SPECIFIC_MODULE}${NC}"
+        echo -e "${BLUE}Looked for:${NC}"
+        echo -e "${BLUE}  - tests/unit-tests/test_${SPECIFIC_MODULE}.py${NC}"
+        echo -e "${BLUE}  - tests/test_${SPECIFIC_MODULE}.py${NC}"
+        exit 1
+    fi
+else
+    # When not testing a specific module, use standard test discovery
+    PYTEST_CMD="$PYTEST_CMD tests/"
 fi
 
 # Add coverage omit for integration tests if not including them
@@ -213,22 +248,22 @@ if [[ "$GENERATE_COVERAGE" == true ]]; then
     echo -e "${BLUE}Coverage Summary:${NC}"
     echo -e "${BLUE}==================${NC}"
 
-    # Show overall summary with just the TOTAL line
+    # Show overall summary with just the TOTAL line - suppress broken pipe errors
     echo -e "${YELLOW}Overall Coverage:${NC}"
-    python -m coverage report --show-missing | grep "TOTAL"
+    python -m coverage report --show-missing 2>/dev/null | grep "TOTAL" || true
 
     echo ""
     echo -e "${YELLOW}Files with lowest coverage (bottom 10):${NC}"
-    python -m coverage report --show-missing --sort=cover | head -n 15 | tail -n 10
+    python -m coverage report --show-missing --sort=cover 2>/dev/null | head -n 15 | tail -n 10 || true
 
     echo ""
     echo -e "${YELLOW}Files with highest coverage (top 5):${NC}"
-    python -m coverage report --show-missing --sort=cover | tail -n 10 | head -n 5
+    python -m coverage report --show-missing --sort=cover 2>/dev/null | tail -n 10 | head -n 5 || true
 
-    # Show files with missing lines if any
+    # Show files with missing lines if any - suppress broken pipe errors
     echo ""
     echo -e "${YELLOW}Coverage Details:${NC}"
-    python -m coverage report --show-missing | head -n 20
+    python -m coverage report --show-missing 2>/dev/null | head -n 20 || true
 
     echo ""
 fi

@@ -1,4 +1,4 @@
-name: Fast Test Suite
+name: Auto-Format and Test
 
 on:
   push:
@@ -7,11 +7,14 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  test:
+  format-and-test:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
 
     - name: Set up Python 3.12
       uses: actions/setup-python@v4
@@ -33,15 +36,33 @@ jobs:
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f pyproject.toml ]; then pip install -e .; fi
 
-    - name: Check code formatting with Black
+    - name: Auto-format code with Black
       run: |
-        black --check --diff src/ tests/
+        black src/ tests/
 
-    - name: Check import sorting with isort
+    - name: Auto-sort imports with isort
       run: |
-        isort --check-only --diff src/ tests/
+        isort src/ tests/
 
-    - name: Lint with flake8
+    - name: Check for formatting changes
+      id: verify-changed-files
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "changed=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Commit and push formatting changes
+      if: steps.verify-changed-files.outputs.changed == 'true' && github.event_name == 'push'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        git commit -m "🤖 Auto-format code with Black and isort"
+        git push
+
+    - name: Lint with flake8 (after formatting)
       run: |
         flake8 src/ tests/ --max-line-length=88 --extend-ignore=E203,W503
 

@@ -50,7 +50,17 @@ def s3_mock_conditional(use_s3_mock):
             mock_session.client.return_value = mock_client
             yield mock_session, mock_client
     else:
-        yield None, None
+        # Real S3 mode - check if credentials are available
+        try:
+            # Try to create a real session to check if credentials exist
+            import boto3
+            session = boto3.Session()
+            # Test if we can get credentials
+            session.get_credentials()
+            yield None, None
+        except NoCredentialsError:
+            # No credentials available - skip real S3 tests
+            pytest.skip("AWS credentials not configured for real S3 testing")
 
 
 class TestS3Path:

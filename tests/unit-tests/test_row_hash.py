@@ -14,14 +14,11 @@ from forklift.processors.row_hash_factory import create_row_hash_processor_from_
 
 def test_row_hash_basic():
     """Test basic row hash functionality."""
-    print("🔧 Testing basic row hash functionality...")
-
     # Create test data
     data = {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
 
     # Create PyArrow batch
     batch = pa.RecordBatch.from_pydict(data)
-    print(f"✅ Created test batch with {batch.num_rows} rows")
 
     # Test with SHA256 (default)
     config = RowHashConfig(enabled=True, column_name="data_hash", algorithm="sha256")
@@ -29,48 +26,42 @@ def test_row_hash_basic():
     processor = RowHashProcessor(config)
     processed_batch, validation_results = processor.process_batch(batch)
 
-    print(f"✅ Processed batch now has {processed_batch.num_columns} columns")
-    print(f"✅ Added column: {processed_batch.schema.field(-1).name}")
-
     # Check that hash column was added
     assert processed_batch.num_columns == batch.num_columns + 1
     assert processed_batch.schema.field(-1).name == "data_hash"
 
-    # Convert to table for easier viewing
-    table = pa.Table.from_batches([processed_batch])
-    print("\n📊 Sample data with hash:")
-    print(table.to_pandas().head())
-
-    return processed_batch
+    # Verify hash values are present and non-empty
+    hash_column = processed_batch.column(-1)
+    for i in range(processed_batch.num_rows):
+        hash_value = hash_column[i].as_py()
+        assert hash_value is not None
+        assert len(hash_value) > 0
 
 
 def test_different_algorithms():
     """Test different hash algorithms."""
-    print("\n🔧 Testing different hash algorithms...")
-
     # Create test data
     data = {"id": [1], "name": ["Test"]}
     batch = pa.RecordBatch.from_pydict(data)
 
     algorithms = ["md5", "sha1", "sha256", "sha384", "sha512"]
+    expected_lengths = {
+        "md5": 32, "sha1": 40, "sha256": 64, "sha384": 96, "sha512": 128
+    }
 
     for algo in algorithms:
         config = RowHashConfig(enabled=True, column_name=f"{algo}_hash", algorithm=algo)
-
         processor = RowHashProcessor(config)
         processed_batch, _ = processor.process_batch(batch)
 
-        # Get the hash value
+        # Verify hash value and expected length
         hash_column = processed_batch.column(-1)
         hash_value = hash_column[0].as_py()
-
-        print(f"✅ {algo.upper()}: {hash_value[:20]}... (length: {len(hash_value)})")
+        assert len(hash_value) == expected_lengths[algo]
 
 
 def test_column_selection():
     """Test including/excluding specific columns."""
-    print("\n🔧 Testing column selection...")
-
     # Create test data
     data = {
         "id": [1, 2],
@@ -91,8 +82,6 @@ def test_column_selection():
     processor = RowHashProcessor(config)
     processed_batch, _ = processor.process_batch(batch)
 
-    print("✅ Hash calculated excluding 'secret' and 'timestamp' columns")
-
     # Test including only specific columns
     config2 = RowHashConfig(
         enabled=True, column_name="key_hash", algorithm="sha256", include_columns=["id", "name"]
@@ -101,22 +90,16 @@ def test_column_selection():
     processor2 = RowHashProcessor(config2)
     processed_batch2, _ = processor2.process_batch(batch)
 
-    print("✅ Hash calculated including only 'id' and 'name' columns")
-
     # The hashes should be the same since we're excluding the same columns
     hash1 = processed_batch.column(-1)[0].as_py()
     hash2 = processed_batch2.column(-1)[0].as_py()
 
-    if hash1 == hash2:
-        print("✅ Include/exclude logic working correctly - hashes match!")
-    else:
-        print("❌ Include/exclude logic issue - hashes don't match")
+    # Assert that include/exclude logic works correctly
+    assert hash1 == hash2, "Include/exclude logic should produce identical hashes"
 
 
 def test_schema_integration():
     """Test integration with schema configuration."""
-    print("\n🔧 Testing schema integration...")
-
     # Create a schema configuration
     schema_config = {
         "enabled": True,
@@ -129,35 +112,25 @@ def test_schema_integration():
 
     # Create processor from schema
     processor = create_row_hash_processor_from_schema(schema_config)
+    assert processor is not None, "Should create processor from valid schema config"
 
-    if processor:
-        print("✅ Successfully created processor from schema configuration")
+    # Test with data
+    data = {
+        "id": [1, 2, 3],
+        "name": ["Alice", "Bob", "Charlie"],
+        "internal_id": [101, 102, 103],  # This should be excluded
+    }
+    batch = pa.RecordBatch.from_pydict(data)
 
-        # Test with data
-        data = {
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "internal_id": [101, 102, 103],  # This should be excluded
-        }
-        batch = pa.RecordBatch.from_pydict(data)
+    processed_batch, validation_results = processor.process_batch(batch)
 
-        processed_batch, validation_results = processor.process_batch(batch)
-        print(
-            f"✅ Processed batch with schema config - added '{processed_batch.schema.field(-1).name}' column"
-        )
-
-        # Show sample
-        table = pa.Table.from_batches([processed_batch])
-        print("\n📊 Sample with schema-configured hash:")
-        print(table.to_pandas().head())
-    else:
-        print("❌ Failed to create processor from schema")
+    # Verify the hash column was added with correct name
+    assert processed_batch.schema.field(-1).name == "row_signature"
+    assert processed_batch.num_columns == batch.num_columns + 1
 
 
 def test_disabled_by_default():
     """Test that row hash is disabled by default."""
-    print("\n🔧 Testing disabled by default behavior...")
-
     # Schema with row hash disabled (default)
     schema_config = {
         "enabled": False,  # Explicitly disabled
@@ -166,21 +139,13 @@ def test_disabled_by_default():
     }
 
     processor = create_row_hash_processor_from_schema(schema_config)
-
-    if processor is None:
-        print("✅ Correctly returns None when disabled")
-    else:
-        print("❌ Should return None when disabled")
+    assert processor is None, "Should return None when disabled"
 
     # Test with missing enabled field (should default to disabled)
     schema_config_no_enabled = {"columnName": "row_hash", "algorithm": "sha256"}
 
     processor2 = create_row_hash_processor_from_schema(schema_config_no_enabled)
-
-    if processor2 is None:
-        print("✅ Correctly defaults to disabled when 'enabled' not specified")
-    else:
-        print("❌ Should default to disabled")
+    assert processor2 is None, "Should default to disabled when 'enabled' not specified"
 
 
 def create_test_schema_file():

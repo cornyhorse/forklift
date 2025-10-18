@@ -146,6 +146,24 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "--strict-markers --strict-config --cov=forklift --cov-report=term-missing --cov-report=html"
+# Suppress specific warnings that are expected/harmless in our test environment
+filterwarnings = [
+    # PyArrow FutureWarning about schema vs names parameter - expected during API transitions
+    # This is a library evolution warning, not an error in our code
+    "ignore:Schema passed to names.*:FutureWarning",
+
+    # Pytest warning about test functions returning values - we've fixed this but filtering legacy cases
+    # Test functions should return None, this catches any remaining instances during cleanup
+    "ignore:Test functions should return None.*:pytest.PytestReturnNotNoneWarning",
+
+    # NumPy warnings during statistical calculations with invalid values (NaN, infinity)
+    # These are expected when testing edge cases in schema generation statistics
+    "ignore:invalid value encountered.*:RuntimeWarning",
+
+    # Additional NumPy warnings for mathematical operations on edge case data
+    # Expected when testing error handling and boundary conditions
+    "ignore:.*encountered in.*:RuntimeWarning:numpy.*",
+]
 
 [tool.mypy]
 python_version = "3.8"
@@ -171,3 +189,23 @@ module = [
     "botocore.*"
 ]
 ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/forklift"]
+branch = true
+# Suppress coverage warnings that occur during test execution
+# The "module-not-measured" warning happens when modules are imported
+# before coverage starts measuring - this is expected in test environments
+disable_warnings = ["module-not-measured"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "@abstract"
+]
+show_missing = true
+skip_covered = false

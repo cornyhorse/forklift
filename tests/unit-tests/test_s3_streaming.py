@@ -54,6 +54,7 @@ def s3_mock_conditional(use_s3_mock):
         try:
             # Try to create a real session to check if credentials exist
             import boto3
+
             session = boto3.Session()
             # Test if we can get credentials
             session.get_credentials()

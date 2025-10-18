@@ -11,9 +11,10 @@ class HeaderMode(Enum):
         ABSENT: No header row, use schema or generate default names
         AUTO: Auto-detect header location by analyzing content
     """
+
     PRESENT = "present"  # File has header row
-    ABSENT = "absent"   # No header, use schema or default names
-    AUTO = "auto"       # Auto-detect header location
+    ABSENT = "absent"  # No header, use schema or default names
+    AUTO = "auto"  # Auto-detect header location
 
 
 class ExcessColumnMode(Enum):
@@ -23,6 +24,7 @@ class ExcessColumnMode(Enum):
         TRUNCATE: Remove excess columns and keep the row (default)
         REJECT: Reject the entire row if it has excess columns
     """
-    TRUNCATE = "truncate"    # Remove excess data, keep row
-    REJECT = "reject"        # Reject entire row with excess data
+
+    TRUNCATE = "truncate"  # Remove excess data, keep row
+    REJECT = "reject"  # Reject entire row with excess data
     PASSTHROUGH = "passthrough"  # Keep all columns, add defaults for extras

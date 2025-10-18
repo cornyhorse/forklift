@@ -230,14 +230,22 @@ class BatchProcessor:
             # Yield batch when buffer is full
             if len(rows_buffer) >= batch_size:
                 # Update expected_columns for PASSTHROUGH mode
-                actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+                actual_columns = (
+                    len(column_names)
+                    if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH
+                    else expected_columns
+                )
                 yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
                 rows_buffer = []
 
         # Yield any remaining rows in buffer
         if rows_buffer:
             # Update expected_columns for PASSTHROUGH mode
-            actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+            actual_columns = (
+                len(column_names)
+                if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH
+                else expected_columns
+            )
             yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
 
     def _handle_column_mismatch_reader(
@@ -302,14 +310,22 @@ class BatchProcessor:
                 # Yield batch when buffer is full
                 if len(rows_buffer) >= batch_size:
                     # Update expected_columns for PASSTHROUGH mode
-                    actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+                    actual_columns = (
+                        len(column_names)
+                        if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH
+                        else expected_columns
+                    )
                     yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
                     rows_buffer = []
 
             # Yield any remaining rows in buffer
             if rows_buffer:
                 # Update expected_columns for PASSTHROUGH mode
-                actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+                actual_columns = (
+                    len(column_names)
+                    if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH
+                    else expected_columns
+                )
                 yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
 
             # Note: rejected_rows could be logged or handled separately in future versions

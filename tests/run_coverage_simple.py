@@ -3,17 +3,18 @@
 Simple coverage runner for Forklift project
 Usage: python run_coverage_simple.py [module_name]
 """
+import os
 import subprocess
 import sys
-import os
 from pathlib import Path
+
 
 def main():
     """Run coverage analysis"""
     # Change to project root
     project_root = Path(__file__).parent.parent
     os.chdir(project_root)
-    
+
     # Determine what to test
     if len(sys.argv) > 1:
         module = sys.argv[1]
@@ -24,20 +25,22 @@ def main():
         test_pattern = "tests/"
         cov_source = "src/forklift/"
         print("Running coverage for all modules")
-    
+
     # Build and run command
     cmd = [
-        sys.executable, "-m", "pytest",
+        sys.executable,
+        "-m",
+        "pytest",
         test_pattern,
         f"--cov={cov_source}",
         "--cov-report=term-missing",
         "--cov-report=html",
-        "-v"
+        "-v",
     ]
-    
+
     print(f"Command: {' '.join(cmd)}")
     print("-" * 50)
-    
+
     try:
         result = subprocess.run(cmd, check=True)
         print("\n✓ Coverage completed successfully!")
@@ -46,6 +49,7 @@ def main():
     except subprocess.CalledProcessError as e:
         print(f"\n✗ Coverage failed with exit code: {e.returncode}")
         return e.returncode
+
 
 if __name__ == "__main__":
     sys.exit(main())

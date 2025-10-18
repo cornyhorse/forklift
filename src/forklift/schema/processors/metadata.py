@@ -276,7 +276,7 @@ class MetadataGenerator:
                 )
                 stats["ascii_only"] = ascii_count
                 stats["non_ascii_count"] = len(str_series_for_analysis) - ascii_count
-            except:
+            except Exception:
                 stats["ascii_only"] = None
                 stats["non_ascii_count"] = None
 

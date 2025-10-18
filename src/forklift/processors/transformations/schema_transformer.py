@@ -89,9 +89,14 @@ class SchemaBasedTransformer(BaseProcessor):
                     ssn_config = SSNConfig(
                         format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False
                     )
-                    transform_func = lambda col: self.transformer.apply_ssn_formatting(
-                        col, ssn_config
-                    )
+
+                    def create_ssn_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_ssn_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_ssn_transform(ssn_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type in ["zip-permissive", "zip-5", "zip-9"]:
@@ -105,9 +110,14 @@ class SchemaBasedTransformer(BaseProcessor):
                         validate=True,
                         allow_invalid=False,
                     )
-                    transform_func = lambda col: self.transformer.apply_zip_code_formatting(
-                        col, zip_config
-                    )
+
+                    def create_zip_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_zip_code_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_zip_transform(zip_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type == "phone":
@@ -121,9 +131,14 @@ class SchemaBasedTransformer(BaseProcessor):
                         validate=True,
                         allow_invalid=False,
                     )
-                    transform_func = lambda col: self.transformer.apply_phone_number_formatting(
-                        col, phone_config
-                    )
+
+                    def create_phone_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_phone_number_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_phone_transform(phone_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type == "email":
@@ -137,9 +152,14 @@ class SchemaBasedTransformer(BaseProcessor):
                         strip_whitespace=True,
                         normalize_domain=True,
                     )
-                    transform_func = lambda col: self.transformer.apply_email_formatting(
-                        col, email_config
-                    )
+
+                    def create_email_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_email_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_email_transform(email_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type in ["ipv4", "ipv6", "ip"]:
@@ -160,9 +180,14 @@ class SchemaBasedTransformer(BaseProcessor):
                         allow_invalid=False,
                         compress_ipv6=True,
                     )
-                    transform_func = lambda col: self.transformer.apply_ip_address_formatting(
-                        col, ip_config
-                    )
+
+                    def create_ip_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_ip_address_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_ip_transform(ip_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type == "mac-address":
@@ -176,9 +201,14 @@ class SchemaBasedTransformer(BaseProcessor):
                         allow_invalid=False,
                         zero_pad=True,
                     )
-                    transform_func = lambda col: self.transformer.apply_mac_address_formatting(
-                        col, mac_config
-                    )
+
+                    def create_mac_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_mac_address_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_mac_transform(mac_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
     def process_batch(

@@ -1,12 +1,13 @@
 """Header detection logic for CSV processing."""
 
 from __future__ import annotations
+
 import re
 from pathlib import Path
 from typing import List, Tuple, Union
 
-from ..config import HeaderMode, ImportConfig
 from ...io import UnifiedIOHandler
+from ..config import HeaderMode, ImportConfig
 
 
 class HeaderDetector:
@@ -62,11 +63,11 @@ class HeaderDetector:
             Tuple of (row_index, column_names). Returns (-1, []) for empty files.
         """
         # Use unified I/O handler for S3 and local file support
-        for idx, row in enumerate(self.io_handler.csv_reader(
-            input_path,
-            delimiter=self.config.delimiter,
-            encoding=self.config.encoding
-        )):
+        for idx, row in enumerate(
+            self.io_handler.csv_reader(
+                input_path, delimiter=self.config.delimiter, encoding=self.config.encoding
+            )
+        ):
             if idx >= self.config.header_search_rows:
                 break
 
@@ -75,7 +76,7 @@ class HeaderDetector:
                 continue
 
             # Check for comment rows (lines starting with #)
-            if row and row[0].strip().startswith('#'):
+            if row and row[0].strip().startswith("#"):
                 continue
 
             if self._is_comment_row(row):
@@ -107,11 +108,11 @@ class HeaderDetector:
         rows = []
 
         # Use unified I/O handler for S3 and local file support
-        for idx, row in enumerate(self.io_handler.csv_reader(
-            input_path,
-            delimiter=self.config.delimiter,
-            encoding=self.config.encoding
-        )):
+        for idx, row in enumerate(
+            self.io_handler.csv_reader(
+                input_path, delimiter=self.config.delimiter, encoding=self.config.encoding
+            )
+        ):
             if idx >= self.config.header_search_rows:
                 break
 

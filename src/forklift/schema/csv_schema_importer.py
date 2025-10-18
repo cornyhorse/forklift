@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..utils.column_name_utilities import standardize_postgres_column_name, dedupe_column_names
+from ..utils.column_name_utilities import (dedupe_column_names,
+                                           standardize_postgres_column_name)
 
 
 class SchemaValidationError(Exception):
     """Raised when schema validation fails."""
+
     pass
 
 
@@ -32,13 +34,33 @@ class CsvSchemaImporter:
 
     # Define supported Parquet data types
     SUPPORTED_PARQUET_TYPES = {
-        "int8", "int16", "int32", "int64",
-        "uint8", "uint16", "uint32", "uint64",
-        "float32", "double", "bool", "string", "binary",
-        "date32", "date64", "timestamp[s]", "timestamp[ms]",
-        "timestamp[us]", "timestamp[ns]", "duration[s]", "duration[ms]",
-        "duration[us]", "duration[ns]", "decimal128(10,2)",
-        "list<string>", "struct", "dictionary<values=string, indices=int32>"
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float32",
+        "double",
+        "bool",
+        "string",
+        "binary",
+        "date32",
+        "date64",
+        "timestamp[s]",
+        "timestamp[ms]",
+        "timestamp[us]",
+        "timestamp[ns]",
+        "duration[s]",
+        "duration[ms]",
+        "duration[us]",
+        "duration[ns]",
+        "decimal128(10,2)",
+        "list<string>",
+        "struct",
+        "dictionary<values=string, indices=int32>",
     }
 
     def __init__(self, schema: Union[str, Path, Dict[str, Any]], validate: bool = True):
@@ -57,7 +79,9 @@ class CsvSchemaImporter:
         self.additional_properties: bool = bool(self.schema.get("additionalProperties", True))
 
         # Extract case configuration
-        case_cfg = self.csv_ext.get("case", {}) if isinstance(self.csv_ext.get("case", {}), dict) else {}
+        case_cfg = (
+            self.csv_ext.get("case", {}) if isinstance(self.csv_ext.get("case", {}), dict) else {}
+        )
         self.standardize_names: Optional[str] = case_cfg.get("standardizeNames")
         self.dedupe_names: Optional[str] = case_cfg.get("dedupeNames")
 
@@ -84,7 +108,9 @@ class CsvSchemaImporter:
 
         self.validation_errors = errors
         if errors:
-            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(f"  - {err}" for err in errors)
+            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(
+                f"  - {err}" for err in errors
+            )
             raise SchemaValidationError(error_msg)
 
     def _validate_json_schema_structure(self) -> List[str]:
@@ -99,7 +125,9 @@ class CsvSchemaImporter:
 
         if not self.schema.get("$id"):
             errors.append("Missing required '$id' field")
-        elif not self.schema["$id"].startswith("https://github.com/cornyhorse/forklift/schema-standards/"):
+        elif not self.schema["$id"].startswith(
+            "https://github.com/cornyhorse/forklift/schema-standards/"
+        ):
             errors.append("Schema $id must follow the standard GitHub URL pattern")
 
         if not self.schema.get("title"):
@@ -356,9 +384,9 @@ class CsvSchemaImporter:
             return False
 
         return (
-            bool(calc_cols.get("constants")) or
-            bool(calc_cols.get("expressions")) or
-            bool(calc_cols.get("calculated"))
+            bool(calc_cols.get("constants"))
+            or bool(calc_cols.get("expressions"))
+            or bool(calc_cols.get("calculated"))
         )
 
     def get_partition_columns(self) -> List[str]:

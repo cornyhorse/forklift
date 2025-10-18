@@ -17,11 +17,15 @@ Test Coverage:
     - Performance testing with large datasets
 """
 
-import pytest
-import tempfile
 import json
+import tempfile
 from pathlib import Path
-from forklift.engine.forklift_core import import_csv, ProcessingResults, HeaderMode
+
+import pytest
+
+from forklift.engine.forklift_core import (HeaderMode, ProcessingResults,
+                                           import_csv)
+
 
 class TestCSVImportBasics:
     """Test basic CSV import functionality.
@@ -49,7 +53,7 @@ class TestCSVImportBasics:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 schema_file=str(schema_file),
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             assert results.total_rows == 20  # Corrected: file has 20 data rows
@@ -72,9 +76,7 @@ class TestCSVImportBasics:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=str(csv_file),
-                output_path=output_dir,
-                header_mode=HeaderMode.ABSENT
+                input_path=str(csv_file), output_path=output_dir, header_mode=HeaderMode.ABSENT
             )
 
             assert results.total_rows > 0
@@ -95,9 +97,7 @@ class TestCSVImportBasics:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=str(csv_file),
-                output_path=output_dir,
-                header_mode=HeaderMode.AUTO
+                input_path=str(csv_file), output_path=output_dir, header_mode=HeaderMode.AUTO
             )
 
             assert results.total_rows == 20  # Corrected: same file, same row count
@@ -131,7 +131,7 @@ class TestCSVDelimitersAndQuoting:
                 output_path=output_dir,
                 schema_file=str(schema_file),
                 delimiter="\t",
-                header_mode=HeaderMode.ABSENT
+                header_mode=HeaderMode.ABSENT,
             )
 
             assert results.total_rows > 0
@@ -150,7 +150,7 @@ class TestCSVDelimitersAndQuoting:
             - All rows processed successfully
         """
         # We'll create this test file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("name;age;city\n")
             f.write("John Doe;30;New York\n")
             f.write("Jane Smith;25;San Francisco\n")
@@ -162,7 +162,7 @@ class TestCSVDelimitersAndQuoting:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     delimiter=";",
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 2
@@ -180,7 +180,7 @@ class TestCSVDelimitersAndQuoting:
             - Pipe delimiter correctly processed
             - Field separation working properly
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("name|age|city\n")
             f.write("John Doe|30|New York\n")
             f.write("Jane Smith|25|San Francisco\n")
@@ -192,7 +192,7 @@ class TestCSVDelimitersAndQuoting:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     delimiter="|",
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 2
@@ -218,8 +218,8 @@ class TestCSVQuotingAndEscaping:
             - Quoted fields with commas processed correctly
             - Field boundaries respected despite internal commas
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write('name,description,price\n')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write("name,description,price\n")
             f.write('"John Doe","Software Engineer, Senior",75000\n')
             f.write('"Jane Smith","Data Scientist, ML Engineer",85000\n')
             csv_file = f.name
@@ -230,7 +230,7 @@ class TestCSVQuotingAndEscaping:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     quote_char='"',
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 2
@@ -248,7 +248,7 @@ class TestCSVQuotingAndEscaping:
             - Single quotes recognized as field delimiters
             - Quoted content processed correctly
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("name,description,price\n")
             f.write("'John Doe','Software Engineer, Senior',75000\n")
             f.write("'Jane Smith','Data Scientist, ML Engineer',85000\n")
@@ -260,7 +260,7 @@ class TestCSVQuotingAndEscaping:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     quote_char="'",
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 2
@@ -278,8 +278,8 @@ class TestCSVQuotingAndEscaping:
             - Escaped quotes properly unescaped
             - Quoted content integrity maintained
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
-            f.write('name,message,status\n')
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+            f.write("name,message,status\n")
             f.write('"John","He said ""Hello World""",active\n')
             f.write('"Jane","She replied ""Goodbye""",inactive\n')
             csv_file = f.name
@@ -290,7 +290,7 @@ class TestCSVQuotingAndEscaping:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     quote_char='"',
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 2
@@ -317,7 +317,7 @@ class TestCSVCommentHandling:
             - Only data rows processed
             - Row count excludes comments
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("# This is a comment\n")
             f.write("# Another comment line\n")
             f.write("name,age,city\n")
@@ -331,7 +331,7 @@ class TestCSVCommentHandling:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     comment_rows=[r"^#"],
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 2  # Only data rows
@@ -349,7 +349,7 @@ class TestCSVCommentHandling:
             - All configured comment patterns recognized
             - Various comment styles properly skipped
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("# Hash comment\n")
             f.write("// Slash comment\n")
             f.write("REM Remark comment\n")
@@ -363,7 +363,7 @@ class TestCSVCommentHandling:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     comment_rows=[r"^#", r"^//", r"^REM"],
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 1  # Only data row
@@ -398,7 +398,7 @@ class TestCSVValidationAndErrors:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 schema_file=str(schema_file),
-                validate_schema=True
+                validate_schema=True,
             )
 
             # With new implementation, rows are processed differently
@@ -421,9 +421,7 @@ class TestCSVValidationAndErrors:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=str(csv_file),
-                output_path=output_dir,
-                schema_file=schema_file
+                input_path=str(csv_file), output_path=output_dir, schema_file=schema_file
             )
 
             assert results.total_rows > 0
@@ -447,11 +445,11 @@ class TestCSVEncodingAndSpecialCases:
             - BOM properly handled and removed
             - UTF-8 content processed correctly
         """
-        with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".csv", delete=False) as f:
             # Write UTF-8 BOM
-            f.write(b'\xef\xbb\xbf')
-            f.write("name,age,city\n".encode('utf-8'))
-            f.write("John,30,NYC\n".encode('utf-8'))
+            f.write(b"\xef\xbb\xbf")
+            f.write("name,age,city\n".encode("utf-8"))
+            f.write("John,30,NYC\n".encode("utf-8"))
             csv_file = f.name
 
         try:
@@ -460,7 +458,7 @@ class TestCSVEncodingAndSpecialCases:
                     input_path=str(csv_file),
                     output_path=output_dir,
                     encoding="utf-8-sig",  # Handles BOM
-                    header_mode=HeaderMode.PRESENT
+                    header_mode=HeaderMode.PRESENT,
                 )
 
                 assert results.total_rows == 1
@@ -494,7 +492,7 @@ class TestCSVManifestAndMetadata:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 create_manifest=True,
-                create_metadata=True
+                create_metadata=True,
             )
 
             assert results.manifest_file is not None
@@ -503,7 +501,7 @@ class TestCSVManifestAndMetadata:
             assert Path(results.metadata_file).exists()
 
             # Verify manifest content
-            with open(results.manifest_file, 'r') as f:
+            with open(results.manifest_file, "r") as f:
                 manifest = json.load(f)
                 assert "format_version" in manifest
                 assert "files" in manifest
@@ -524,13 +522,11 @@ class TestCSVManifestAndMetadata:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=str(csv_file),
-                output_path=output_dir,
-                create_metadata=True
+                input_path=str(csv_file), output_path=output_dir, create_metadata=True
             )
 
             # Verify metadata content
-            with open(results.metadata_file, 'r') as f:
+            with open(results.metadata_file, "r") as f:
                 metadata = json.load(f)
                 assert "processing_summary" in metadata
                 assert "input_config" in metadata
@@ -557,10 +553,7 @@ class TestCSVErrorHandling:
         """
         with pytest.raises(FileNotFoundError):
             with tempfile.TemporaryDirectory() as output_dir:
-                import_csv(
-                    input_path="/nonexistent/file.csv",
-                    output_path=output_dir
-                )
+                import_csv(input_path="/nonexistent/file.csv", output_path=output_dir)
 
     def test_missing_schema_file(self):
         """Test handling of missing schema file.
@@ -579,7 +572,7 @@ class TestCSVErrorHandling:
                 import_csv(
                     input_path=str(csv_file),
                     output_path=output_dir,
-                    schema_file="/nonexistent/schema.json"
+                    schema_file="/nonexistent/schema.json",
                 )
 
     def test_malformed_csv(self):
@@ -593,7 +586,7 @@ class TestCSVErrorHandling:
             - Processing completes without crashes
             - Error information captured appropriately
         """
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             f.write("name,age,city\n")
             f.write('John,30,"New York\n')  # Unclosed quote
             f.write("Jane,25,SF\n")
@@ -603,9 +596,7 @@ class TestCSVErrorHandling:
             with tempfile.TemporaryDirectory() as output_dir:
                 # Should handle gracefully
                 results = import_csv(
-                    input_path=str(csv_file),
-                    output_path=output_dir,
-                    header_mode=HeaderMode.PRESENT
+                    input_path=str(csv_file), output_path=output_dir, header_mode=HeaderMode.PRESENT
                 )
 
                 # May have parsing issues but shouldn't crash
@@ -639,7 +630,7 @@ class TestCSVEncodingVariations:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 encoding="latin1",
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             assert results.total_rows == 5
@@ -664,7 +655,7 @@ class TestCSVEncodingVariations:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 encoding="cp1252",
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             assert results.total_rows == 5
@@ -689,7 +680,7 @@ class TestCSVEncodingVariations:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 encoding="utf-8-sig",  # Handles BOM properly
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             assert results.total_rows == 5
@@ -721,10 +712,8 @@ class TestCSVFooterDetection:
             results = import_csv(
                 input_path=str(csv_file),
                 output_path=output_dir,
-                footer_detection={
-                    "stop_on_blank": True
-                },
-                header_mode=HeaderMode.PRESENT
+                footer_detection={"stop_on_blank": True},
+                header_mode=HeaderMode.PRESENT,
             )
 
             # Should stop at blank line, only process 4 data rows
@@ -748,11 +737,8 @@ class TestCSVFooterDetection:
             results = import_csv(
                 input_path=str(csv_file),
                 output_path=output_dir,
-                footer_detection={
-                    "column_index": 0,
-                    "patterns": [r"^TOTAL:", r"^Summary"]
-                },
-                header_mode=HeaderMode.PRESENT
+                footer_detection={"column_index": 0, "patterns": [r"^TOTAL:", r"^Summary"]},
+                header_mode=HeaderMode.PRESENT,
             )
 
             # Should stop at TOTAL: pattern, only process 4 data rows
@@ -776,11 +762,8 @@ class TestCSVFooterDetection:
             results = import_csv(
                 input_path=str(csv_file),
                 output_path=output_dir,
-                footer_detection={
-                    "column_index": 0,
-                    "patterns": [r"^---", r"^Total Count"]
-                },
-                header_mode=HeaderMode.PRESENT
+                footer_detection={"column_index": 0, "patterns": [r"^---", r"^Total Count"]},
+                header_mode=HeaderMode.PRESENT,
             )
 
             # Should stop at summary section, only process 4 data rows
@@ -814,7 +797,7 @@ class TestCSVAdvancedQuoting:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 quote_char='"',
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             assert results.total_rows > 0
@@ -838,7 +821,7 @@ class TestCSVAdvancedQuoting:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 quote_char='"',
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             assert results.total_rows == 5
@@ -862,7 +845,7 @@ class TestCSVAdvancedQuoting:
                 input_path=str(csv_file),
                 output_path=output_dir,
                 quote_char='"',
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             # Should handle multiline quoted fields
@@ -892,9 +875,7 @@ class TestCSVEdgeCases:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=str(csv_file),
-                output_path=output_dir,
-                header_mode=HeaderMode.PRESENT
+                input_path=str(csv_file), output_path=output_dir, header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 0
@@ -916,9 +897,7 @@ class TestCSVEdgeCases:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=str(csv_file),
-                output_path=output_dir,
-                header_mode=HeaderMode.PRESENT
+                input_path=str(csv_file), output_path=output_dir, header_mode=HeaderMode.PRESENT
             )
 
             assert results.total_rows == 0  # No data rows
@@ -940,9 +919,7 @@ class TestCSVEdgeCases:
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
-                input_path=str(csv_file),
-                output_path=output_dir,
-                header_mode=HeaderMode.PRESENT
+                input_path=str(csv_file), output_path=output_dir, header_mode=HeaderMode.PRESENT
             )
 
             # Should handle varying column counts gracefully
@@ -953,7 +930,7 @@ class TestCSVEdgeCases:
 
 if __name__ == "__main__":
     """Run the test suite when executed directly.
-    
+
     Executes all test classes with verbose output to provide detailed
     information about test execution and results.
     """

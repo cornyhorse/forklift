@@ -1,16 +1,16 @@
 """Comprehensive unit tests for validation_factory.py"""
 
-import pytest
 from unittest.mock import Mock, patch
-import pyarrow as pa
 
-from forklift.processors.validation_factory import (
-    ValidationFactory,
-    ValidatorType,
-    ValidationFactoryConfig
-)
-from forklift.processors.constraint_validator import ConstraintValidator, ErrorMode
+import pyarrow as pa
+import pytest
+
+from forklift.processors.constraint_validator import (ConstraintValidator,
+                                                      ErrorMode)
 from forklift.processors.schema_validator import SchemaValidator
+from forklift.processors.validation_factory import (ValidationFactory,
+                                                    ValidationFactoryConfig,
+                                                    ValidatorType)
 
 
 class TestValidatorType:
@@ -44,7 +44,7 @@ class TestValidationFactoryConfig:
         config = ValidationFactoryConfig(
             validator_type=ValidatorType.SCHEMA,
             config={"schema": {"id": "int64"}},
-            strict_mode=False
+            strict_mode=False,
         )
 
         assert config.validator_type == ValidatorType.SCHEMA
@@ -53,10 +53,7 @@ class TestValidationFactoryConfig:
 
     def test_validation_factory_config_defaults(self):
         """Test ValidationFactoryConfig defaults."""
-        config = ValidationFactoryConfig(
-            validator_type=ValidatorType.SCHEMA,
-            config={}
-        )
+        config = ValidationFactoryConfig(validator_type=ValidatorType.SCHEMA, config={})
 
         assert config.strict_mode is True
 
@@ -83,7 +80,7 @@ class TestValidationFactory:
         with pytest.raises(ValueError, match="Unsupported validator type"):
             ValidationFactory.create_validator("invalid_enum_type")
 
-    @patch('forklift.processors.validation_factory.SchemaValidator')
+    @patch("forklift.processors.validation_factory.SchemaValidator")
     def test_create_schema_validator_with_pyarrow_schema(self, mock_schema_validator):
         """Test creating schema validator with PyArrow schema."""
         schema = pa.schema([pa.field("id", pa.int64())])
@@ -97,7 +94,7 @@ class TestValidationFactory:
         mock_schema_validator.assert_called_once_with(schema, False)
         assert result == mock_instance
 
-    @patch('forklift.processors.validation_factory.SchemaValidator')
+    @patch("forklift.processors.validation_factory.SchemaValidator")
     def test_create_schema_validator_with_dict_schema(self, mock_schema_validator):
         """Test creating schema validator with dict schema."""
         schema_dict = {"id": "int64", "name": "string"}
@@ -116,7 +113,7 @@ class TestValidationFactory:
         assert isinstance(created_schema, pa.Schema)
         assert len(created_schema) == 2
 
-    @patch('forklift.processors.validation_factory.SchemaValidator')
+    @patch("forklift.processors.validation_factory.SchemaValidator")
     def test_create_schema_validator_kwargs(self, mock_schema_validator):
         """Test creating schema validator with kwargs."""
         schema = pa.schema([pa.field("id", pa.int64())])
@@ -125,9 +122,7 @@ class TestValidationFactory:
         mock_schema_validator.return_value = mock_instance
 
         result = ValidationFactory.create_validator(
-            ValidatorType.SCHEMA,
-            schema=schema,
-            strict_mode=False
+            ValidatorType.SCHEMA, schema=schema, strict_mode=False
         )
 
         mock_schema_validator.assert_called_once_with(schema, False)
@@ -137,7 +132,7 @@ class TestValidationFactory:
         with pytest.raises(TypeError, match="Schema validator requires 'schema' parameter"):
             ValidationFactory.create_validator(ValidatorType.SCHEMA, {})
 
-    @patch('forklift.processors.validation_factory.ConstraintValidator')
+    @patch("forklift.processors.validation_factory.ConstraintValidator")
     def test_create_constraint_validator_default_config(self, mock_constraint_validator):
         """Test creating constraint validator with default config."""
         mock_instance = Mock(spec=ConstraintValidator)
@@ -152,14 +147,14 @@ class TestValidationFactory:
         assert call_args.unique_constraints == []
         assert call_args.foreign_key_constraints == {}
 
-    @patch('forklift.processors.validation_factory.ConstraintValidator')
+    @patch("forklift.processors.validation_factory.ConstraintValidator")
     def test_create_constraint_validator_custom_config(self, mock_constraint_validator):
         """Test creating constraint validator with custom config."""
         config = {
             "error_mode": "fail_fast",
             "check_constraints": {"age": "age > 0"},
             "unique_constraints": ["email"],
-            "foreign_key_constraints": {"dept_id": "departments.id"}
+            "foreign_key_constraints": {"dept_id": "departments.id"},
         }
 
         mock_instance = Mock(spec=ConstraintValidator)
@@ -173,7 +168,7 @@ class TestValidationFactory:
         assert call_args.unique_constraints == ["email"]
         assert call_args.foreign_key_constraints == {"dept_id": "departments.id"}
 
-    @patch('forklift.processors.validation_factory.ConstraintValidator')
+    @patch("forklift.processors.validation_factory.ConstraintValidator")
     def test_create_constraint_validator_error_mode_enum(self, mock_constraint_validator):
         """Test creating constraint validator with ErrorMode enum."""
         config = {"error_mode": ErrorMode.FAIL_COMPLETE}
@@ -186,8 +181,8 @@ class TestValidationFactory:
         call_args = mock_constraint_validator.call_args[0][0]
         assert call_args.error_mode == ErrorMode.FAIL_COMPLETE
 
-    @patch('forklift.processors.validation_factory.DataValidationProcessor')
-    @patch('forklift.processors.validation_factory.BadRowsConfig')
+    @patch("forklift.processors.validation_factory.DataValidationProcessor")
+    @patch("forklift.processors.validation_factory.BadRowsConfig")
     def test_create_data_validator_default_config(self, mock_bad_rows_config, mock_data_validator):
         """Test creating data validator with default config."""
         mock_bad_rows_instance = Mock()
@@ -203,10 +198,12 @@ class TestValidationFactory:
         assert call_args.bad_rows_config == mock_bad_rows_instance
         assert call_args.uniqueness_strategy == "first_wins"
 
-    @patch('forklift.processors.validation_factory.DataValidationProcessor')
-    @patch('forklift.processors.validation_factory.FieldValidationRule')
-    @patch('forklift.processors.validation_factory.BadRowsConfig')
-    def test_create_data_validator_dict_rules(self, mock_bad_rows_config, mock_field_rule, mock_data_validator):
+    @patch("forklift.processors.validation_factory.DataValidationProcessor")
+    @patch("forklift.processors.validation_factory.FieldValidationRule")
+    @patch("forklift.processors.validation_factory.BadRowsConfig")
+    def test_create_data_validator_dict_rules(
+        self, mock_bad_rows_config, mock_field_rule, mock_data_validator
+    ):
         """Test creating data validator with dict validation rules."""
         rule_dict = {"field_name": "email", "required": True}
         config = {"field_validations": [rule_dict]}
@@ -222,7 +219,7 @@ class TestValidationFactory:
 
         mock_field_rule.assert_called_once_with(**rule_dict)
 
-    @patch('forklift.processors.validation_factory.WriteTimeValidator')
+    @patch("forklift.processors.validation_factory.WriteTimeValidator")
     def test_create_write_time_validator_default_config(self, mock_write_validator):
         """Test creating write time validator with default config."""
         mock_instance = Mock()
@@ -236,7 +233,7 @@ class TestValidationFactory:
         assert call_args.check_empty_tables is True
         assert call_args.primary_key_columns == []
 
-    @patch('forklift.processors.validation_factory.WriteTimeValidator')
+    @patch("forklift.processors.validation_factory.WriteTimeValidator")
     def test_create_write_time_validator_custom_config(self, mock_write_validator):
         """Test creating write time validator with custom config."""
         config = {
@@ -245,7 +242,7 @@ class TestValidationFactory:
             "required_columns": ["id", "name"],
             "check_duplicate_rows": True,
             "primary_key_columns": ["id"],
-            "max_null_percentage": 25.0
+            "max_null_percentage": 25.0,
         }
 
         mock_instance = Mock()
@@ -262,7 +259,7 @@ class TestValidationFactory:
 
     def test_create_validator_string_type(self):
         """Test creating validator with string type."""
-        with patch('forklift.processors.validation_factory.ConstraintValidator') as mock_validator:
+        with patch("forklift.processors.validation_factory.ConstraintValidator") as mock_validator:
             mock_instance = Mock()
             mock_validator.return_value = mock_instance
 
@@ -270,22 +267,19 @@ class TestValidationFactory:
 
             assert result == mock_instance
 
-    @patch('forklift.processors.validation_factory.SchemaValidator')
-    @patch('forklift.processors.validation_factory.ConstraintValidator')
+    @patch("forklift.processors.validation_factory.SchemaValidator")
+    @patch("forklift.processors.validation_factory.ConstraintValidator")
     def test_create_validators_from_config(self, mock_constraint_validator, mock_schema_validator):
         """Test creating multiple validators from config list."""
         schema = pa.schema([pa.field("id", pa.int64())])
 
         configs = [
             ValidationFactoryConfig(
-                validator_type=ValidatorType.SCHEMA,
-                config={"schema": schema},
-                strict_mode=False
+                validator_type=ValidatorType.SCHEMA, config={"schema": schema}, strict_mode=False
             ),
             ValidationFactoryConfig(
-                validator_type=ValidatorType.CONSTRAINT,
-                config={"error_mode": "fail_fast"}
-            )
+                validator_type=ValidatorType.CONSTRAINT, config={"error_mode": "fail_fast"}
+            ),
         ]
 
         mock_schema_instance = Mock()
@@ -340,9 +334,9 @@ class TestValidationFactory:
         config = {"schema": pa.schema([pa.field("id", pa.int64())])}
         assert ValidationFactory.validate_config("schema", config) is True
 
-
     def test_validate_config_unknown_type_simple(self):
         """Test validating config with simple unknown validator type."""
+
         # Create a mock type that doesn't exist in the enum
         class MockType:
             def __init__(self, value):
@@ -359,15 +353,9 @@ class TestValidationFactoryIntegration:
 
     def test_schema_validator_integration(self):
         """Test creating and using a schema validator."""
-        schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("name", pa.string())
-        ])
+        schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
 
-        validator = ValidationFactory.create_validator(
-            ValidatorType.SCHEMA,
-            {"schema": schema}
-        )
+        validator = ValidationFactory.create_validator(ValidatorType.SCHEMA, {"schema": schema})
 
         assert isinstance(validator, SchemaValidator)
         assert validator.schema == schema
@@ -375,15 +363,9 @@ class TestValidationFactoryIntegration:
 
     def test_constraint_validator_integration(self):
         """Test creating and using a constraint validator."""
-        config = {
-            "error_mode": "bad_rows",
-            "unique_constraints": ["email"]
-        }
+        config = {"error_mode": "bad_rows", "unique_constraints": ["email"]}
 
-        validator = ValidationFactory.create_validator(
-            ValidatorType.CONSTRAINT,
-            config
-        )
+        validator = ValidationFactory.create_validator(ValidatorType.CONSTRAINT, config)
 
         assert isinstance(validator, ConstraintValidator)
         assert validator.config.error_mode == ErrorMode.BAD_ROWS
@@ -395,9 +377,7 @@ class TestValidationFactoryIntegration:
 
         configs = [
             ValidationFactoryConfig(
-                validator_type=ValidatorType.SCHEMA,
-                config={"schema": schema},
-                strict_mode=True
+                validator_type=ValidatorType.SCHEMA, config={"schema": schema}, strict_mode=True
             )
         ]
 
@@ -425,7 +405,7 @@ class TestValidationFactoryIntegration:
             ValidatorType.SCHEMA,
             config={"schema": schema1, "strict_mode": False},
             schema=schema2,  # This should be ignored
-            strict_mode=True  # This should be ignored
+            strict_mode=True,  # This should be ignored
         )
 
         assert isinstance(validator, SchemaValidator)
@@ -438,7 +418,7 @@ class TestValidationFactoryEdgeCases:
 
     def test_none_config(self):
         """Test handling None config."""
-        with patch('forklift.processors.validation_factory.ConstraintValidator') as mock_validator:
+        with patch("forklift.processors.validation_factory.ConstraintValidator") as mock_validator:
             mock_instance = Mock()
             mock_validator.return_value = mock_instance
 
@@ -448,7 +428,7 @@ class TestValidationFactoryEdgeCases:
 
     def test_empty_config(self):
         """Test handling empty config."""
-        with patch('forklift.processors.validation_factory.ConstraintValidator') as mock_validator:
+        with patch("forklift.processors.validation_factory.ConstraintValidator") as mock_validator:
             mock_instance = Mock()
             mock_validator.return_value = mock_instance
 
@@ -461,12 +441,11 @@ class TestValidationFactoryEdgeCases:
         schema_dict = {
             "id": pa.int64(),
             "scores": pa.list_(pa.float64()),
-            "metadata": pa.map_(pa.string(), pa.string())
+            "metadata": pa.map_(pa.string(), pa.string()),
         }
 
         validator = ValidationFactory.create_validator(
-            ValidatorType.SCHEMA,
-            {"schema": schema_dict}
+            ValidatorType.SCHEMA, {"schema": schema_dict}
         )
 
         assert isinstance(validator, SchemaValidator)
@@ -474,8 +453,8 @@ class TestValidationFactoryEdgeCases:
         assert len(created_schema) == 3
         assert created_schema.field("scores").type == pa.list_(pa.float64())
 
-    @patch('forklift.processors.validation_factory.DataValidationProcessor')
-    @patch('forklift.processors.validation_factory.BadRowsConfig')
+    @patch("forklift.processors.validation_factory.DataValidationProcessor")
+    @patch("forklift.processors.validation_factory.BadRowsConfig")
     def test_data_validator_empty_rules(self, mock_bad_rows_config, mock_data_validator):
         """Test data validator with empty validation rules."""
         config = {"field_validations": []}
@@ -490,15 +469,15 @@ class TestValidationFactoryEdgeCases:
         call_args = mock_data_validator.call_args[0][0]
         assert call_args.field_validations == []
 
-    @patch('forklift.processors.validation_factory.DataValidationProcessor')
-    @patch('forklift.processors.validation_factory.BadRowsConfig')
+    @patch("forklift.processors.validation_factory.DataValidationProcessor")
+    @patch("forklift.processors.validation_factory.BadRowsConfig")
     def test_data_validator_custom_bad_rows_config(self, mock_bad_rows_config, mock_data_validator):
         """Test data validator with custom bad rows config."""
         config = {
             "bad_rows_config": {
                 "enabled": False,
                 "output_path": "custom_bad_rows",
-                "max_bad_rows_percent": 5.0
+                "max_bad_rows_percent": 5.0,
             }
         }
 
@@ -511,9 +490,7 @@ class TestValidationFactoryEdgeCases:
 
         # Verify BadRowsConfig was called with custom config
         mock_bad_rows_config.assert_called_once_with(
-            enabled=False,
-            output_path="custom_bad_rows",
-            max_bad_rows_percent=5.0
+            enabled=False, output_path="custom_bad_rows", max_bad_rows_percent=5.0
         )
 
     def test_write_time_validator_all_checks_enabled(self):
@@ -525,10 +502,10 @@ class TestValidationFactoryEdgeCases:
             "check_null_percentages": True,
             "primary_key_columns": ["id", "code"],
             "max_null_percentage": 10.0,
-            "min_row_count": 5
+            "min_row_count": 5,
         }
 
-        with patch('forklift.processors.validation_factory.WriteTimeValidator') as mock_validator:
+        with patch("forklift.processors.validation_factory.WriteTimeValidator") as mock_validator:
             mock_instance = Mock()
             mock_validator.return_value = mock_instance
 

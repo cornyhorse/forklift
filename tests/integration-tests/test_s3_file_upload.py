@@ -1,14 +1,16 @@
 """Integration tests for uploading test files to S3."""
 
-import pytest
+import os
 import time
 from pathlib import Path
 from typing import List, Tuple
-import os
 
-from forklift.io.s3_streaming import S3StreamingClient, S3Path
+import pytest
+
+from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
+                                           ImportConfig)
+from forklift.io.s3_streaming import S3Path, S3StreamingClient
 from forklift.io.unified_io import UnifiedIOHandler
-from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 
 
 @pytest.mark.integration
@@ -19,33 +21,34 @@ class TestS3FileUpload:
     def s3_config(self):
         """Get S3 configuration from ~/.credentials/.env file."""
         config = {
-            'aws_access_key_id': None,
-            'aws_secret_access_key': None,
-            'region_name': 'us-east-1',
-            'test_bucket': 'cornyhorse-data',
-            'endpoint_url': None
+            "aws_access_key_id": None,
+            "aws_secret_access_key": None,
+            "region_name": "us-east-1",
+            "test_bucket": "cornyhorse-data",
+            "endpoint_url": None,
         }
 
         # Load from environment variables or .env file
-        from dotenv import load_dotenv
         import os
         from pathlib import Path
 
+        from dotenv import load_dotenv
+
         # Load from ~/.credentials/.env first, then fallback to local .env
-        credentials_path = Path.home() / '.credentials' / '.env'
+        credentials_path = Path.home() / ".credentials" / ".env"
         if credentials_path.exists():
             load_dotenv(credentials_path)
         else:
             load_dotenv()  # fallback to local .env
 
-        config['aws_access_key_id'] = os.getenv('AWS_ACCESS_KEY_ID')
-        config['aws_secret_access_key'] = os.getenv('AWS_SECRET_ACCESS_KEY')
-        config['region_name'] = os.getenv('AWS_DEFAULT_REGION', 'eu-north-1')
-        config['test_bucket'] = os.getenv('S3_TEST_BUCKET', 'cornyhorse-data')
-        config['endpoint_url'] = os.getenv('AWS_ENDPOINT_URL')
+        config["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID")
+        config["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY")
+        config["region_name"] = os.getenv("AWS_DEFAULT_REGION", "eu-north-1")
+        config["test_bucket"] = os.getenv("S3_TEST_BUCKET", "cornyhorse-data")
+        config["endpoint_url"] = os.getenv("AWS_ENDPOINT_URL")
 
         # Skip if no credentials are configured
-        if not config['aws_access_key_id'] or not config['aws_secret_access_key']:
+        if not config["aws_access_key_id"] or not config["aws_secret_access_key"]:
             pytest.skip("AWS credentials not configured")
 
         return config
@@ -54,10 +57,10 @@ class TestS3FileUpload:
     def s3_client(self, s3_config):
         """Create real S3 client for integration tests."""
         return S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name'],
-            endpoint_url=s3_config['endpoint_url']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
+            endpoint_url=s3_config["endpoint_url"],
         )
 
     @pytest.fixture(scope="class")
@@ -124,34 +127,31 @@ class TestS3FileUpload:
     def cleanup_before_test(self, s3_config):
         """Clean up any existing test files before running tests to ensure clean state."""
         client = S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name'],
-            endpoint_url=s3_config['endpoint_url']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
+            endpoint_url=s3_config["endpoint_url"],
         )
 
         # Define test prefixes to clean up
-        test_prefixes = [
-            "forklift/test-files-upload/",
-            "forklift/pipeline-test/"
-        ]
+        test_prefixes = ["forklift/test-files-upload/", "forklift/pipeline-test/"]
 
         # Clean up any existing test files
         for prefix in test_prefixes:
             try:
                 response = client._s3_client.list_objects_v2(
-                    Bucket=s3_config['test_bucket'],
-                    Prefix=prefix
+                    Bucket=s3_config["test_bucket"], Prefix=prefix
                 )
 
-                if 'Contents' in response:
-                    objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                if "Contents" in response:
+                    objects_to_delete = [{"Key": obj["Key"]} for obj in response["Contents"]]
                     if objects_to_delete:
                         client._s3_client.delete_objects(
-                            Bucket=s3_config['test_bucket'],
-                            Delete={'Objects': objects_to_delete}
+                            Bucket=s3_config["test_bucket"], Delete={"Objects": objects_to_delete}
                         )
-                        print(f"Cleaned up {len(objects_to_delete)} existing objects with prefix: {prefix}")
+                        print(
+                            f"Cleaned up {len(objects_to_delete)} existing objects with prefix: {prefix}"
+                        )
             except Exception as e:
                 print(f"Warning: Could not clean up prefix {prefix}: {e}")
 
@@ -176,12 +176,12 @@ class TestS3FileUpload:
             try:
                 # Upload file to S3 with proper encoding detection
                 # Handle different encodings for test files
-                encodings_to_try = ['utf-8', 'cp1252', 'latin1', 'iso-8859-1']
+                encodings_to_try = ["utf-8", "cp1252", "latin1", "iso-8859-1"]
                 content = None
 
                 for encoding in encodings_to_try:
                     try:
-                        with open(csv_file, 'r', encoding=encoding) as local_file:
+                        with open(csv_file, "r", encoding=encoding) as local_file:
                             content = local_file.read()
                         break  # Success, use this encoding
                     except UnicodeDecodeError:
@@ -189,42 +189,46 @@ class TestS3FileUpload:
 
                 if content is None:
                     # If all encodings failed, read as binary and decode with error handling
-                    with open(csv_file, 'rb') as local_file:
+                    with open(csv_file, "rb") as local_file:
                         raw_content = local_file.read()
-                        content = raw_content.decode('utf-8', errors='replace')
+                        content = raw_content.decode("utf-8", errors="replace")
 
                 # Handle empty files - upload a single space to avoid S3 multipart issues
                 if not content.strip():
                     content = " "  # Single space for empty files
 
-                with s3_client.open_for_write(s3_path, encoding='utf-8') as s3_writer:
+                with s3_client.open_for_write(s3_path, encoding="utf-8") as s3_writer:
                     s3_writer.write(content)
 
                 # Verify upload
                 assert s3_client.exists(s3_path), f"Failed to upload {csv_file.name}"
 
                 file_size = s3_client.get_size(s3_path)
-                upload_results.append({
-                    'local_path': str(csv_file),
-                    's3_path': s3_path,
-                    'size': file_size,
-                    'status': 'success'
-                })
+                upload_results.append(
+                    {
+                        "local_path": str(csv_file),
+                        "s3_path": s3_path,
+                        "size": file_size,
+                        "status": "success",
+                    }
+                )
 
                 print(f"✓ Uploaded {csv_file.name} ({file_size} bytes)")
 
             except Exception as e:
-                upload_results.append({
-                    'local_path': str(csv_file),
-                    's3_path': s3_path,
-                    'error': str(e),
-                    'status': 'failed'
-                })
+                upload_results.append(
+                    {
+                        "local_path": str(csv_file),
+                        "s3_path": s3_path,
+                        "error": str(e),
+                        "status": "failed",
+                    }
+                )
                 print(f"✗ Failed to upload {csv_file.name}: {e}")
 
         # Summary assertions
-        successful_uploads = [r for r in upload_results if r['status'] == 'success']
-        failed_uploads = [r for r in upload_results if r['status'] == 'failed']
+        successful_uploads = [r for r in upload_results if r["status"] == "success"]
+        failed_uploads = [r for r in upload_results if r["status"] == "failed"]
 
         print(f"\nUpload Summary:")
         print(f"  Successful: {len(successful_uploads)}")
@@ -259,37 +263,41 @@ class TestS3FileUpload:
 
             try:
                 # Upload file to S3
-                with open(tsv_file, 'r', encoding='utf-8') as local_file:
+                with open(tsv_file, "r", encoding="utf-8") as local_file:
                     content = local_file.read()
 
-                with s3_client.open_for_write(s3_path, encoding='utf-8') as s3_writer:
+                with s3_client.open_for_write(s3_path, encoding="utf-8") as s3_writer:
                     s3_writer.write(content)
 
                 # Verify upload
                 assert s3_client.exists(s3_path), f"Failed to upload {tsv_file.name}"
 
                 file_size = s3_client.get_size(s3_path)
-                upload_results.append({
-                    'local_path': str(tsv_file),
-                    's3_path': s3_path,
-                    'size': file_size,
-                    'status': 'success'
-                })
+                upload_results.append(
+                    {
+                        "local_path": str(tsv_file),
+                        "s3_path": s3_path,
+                        "size": file_size,
+                        "status": "success",
+                    }
+                )
 
                 print(f"✓ Uploaded {tsv_file.name} ({file_size} bytes)")
 
             except Exception as e:
-                upload_results.append({
-                    'local_path': str(tsv_file),
-                    's3_path': s3_path,
-                    'error': str(e),
-                    'status': 'failed'
-                })
+                upload_results.append(
+                    {
+                        "local_path": str(tsv_file),
+                        "s3_path": s3_path,
+                        "error": str(e),
+                        "status": "failed",
+                    }
+                )
                 print(f"✗ Failed to upload {tsv_file.name}: {e}")
 
         # Summary assertions
-        successful_uploads = [r for r in upload_results if r['status'] == 'success']
-        failed_uploads = [r for r in upload_results if r['status'] == 'failed']
+        successful_uploads = [r for r in upload_results if r["status"] == "success"]
+        failed_uploads = [r for r in upload_results if r["status"] == "failed"]
 
         print(f"\nUpload Summary:")
         print(f"  Successful: {len(successful_uploads)}")
@@ -304,7 +312,9 @@ class TestS3FileUpload:
         success_rate = len(successful_uploads) / len(tsv_files)
         assert success_rate >= 0.9, f"Upload success rate too low: {success_rate:.1%}"
 
-    def test_upload_batch_all_files(self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects):
+    def test_upload_batch_all_files(
+        self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects
+    ):
         """Test uploading all CSV and TSV files in a single batch operation."""
         all_files = csv_files + tsv_files
 
@@ -314,11 +324,17 @@ class TestS3FileUpload:
         # Use consistent path instead of timestamp
         upload_results = []
 
-        print(f"\nBatch uploading {len(all_files)} files ({len(csv_files)} CSV, {len(tsv_files)} TSV) to S3...")
+        print(
+            f"\nBatch uploading {len(all_files)} files ({len(csv_files)} CSV, {len(tsv_files)} TSV) to S3..."
+        )
 
         for file_path in all_files:
             # Determine file type and create appropriate S3 key
-            file_type = "tsv" if any("tsv" in str(file_path) for x in ["tsv"]) or file_path.suffix == ".tsv" else "csv"
+            file_type = (
+                "tsv"
+                if any("tsv" in str(file_path) for x in ["tsv"]) or file_path.suffix == ".tsv"
+                else "csv"
+            )
 
             relative_path = file_path.relative_to(file_path.parents[2] / "test-files")
             s3_key = f"forklift/test-files-upload/batch/{file_type}/{relative_path}"
@@ -329,12 +345,12 @@ class TestS3FileUpload:
             try:
                 # Upload file to S3 with proper encoding detection
                 # Handle different encodings for test files
-                encodings_to_try = ['utf-8', 'cp1252', 'latin1', 'iso-8859-1']
+                encodings_to_try = ["utf-8", "cp1252", "latin1", "iso-8859-1"]
                 content = None
 
                 for encoding in encodings_to_try:
                     try:
-                        with open(file_path, 'r', encoding=encoding) as local_file:
+                        with open(file_path, "r", encoding=encoding) as local_file:
                             content = local_file.read()
                         break  # Success, use this encoding
                     except UnicodeDecodeError:
@@ -342,47 +358,51 @@ class TestS3FileUpload:
 
                 if content is None:
                     # If all encodings failed, read as binary and decode with error handling
-                    with open(file_path, 'rb') as local_file:
+                    with open(file_path, "rb") as local_file:
                         raw_content = local_file.read()
-                        content = raw_content.decode('utf-8', errors='replace')
+                        content = raw_content.decode("utf-8", errors="replace")
 
                 # Handle empty files - upload a single space to avoid S3 multipart issues
                 if not content.strip():
                     content = " "  # Single space for empty files
 
-                with s3_client.open_for_write(s3_path, encoding='utf-8') as s3_writer:
+                with s3_client.open_for_write(s3_path, encoding="utf-8") as s3_writer:
                     s3_writer.write(content)
 
                 # Verify upload
                 assert s3_client.exists(s3_path), f"Failed to upload {file_path.name}"
 
                 file_size = s3_client.get_size(s3_path)
-                upload_results.append({
-                    'local_path': str(file_path),
-                    's3_path': s3_path,
-                    'size': file_size,
-                    'type': file_type,
-                    'status': 'success'
-                })
+                upload_results.append(
+                    {
+                        "local_path": str(file_path),
+                        "s3_path": s3_path,
+                        "size": file_size,
+                        "type": file_type,
+                        "status": "success",
+                    }
+                )
 
                 print(f"✓ Uploaded {file_type.upper()}: {file_path.name} ({file_size} bytes)")
 
             except Exception as e:
-                upload_results.append({
-                    'local_path': str(file_path),
-                    's3_path': s3_path,
-                    'type': file_type,
-                    'error': str(e),
-                    'status': 'failed'
-                })
+                upload_results.append(
+                    {
+                        "local_path": str(file_path),
+                        "s3_path": s3_path,
+                        "type": file_type,
+                        "error": str(e),
+                        "status": "failed",
+                    }
+                )
                 print(f"✗ Failed to upload {file_type.upper()}: {file_path.name}: {e}")
 
         # Summary assertions
-        successful_uploads = [r for r in upload_results if r['status'] == 'success']
-        failed_uploads = [r for r in upload_results if r['status'] == 'failed']
+        successful_uploads = [r for r in upload_results if r["status"] == "success"]
+        failed_uploads = [r for r in upload_results if r["status"] == "failed"]
 
-        csv_uploads = [r for r in successful_uploads if r['type'] == 'csv']
-        tsv_uploads = [r for r in successful_uploads if r['type'] == 'tsv']
+        csv_uploads = [r for r in successful_uploads if r["type"] == "csv"]
+        tsv_uploads = [r for r in successful_uploads if r["type"] == "tsv"]
 
         print(f"\nBatch Upload Summary:")
         print(f"  Total files: {len(all_files)}")
@@ -391,7 +411,7 @@ class TestS3FileUpload:
         print(f"    - TSV files: {len(tsv_uploads)}")
         print(f"  Failed uploads: {len(failed_uploads)}")
 
-        total_size = sum(r['size'] for r in successful_uploads)
+        total_size = sum(r["size"] for r in successful_uploads)
         print(f"  Total uploaded size: {total_size:,} bytes ({total_size / 1024:.1f} KB)")
 
         if failed_uploads:
@@ -407,7 +427,9 @@ class TestS3FileUpload:
             assert len(csv_uploads) > 0, "No CSV files were uploaded successfully"
             assert len(tsv_uploads) > 0, "No TSV files were uploaded successfully"
 
-    def test_verify_uploaded_files_content(self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects):
+    def test_verify_uploaded_files_content(
+        self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects
+    ):
         """Test that uploaded files can be read back and content matches original."""
         # Upload a few sample files and verify content
         sample_files = []
@@ -434,15 +456,15 @@ class TestS3FileUpload:
             cleanup_s3_objects.append(s3_path)
 
             # Read original file content
-            with open(file_path, 'r', encoding='utf-8') as local_file:
+            with open(file_path, "r", encoding="utf-8") as local_file:
                 original_content = local_file.read()
 
             # Upload to S3
-            with s3_client.open_for_write(s3_path, encoding='utf-8') as s3_writer:
+            with s3_client.open_for_write(s3_path, encoding="utf-8") as s3_writer:
                 s3_writer.write(original_content)
 
             # Read back from S3
-            with s3_client.open_for_read(s3_path, encoding='utf-8') as s3_reader:
+            with s3_client.open_for_read(s3_path, encoding="utf-8") as s3_reader:
                 uploaded_content = s3_reader.read()
 
             # Verify content matches
@@ -452,7 +474,9 @@ class TestS3FileUpload:
 
         print("All file contents verified successfully!")
 
-    def test_s3_to_s3_processing_pipeline(self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects):
+    def test_s3_to_s3_processing_pipeline(
+        self, s3_client, s3_config, csv_files, tsv_files, cleanup_s3_objects
+    ):
         """Test complete S3 to S3 processing pipeline: read uploaded files, process, and upload Parquet results."""
         if not csv_files and not tsv_files:
             pytest.skip("No CSV or TSV files found for processing pipeline test")
@@ -466,10 +490,14 @@ class TestS3FileUpload:
         test_files = []
         if csv_files:
             # Select some representative CSV files
-            test_files.extend([
-                f for f in csv_files
-                if f.name in ['good_csv1.txt', 'badcsv1.txt', 'header_only.csv', 'quotes_double.csv']
-            ][:4])  # Limit to 4 files
+            test_files.extend(
+                [
+                    f
+                    for f in csv_files
+                    if f.name
+                    in ["good_csv1.txt", "badcsv1.txt", "header_only.csv", "quotes_double.csv"]
+                ][:4]
+            )  # Limit to 4 files
         if tsv_files:
             test_files.extend(tsv_files[:1])  # Add 1 TSV file
 
@@ -490,35 +518,37 @@ class TestS3FileUpload:
             cleanup_s3_objects.append(source_s3_path)
 
             # Upload with encoding detection
-            encodings_to_try = ['utf-8', 'cp1252', 'latin1', 'iso-8859-1']
+            encodings_to_try = ["utf-8", "cp1252", "latin1", "iso-8859-1"]
             content = None
 
             for encoding in encodings_to_try:
                 try:
-                    with open(file_path, 'r', encoding=encoding) as local_file:
+                    with open(file_path, "r", encoding=encoding) as local_file:
                         content = local_file.read()
                     break
                 except UnicodeDecodeError:
                     continue
 
             if content is None:
-                with open(file_path, 'rb') as local_file:
+                with open(file_path, "rb") as local_file:
                     raw_content = local_file.read()
-                    content = raw_content.decode('utf-8', errors='replace')
+                    content = raw_content.decode("utf-8", errors="replace")
 
             # Handle empty files
             if not content.strip():
                 content = "# Empty file placeholder"
 
-            with s3_client.open_for_write(source_s3_path, encoding='utf-8') as s3_writer:
+            with s3_client.open_for_write(source_s3_path, encoding="utf-8") as s3_writer:
                 s3_writer.write(content)
 
-            source_files.append({
-                'local_path': str(file_path),
-                's3_path': source_s3_path,
-                'file_type': file_type,
-                'name': file_path.name
-            })
+            source_files.append(
+                {
+                    "local_path": str(file_path),
+                    "s3_path": source_s3_path,
+                    "file_type": file_type,
+                    "name": file_path.name,
+                }
+            )
 
             print(f"  ✓ Uploaded source: {file_path.name}")
 
@@ -526,13 +556,13 @@ class TestS3FileUpload:
         print("Step 2: Processing files with ForkliftCore (S3 input → S3 output)...")
 
         for source_file in source_files:
-            input_s3_path = source_file['s3_path']
+            input_s3_path = source_file["s3_path"]
             output_s3_prefix = f"forklift/pipeline-test/processed/{source_file['file_type']}/{source_file['name'].replace('.', '_')}-output/"
             output_s3_path = f"s3://{s3_config['test_bucket']}/{output_s3_prefix}"
 
             try:
                 # Configure ForkliftCore for S3 to S3 processing
-                delimiter = "\t" if source_file['file_type'] == "tsv" else ","
+                delimiter = "\t" if source_file["file_type"] == "tsv" else ","
 
                 config = ImportConfig(
                     input_path=input_s3_path,
@@ -542,7 +572,7 @@ class TestS3FileUpload:
                     batch_size=1000,  # Small batch for testing
                     create_manifest=True,
                     create_metadata=True,
-                    validate_schema=False  # Skip validation for test files
+                    validate_schema=False,  # Skip validation for test files
                 )
 
                 print(f"  Processing: {source_file['name']} ({source_file['file_type'].upper()})")
@@ -562,32 +592,30 @@ class TestS3FileUpload:
                 if results.metadata_file:
                     cleanup_s3_objects.append(results.metadata_file)
 
-                processed_results.append({
-                    'source_file': source_file,
-                    'results': results,
-                    'status': 'success'
-                })
+                processed_results.append(
+                    {"source_file": source_file, "results": results, "status": "success"}
+                )
 
-                print(f"    ✓ Processed {results.total_rows} rows → {len(results.output_files)} output files")
+                print(
+                    f"    ✓ Processed {results.total_rows} rows → {len(results.output_files)} output files"
+                )
 
             except Exception as e:
                 print(f"    ✗ Failed to process {source_file['name']}: {e}")
-                processed_results.append({
-                    'source_file': source_file,
-                    'error': str(e),
-                    'status': 'failed'
-                })
+                processed_results.append(
+                    {"source_file": source_file, "error": str(e), "status": "failed"}
+                )
 
         # Step 3: Verify processed results
         print("Step 3: Verifying processed results...")
 
-        successful_processing = [r for r in processed_results if r['status'] == 'success']
-        failed_processing = [r for r in processed_results if r['status'] == 'failed']
+        successful_processing = [r for r in processed_results if r["status"] == "success"]
+        failed_processing = [r for r in processed_results if r["status"] == "failed"]
 
         # Verify output files exist in S3
         total_output_files = 0
         for result in successful_processing:
-            results = result['results']
+            results = result["results"]
 
             # Check that output files exist
             for output_file in results.output_files:
@@ -599,32 +627,39 @@ class TestS3FileUpload:
 
             # Check manifest and metadata if created
             if results.manifest_file:
-                assert s3_client.exists(results.manifest_file), f"Manifest file not found: {results.manifest_file}"
+                assert s3_client.exists(
+                    results.manifest_file
+                ), f"Manifest file not found: {results.manifest_file}"
                 print(f"    ✓ Manifest: {Path(results.manifest_file).name}")
 
             if results.metadata_file:
-                assert s3_client.exists(results.metadata_file), f"Metadata file not found: {results.metadata_file}"
+                assert s3_client.exists(
+                    results.metadata_file
+                ), f"Metadata file not found: {results.metadata_file}"
                 print(f"    ✓ Metadata: {Path(results.metadata_file).name}")
 
         # Step 4: Test reading back a processed Parquet file
         print("Step 4: Testing Parquet file content...")
         if successful_processing:
-            sample_result = successful_processing[0]['results']
+            sample_result = successful_processing[0]["results"]
             if sample_result.output_files:
                 parquet_file = sample_result.output_files[0]
 
                 # Download parquet file and verify it's valid
                 try:
                     import tempfile
+
                     import pyarrow.parquet as pq
 
-                    with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_file:
+                    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_file:
                         # Read from S3 and write to temp file
                         with s3_client.open_for_read(parquet_file, encoding=None) as s3_reader:
                             # For binary data, we need to handle this differently
                             # Let's use a simpler approach - just verify the file exists and has size
                             file_size = s3_client.get_size(parquet_file)
-                            assert file_size > 100, f"Parquet file seems too small: {file_size} bytes"
+                            assert (
+                                file_size > 100
+                            ), f"Parquet file seems too small: {file_size} bytes"
                             print(f"    ✓ Parquet file validation: {file_size} bytes")
 
                 except Exception as e:

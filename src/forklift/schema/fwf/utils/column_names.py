@@ -1,9 +1,11 @@
 """Column name processing utilities."""
 
 from __future__ import annotations
+
 from typing import List, Optional
 
-from ....utils.column_name_utilities import standardize_postgres_column_name, dedupe_column_names
+from ....utils.column_name_utilities import (dedupe_column_names,
+                                             standardize_postgres_column_name)
 
 
 class ColumnNameProcessor:
@@ -13,7 +15,7 @@ class ColumnNameProcessor:
     def standardize_column_names(
         column_names: List[str],
         standardize_method: Optional[str] = None,
-        dedupe_method: Optional[str] = None
+        dedupe_method: Optional[str] = None,
     ) -> List[str]:
         """Apply column name standardization and deduplication if configured.
 
@@ -32,7 +34,9 @@ class ColumnNameProcessor:
 
         if standardize_method:
             if standardize_method == "postgres":
-                processed_names = [standardize_postgres_column_name(name) for name in processed_names]
+                processed_names = [
+                    standardize_postgres_column_name(name) for name in processed_names
+                ]
             # Add other standardization methods as needed
 
         if dedupe_method:

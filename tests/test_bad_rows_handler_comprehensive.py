@@ -1,14 +1,15 @@
 """Comprehensive tests for BadRowsHandler to improve coverage from 4.78%."""
 
-import pytest
-import pyarrow as pa
 import json
 import tempfile
-from pathlib import Path
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
+import pyarrow as pa
+import pytest
+
+from forklift.processors.bad_rows_handler import BadRowsConfig, BadRowsHandler
 from forklift.processors.base import ValidationResult
 from forklift.processors.constraint_validator import ConstraintViolation
 
@@ -35,7 +36,7 @@ class TestBadRowsConfig:
             include_original_data=False,
             include_error_details=False,
             max_bad_rows=100,
-            create_summary=False
+            create_summary=False,
         )
 
         assert config.output_path == "/tmp/bad_rows.csv"
@@ -73,7 +74,7 @@ class TestBadRowsHandler:
                 error_code="TYPE_ERROR",
                 error_message="Invalid age value",
                 column_name="age",
-                row_index=0
+                row_index=0,
             )
         ]
 
@@ -103,7 +104,7 @@ class TestBadRowsHandler:
                 columns=["age"],
                 values=[-5],
                 constraint_name="age_positive",
-                row_index=0
+                row_index=0,
             )
         ]
 
@@ -139,7 +140,7 @@ class TestBadRowsHandler:
                 error_code="ERROR",
                 error_message="Some error",
                 column_name="test",
-                row_index=0
+                row_index=0,
             )
         ]
 
@@ -168,9 +169,9 @@ class TestBadRowsHandler:
 
         # Create test batch
         data = {
-            'id': [1, 2, 3, 4],
-            'name': ['Alice', 'Bob', 'Charlie', 'David'],
-            'age': [25, 30, -5, 35]  # -5 is invalid
+            "id": [1, 2, 3, 4],
+            "name": ["Alice", "Bob", "Charlie", "David"],
+            "age": [25, 30, -5, 35],  # -5 is invalid
         }
         batch = pa.RecordBatch.from_pydict(data)
 
@@ -181,7 +182,7 @@ class TestBadRowsHandler:
                 error_code="NEGATIVE_AGE",
                 error_message="Age cannot be negative",
                 column_name="age",
-                row_index=2
+                row_index=2,
             )
         ]
 
@@ -193,7 +194,7 @@ class TestBadRowsHandler:
                 columns=["age"],
                 values=[-5],
                 constraint_name="age_positive",
-                row_index=2
+                row_index=2,
             )
         ]
 
@@ -213,7 +214,7 @@ class TestBadRowsHandler:
         config = BadRowsConfig()
         handler = BadRowsHandler(config)
 
-        data = {'id': [1, 2], 'name': ['Alice', 'Bob']}
+        data = {"id": [1, 2], "name": ["Alice", "Bob"]}
         batch = pa.RecordBatch.from_pydict(data)
 
         # Try to add row with index that doesn't exist
@@ -260,12 +261,12 @@ class TestBadRowsHandler:
         validation_results = [
             ValidationResult(False, "TYPE_ERROR", "Type error 1", "col1", 0),
             ValidationResult(False, "TYPE_ERROR", "Type error 2", "col2", 1),
-            ValidationResult(False, "NULL_ERROR", "Null error", "col3", 2)
+            ValidationResult(False, "NULL_ERROR", "Null error", "col3", 2),
         ]
 
         constraint_violations = [
             ConstraintViolation("CHECK", "Check failed", ["col1"], [1], "check1", 0),
-            ConstraintViolation("UNIQUE", "Unique failed", ["col2"], [2], "unique1", 1)
+            ConstraintViolation("UNIQUE", "Unique failed", ["col2"], [2], "unique1", 1),
         ]
 
         # Add bad rows with errors - this populates the handler's internal error lists
@@ -312,17 +313,13 @@ class TestBadRowsHandler:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "bad_rows.json"
             config = BadRowsConfig(
-                output_path=str(output_path),
-                output_format="json",
-                create_summary=True
+                output_path=str(output_path), output_format="json", create_summary=True
             )
             handler = BadRowsHandler(config)
 
             # Add test data
             row_data = {"id": 1, "name": "John", "age": "invalid"}
-            validation_results = [
-                ValidationResult(False, "TYPE_ERROR", "Invalid age", "age", 0)
-            ]
+            validation_results = [ValidationResult(False, "TYPE_ERROR", "Invalid age", "age", 0)]
             handler.add_bad_row(row_data, 0, validation_results)
 
             result_path = handler.write_bad_rows()
@@ -331,7 +328,7 @@ class TestBadRowsHandler:
             assert output_path.exists()
 
             # Verify JSON content
-            with open(output_path, 'r') as f:
+            with open(output_path, "r") as f:
                 data = json.load(f)
 
             assert len(data) == 1
@@ -347,9 +344,7 @@ class TestBadRowsHandler:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "bad_rows.csv"
             config = BadRowsConfig(
-                output_path=str(output_path),
-                output_format="csv",
-                create_summary=False
+                output_path=str(output_path), output_format="csv", create_summary=False
             )
             handler = BadRowsHandler(config)
 
@@ -364,6 +359,7 @@ class TestBadRowsHandler:
 
             # Verify we can read it back as Arrow table
             import pyarrow.csv as pv_csv
+
             table = pv_csv.read_csv(output_path)
             assert table.num_rows == 1
 
@@ -371,17 +367,14 @@ class TestBadRowsHandler:
         """Test writing bad rows in Parquet format."""
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = Path(temp_dir) / "bad_rows.parquet"
-            config = BadRowsConfig(
-                output_path=str(output_path),
-                output_format="parquet"
-            )
+            config = BadRowsConfig(output_path=str(output_path), output_format="parquet")
             handler = BadRowsHandler(config)
 
             # Add test data with errors
             row_data = {"id": 1, "name": "John", "age": 25}
             validation_results = [
                 ValidationResult(False, "ERROR1", "Error message 1", "col1", 0),
-                ValidationResult(False, "ERROR2", "Error message 2", "col2", 0)
+                ValidationResult(False, "ERROR2", "Error message 2", "col2", 0),
             ]
             handler.add_bad_row(row_data, 0, validation_results)
 
@@ -392,6 +385,7 @@ class TestBadRowsHandler:
 
             # Verify we can read it back
             import pyarrow.parquet as pq
+
             table = pq.read_table(output_path)
             assert table.num_rows == 1
 
@@ -413,12 +407,14 @@ class TestBadRowsHandler:
 
     def test_write_bad_rows_default_path(self):
         """Test writing with default generated path."""
-        config = BadRowsConfig(output_format="json", create_summary=False)  # Disable summary to avoid mock issues
+        config = BadRowsConfig(
+            output_format="json", create_summary=False
+        )  # Disable summary to avoid mock issues
         handler = BadRowsHandler(config)
 
         handler.add_bad_row({"id": 1}, 0)
 
-        with patch('forklift.processors.bad_rows_handler.datetime') as mock_datetime:
+        with patch("forklift.processors.bad_rows_handler.datetime") as mock_datetime:
             mock_datetime.now.return_value.strftime.return_value = "20231201_120000"
             result_path = handler.write_bad_rows()
 
@@ -439,7 +435,7 @@ class TestBadRowsHandler:
             assert result_path == override_path
             assert override_path.exists()
 
-    @patch('forklift.processors.bad_rows_handler.logger')
+    @patch("forklift.processors.bad_rows_handler.logger")
     def test_write_bad_rows_logging(self, mock_logger):
         """Test that writing bad rows produces appropriate log messages."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -490,12 +486,14 @@ class TestBadRowsHandler:
 
         validation_results = [
             ValidationResult(False, "TYPE_ERROR", "Invalid email format", "email", 0),
-            ValidationResult(False, "RANGE_ERROR", "Age out of range", "age", 0)
+            ValidationResult(False, "RANGE_ERROR", "Age out of range", "age", 0),
         ]
 
         constraint_violations = [
             ConstraintViolation("CHECK", "Age must be positive", ["age"], [-5], "age_check", 0),
-            ConstraintViolation("UNIQUE", "Email must be unique", ["email"], ["invalid"], "email_unique", 0)
+            ConstraintViolation(
+                "UNIQUE", "Email must be unique", ["email"], ["invalid"], "email_unique", 0
+            ),
         ]
 
         handler.add_bad_row(row_data, 0, validation_results, constraint_violations)
@@ -515,7 +513,9 @@ class TestBadRowsHandler:
 
         # Create empty batch
         schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
-        batch = pa.RecordBatch.from_arrays([pa.array([], type=pa.int64()), pa.array([], type=pa.string())], schema=schema)
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array([], type=pa.int64()), pa.array([], type=pa.string())], schema=schema
+        )
 
         handler.add_bad_rows_from_batch(batch, [], [])
 

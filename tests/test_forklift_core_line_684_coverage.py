@@ -1,13 +1,16 @@
 """Targeted test for forklift_core.py missing line 684 - schema validation continue statement."""
-import pytest
-import tempfile
-import os
-import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-import pyarrow as pa
 
-from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
+import json
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pyarrow as pa
+import pytest
+
+from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
+                                           ImportConfig)
 
 
 class TestForkliftCoreLine684Coverage:
@@ -16,7 +19,6 @@ class TestForkliftCoreLine684Coverage:
     def test_validate_batch_with_fewer_columns_than_schema(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _validate_batch no longer exists after ForkliftCore refactoring")
-
 
     def test_validate_batch_exact_column_match(self):
         """Test validation when batch columns exactly match schema (doesn't hit line 684)."""
@@ -32,16 +34,16 @@ Jane,30,LA
             "properties": {
                 "name": {"type": "string"},
                 "age": {"type": "integer"},
-                "city": {"type": "string"}
+                "city": {"type": "string"},
             },
-            "required": ["name", "age", "city"]
+            "required": ["name", "age", "city"],
         }
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as csv_f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as csv_f:
             csv_f.write(csv_content)
             csv_f.flush()
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as schema_f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as schema_f:
                 json.dump(schema_content, schema_f)
                 schema_f.flush()
 
@@ -51,7 +53,7 @@ Jane,30,LA
                         output_path=tempfile.mkdtemp(),
                         schema_file=schema_f.name,
                         header_mode=HeaderMode.PRESENT,
-                        validate_schema=True
+                        validate_schema=True,
                     )
 
                     core = ForkliftCore(config)

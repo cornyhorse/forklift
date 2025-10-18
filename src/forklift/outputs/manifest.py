@@ -1,10 +1,11 @@
 """Manifest generator for creating data catalog-compatible manifest files."""
 
 from __future__ import annotations
+
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import List
-from datetime import datetime
 
 import pyarrow.parquet as pq
 
@@ -52,7 +53,7 @@ class ManifestGenerator:
             "total_size": sum(Path(f).stat().st_size if Path(f).exists() else 0 for f in files),
         }
 
-        with open(manifest_path, 'w', encoding='utf-8') as f:
+        with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
 
         return str(manifest_path)

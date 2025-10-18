@@ -1,21 +1,24 @@
 """Tests for SQL input handler and related functionality."""
-import pytest
+
+import os
 import sqlite3
 import tempfile
-import os
-from unittest.mock import patch, MagicMock
-import pyarrow as pa
+from unittest.mock import MagicMock, patch
 
-from forklift.inputs.sql import SqlInputHandler
+import pyarrow as pa
+import pytest
+
 from forklift.inputs.config import SqlInputConfig
-from forklift.schema.sql_schema_importer import SqlSchemaImporter, SchemaValidationError
+from forklift.inputs.sql import SqlInputHandler
+from forklift.schema.sql_schema_importer import (SchemaValidationError,
+                                                 SqlSchemaImporter)
 
 
 @pytest.fixture
 def sqlite_db():
     """Create a temporary SQLite database for testing."""
     # Create temporary database file
-    db_fd, db_path = tempfile.mkstemp(suffix='.db')
+    db_fd, db_path = tempfile.mkstemp(suffix=".db")
     os.close(db_fd)
 
     # Create and populate test database
@@ -23,7 +26,8 @@ def sqlite_db():
     cursor = conn.cursor()
 
     # Create test tables
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -32,43 +36,42 @@ def sqlite_db():
             hire_date TEXT,
             active BOOLEAN
         )
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE departments (
             dept_id INTEGER PRIMARY KEY,
             dept_name TEXT NOT NULL,
             budget REAL
         )
-    """)
+    """
+    )
 
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE VIEW employee_view AS 
         SELECT id, name, age FROM employees WHERE active = 1
-    """)
+    """
+    )
 
     # Insert test data
     employees_data = [
-        (1, 'Alice Johnson', 30, 75000.50, '2022-01-15', True),
-        (2, 'Bob Smith', 25, 55000.00, '2022-03-20', True),
-        (3, 'Carol Davis', 35, 85000.75, '2021-11-10', False),
-        (4, 'David Wilson', 28, 62000.25, '2022-07-05', True),
+        (1, "Alice Johnson", 30, 75000.50, "2022-01-15", True),
+        (2, "Bob Smith", 25, 55000.00, "2022-03-20", True),
+        (3, "Carol Davis", 35, 85000.75, "2021-11-10", False),
+        (4, "David Wilson", 28, 62000.25, "2022-07-05", True),
     ]
 
     departments_data = [
-        (1, 'Engineering', 1000000.00),
-        (2, 'Sales', 750000.00),
-        (3, 'Marketing', 500000.00),
+        (1, "Engineering", 1000000.00),
+        (2, "Sales", 750000.00),
+        (3, "Marketing", 500000.00),
     ]
 
-    cursor.executemany(
-        "INSERT INTO employees VALUES (?, ?, ?, ?, ?, ?)",
-        employees_data
-    )
-    cursor.executemany(
-        "INSERT INTO departments VALUES (?, ?, ?)",
-        departments_data
-    )
+    cursor.executemany("INSERT INTO employees VALUES (?, ?, ?, ?, ?, ?)", employees_data)
+    cursor.executemany("INSERT INTO departments VALUES (?, ?, ?)", departments_data)
 
     conn.commit()
     conn.close()
@@ -89,7 +92,7 @@ class TestSqlInputHandler:
             connection_string=f"DRIVER={{SQLite3 ODBC Driver}};Database={sqlite_db};",
             batch_size=1000,
             query_timeout=30,
-            connection_timeout=10
+            connection_timeout=10,
         )
 
     @pytest.fixture
@@ -98,7 +101,7 @@ class TestSqlInputHandler:
         return SqlInputConfig(
             connection_string="DRIVER={SQLite3 ODBC Driver};Database=:memory:;",
             batch_size=5000,
-            query_timeout=60
+            query_timeout=60,
         )
 
     def test_init(self, basic_config):
@@ -118,7 +121,7 @@ class TestSqlInputHandler:
 
         assert handler.schema_importer == schema_importer
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_connect_success(self, mock_connect, basic_config):
         """Test successful database connection."""
         mock_connection = MagicMock()
@@ -129,17 +132,16 @@ class TestSqlInputHandler:
 
         assert handler.connection == mock_connection
         mock_connect.assert_called_once_with(
-            basic_config.connection_string,
-            timeout=basic_config.connection_timeout
+            basic_config.connection_string, timeout=basic_config.connection_timeout
         )
         assert mock_connection.timeout == basic_config.query_timeout
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_connect_with_params(self, mock_connect):
         """Test connection with additional parameters."""
         config = SqlInputConfig(
             connection_string="DRIVER={SQLite3 ODBC Driver};Database=test.db;",
-            connection_params={"Timeout": "30", "ReadOnly": "Yes"}
+            connection_params={"Timeout": "30", "ReadOnly": "Yes"},
         )
         mock_connection = MagicMock()
         mock_connect.return_value = mock_connection
@@ -148,20 +150,19 @@ class TestSqlInputHandler:
         handler.connect()
 
         expected_conn_str = "DRIVER={SQLite3 ODBC Driver};Database=test.db;;Timeout=30;ReadOnly=Yes"
-        mock_connect.assert_called_once_with(
-            expected_conn_str,
-            timeout=config.connection_timeout
-        )
+        mock_connect.assert_called_once_with(expected_conn_str, timeout=config.connection_timeout)
 
     def test_connect_pyodbc_not_installed(self, basic_config):
         """Test ImportError when pyodbc is not installed."""
         handler = SqlInputHandler(basic_config)
 
-        with patch('builtins.__import__', side_effect=ImportError("No module named 'pyodbc'")):
-            with pytest.raises(ImportError, match="pyodbc is required for SQL database connectivity"):
+        with patch("builtins.__import__", side_effect=ImportError("No module named 'pyodbc'")):
+            with pytest.raises(
+                ImportError, match="pyodbc is required for SQL database connectivity"
+            ):
                 handler.connect()
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_connect_connection_failure(self, mock_connect, basic_config):
         """Test connection failure handling."""
         mock_connect.side_effect = Exception("Connection failed")
@@ -208,7 +209,7 @@ class TestSqlInputHandler:
         with pytest.raises(ConnectionError, match="Not connected to database"):
             handler.get_table_list()
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_table_list_odbc_method(self, mock_connect, basic_config):
         """Test getting table list using ODBC tables() method."""
         mock_connection = MagicMock()
@@ -218,19 +219,19 @@ class TestSqlInputHandler:
 
         # Mock ODBC tables() method response
         mock_row1 = MagicMock()
-        mock_row1.table_schem = 'main'
-        mock_row1.table_name = 'employees'
-        mock_row1.table_type = 'TABLE'
+        mock_row1.table_schem = "main"
+        mock_row1.table_name = "employees"
+        mock_row1.table_type = "TABLE"
 
         mock_row2 = MagicMock()
         mock_row2.table_schem = None
-        mock_row2.table_name = 'departments'
-        mock_row2.table_type = 'TABLE'
+        mock_row2.table_name = "departments"
+        mock_row2.table_type = "TABLE"
 
         mock_row3 = MagicMock()
-        mock_row3.table_schem = 'main'
-        mock_row3.table_name = 'employee_view'
-        mock_row3.table_type = 'VIEW'
+        mock_row3.table_schem = "main"
+        mock_row3.table_name = "employee_view"
+        mock_row3.table_type = "VIEW"
 
         mock_cursor.tables.return_value = [mock_row1, mock_row2, mock_row3]
 
@@ -238,15 +239,11 @@ class TestSqlInputHandler:
         handler.connect()
         tables = handler.get_table_list()
 
-        expected = [
-            ('main', 'employees'),
-            ('default', 'departments'),
-            ('main', 'employee_view')
-        ]
+        expected = [("main", "employees"), ("default", "departments"), ("main", "employee_view")]
         assert tables == expected
         mock_cursor.close.assert_called_once()
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_table_list_sqlite_fallback(self, mock_connect, basic_config):
         """Test getting table list using SQLite fallback method."""
         mock_connection = MagicMock()
@@ -258,24 +255,23 @@ class TestSqlInputHandler:
         mock_cursor.tables.side_effect = Exception("ODBC tables() not supported")
 
         # Mock SQLite fallback query
-        mock_cursor.fetchall.return_value = [
-            ('main', 'employees'),
-            ('main', 'departments')
-        ]
+        mock_cursor.fetchall.return_value = [("main", "employees"), ("main", "departments")]
 
         handler = SqlInputHandler(basic_config)
         handler.connect()
         tables = handler.get_table_list()
 
-        expected = [('main', 'employees'), ('main', 'departments')]
+        expected = [("main", "employees"), ("main", "departments")]
         assert tables == expected
 
         # Verify SQLite fallback query was executed
-        mock_cursor.execute.assert_called_with("""
+        mock_cursor.execute.assert_called_with(
+            """
                     SELECT 'main' as schema_name, name as table_name 
                     FROM sqlite_master 
                     WHERE type IN ('table', 'view')
-                """)
+                """
+        )
 
     def test_parse_table_specification(self, basic_config):
         """Test parsing table specifications."""
@@ -296,7 +292,7 @@ class TestSqlInputHandler:
         assert schema == "db"
         assert table == "schema.table"
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_specified_tables(self, mock_connect, basic_config):
         """Test getting specified tables with validation."""
         mock_connection = MagicMock()
@@ -306,14 +302,14 @@ class TestSqlInputHandler:
 
         # Mock available tables
         mock_row1 = MagicMock()
-        mock_row1.table_schem = 'main'
-        mock_row1.table_name = 'employees'
-        mock_row1.table_type = 'TABLE'
+        mock_row1.table_schem = "main"
+        mock_row1.table_name = "employees"
+        mock_row1.table_type = "TABLE"
 
         mock_row2 = MagicMock()
-        mock_row2.table_schem = 'main'
-        mock_row2.table_name = 'departments'
-        mock_row2.table_type = 'TABLE'
+        mock_row2.table_schem = "main"
+        mock_row2.table_name = "departments"
+        mock_row2.table_type = "TABLE"
 
         mock_cursor.tables.return_value = [mock_row1, mock_row2]
 
@@ -325,8 +321,8 @@ class TestSqlInputHandler:
         tables = handler.get_specified_tables(specs)
 
         expected = [
-            ('main', 'employees'),
-            ('main', 'departments')  # Should find default match for "departments"
+            ("main", "employees"),
+            ("main", "departments"),  # Should find default match for "departments"
         ]
         assert tables == expected
 
@@ -337,7 +333,7 @@ class TestSqlInputHandler:
         with pytest.raises(ConnectionError, match="Not connected to database"):
             handler.get_specified_tables(["employees"])
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_table_schema_not_connected(self, mock_connect, basic_config):
         """Test getting table schema when not connected."""
         handler = SqlInputHandler(basic_config)
@@ -345,7 +341,7 @@ class TestSqlInputHandler:
         with pytest.raises(ConnectionError, match="Not connected to database"):
             handler.get_table_schema("main", "employees")
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_quote_identifier(self, mock_connect, basic_config):
         """Test identifier quoting."""
         handler = SqlInputHandler(basic_config)
@@ -354,18 +350,15 @@ class TestSqlInputHandler:
         assert handler._quote_identifier("employees") == "employees"
 
         # Test with use_quoted_identifiers=True
-        config_with_quotes = SqlInputConfig(
-            connection_string="test",
-            use_quoted_identifiers=True
-        )
+        config_with_quotes = SqlInputConfig(connection_string="test", use_quoted_identifiers=True)
         handler_with_quotes = SqlInputHandler(config_with_quotes)
         assert handler_with_quotes._quote_identifier("employees") == '"employees"'
         assert handler_with_quotes._quote_identifier("employee data") == '"employee data"'
 
-    @patch('pyodbc.SQL_CHAR', 1, create=True)
-    @patch('pyodbc.SQL_INTEGER', 4, create=True)
-    @patch('pyodbc.SQL_FLOAT', 6, create=True)
-    @patch('pyodbc.SQL_VARCHAR', 12, create=True)
+    @patch("pyodbc.SQL_CHAR", 1, create=True)
+    @patch("pyodbc.SQL_INTEGER", 4, create=True)
+    @patch("pyodbc.SQL_FLOAT", 6, create=True)
+    @patch("pyodbc.SQL_VARCHAR", 12, create=True)
     def test_odbc_type_to_string(self, basic_config):
         """Test ODBC type code to string conversion."""
         handler = SqlInputHandler(basic_config)
@@ -409,7 +402,7 @@ class TestSqlInputHandler:
 
         # Test date/time types
         assert handler._sql_type_to_pyarrow("DATE") == pa.date32()
-        assert handler._sql_type_to_pyarrow("TIMESTAMP") == pa.timestamp('us')
+        assert handler._sql_type_to_pyarrow("TIMESTAMP") == pa.timestamp("us")
 
         # Test unknown type defaults to string
         assert handler._sql_type_to_pyarrow("UNKNOWN_TYPE") == pa.string()
@@ -418,8 +411,9 @@ class TestSqlInputHandler:
         """Test using SqlInputHandler as context manager."""
         handler = SqlInputHandler(basic_config)
 
-        with patch.object(handler, 'connect') as mock_connect, \
-             patch.object(handler, 'disconnect') as mock_disconnect:
+        with patch.object(handler, "connect") as mock_connect, patch.object(
+            handler, "disconnect"
+        ) as mock_disconnect:
 
             with handler as ctx_handler:
                 assert ctx_handler == handler
@@ -427,7 +421,7 @@ class TestSqlInputHandler:
             mock_connect.assert_called_once()
             mock_disconnect.assert_called_once()
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_tables_to_process_without_schema_importer(self, mock_connect):
         """Test getting tables to process without schema importer."""
         mock_connection = MagicMock()
@@ -437,9 +431,9 @@ class TestSqlInputHandler:
 
         # Mock available tables
         mock_row = MagicMock()
-        mock_row.table_schem = 'main'
-        mock_row.table_name = 'employees'
-        mock_row.table_type = 'TABLE'
+        mock_row.table_schem = "main"
+        mock_row.table_name = "employees"
+        mock_row.table_type = "TABLE"
         mock_cursor.tables.return_value = [mock_row]
 
         config = SqlInputConfig(connection_string="test")
@@ -447,12 +441,12 @@ class TestSqlInputHandler:
         handler.connect()
 
         # Mock the config to have include_patterns attribute as None
-        with patch.object(config, 'include_patterns', None, create=True):
+        with patch.object(config, "include_patterns", None, create=True):
             tables = handler.get_tables_to_process()
             expected = [("main", "employees", None)]
             assert tables == expected
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_table_schema_with_columns_method(self, mock_connect, basic_config):
         """Test getting table schema using ODBC columns() method."""
         mock_connection = MagicMock()
@@ -462,15 +456,15 @@ class TestSqlInputHandler:
 
         # Mock ODBC columns() method response
         mock_column1 = MagicMock()
-        mock_column1.column_name = 'id'
-        mock_column1.type_name = 'INTEGER'
+        mock_column1.column_name = "id"
+        mock_column1.type_name = "INTEGER"
         mock_column1.column_size = 10
         mock_column1.decimal_digits = 0
         mock_column1.nullable = False
 
         mock_column2 = MagicMock()
-        mock_column2.column_name = 'name'
-        mock_column2.type_name = 'VARCHAR'
+        mock_column2.column_name = "name"
+        mock_column2.type_name = "VARCHAR"
         mock_column2.column_size = 255
         mock_column2.decimal_digits = None
         mock_column2.nullable = True
@@ -479,15 +473,15 @@ class TestSqlInputHandler:
 
         handler = SqlInputHandler(basic_config)
         handler.connect()
-        schema = handler.get_table_schema('main', 'employees')
+        schema = handler.get_table_schema("main", "employees")
 
         assert len(schema) == 2
-        assert schema.field('id').type == pa.int32()
-        assert schema.field('name').type == pa.string()
-        assert not schema.field('id').nullable
-        assert schema.field('name').nullable
+        assert schema.field("id").type == pa.int32()
+        assert schema.field("name").type == pa.string()
+        assert not schema.field("id").nullable
+        assert schema.field("name").nullable
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_table_schema_fallback_method(self, mock_connect, basic_config):
         """Test getting table schema using fallback method when columns() fails."""
         mock_connection = MagicMock()
@@ -500,21 +494,21 @@ class TestSqlInputHandler:
 
         # Mock cursor description from SELECT query
         mock_cursor.description = [
-            ('id', 4, None, None, None, None, None),  # SQL_INTEGER
-            ('name', 12, None, None, None, None, None),  # SQL_VARCHAR
-            ('salary', 8, None, None, None, None, None),  # SQL_DOUBLE
+            ("id", 4, None, None, None, None, None),  # SQL_INTEGER
+            ("name", 12, None, None, None, None, None),  # SQL_VARCHAR
+            ("salary", 8, None, None, None, None, None),  # SQL_DOUBLE
         ]
 
         handler = SqlInputHandler(basic_config)
         handler.connect()
-        schema = handler.get_table_schema('main', 'employees')
+        schema = handler.get_table_schema("main", "employees")
 
         assert len(schema) == 3
-        assert schema.field('id').type == pa.int32()
-        assert schema.field('name').type == pa.string()
-        assert schema.field('salary').type == pa.float64()
+        assert schema.field("id").type == pa.int32()
+        assert schema.field("name").type == pa.string()
+        assert schema.field("salary").type == pa.float64()
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_read_table_data_success(self, mock_connect, basic_config):
         """Test successful table data reading."""
         mock_connection = MagicMock()
@@ -523,28 +517,25 @@ class TestSqlInputHandler:
         mock_connect.return_value = mock_connection
 
         # Mock schema
-        schema = pa.schema([
-            pa.field('id', pa.int32()),
-            pa.field('name', pa.string())
-        ])
+        schema = pa.schema([pa.field("id", pa.int32()), pa.field("name", pa.string())])
 
         # Mock data rows
         mock_cursor.fetchmany.side_effect = [
-            [(1, 'Alice'), (2, 'Bob')],  # First batch
-            [(3, 'Carol')],  # Second batch
-            []  # Empty batch indicates end
+            [(1, "Alice"), (2, "Bob")],  # First batch
+            [(3, "Carol")],  # Second batch
+            [],  # Empty batch indicates end
         ]
 
         handler = SqlInputHandler(basic_config)
         handler.connect()
 
         # Mock the data reader's read_table_data method to return proper batches
-        with patch.object(handler.data_reader, 'read_table_data') as mock_read_data:
-            batch1 = pa.record_batch([[1, 2], ['Alice', 'Bob']], schema=schema)
-            batch2 = pa.record_batch([[3], ['Carol']], schema=schema)
+        with patch.object(handler.data_reader, "read_table_data") as mock_read_data:
+            batch1 = pa.record_batch([[1, 2], ["Alice", "Bob"]], schema=schema)
+            batch2 = pa.record_batch([[3], ["Carol"]], schema=schema)
             mock_read_data.return_value = iter([batch1, batch2])
 
-            batches = list(handler.read_table_data('main', 'employees'))
+            batches = list(handler.read_table_data("main", "employees"))
 
         assert len(batches) == 2
         assert batches[0].num_rows == 2
@@ -552,56 +543,53 @@ class TestSqlInputHandler:
 
         # Verify data content
         batch1_data = batches[0].to_pydict()
-        assert batch1_data['id'] == [1, 2]
-        assert batch1_data['name'] == ['Alice', 'Bob']
+        assert batch1_data["id"] == [1, 2]
+        assert batch1_data["name"] == ["Alice", "Bob"]
 
     def test_sql_type_to_pyarrow_conversions(self, basic_config):
         """Test SQL type to PyArrow type conversions."""
         handler = SqlInputHandler(basic_config)
 
         # Test integer types
-        assert handler._sql_type_to_pyarrow('INT') == pa.int32()
-        assert handler._sql_type_to_pyarrow('BIGINT') == pa.int64()
-        assert handler._sql_type_to_pyarrow('SMALLINT') == pa.int16()
-        assert handler._sql_type_to_pyarrow('TINYINT') == pa.int8()
+        assert handler._sql_type_to_pyarrow("INT") == pa.int32()
+        assert handler._sql_type_to_pyarrow("BIGINT") == pa.int64()
+        assert handler._sql_type_to_pyarrow("SMALLINT") == pa.int16()
+        assert handler._sql_type_to_pyarrow("TINYINT") == pa.int8()
 
         # Test float types
-        assert handler._sql_type_to_pyarrow('FLOAT') == pa.float32()
-        assert handler._sql_type_to_pyarrow('DOUBLE') == pa.float64()
-        assert handler._sql_type_to_pyarrow('REAL') == pa.float32()
+        assert handler._sql_type_to_pyarrow("FLOAT") == pa.float32()
+        assert handler._sql_type_to_pyarrow("DOUBLE") == pa.float64()
+        assert handler._sql_type_to_pyarrow("REAL") == pa.float32()
 
         # Test decimal types
-        decimal_type = handler._sql_type_to_pyarrow('DECIMAL', 10, 2)
+        decimal_type = handler._sql_type_to_pyarrow("DECIMAL", 10, 2)
         assert isinstance(decimal_type, pa.Decimal128Type)
         assert decimal_type.precision == 10
         assert decimal_type.scale == 2
 
         # Test boolean types
-        assert handler._sql_type_to_pyarrow('BOOLEAN') == pa.bool_()
-        assert handler._sql_type_to_pyarrow('BIT') == pa.bool_()
+        assert handler._sql_type_to_pyarrow("BOOLEAN") == pa.bool_()
+        assert handler._sql_type_to_pyarrow("BIT") == pa.bool_()
 
         # Test date/time types
-        assert handler._sql_type_to_pyarrow('DATE') == pa.date32()
-        assert handler._sql_type_to_pyarrow('TIME') == pa.time64('us')
-        assert handler._sql_type_to_pyarrow('TIMESTAMP') == pa.timestamp('us')
+        assert handler._sql_type_to_pyarrow("DATE") == pa.date32()
+        assert handler._sql_type_to_pyarrow("TIME") == pa.time64("us")
+        assert handler._sql_type_to_pyarrow("TIMESTAMP") == pa.timestamp("us")
 
         # Test binary types
-        assert handler._sql_type_to_pyarrow('BINARY') == pa.binary()
-        assert handler._sql_type_to_pyarrow('BLOB') == pa.binary()
+        assert handler._sql_type_to_pyarrow("BINARY") == pa.binary()
+        assert handler._sql_type_to_pyarrow("BLOB") == pa.binary()
 
         # Test unknown types default to string
-        assert handler._sql_type_to_pyarrow('UNKNOWN_TYPE') == pa.string()
+        assert handler._sql_type_to_pyarrow("UNKNOWN_TYPE") == pa.string()
 
     def test_convert_column_data_with_nulls(self, basic_config):
         """Test column data conversion with null handling."""
-        config = SqlInputConfig(
-            connection_string="test",
-            null_values=['NULL', 'N/A', '']
-        )
+        config = SqlInputConfig(connection_string="test", null_values=["NULL", "N/A", ""])
         handler = SqlInputHandler(config)
 
         # Test with actual nulls and configured null values
-        column_data = (1, None, 'NULL', 4, 'N/A', '', 7)
+        column_data = (1, None, "NULL", 4, "N/A", "", 7)
         array = handler._convert_column_data(column_data, pa.int32())
 
         expected_data = [1, None, None, 4, None, None, 7]
@@ -612,14 +600,14 @@ class TestSqlInputHandler:
         handler = SqlInputHandler(basic_config)
 
         # Try to convert non-numeric data to int32 - should fallback to string
-        column_data = ('not_a_number', 'also_not_a_number')
+        column_data = ("not_a_number", "also_not_a_number")
 
-        with patch('forklift.inputs.sql.types.logger') as mock_logger:
+        with patch("forklift.inputs.sql.types.logger") as mock_logger:
             array = handler._convert_column_data(column_data, pa.int32())
 
             # Should fallback to string type
             assert array.type == pa.string()
-            assert array.to_pylist() == ['not_a_number', 'also_not_a_number']
+            assert array.to_pylist() == ["not_a_number", "also_not_a_number"]
             mock_logger.warning.assert_called_once()
 
     def test_quote_identifier_enabled(self, basic_config):
@@ -627,67 +615,68 @@ class TestSqlInputHandler:
         basic_config.use_quoted_identifiers = True
         handler = SqlInputHandler(basic_config)
 
-        assert handler._quote_identifier('table_name') == '"table_name"'
-        assert handler._quote_identifier('column_name') == '"column_name"'
+        assert handler._quote_identifier("table_name") == '"table_name"'
+        assert handler._quote_identifier("column_name") == '"column_name"'
 
     def test_quote_identifier_disabled(self, basic_config):
         """Test identifier quoting when disabled."""
         basic_config.use_quoted_identifiers = False
         handler = SqlInputHandler(basic_config)
 
-        assert handler._quote_identifier('table_name') == 'table_name'
-        assert handler._quote_identifier('column_name') == 'column_name'
+        assert handler._quote_identifier("table_name") == "table_name"
+        assert handler._quote_identifier("column_name") == "column_name"
 
     def test_odbc_type_to_string_mapping(self, basic_config):
         """Test ODBC type constant to string mapping."""
         handler = SqlInputHandler(basic_config)
 
         # Mock pyodbc constants
-        with patch('pyodbc.SQL_VARCHAR', 12), \
-             patch('pyodbc.SQL_INTEGER', 4), \
-             patch('pyodbc.SQL_DOUBLE', 8):
+        with patch("pyodbc.SQL_VARCHAR", 12), patch("pyodbc.SQL_INTEGER", 4), patch(
+            "pyodbc.SQL_DOUBLE", 8
+        ):
 
             import pyodbc
-            assert handler._odbc_type_to_string(pyodbc.SQL_VARCHAR) == 'VARCHAR'
-            assert handler._odbc_type_to_string(pyodbc.SQL_INTEGER) == 'INTEGER'
-            assert handler._odbc_type_to_string(pyodbc.SQL_DOUBLE) == 'DOUBLE'
+
+            assert handler._odbc_type_to_string(pyodbc.SQL_VARCHAR) == "VARCHAR"
+            assert handler._odbc_type_to_string(pyodbc.SQL_INTEGER) == "INTEGER"
+            assert handler._odbc_type_to_string(pyodbc.SQL_DOUBLE) == "DOUBLE"
 
     def test_odbc_type_to_string_unknown_type(self, basic_config):
         """Test ODBC type mapping for unknown types."""
         handler = SqlInputHandler(basic_config)
 
         # Unknown type should default to VARCHAR
-        assert handler._odbc_type_to_string(9999) == 'VARCHAR'
+        assert handler._odbc_type_to_string(9999) == "VARCHAR"
 
     def test_odbc_type_to_string_pyodbc_not_available(self, basic_config):
         """Test ODBC type mapping when pyodbc is not available."""
         handler = SqlInputHandler(basic_config)
 
-        with patch('builtins.__import__', side_effect=ImportError("No module named 'pyodbc'")):
-            assert handler._odbc_type_to_string(12) == 'VARCHAR'
+        with patch("builtins.__import__", side_effect=ImportError("No module named 'pyodbc'")):
+            assert handler._odbc_type_to_string(12) == "VARCHAR"
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_read_table_data_connection_error(self, mock_connect, basic_config):
         """Test read_table_data when not connected."""
         handler = SqlInputHandler(basic_config)
         # Don't connect
 
         with pytest.raises(ConnectionError, match="Not connected to database"):
-            list(handler.read_table_data('main', 'employees'))
+            list(handler.read_table_data("main", "employees"))
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_get_table_schema_connection_error(self, mock_connect, basic_config):
         """Test get_table_schema when not connected."""
         handler = SqlInputHandler(basic_config)
         # Don't connect
 
         with pytest.raises(ConnectionError, match="Not connected to database"):
-            handler.get_table_schema('main', 'employees')
+            handler.get_table_schema("main", "employees")
 
     def test_rows_to_recordbatch_empty_rows(self, basic_config):
         """Test converting empty rows to RecordBatch."""
         handler = SqlInputHandler(basic_config)
-        schema = pa.schema([pa.field('id', pa.int32())])
+        schema = pa.schema([pa.field("id", pa.int32())])
 
         # Test that the implementation properly handles empty rows
         # Should create an empty RecordBatch with the correct schema
@@ -695,7 +684,7 @@ class TestSqlInputHandler:
         assert batch.num_rows == 0
         assert batch.schema.equals(schema)
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_read_table_data_with_fetch_size(self, mock_connect, basic_config):
         """Test read_table_data with custom fetch size configuration."""
         basic_config.fetch_size = 500
@@ -704,14 +693,14 @@ class TestSqlInputHandler:
         mock_connection.cursor.return_value = mock_cursor
         mock_connect.return_value = mock_connection
 
-        schema = pa.schema([pa.field('id', pa.int32())])
+        schema = pa.schema([pa.field("id", pa.int32())])
         mock_cursor.fetchmany.return_value = []
 
         handler = SqlInputHandler(basic_config)
         handler.connect()
 
-        with patch.object(handler, 'get_table_schema', return_value=schema):
-            list(handler.read_table_data('main', 'employees'))
+        with patch.object(handler, "get_table_schema", return_value=schema):
+            list(handler.read_table_data("main", "employees"))
 
         # Verify fetch size was set
         assert mock_cursor.arraysize == 500
@@ -721,14 +710,14 @@ class TestSqlInputHandler:
         handler = SqlInputHandler(basic_config)
         mock_schema_importer = MagicMock()
         mock_schema_importer.get_table_list.return_value = [
-            ('schema1', 'table1', 'output1'),
-            ('schema2', 'table2', 'output2')
+            ("schema1", "table1", "output1"),
+            ("schema2", "table2", "output2"),
         ]
         handler.set_schema_importer(mock_schema_importer)
 
         tables = handler.get_tables_to_process()
 
-        expected = [('schema1', 'table1', 'output1'), ('schema2', 'table2', 'output2')]
+        expected = [("schema1", "table1", "output1"), ("schema2", "table2", "output2")]
         assert tables == expected
 
 
@@ -747,31 +736,28 @@ class TestSqlSchemaImporter:
                 "connection": {
                     "driver": "SQLite3 ODBC Driver",
                     "database": "test.db",
-                    "timeout": 30
+                    "timeout": 30,
                 },
                 "tables": [
                     {
-                        "select": {
-                            "schema": "main",
-                            "name": "employees"
-                        },
+                        "select": {"schema": "main", "name": "employees"},
                         "outputName": "emp_data",
                         "columns": {
                             "id": {
                                 "sql_type": "INTEGER",
                                 "parquet_type": "int32",
-                                "nullable": False
+                                "nullable": False,
                             },
                             "name": {
                                 "sql_type": "VARCHAR",
                                 "parquet_type": "string",
-                                "nullable": True
-                            }
-                        }
+                                "nullable": True,
+                            },
+                        },
                     }
                 ],
-                "include_patterns": ["main.employees", "main.departments"]
-            }
+                "include_patterns": ["main.employees", "main.departments"],
+            },
         }
 
     @pytest.fixture
@@ -783,12 +769,9 @@ class TestSqlSchemaImporter:
             "title": "Minimal SQL Schema",
             "type": "object",
             "x-sql": {
-                "connection": {
-                    "driver": "SQLite3 ODBC Driver",
-                    "database": "test.db"
-                },
-                "tables": []
-            }
+                "connection": {"driver": "SQLite3 ODBC Driver", "database": "test.db"},
+                "tables": [],
+            },
         }
 
     def test_init_with_dict(self, minimal_valid_schema):
@@ -800,8 +783,9 @@ class TestSqlSchemaImporter:
     def test_init_with_file(self, minimal_valid_schema, tmp_path):
         """Test initialization with file path."""
         schema_file = tmp_path / "test_schema.json"
-        with open(schema_file, 'w') as f:
+        with open(schema_file, "w") as f:
             import json
+
             json.dump(minimal_valid_schema, f)
 
         importer = SqlSchemaImporter(schema_file, validate=False)
@@ -825,7 +809,7 @@ class TestSqlSchemaImporter:
             "$id": "https://example.com/schema.json",
             "title": "Test Schema",
             "type": "object",
-            "some_other_key": "value"
+            "some_other_key": "value",
         }
         with pytest.raises(SchemaValidationError):
             SqlSchemaImporter(schema, validate=True)
@@ -886,26 +870,15 @@ class TestSqlUtilities:
         schema = {
             "x-sql": {
                 "tables": [
+                    {"select": {"schema": "main", "name": "employees"}, "outputName": "emp_data"},
                     {
-                        "select": {
-                            "schema": "main",
-                            "name": "employees"
-                        },
-                        "outputName": "emp_data"
+                        "select": {"name": "departments"},  # No schema specified
+                        "outputName": "dept_data",
                     },
                     {
-                        "select": {
-                            "name": "departments"  # No schema specified
-                        },
-                        "outputName": "dept_data"
-                    },
-                    {
-                        "select": {
-                            "schema": "hr",
-                            "name": "staff"
-                        }
+                        "select": {"schema": "hr", "name": "staff"}
                         # No outputName specified
-                    }
+                    },
                 ]
             }
         }
@@ -914,7 +887,7 @@ class TestSqlUtilities:
         expected = [
             ("main", "employees", "emp_data"),
             ("default", "departments", "dept_data"),
-            ("hr", "staff", None)
+            ("hr", "staff", None),
         ]
         assert result == expected
 
@@ -930,14 +903,9 @@ class TestSqlUtilities:
                             "schema": "main"
                             # Missing "name" field
                         },
-                        "outputName": "invalid_table"
+                        "outputName": "invalid_table",
                     },
-                    {
-                        "select": {
-                            "schema": "main",
-                            "name": "valid_table"
-                        }
-                    }
+                    {"select": {"schema": "main", "name": "valid_table"}},
                 ]
             }
         }
@@ -957,10 +925,10 @@ class TestSqlInputHandlerIntegration:
             connection_string=f"DRIVER={{SQLite3 ODBC Driver}};Database={sqlite_db};",
             batch_size=2,  # Small batch size for testing
             query_timeout=30,
-            null_values=['NULL', '']
+            null_values=["NULL", ""],
         )
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_full_table_processing_workflow(self, mock_connect, integration_config):
         """Test complete workflow from connection to data reading."""
         # Mock pyodbc components
@@ -971,27 +939,27 @@ class TestSqlInputHandlerIntegration:
 
         # Mock table discovery
         mock_table_row = MagicMock()
-        mock_table_row.table_schem = 'main'
-        mock_table_row.table_name = 'employees'
-        mock_table_row.table_type = 'TABLE'
+        mock_table_row.table_schem = "main"
+        mock_table_row.table_name = "employees"
+        mock_table_row.table_type = "TABLE"
         mock_cursor.tables.return_value = [mock_table_row]
 
         # Mock schema discovery
         mock_column1 = MagicMock()
-        mock_column1.column_name = 'id'
-        mock_column1.type_name = 'INTEGER'
+        mock_column1.column_name = "id"
+        mock_column1.type_name = "INTEGER"
         mock_column1.nullable = False
         mock_column2 = MagicMock()
-        mock_column2.column_name = 'name'
-        mock_column2.type_name = 'VARCHAR'
+        mock_column2.column_name = "name"
+        mock_column2.type_name = "VARCHAR"
         mock_column2.nullable = True
         mock_cursor.columns.return_value = [mock_column1, mock_column2]
 
         # Mock data reading
         mock_cursor.fetchmany.side_effect = [
-            [(1, 'Alice'), (2, 'Bob')],  # First batch
-            [(3, 'Carol')],              # Second batch
-            []                           # End of data
+            [(1, "Alice"), (2, "Bob")],  # First batch
+            [(3, "Carol")],  # Second batch
+            [],  # End of data
         ]
 
         handler = SqlInputHandler(integration_config)
@@ -1003,16 +971,16 @@ class TestSqlInputHandlerIntegration:
             # Discover tables
             tables = handler.get_table_list()
             assert len(tables) == 1
-            assert tables[0] == ('main', 'employees')
+            assert tables[0] == ("main", "employees")
 
             # Get schema
-            schema = handler.get_table_schema('main', 'employees')
+            schema = handler.get_table_schema("main", "employees")
             assert len(schema) == 2
-            assert schema.field(0).name == 'id'
-            assert schema.field(1).name == 'name'
+            assert schema.field(0).name == "id"
+            assert schema.field(1).name == "name"
 
             # Read data
-            batches = list(handler.read_table_data('main', 'employees'))
+            batches = list(handler.read_table_data("main", "employees"))
             assert len(batches) == 2
             assert batches[0].num_rows == 2
             assert batches[1].num_rows == 1
@@ -1020,7 +988,7 @@ class TestSqlInputHandlerIntegration:
         finally:
             handler.disconnect()
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_context_manager_integration(self, mock_connect, integration_config):
         """Test using handler as context manager in complete workflow."""
         mock_connection = MagicMock()
@@ -1051,12 +1019,12 @@ class TestSqlInputHandlerIntegration:
             handler.get_table_list()
 
         with pytest.raises(ConnectionError):
-            handler.get_table_schema('main', 'employees')
+            handler.get_table_schema("main", "employees")
 
         with pytest.raises(ConnectionError):
-            list(handler.read_table_data('main', 'employees'))
+            list(handler.read_table_data("main", "employees"))
 
-    @patch('pyodbc.connect')
+    @patch("pyodbc.connect")
     def test_schema_importer_integration(self, mock_connect, integration_config):
         """Test integration with schema importer."""
         mock_connection = MagicMock()
@@ -1066,13 +1034,13 @@ class TestSqlInputHandlerIntegration:
 
         # Create mock schema importer
         mock_schema_importer = MagicMock()
-        mock_schema_importer.get_table_list.return_value = [('main', 'employees', 'emp_output')]
+        mock_schema_importer.get_table_list.return_value = [("main", "employees", "emp_output")]
 
         handler.set_schema_importer(mock_schema_importer)
 
         # Test that schema importer influences behavior
         tables = handler.get_tables_to_process()
-        assert tables == [('main', 'employees', 'emp_output')]
+        assert tables == [("main", "employees", "emp_output")]
 
 
 class TestSqlInputConfig:
@@ -1107,7 +1075,7 @@ class TestSqlInputConfig:
             use_quoted_identifiers=True,
             schema_name="public",
             enable_streaming=False,
-            connection_params={"ReadOnly": "Yes", "Timeout": "30"}
+            connection_params={"ReadOnly": "Yes", "Timeout": "30"},
         )
 
         assert config.connection_string == "DRIVER={SQLite3};Database=test.db;"
@@ -1137,4 +1105,3 @@ class TestSqlInputConfig:
         # Negative timeout should be allowed (validation happens elsewhere)
         config = SqlInputConfig(connection_string="test", query_timeout=-1)
         assert config.query_timeout == -1
-

@@ -6,20 +6,19 @@ and output generation. Now supports S3 streaming for both input and output.
 """
 
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Optional, Union
 
 # Import extracted configuration classes
-from .config import ImportConfig, ProcessingResults, HeaderMode, ExcessColumnMode
-
-# Import extracted processing components
-from .processors import CSVProcessor
-
-# Import format-specific importers
-from .importers import ExcelImporter, SqlImporter
-
+from .config import (ExcessColumnMode, HeaderMode, ImportConfig,
+                     ProcessingResults)
 # Import exceptions
 from .exceptions import ProcessingError
+# Import format-specific importers
+from .importers import ExcelImporter, SqlImporter
+# Import extracted processing components
+from .processors import CSVProcessor
 
 
 class ForkliftCore:
@@ -64,7 +63,7 @@ def import_csv(
     input_path: Union[str, Path],
     output_path: Union[str, Path],
     schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
+    **kwargs,
 ) -> ProcessingResults:
     """Import CSV file with streaming and validation.
 
@@ -112,10 +111,7 @@ def import_csv(
             )
     """
     config = ImportConfig(
-        input_path=input_path,
-        output_path=output_path,
-        schema_file=schema_file,
-        **kwargs
+        input_path=input_path, output_path=output_path, schema_file=schema_file, **kwargs
     )
 
     engine = ForkliftCore(config)
@@ -126,7 +122,7 @@ def import_fwf(
     input_path: Union[str, Path],
     output_path: Union[str, Path],
     schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
+    **kwargs,
 ) -> ProcessingResults:
     """Import Fixed Width File (placeholder for future implementation).
 
@@ -149,7 +145,7 @@ def import_excel(
     input_path: Union[str, Path],
     output_path: Union[str, Path],
     schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
+    **kwargs,
 ) -> ProcessingResults:
     """Import Excel file with multi-sheet support.
 
@@ -184,7 +180,7 @@ def import_sql(
     connection_string: str,
     output_path: Union[str, Path],
     schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
+    **kwargs,
 ) -> ProcessingResults:
     """Import data from SQL database with ODBC connectivity.
 
@@ -260,14 +256,14 @@ def import_sql(
 
 # Re-export for backwards compatibility with tests
 __all__ = [
-    'ForkliftCore',
-    'ProcessingError',
-    'import_csv',
-    'import_fwf',
-    'import_excel',
-    'import_sql',
-    'ImportConfig',
-    'ProcessingResults',
-    'HeaderMode',
-    'ExcessColumnMode'
+    "ForkliftCore",
+    "ProcessingError",
+    "import_csv",
+    "import_fwf",
+    "import_excel",
+    "import_sql",
+    "ImportConfig",
+    "ProcessingResults",
+    "HeaderMode",
+    "ExcessColumnMode",
 ]

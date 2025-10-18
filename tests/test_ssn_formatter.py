@@ -1,10 +1,11 @@
 """Tests for SSN formatting utilities."""
 
-import pytest
 from unittest.mock import Mock
 
-from forklift.utils.transformations.format.ssn import SSNFormatter
+import pytest
+
 from forklift.utils.transformations.configs import SSNConfig
+from forklift.utils.transformations.format.ssn import SSNFormatter
 
 
 class TestSSNFormatter:
@@ -13,21 +14,13 @@ class TestSSNFormatter:
     @pytest.fixture
     def default_config(self):
         """Create default SSN configuration."""
-        return SSNConfig(
-            format_with_dashes=True,
-            zero_pad=True,
-            validate=True,
-            allow_invalid=False
-        )
+        return SSNConfig(format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False)
 
     @pytest.fixture
     def permissive_config(self):
         """Create permissive SSN configuration."""
         return SSNConfig(
-            format_with_dashes=True,
-            zero_pad=False,
-            validate=False,
-            allow_invalid=True
+            format_with_dashes=True, zero_pad=False, validate=False, allow_invalid=True
         )
 
     def test_init(self, default_config):
@@ -118,10 +111,7 @@ class TestSSNFormatter:
     def test_format_value_no_dashes_format(self):
         """Test formatting SSN without dash formatting."""
         config = SSNConfig(
-            format_with_dashes=False,
-            zero_pad=True,
-            validate=True,
-            allow_invalid=False
+            format_with_dashes=False, zero_pad=True, validate=True, allow_invalid=False
         )
         formatter = SSNFormatter(config)
         result = formatter.format_value("123456789")
@@ -193,7 +183,7 @@ class TestSSNFormatter:
             format_with_dashes=True,
             zero_pad=True,
             validate=False,  # Allow zero padding to work
-            allow_invalid=True
+            allow_invalid=True,
         )
         formatter = SSNFormatter(config)
         result = formatter.format_value("12345")
@@ -210,12 +200,14 @@ class TestSSNFormatter:
     def test_inheritance_from_base_formatter(self, default_config):
         """Test that SSNFormatter inherits from BaseFormatter."""
         from forklift.utils.transformations.format.base import BaseFormatter
+
         formatter = SSNFormatter(default_config)
         assert isinstance(formatter, BaseFormatter)
 
     def test_inheritance_from_validation_mixin(self, default_config):
         """Test that SSNFormatter inherits from ValidationMixin."""
         from forklift.utils.transformations.format.base import ValidationMixin
+
         formatter = SSNFormatter(default_config)
         assert isinstance(formatter, ValidationMixin)
 

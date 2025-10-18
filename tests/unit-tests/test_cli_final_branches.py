@@ -1,6 +1,9 @@
 """Final tests to achieve 100% CLI coverage - targeting the last 2 missing branches."""
+
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from forklift.cli import main
 
 
@@ -10,14 +13,18 @@ class TestCLIFinalBranches:
     def test_generate_schema_file_output_validation_early_return(self):
         """Test the early return after file output validation error (covers 101->exit)."""
         test_args = [
-            'forklift', 'generate-schema', 'input.csv',
-            '--file-type', 'csv',
-            '--output', 'file'
+            "forklift",
+            "generate-schema",
+            "input.csv",
+            "--file-type",
+            "csv",
+            "--output",
+            "file",
             # Missing --output-path intentionally to trigger validation error
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 # This should trigger the early return without any exception
                 result = main()
 
@@ -26,7 +33,7 @@ class TestCLIFinalBranches:
                 # The function should return None (early return)
                 assert result is None
 
-    @patch('forklift.cli.SchemaGenerator')
+    @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_metadata_file_none_condition(self, mock_schema_gen):
         """Test when metadata generation returns None (covers 141->144 negative branch)."""
         mock_generator = MagicMock()
@@ -38,13 +45,17 @@ class TestCLIFinalBranches:
         mock_generator.generate_and_save_metadata.return_value = None  # This is key!
 
         test_args = [
-            'forklift', 'generate-schema', 'input.csv',
-            '--file-type', 'csv',
-            '--metadata-output', 'metadata_output.json'
+            "forklift",
+            "generate-schema",
+            "input.csv",
+            "--file-type",
+            "csv",
+            "--metadata-output",
+            "metadata_output.json",
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
 
                 # Verify the metadata methods were called
@@ -55,7 +66,7 @@ class TestCLIFinalBranches:
                 print_calls = [str(call) for call in mock_print.call_args_list]
                 assert not any("Metadata file written to:" in call for call in print_calls)
 
-    @patch('forklift.cli.SchemaGenerator')
+    @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_metadata_file_truthy_condition(self, mock_schema_gen):
         """Test when metadata generation returns a file path (covers 141->144 positive branch)."""
         mock_generator = MagicMock()
@@ -64,16 +75,22 @@ class TestCLIFinalBranches:
         # Mock methods - metadata generation returns a file path
         mock_generator.generate_schema.return_value = {"test": "schema"}
         mock_generator._read_parquet_sample.return_value = "mock_table"
-        mock_generator.generate_and_save_metadata.return_value = "metadata_file.json"  # Truthy value
+        mock_generator.generate_and_save_metadata.return_value = (
+            "metadata_file.json"  # Truthy value
+        )
 
         test_args = [
-            'forklift', 'generate-schema', 'input.parquet',
-            '--file-type', 'parquet',
-            '--metadata-output', 'metadata_output.json'
+            "forklift",
+            "generate-schema",
+            "input.parquet",
+            "--file-type",
+            "parquet",
+            "--metadata-output",
+            "metadata_output.json",
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
 
                 # Verify the metadata methods were called
@@ -83,7 +100,7 @@ class TestCLIFinalBranches:
                 # Verify that the metadata success message IS printed (truthy branch)
                 mock_print.assert_any_call("Metadata file written to: metadata_file.json")
 
-    @patch('forklift.cli.SchemaGenerator')
+    @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_metadata_no_output_path_conditional(self, mock_schema_gen):
         """Test metadata generation without output path specified."""
         mock_generator = MagicMock()
@@ -93,15 +110,21 @@ class TestCLIFinalBranches:
         mock_generator.generate_schema.return_value = {"test": "schema"}
 
         test_args = [
-            'forklift', 'generate-schema', 'input.csv',
-            '--file-type', 'csv'
+            "forklift",
+            "generate-schema",
+            "input.csv",
+            "--file-type",
+            "csv",
             # No --metadata-output specified
         ]
 
-        with patch('sys.argv', test_args):
+        with patch("sys.argv", test_args):
             main()
 
             # Should not call metadata generation methods when no metadata output is specified
-            assert not hasattr(mock_generator, '_read_csv_sample') or not mock_generator._read_csv_sample.called
+            assert (
+                not hasattr(mock_generator, "_read_csv_sample")
+                or not mock_generator._read_csv_sample.called
+            )
             mock_generator.generate_schema.assert_called_once()
             mock_generator.output_schema.assert_called_once()

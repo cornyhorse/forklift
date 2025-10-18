@@ -1,7 +1,9 @@
 """Type conversion and value processing for FWF fields."""
 
 from __future__ import annotations
-from typing import Any, Optional, Dict
+
+from typing import Any, Dict, Optional
+
 import pyarrow as pa
 
 from ..config import FwfFieldSpec
@@ -21,49 +23,49 @@ class FwfTypeConverter:
             PyArrow DataType object
         """
         type_mapping = {
-            'int8': pa.int8(),
-            'int16': pa.int16(),
-            'int32': pa.int32(),
-            'int64': pa.int64(),
-            'uint8': pa.uint8(),
-            'uint16': pa.uint16(),
-            'uint32': pa.uint32(),
-            'uint64': pa.uint64(),
-            'float32': pa.float32(),
-            'float64': pa.float64(),
-            'double': pa.float64(),  # Add double as alias for float64
-            'bool': pa.bool_(),
-            'string': pa.string(),
-            'utf8': pa.string(),
-            'binary': pa.binary(),
-            'date32': pa.date32(),
-            'date64': pa.date64(),
-            'timestamp': pa.timestamp('ns'),
+            "int8": pa.int8(),
+            "int16": pa.int16(),
+            "int32": pa.int32(),
+            "int64": pa.int64(),
+            "uint8": pa.uint8(),
+            "uint16": pa.uint16(),
+            "uint32": pa.uint32(),
+            "uint64": pa.uint64(),
+            "float32": pa.float32(),
+            "float64": pa.float64(),
+            "double": pa.float64(),  # Add double as alias for float64
+            "bool": pa.bool_(),
+            "string": pa.string(),
+            "utf8": pa.string(),
+            "binary": pa.binary(),
+            "date32": pa.date32(),
+            "date64": pa.date64(),
+            "timestamp": pa.timestamp("ns"),
         }
 
         # Handle timestamp types with specific units
-        if parquet_type.startswith('timestamp[') and parquet_type.endswith(']'):
+        if parquet_type.startswith("timestamp[") and parquet_type.endswith("]"):
             unit = parquet_type[10:-1]  # Extract unit between brackets
             return pa.timestamp(unit)
 
         # Handle duration types with specific units
-        if parquet_type.startswith('duration[') and parquet_type.endswith(']'):
+        if parquet_type.startswith("duration[") and parquet_type.endswith("]"):
             unit = parquet_type[9:-1]  # Extract unit between brackets
             return pa.duration(unit)
 
         # Handle list types
-        if parquet_type.startswith('list<') and parquet_type.endswith('>'):
+        if parquet_type.startswith("list<") and parquet_type.endswith(">"):
             inner_type = parquet_type[5:-1]  # Extract inner type
             inner_arrow_type = FwfTypeConverter.get_arrow_type(inner_type)
             return pa.list_(inner_arrow_type)
 
         # Handle decimal types
-        if parquet_type.startswith('decimal'):
+        if parquet_type.startswith("decimal"):
             # Extract precision and scale if specified
-            if '(' in parquet_type:
-                params = parquet_type[parquet_type.find('(')+1:parquet_type.find(')')]
-                if ',' in params:
-                    precision, scale = map(int, params.split(','))
+            if "(" in parquet_type:
+                params = parquet_type[parquet_type.find("(") + 1 : parquet_type.find(")")]
+                if "," in params:
+                    precision, scale = map(int, params.split(","))
                     return pa.decimal128(precision, scale)
                 else:
                     precision = int(params)
@@ -120,7 +122,9 @@ class FwfValueProcessor:
     """Handles value processing including null value handling."""
 
     @staticmethod
-    def process_null_values(value: str, field_name: str, null_values: Optional[Dict] = None) -> Optional[str]:
+    def process_null_values(
+        value: str, field_name: str, null_values: Optional[Dict] = None
+    ) -> Optional[str]:
         """Process null values according to configuration.
 
         Args:

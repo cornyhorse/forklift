@@ -1,6 +1,7 @@
 """CSV input handler for reading and preprocessing CSV files."""
 
 from __future__ import annotations
+
 import csv
 import re
 from pathlib import Path
@@ -49,10 +50,10 @@ class CsvInputHandler:
         """
         import chardet
 
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             raw_data = f.read(10000)  # Read first 10KB
             result = chardet.detect(raw_data)
-            return result.get('encoding', 'utf-8')
+            return result.get("encoding", "utf-8")
 
     def find_header_row(self, file_path: Path) -> Tuple[int, List[str]]:
         """Find the header row and extract column names.
@@ -69,7 +70,7 @@ class CsvInputHandler:
         Raises:
             ValueError: If no valid header row can be found
         """
-        with open(file_path, 'r', encoding=self.config.encoding) as f:
+        with open(file_path, "r", encoding=self.config.encoding) as f:
             reader = csv.reader(f, delimiter=self.config.delimiter)
 
             for idx, row in enumerate(reader):
@@ -109,7 +110,9 @@ class CsvInputHandler:
 
         return False
 
-    def create_arrow_reader(self, file_path: Path, column_names: List[str], skip_rows: int = 0) -> pv_csv.CSVStreamingReader:
+    def create_arrow_reader(
+        self, file_path: Path, column_names: List[str], skip_rows: int = 0
+    ) -> pv_csv.CSVStreamingReader:
         """Create PyArrow CSV streaming reader.
 
         Sets up a PyArrow CSV streaming reader with the configured options

@@ -1,11 +1,12 @@
 """Main calculated columns processor."""
 
-from typing import Dict, List, Tuple, Any
+from typing import Any, Dict, List, Tuple
+
 import pyarrow as pa
 
 from ..base import BaseProcessor, ValidationResult
-from .models import CalculatedColumn, CalculatedColumnsConfig
 from .evaluator import ExpressionEvaluator
+from .models import CalculatedColumn, CalculatedColumnsConfig
 
 
 class CalculatedColumnsProcessor(BaseProcessor):
@@ -60,7 +61,9 @@ class CalculatedColumnsProcessor(BaseProcessor):
             if self._has_circular_dependency(col, column_names, set()):
                 raise ValueError(f"Circular dependency detected for column '{col.name}'")
 
-    def _has_circular_dependency(self, column: CalculatedColumn, all_columns: set, visited: set) -> bool:
+    def _has_circular_dependency(
+        self, column: CalculatedColumn, all_columns: set, visited: set
+    ) -> bool:
         """Check for circular dependencies in column calculations."""
         if column.name in visited:
             return True
@@ -71,7 +74,9 @@ class CalculatedColumnsProcessor(BaseProcessor):
             if dep in all_columns:
                 # Find the dependent column
                 dep_column = next((col for col in self.config.columns if col.name == dep), None)
-                if dep_column and self._has_circular_dependency(dep_column, all_columns, visited.copy()):
+                if dep_column and self._has_circular_dependency(
+                    dep_column, all_columns, visited.copy()
+                ):
                     return True
 
         return False
@@ -96,43 +101,55 @@ class CalculatedColumnsProcessor(BaseProcessor):
 
             for column_config in sorted_columns:
                 try:
-                    calculated_column = self.evaluator.calculate_column_values(result_batch, column_config)
+                    calculated_column = self.evaluator.calculate_column_values(
+                        result_batch, column_config
+                    )
 
                     # Add the new column to the batch
-                    result_batch = self._add_column_to_batch(result_batch, column_config.name, calculated_column)
+                    result_batch = self._add_column_to_batch(
+                        result_batch, column_config.name, calculated_column
+                    )
 
                     if self.config.add_metadata:
-                        validation_results.append(ValidationResult(
-                            is_valid=True,
-                            error_message=f"Successfully calculated column '{column_config.name}'",
-                            error_code="CALCULATION_SUCCESS",
-                            column_name=column_config.name
-                        ))
+                        validation_results.append(
+                            ValidationResult(
+                                is_valid=True,
+                                error_message=f"Successfully calculated column '{column_config.name}'",
+                                error_code="CALCULATION_SUCCESS",
+                                column_name=column_config.name,
+                            )
+                        )
 
                 except Exception as e:
                     error_msg = f"Failed to calculate column '{column_config.name}': {str(e)}"
-                    validation_results.append(ValidationResult(
-                        is_valid=False,
-                        error_message=error_msg,
-                        error_code="CALCULATION_ERROR",
-                        column_name=column_config.name
-                    ))
+                    validation_results.append(
+                        ValidationResult(
+                            is_valid=False,
+                            error_message=error_msg,
+                            error_code="CALCULATION_ERROR",
+                            column_name=column_config.name,
+                        )
+                    )
 
                     if self.config.fail_on_error:
                         return batch, validation_results
 
                     # Add null column if not failing on error
                     null_column = pa.array([None] * len(batch), type=column_config.data_type)
-                    result_batch = self._add_column_to_batch(result_batch, column_config.name, null_column)
+                    result_batch = self._add_column_to_batch(
+                        result_batch, column_config.name, null_column
+                    )
 
             return result_batch, validation_results
 
         except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Calculated columns processing failed: {str(e)}",
-                error_code="PROCESSOR_ERROR"
-            ))
+            validation_results.append(
+                ValidationResult(
+                    is_valid=False,
+                    error_message=f"Calculated columns processing failed: {str(e)}",
+                    error_code="PROCESSOR_ERROR",
+                )
+            )
             return batch, validation_results
 
     def _sort_columns_by_dependencies(self) -> List[CalculatedColumn]:
@@ -146,8 +163,10 @@ class CalculatedColumnsProcessor(BaseProcessor):
             ready_columns = []
             for col in remaining_columns:
                 resolved_deps = {sorted_col.name for sorted_col in sorted_columns}
-                if all(dep in resolved_deps or dep not in {c.name for c in self.config.columns}
-                       for dep in col.dependencies):
+                if all(
+                    dep in resolved_deps or dep not in {c.name for c in self.config.columns}
+                    for dep in col.dependencies
+                ):
                     ready_columns.append(col)
 
             if not ready_columns:
@@ -163,7 +182,9 @@ class CalculatedColumnsProcessor(BaseProcessor):
 
         return sorted_columns
 
-    def _add_column_to_batch(self, batch: pa.RecordBatch, column_name: str, column_array: pa.Array) -> pa.RecordBatch:
+    def _add_column_to_batch(
+        self, batch: pa.RecordBatch, column_name: str, column_array: pa.Array
+    ) -> pa.RecordBatch:
         """Add a new column to the batch."""
         # Create new schema with the additional field
         new_fields = list(batch.schema)
@@ -179,12 +200,12 @@ class CalculatedColumnsProcessor(BaseProcessor):
     def get_calculated_columns_info(self) -> Dict[str, Any]:
         """Get information about calculated columns configuration."""
         return {
-            'total_columns': len(self.config.columns),
-            'column_names': [col.name for col in self.config.columns],
-            'has_dependencies': any(col.dependencies for col in self.config.columns),
-            'fail_on_error': self.config.fail_on_error,
-            'add_metadata': self.config.add_metadata,
-            'available_functions': list(self.evaluator._available_functions.keys())
+            "total_columns": len(self.config.columns),
+            "column_names": [col.name for col in self.config.columns],
+            "has_dependencies": any(col.dependencies for col in self.config.columns),
+            "fail_on_error": self.config.fail_on_error,
+            "add_metadata": self.config.add_metadata,
+            "available_functions": list(self.evaluator._available_functions.keys()),
         }
 
     def validate_expressions(self, sample_data: Dict[str, Any]) -> List[ValidationResult]:
@@ -195,18 +216,22 @@ class CalculatedColumnsProcessor(BaseProcessor):
             is_valid = self.evaluator.validate_expression(column_config.expression, sample_data)
 
             if is_valid:
-                validation_results.append(ValidationResult(
-                    is_valid=True,
-                    error_message=f"Expression for '{column_config.name}' is valid",
-                    error_code="EXPRESSION_VALID",
-                    column_name=column_config.name
-                ))
+                validation_results.append(
+                    ValidationResult(
+                        is_valid=True,
+                        error_message=f"Expression for '{column_config.name}' is valid",
+                        error_code="EXPRESSION_VALID",
+                        column_name=column_config.name,
+                    )
+                )
             else:
-                validation_results.append(ValidationResult(
-                    is_valid=False,
-                    error_message=f"Invalid expression for '{column_config.name}'",
-                    error_code="EXPRESSION_INVALID",
-                    column_name=column_config.name
-                ))
+                validation_results.append(
+                    ValidationResult(
+                        is_valid=False,
+                        error_message=f"Invalid expression for '{column_config.name}'",
+                        error_code="EXPRESSION_INVALID",
+                        column_name=column_config.name,
+                    )
+                )
 
         return validation_results

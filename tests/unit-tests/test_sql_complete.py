@@ -1,10 +1,12 @@
 """Comprehensive tests for SQL input handler to achieve 100% code coverage."""
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import MagicMock, Mock, call, patch
+
 import pyarrow as pa
-from forklift.inputs.sql import SqlInputHandler
+import pytest
+
 from forklift.inputs.config import SqlInputConfig
+from forklift.inputs.sql import SqlInputHandler
 from forklift.schema.sql_schema_importer import SqlSchemaImporter
 
 
@@ -39,12 +41,12 @@ class TestSqlInputHandlerComplete:
 
     def test_connect_with_connection_params(self, sql_handler):
         """Test connection with additional parameters."""
-        with patch('pyodbc.connect') as mock_connect:
+        with patch("pyodbc.connect") as mock_connect:
             mock_connection = Mock()
             mock_connection.timeout = 60
             mock_connect.return_value = mock_connection
 
-            with patch('pyodbc.pooling', new=False):
+            with patch("pyodbc.pooling", new=False):
                 sql_handler.connect()
 
             expected_conn_str = "Driver={SQLite3};Database=test.db;timeout=30"
@@ -53,13 +55,15 @@ class TestSqlInputHandlerComplete:
 
     def test_connect_pyodbc_import_error(self, sql_handler):
         """Test connection when pyodbc is not available."""
-        with patch('builtins.__import__', side_effect=ImportError("No module named 'pyodbc'")):
-            with pytest.raises(ImportError, match="pyodbc is required for SQL database connectivity"):
+        with patch("builtins.__import__", side_effect=ImportError("No module named 'pyodbc'")):
+            with pytest.raises(
+                ImportError, match="pyodbc is required for SQL database connectivity"
+            ):
                 sql_handler.connect()
 
     def test_connect_connection_error(self, sql_handler):
         """Test connection failure."""
-        with patch('pyodbc.connect', side_effect=Exception("Connection failed")):
+        with patch("pyodbc.connect", side_effect=Exception("Connection failed")):
             with pytest.raises(ConnectionError, match="Failed to connect to database"):
                 sql_handler.connect()
 
@@ -144,11 +148,13 @@ class TestSqlInputHandlerComplete:
 
         expected = [("main", "users"), ("main", "orders")]
         assert tables == expected
-        mock_cursor.execute.assert_called_once_with("""
+        mock_cursor.execute.assert_called_once_with(
+            """
                     SELECT 'main' as schema_name, name as table_name 
                     FROM sqlite_master 
                     WHERE type IN ('table', 'view')
-                """)
+                """
+        )
 
     def test_get_table_list_all_fallbacks_fail(self, sql_handler):
         """Test table list retrieval when all methods fail."""
@@ -176,7 +182,7 @@ class TestSqlInputHandlerComplete:
         """Test get_specified_tables with exact matches."""
         sql_handler.connection = Mock()
 
-        with patch.object(sql_handler, 'get_table_list') as mock_get_tables:
+        with patch.object(sql_handler, "get_table_list") as mock_get_tables:
             mock_get_tables.return_value = [("public", "users"), ("public", "orders")]
 
             result = sql_handler.get_specified_tables(["public.users", "public.orders"])
@@ -188,7 +194,7 @@ class TestSqlInputHandlerComplete:
         """Test get_specified_tables with default schema fallback."""
         sql_handler.connection = Mock()
 
-        with patch.object(sql_handler, 'get_table_list') as mock_get_tables:
+        with patch.object(sql_handler, "get_table_list") as mock_get_tables:
             mock_get_tables.return_value = [("main", "users"), ("public", "orders")]
 
             result = sql_handler.get_specified_tables(["users", "orders"])
@@ -200,7 +206,7 @@ class TestSqlInputHandlerComplete:
         """Test get_specified_tables with tables not found."""
         sql_handler.connection = Mock()
 
-        with patch.object(sql_handler, 'get_table_list') as mock_get_tables:
+        with patch.object(sql_handler, "get_table_list") as mock_get_tables:
             mock_get_tables.return_value = [("public", "users")]
 
             result = sql_handler.get_specified_tables(["nonexistent"])
@@ -248,8 +254,8 @@ class TestSqlInputHandlerComplete:
         mock_cursor.columns.return_value = [mock_col1, mock_col2]
         sql_handler.connection = mock_connection
 
-        with patch.object(sql_handler, '_quote_identifier', side_effect=lambda x: f'"{x}"'):
-            with patch.object(sql_handler, '_sql_type_to_pyarrow') as mock_convert:
+        with patch.object(sql_handler, "_quote_identifier", side_effect=lambda x: f'"{x}"'):
+            with patch.object(sql_handler, "_sql_type_to_pyarrow") as mock_convert:
                 mock_convert.side_effect = [pa.int32(), pa.string()]
 
                 schema = sql_handler.get_table_schema("public", "users")
@@ -272,18 +278,24 @@ class TestSqlInputHandlerComplete:
         # Fallback SELECT method
         mock_cursor.description = [
             ("id", 4, None, None, None, None, None),  # INTEGER type
-            ("name", 12, 255, None, None, 0, None)    # VARCHAR type
+            ("name", 12, 255, None, None, 0, None),  # VARCHAR type
         ]
 
         sql_handler.connection = mock_connection
 
-        with patch.object(sql_handler, '_quote_identifier', side_effect=lambda x: f'"{x}"'):
-            with patch.object(sql_handler, '_odbc_type_to_string', side_effect=["INTEGER", "VARCHAR"]):
-                with patch.object(sql_handler, '_sql_type_to_pyarrow', side_effect=[pa.int32(), pa.string()]):
+        with patch.object(sql_handler, "_quote_identifier", side_effect=lambda x: f'"{x}"'):
+            with patch.object(
+                sql_handler, "_odbc_type_to_string", side_effect=["INTEGER", "VARCHAR"]
+            ):
+                with patch.object(
+                    sql_handler, "_sql_type_to_pyarrow", side_effect=[pa.int32(), pa.string()]
+                ):
                     schema = sql_handler.get_table_schema("public", "users")
 
                     assert len(schema) == 2
-                    mock_cursor.execute.assert_called_once_with('SELECT * FROM "public"."users" LIMIT 1')
+                    mock_cursor.execute.assert_called_once_with(
+                        'SELECT * FROM "public"."users" LIMIT 1'
+                    )
 
     def test_get_table_schema_default_schema(self, sql_handler):
         """Test get_table_schema with default schema."""
@@ -296,9 +308,9 @@ class TestSqlInputHandlerComplete:
 
         sql_handler.connection = mock_connection
 
-        with patch.object(sql_handler, '_quote_identifier', side_effect=lambda x: f'"{x}"'):
-            with patch.object(sql_handler, '_odbc_type_to_string', return_value="INTEGER"):
-                with patch.object(sql_handler, '_sql_type_to_pyarrow', return_value=pa.int32()):
+        with patch.object(sql_handler, "_quote_identifier", side_effect=lambda x: f'"{x}"'):
+            with patch.object(sql_handler, "_odbc_type_to_string", return_value="INTEGER"):
+                with patch.object(sql_handler, "_sql_type_to_pyarrow", return_value=pa.int32()):
                     sql_handler.get_table_schema("default", "users")
 
                     mock_cursor.execute.assert_called_once_with('SELECT * FROM "users" LIMIT 1')
@@ -331,7 +343,7 @@ class TestSqlInputHandlerComplete:
 
     def test_odbc_type_to_string_with_pyodbc(self, sql_handler):
         """Test ODBC type conversion with pyodbc available."""
-        with patch('builtins.__import__') as mock_import:
+        with patch("builtins.__import__") as mock_import:
             mock_pyodbc = Mock()
             mock_pyodbc.SQL_VARCHAR = 12
             mock_pyodbc.SQL_INTEGER = 4
@@ -344,7 +356,7 @@ class TestSqlInputHandlerComplete:
 
     def test_odbc_type_to_string_without_pyodbc(self, sql_handler):
         """Test ODBC type conversion without pyodbc available."""
-        with patch('builtins.__import__', side_effect=ImportError("No module named 'pyodbc'")):
+        with patch("builtins.__import__", side_effect=ImportError("No module named 'pyodbc'")):
             result = sql_handler._odbc_type_to_string(12)
             assert result == "VARCHAR"
 
@@ -383,9 +395,9 @@ class TestSqlInputHandlerComplete:
     def test_sql_type_to_pyarrow_date_time_types(self, sql_handler):
         """Test SQL to PyArrow type conversion for date/time types."""
         assert sql_handler._sql_type_to_pyarrow("DATE") == pa.date32()
-        assert sql_handler._sql_type_to_pyarrow("TIME") == pa.time64('us')
-        assert sql_handler._sql_type_to_pyarrow("TIMESTAMP") == pa.timestamp('us')
-        assert sql_handler._sql_type_to_pyarrow("TIMESTAMPTZ") == pa.timestamp('us', tz='UTC')
+        assert sql_handler._sql_type_to_pyarrow("TIME") == pa.time64("us")
+        assert sql_handler._sql_type_to_pyarrow("TIMESTAMP") == pa.timestamp("us")
+        assert sql_handler._sql_type_to_pyarrow("TIMESTAMPTZ") == pa.timestamp("us", tz="UTC")
 
     def test_sql_type_to_pyarrow_binary_types(self, sql_handler):
         """Test SQL to PyArrow type conversion for binary types."""
@@ -412,20 +424,17 @@ class TestSqlInputHandlerComplete:
         # Mock data rows
         mock_cursor.fetchmany.side_effect = [
             [(1, "Alice"), (2, "Bob")],  # First batch
-            [(3, "Charlie")],             # Second batch
-            []                            # End of data
+            [(3, "Charlie")],  # Second batch
+            [],  # End of data
         ]
 
         # Mock schema
-        mock_schema = pa.schema([
-            pa.field("id", pa.int32()),
-            pa.field("name", pa.string())
-        ])
+        mock_schema = pa.schema([pa.field("id", pa.int32()), pa.field("name", pa.string())])
 
         sql_handler.connection = mock_connection
 
         # Mock the data reader's read_table_data method directly to avoid the schema retrieval issue
-        with patch.object(sql_handler.data_reader, 'read_table_data') as mock_read_data:
+        with patch.object(sql_handler.data_reader, "read_table_data") as mock_read_data:
             mock_batch_1 = pa.record_batch([[1, 2], ["Alice", "Bob"]], schema=mock_schema)
             mock_batch_2 = pa.record_batch([[3], ["Charlie"]], schema=mock_schema)
             mock_read_data.return_value = iter([mock_batch_1, mock_batch_2])
@@ -449,14 +458,11 @@ class TestSqlInputHandlerComplete:
 
     def test_rows_to_recordbatch_with_data(self, sql_handler):
         """Test converting rows to RecordBatch with data."""
-        schema = pa.schema([
-            pa.field("id", pa.int32()),
-            pa.field("name", pa.string())
-        ])
+        schema = pa.schema([pa.field("id", pa.int32()), pa.field("name", pa.string())])
         rows = [(1, "Alice"), (2, "Bob")]
 
         # Mock the data reader's _rows_to_recordbatch method since that's where the logic moved
-        with patch.object(sql_handler.data_reader, '_rows_to_recordbatch') as mock_rows_to_batch:
+        with patch.object(sql_handler.data_reader, "_rows_to_recordbatch") as mock_rows_to_batch:
             expected_batch = pa.record_batch([[1, 2], ["Alice", "Bob"]], schema=schema)
             mock_rows_to_batch.return_value = expected_batch
 
@@ -490,7 +496,7 @@ class TestSqlInputHandlerComplete:
         mock_importer = Mock()
         mock_importer.get_table_list.return_value = [
             ("public", "users", "users_output"),
-            ("public", "orders", None)
+            ("public", "orders", None),
         ]
         sql_handler.schema_importer = mock_importer
 
@@ -501,14 +507,11 @@ class TestSqlInputHandlerComplete:
         """Test connection without additional parameters."""
         sql_handler.config.connection_params = None
 
-        with patch('pyodbc.connect') as mock_connect:
+        with patch("pyodbc.connect") as mock_connect:
             mock_connection = Mock()
             mock_connect.return_value = mock_connection
 
             sql_handler.connect()
 
             # Should use connection string as-is without additional params
-            mock_connect.assert_called_once_with(
-                "Driver={SQLite3};Database=test.db",
-                timeout=30
-            )
+            mock_connect.assert_called_once_with("Driver={SQLite3};Database=test.db", timeout=30)

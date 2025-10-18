@@ -1,22 +1,21 @@
 """Comprehensive unit tests for data_validation.py"""
 
-import pytest
-from unittest.mock import Mock, patch
-from datetime import datetime, date
-import pyarrow as pa
 import re
+from datetime import date, datetime
+from unittest.mock import Mock, patch
 
-from forklift.processors.data_validation import (
-    RangeValidation,
-    StringValidation,
-    EnumValidation,
-    DateValidation,
-    FieldValidationRule,
-    BadRowsConfig,
-    ValidationConfig,
-    DataValidationProcessor
-)
+import pyarrow as pa
+import pytest
+
 from forklift.processors.base import ValidationResult
+from forklift.processors.data_validation import (BadRowsConfig,
+                                                 DataValidationProcessor,
+                                                 DateValidation,
+                                                 EnumValidation,
+                                                 FieldValidationRule,
+                                                 RangeValidation,
+                                                 StringValidation,
+                                                 ValidationConfig)
 
 
 class TestRangeValidation:
@@ -57,14 +56,11 @@ class TestStringValidation:
     def test_string_validation_custom_values(self):
         """Test StringValidation with custom values."""
         string_val = StringValidation(
-            min_length=5,
-            max_length=50,
-            pattern=r'^[a-zA-Z]+$',
-            allow_empty=False
+            min_length=5, max_length=50, pattern=r"^[a-zA-Z]+$", allow_empty=False
         )
         assert string_val.min_length == 5
         assert string_val.max_length == 50
-        assert string_val.pattern == r'^[a-zA-Z]+$'
+        assert string_val.pattern == r"^[a-zA-Z]+$"
         assert string_val.allow_empty is False
 
 
@@ -97,9 +93,7 @@ class TestDateValidation:
     def test_date_validation_custom_values(self):
         """Test DateValidation with custom values."""
         date_val = DateValidation(
-            min_date="2020-01-01",
-            max_date="2030-12-31",
-            formats=["%Y-%m-%d", "%m/%d/%Y"]
+            min_date="2020-01-01", max_date="2030-12-31", formats=["%Y-%m-%d", "%m/%d/%Y"]
         )
         assert date_val.min_date == "2020-01-01"
         assert date_val.max_date == "2030-12-31"
@@ -136,7 +130,7 @@ class TestFieldValidationRule:
             string_validation=string_val,
             enum_validation=enum_val,
             date_validation=date_val,
-            on_violation={"action": "reject"}
+            on_violation={"action": "reject"},
         )
 
         assert rule.field_name == "full_field"
@@ -177,7 +171,7 @@ class TestBadRowsConfig:
             include_original_row=False,
             include_validation_errors=False,
             max_bad_rows_percent=5.0,
-            fail_on_exceed_threshold=False
+            fail_on_exceed_threshold=False,
         )
         assert config.enabled is False
         assert config.output_path == "/custom/path"
@@ -196,10 +190,7 @@ class TestValidationConfig:
         rule = FieldValidationRule(field_name="test")
         bad_rows_config = BadRowsConfig()
 
-        config = ValidationConfig(
-            field_validations=[rule],
-            bad_rows_config=bad_rows_config
-        )
+        config = ValidationConfig(field_validations=[rule], bad_rows_config=bad_rows_config)
 
         assert config.field_validations == [rule]
         assert config.bad_rows_config == bad_rows_config
@@ -213,7 +204,7 @@ class TestValidationConfig:
         config = ValidationConfig(
             field_validations=[rule],
             bad_rows_config=bad_rows_config,
-            uniqueness_strategy="last_wins"
+            uniqueness_strategy="last_wins",
         )
 
         assert config.uniqueness_strategy == "last_wins"
@@ -227,7 +218,7 @@ class TestValidationConfig:
             ValidationConfig(
                 field_validations=[rule],
                 bad_rows_config=bad_rows_config,
-                uniqueness_strategy="invalid_strategy"
+                uniqueness_strategy="invalid_strategy",
             )
 
     def test_validation_config_all_strategies(self):
@@ -241,7 +232,7 @@ class TestValidationConfig:
             config = ValidationConfig(
                 field_validations=[rule],
                 bad_rows_config=bad_rows_config,
-                uniqueness_strategy=strategy
+                uniqueness_strategy=strategy,
             )
             assert config.uniqueness_strategy == strategy
 
@@ -255,10 +246,7 @@ class TestDataValidationProcessor:
         rule2 = FieldValidationRule(field_name="field2", required=True)
         bad_rows_config = BadRowsConfig()
 
-        config = ValidationConfig(
-            field_validations=[rule1, rule2],
-            bad_rows_config=bad_rows_config
-        )
+        config = ValidationConfig(field_validations=[rule1, rule2], bad_rows_config=bad_rows_config)
 
         processor = DataValidationProcessor(config)
 
@@ -291,7 +279,9 @@ class TestDataValidationProcessor:
     def test_process_batch_with_validation_errors(self):
         """Test processing batch with validation errors."""
         rule = FieldValidationRule(field_name="age", required=True)
-        bad_rows_config = BadRowsConfig(max_bad_rows_percent=50.0)  # Set high threshold to avoid threshold errors
+        bad_rows_config = BadRowsConfig(
+            max_bad_rows_percent=50.0
+        )  # Set high threshold to avoid threshold errors
         config = ValidationConfig(field_validations=[rule], bad_rows_config=bad_rows_config)
 
         processor = DataValidationProcessor(config)
@@ -312,7 +302,9 @@ class TestDataValidationProcessor:
     def test_process_batch_all_bad_rows(self):
         """Test processing batch where all rows are bad."""
         rule = FieldValidationRule(field_name="age", required=True)
-        bad_rows_config = BadRowsConfig(fail_on_exceed_threshold=False)  # Disable threshold checking
+        bad_rows_config = BadRowsConfig(
+            fail_on_exceed_threshold=False
+        )  # Disable threshold checking
         config = ValidationConfig(field_validations=[rule], bad_rows_config=bad_rows_config)
 
         processor = DataValidationProcessor(config)
@@ -355,7 +347,7 @@ class TestDataValidationProcessor:
         processor = DataValidationProcessor(config)
 
         # Mock _validate_row to raise an exception
-        with patch.object(processor, '_validate_row', side_effect=Exception("Test error")):
+        with patch.object(processor, "_validate_row", side_effect=Exception("Test error")):
             data = {"age": [25], "name": ["Alice"]}
             batch = pa.RecordBatch.from_pydict(data)
 
@@ -412,7 +404,7 @@ class TestDataValidationProcessor:
         config = ValidationConfig(
             field_validations=[rule],
             bad_rows_config=bad_rows_config,
-            uniqueness_strategy="fail_on_duplicate"
+            uniqueness_strategy="fail_on_duplicate",
         )
 
         processor = DataValidationProcessor(config)
@@ -535,7 +527,7 @@ class TestDataValidationProcessor:
         range_val = RangeValidation(min_value=10, max_value=100)
 
         # Mock a comparison that raises an exception
-        with patch('builtins.float', side_effect=Exception("Conversion error")):
+        with patch("builtins.float", side_effect=Exception("Conversion error")):
             error = processor._validate_range("test", "10.5", range_val)
             assert error is not None
             assert "range validation error" in error
@@ -573,7 +565,7 @@ class TestDataValidationProcessor:
 
         processor = DataValidationProcessor(config)
 
-        string_val = StringValidation(pattern=r'^[a-zA-Z]+$')
+        string_val = StringValidation(pattern=r"^[a-zA-Z]+$")
 
         # Valid pattern
         assert processor._validate_string("test", "hello", string_val) is None
@@ -743,9 +735,7 @@ class TestDataValidationProcessor:
         """Test _handle_bad_row when bad rows handling is enabled."""
         rule = FieldValidationRule(field_name="test")
         bad_rows_config = BadRowsConfig(
-            enabled=True,
-            include_validation_errors=True,
-            include_original_row=True
+            enabled=True, include_validation_errors=True, include_original_row=True
         )
         config = ValidationConfig(field_validations=[rule], bad_rows_config=bad_rows_config)
 
@@ -784,10 +774,7 @@ class TestDataValidationProcessor:
     def test_handle_bad_row_no_validation_errors(self):
         """Test _handle_bad_row without including validation errors."""
         rule = FieldValidationRule(field_name="test")
-        bad_rows_config = BadRowsConfig(
-            enabled=True,
-            include_validation_errors=False
-        )
+        bad_rows_config = BadRowsConfig(enabled=True, include_validation_errors=False)
         config = ValidationConfig(field_validations=[rule], bad_rows_config=bad_rows_config)
 
         processor = DataValidationProcessor(config)
@@ -832,15 +819,15 @@ class TestDataValidationProcessor:
                 "name": "Alice",
                 "_validation_errors": "Field 'age' is required",
                 "_error_count": 1,
-                "_processed_timestamp": "2023-01-01T00:00:00"
+                "_processed_timestamp": "2023-01-01T00:00:00",
             },
             {
                 "age": 25,
                 "name": "Bob",
                 "_validation_errors": "Some error",
                 "_error_count": 1,
-                "_processed_timestamp": "2023-01-01T00:00:01"
-            }
+                "_processed_timestamp": "2023-01-01T00:00:01",
+            },
         ]
 
         result = processor.get_bad_rows_batch()
@@ -850,7 +837,13 @@ class TestDataValidationProcessor:
         assert result.num_columns == 5  # age, name, + 3 error fields
 
         # Check schema
-        expected_fields = ["age", "name", "_validation_errors", "_error_count", "_processed_timestamp"]
+        expected_fields = [
+            "age",
+            "name",
+            "_validation_errors",
+            "_error_count",
+            "_processed_timestamp",
+        ]
         actual_fields = [field.name for field in result.schema]
         assert set(actual_fields) == set(expected_fields)
 
@@ -864,12 +857,7 @@ class TestDataValidationProcessor:
 
         # Add bad rows with different data types
         processor.bad_rows = [
-            {
-                "bool_field": True,
-                "int_field": 42,
-                "float_field": 3.14,
-                "string_field": "hello"
-            }
+            {"bool_field": True, "int_field": 42, "float_field": 3.14, "string_field": "hello"}
         ]
 
         result = processor.get_bad_rows_batch()
@@ -893,7 +881,11 @@ class TestDataValidationProcessor:
         # Simulate processing
         processor.total_rows_processed = 100
         processor.bad_rows = [{"error": "test"}] * 5  # 5 bad rows
-        processor.unique_value_tracker["email"] = {"alice@test.com", "bob@test.com", "charlie@test.com"}
+        processor.unique_value_tracker["email"] = {
+            "alice@test.com",
+            "bob@test.com",
+            "charlie@test.com",
+        }
 
         summary = processor.get_validation_summary()
 
@@ -920,7 +912,7 @@ class TestDataValidationProcessor:
     def test_validation_with_all_validation_types(self):
         """Test validation with all types of validation rules."""
         range_val = RangeValidation(min_value=18, max_value=100)
-        string_val = StringValidation(min_length=2, max_length=50, pattern=r'^[a-zA-Z\s]+$')
+        string_val = StringValidation(min_length=2, max_length=50, pattern=r"^[a-zA-Z\s]+$")
         enum_val = EnumValidation(allowed_values=["M", "F", "Other"])
         date_val = DateValidation(min_date="1900-01-01", max_date="2023-12-31")
 
@@ -929,7 +921,7 @@ class TestDataValidationProcessor:
             FieldValidationRule(field_name="name", required=True, string_validation=string_val),
             FieldValidationRule(field_name="gender", enum_validation=enum_val),
             FieldValidationRule(field_name="birth_date", date_validation=date_val),
-            FieldValidationRule(field_name="email", unique=True)
+            FieldValidationRule(field_name="email", unique=True),
         ]
 
         bad_rows_config = BadRowsConfig()
@@ -940,10 +932,28 @@ class TestDataValidationProcessor:
         # Test data with various validation scenarios
         data = {
             "age": [25, 150, None, 17, 30],  # valid, too high, missing (required), too low, valid
-            "name": ["John Doe", "X", "Jane Smith", "John123", "Alice"],  # valid, too short, valid, invalid pattern, valid
+            "name": [
+                "John Doe",
+                "X",
+                "Jane Smith",
+                "John123",
+                "Alice",
+            ],  # valid, too short, valid, invalid pattern, valid
             "gender": ["M", "F", "Invalid", "Other", "M"],  # valid, valid, invalid, valid, valid
-            "birth_date": ["1990-01-01", "1800-01-01", "2025-01-01", "1995-05-15", "2000-12-31"],  # valid, too early, too late, valid, valid
-            "email": ["john@test.com", "jane@test.com", "alice@test.com", "bob@test.com", "john@test.com"]  # valid, valid, valid, valid, duplicate
+            "birth_date": [
+                "1990-01-01",
+                "1800-01-01",
+                "2025-01-01",
+                "1995-05-15",
+                "2000-12-31",
+            ],  # valid, too early, too late, valid, valid
+            "email": [
+                "john@test.com",
+                "jane@test.com",
+                "alice@test.com",
+                "bob@test.com",
+                "john@test.com",
+            ],  # valid, valid, valid, valid, duplicate
         }
         batch = pa.RecordBatch.from_pydict(data)
 
@@ -985,56 +995,84 @@ class TestDataValidationIntegration:
                 field_name="user_id",
                 required=True,
                 unique=True,
-                range_validation=RangeValidation(min_value=1, max_value=999999)
+                range_validation=RangeValidation(min_value=1, max_value=999999),
             ),
             FieldValidationRule(
                 field_name="username",
                 required=True,
                 string_validation=StringValidation(
-                    min_length=3,
-                    max_length=20,
-                    pattern=r'^[a-zA-Z0-9_]+$',
-                    allow_empty=False
-                )
+                    min_length=3, max_length=20, pattern=r"^[a-zA-Z0-9_]+$", allow_empty=False
+                ),
             ),
             FieldValidationRule(
                 field_name="status",
                 enum_validation=EnumValidation(
-                    allowed_values=["active", "inactive", "pending"],
-                    case_sensitive=False
-                )
+                    allowed_values=["active", "inactive", "pending"], case_sensitive=False
+                ),
             ),
             FieldValidationRule(
                 field_name="created_date",
-                date_validation=DateValidation(
-                    min_date="2020-01-01",
-                    max_date="2030-12-31"
-                )
-            )
+                date_validation=DateValidation(min_date="2020-01-01", max_date="2030-12-31"),
+            ),
         ]
 
         bad_rows_config = BadRowsConfig(
             enabled=True,
             include_validation_errors=True,
             max_bad_rows_percent=25.0,
-            fail_on_exceed_threshold=True
+            fail_on_exceed_threshold=True,
         )
 
         config = ValidationConfig(
             field_validations=rules,
             bad_rows_config=bad_rows_config,
-            uniqueness_strategy="first_wins"
+            uniqueness_strategy="first_wins",
         )
 
         processor = DataValidationProcessor(config)
 
         # Create test data with various validation scenarios
         test_data = {
-            "user_id": [1, 2, None, 1000000, 3, 2],  # valid, valid, missing, too high, valid, duplicate
-            "username": ["alice", "bob_123", "", "x", "charlie", "invalid@user"],  # valid, valid, empty, too short, valid, invalid chars
-            "status": ["ACTIVE", "inactive", "unknown", "Pending", "active", ""],  # valid, valid, invalid, valid, valid, empty (None validation)
-            "created_date": ["2022-01-01", "2019-12-31", "invalid", "2025-06-15", "2021-03-15", "2035-01-01"],  # valid, too early, invalid, valid, valid, too late
-            "email": ["alice@test.com", "bob@test.com", "charlie@test.com", "dave@test.com", "eve@test.com", "frank@test.com"]  # additional field not validated
+            "user_id": [
+                1,
+                2,
+                None,
+                1000000,
+                3,
+                2,
+            ],  # valid, valid, missing, too high, valid, duplicate
+            "username": [
+                "alice",
+                "bob_123",
+                "",
+                "x",
+                "charlie",
+                "invalid@user",
+            ],  # valid, valid, empty, too short, valid, invalid chars
+            "status": [
+                "ACTIVE",
+                "inactive",
+                "unknown",
+                "Pending",
+                "active",
+                "",
+            ],  # valid, valid, invalid, valid, valid, empty (None validation)
+            "created_date": [
+                "2022-01-01",
+                "2019-12-31",
+                "invalid",
+                "2025-06-15",
+                "2021-03-15",
+                "2035-01-01",
+            ],  # valid, too early, invalid, valid, valid, too late
+            "email": [
+                "alice@test.com",
+                "bob@test.com",
+                "charlie@test.com",
+                "dave@test.com",
+                "eve@test.com",
+                "frank@test.com",
+            ],  # additional field not validated
         }
 
         batch = pa.RecordBatch.from_pydict(test_data)

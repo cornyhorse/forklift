@@ -1,17 +1,18 @@
 """Batch processing logic for CSV data."""
 
 from __future__ import annotations
+
 import csv
 import tempfile
 from pathlib import Path
 from typing import Iterator, List, Tuple, Union
 
 import pyarrow as pa
-import pyarrow.csv as pv_csv
 import pyarrow.compute as pc
+import pyarrow.csv as pv_csv
 
-from ..config import ImportConfig, ExcessColumnMode
-from ...io import UnifiedIOHandler, is_s3_path, S3Path
+from ...io import S3Path, UnifiedIOHandler, is_s3_path
+from ..config import ExcessColumnMode, ImportConfig
 
 
 class BatchProcessor:
@@ -27,8 +28,9 @@ class BatchProcessor:
         self.config = config
         self.io_handler = io_handler
 
-    def create_batch_reader(self, file_path: Path, column_names: List[str],
-                           header_row_index: int, footer_detector_func) -> Iterator[pa.RecordBatch]:
+    def create_batch_reader(
+        self, file_path: Path, column_names: List[str], header_row_index: int, footer_detector_func
+    ) -> Iterator[pa.RecordBatch]:
         """Create a streaming batch reader for the CSV file.
 
         Sets up PyArrow CSV streaming reader with appropriate configuration
@@ -83,7 +85,7 @@ class BatchProcessor:
 
         # Create streaming reader
         try:
-            with open(actual_file_path, 'rb') as f:
+            with open(actual_file_path, "rb") as f:
                 csv_reader = pv_csv.open_csv(
                     f,
                     parse_options=parse_options,
@@ -116,7 +118,9 @@ class BatchProcessor:
                     raise
 
                 # Handle legitimate column count mismatches with new row handling
-                yield from self._handle_column_mismatch_reader(actual_file_path, skip_rows, column_names)
+                yield from self._handle_column_mismatch_reader(
+                    actual_file_path, skip_rows, column_names
+                )
             else:
                 raise
         finally:
@@ -127,8 +131,13 @@ class BatchProcessor:
                 except:
                     pass
 
-    def create_s3_batch_reader(self, input_path: Union[str, Path], column_names: List[str],
-                              header_row_index: int, footer_detector_func) -> Iterator[pa.RecordBatch]:
+    def create_s3_batch_reader(
+        self,
+        input_path: Union[str, Path],
+        column_names: List[str],
+        header_row_index: int,
+        footer_detector_func,
+    ) -> Iterator[pa.RecordBatch]:
         """Create a streaming batch reader that works with both local files and S3.
 
         Args:
@@ -143,13 +152,22 @@ class BatchProcessor:
         if is_s3_path(input_path):
             # S3 input - use fallback to row-by-row processing since PyArrow CSV
             # doesn't directly stream from S3
-            yield from self._create_s3_csv_batches(input_path, column_names, header_row_index, footer_detector_func)
+            yield from self._create_s3_csv_batches(
+                input_path, column_names, header_row_index, footer_detector_func
+            )
         else:
             # Local file - use existing PyArrow streaming
-            yield from self.create_batch_reader(Path(input_path), column_names, header_row_index, footer_detector_func)
+            yield from self.create_batch_reader(
+                Path(input_path), column_names, header_row_index, footer_detector_func
+            )
 
-    def _create_s3_csv_batches(self, s3_path: Union[str, S3Path], column_names: List[str],
-                              header_row_index: int, footer_detector_func) -> Iterator[pa.RecordBatch]:
+    def _create_s3_csv_batches(
+        self,
+        s3_path: Union[str, S3Path],
+        column_names: List[str],
+        header_row_index: int,
+        footer_detector_func,
+    ) -> Iterator[pa.RecordBatch]:
         """Create batches from S3 CSV by processing rows and converting to RecordBatch.
 
         Args:
@@ -178,7 +196,7 @@ class BatchProcessor:
             s3_path,
             delimiter=self.config.delimiter,
             quotechar=self.config.quote_char,
-            encoding=self.config.encoding
+            encoding=self.config.encoding,
         ):
             # Skip header rows
             if row_count < rows_to_skip:
@@ -197,7 +215,7 @@ class BatchProcessor:
                     row = row[:expected_columns]
             elif len(row) < expected_columns:
                 # Pad with empty strings
-                row = row + [''] * (expected_columns - len(row))
+                row = row + [""] * (expected_columns - len(row))
 
             rows_buffer.append(row)
             row_count += 1
@@ -211,8 +229,9 @@ class BatchProcessor:
         if rows_buffer:
             yield self._convert_rows_to_batch(rows_buffer, expected_columns, column_names)
 
-    def _handle_column_mismatch_reader(self, file_path: Path, skip_rows: int,
-                                     column_names: List[str]) -> Iterator[pa.RecordBatch]:
+    def _handle_column_mismatch_reader(
+        self, file_path: Path, skip_rows: int, column_names: List[str]
+    ) -> Iterator[pa.RecordBatch]:
         """Handle column mismatch by processing rows with different column counts.
 
         When some rows have more or fewer columns than expected, this method
@@ -234,8 +253,10 @@ class BatchProcessor:
         rejected_rows = []
         batch_size = self.config.batch_size
 
-        with open(file_path, 'r', encoding=self.config.encoding) as f:
-            reader = csv.reader(f, delimiter=self.config.delimiter, quotechar=self.config.quote_char)
+        with open(file_path, "r", encoding=self.config.encoding) as f:
+            reader = csv.reader(
+                f, delimiter=self.config.delimiter, quotechar=self.config.quote_char
+            )
 
             # Skip the specified number of rows
             for _ in range(skip_rows):
@@ -256,7 +277,7 @@ class BatchProcessor:
                         row = row[:expected_columns]
                 elif len(row) < expected_columns:
                     # Pad with empty strings for missing columns
-                    row = row + [''] * (expected_columns - len(row))
+                    row = row + [""] * (expected_columns - len(row))
 
                 rows_buffer.append(row)
 
@@ -271,8 +292,9 @@ class BatchProcessor:
 
             # Note: rejected_rows could be logged or handled separately in future versions
 
-    def _convert_rows_to_batch(self, rows: List[List[str]], num_columns: int,
-                              column_names: List[str]) -> pa.RecordBatch:
+    def _convert_rows_to_batch(
+        self, rows: List[List[str]], num_columns: int, column_names: List[str]
+    ) -> pa.RecordBatch:
         """Convert a list of rows to a PyArrow RecordBatch.
 
         Args:
@@ -287,14 +309,13 @@ class BatchProcessor:
             # Return empty batch with proper schema
             schema = pa.schema([pa.field(name, pa.string()) for name in column_names])
             return pa.RecordBatch.from_arrays(
-                [pa.array([], type=pa.string()) for _ in column_names],
-                schema=schema
+                [pa.array([], type=pa.string()) for _ in column_names], schema=schema
             )
 
         # Convert rows to column arrays
         columns = []
         for col_idx in range(num_columns):
-            column_data = [row[col_idx] if col_idx < len(row) else '' for row in rows]
+            column_data = [row[col_idx] if col_idx < len(row) else "" for row in rows]
             columns.append(pa.array(column_data, type=pa.string()))
 
         # Create schema with proper column names
@@ -302,8 +323,7 @@ class BatchProcessor:
 
         return pa.RecordBatch.from_arrays(columns, schema=schema)
 
-    def _create_filtered_file(self, file_path: Path, skip_rows: int,
-                             footer_detector_func) -> Path:
+    def _create_filtered_file(self, file_path: Path, skip_rows: int, footer_detector_func) -> Path:
         """Create a temporary file with footer content removed.
 
         When footer detection is enabled, this creates a cleaned version of
@@ -318,11 +338,13 @@ class BatchProcessor:
             Path to the temporary filtered file
         """
         # Create temporary file
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.csv', text=True)
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".csv", text=True)
 
         try:
-            with open(file_path, 'r', encoding=self.config.encoding) as input_file:
-                with open(temp_fd, 'w', encoding=self.config.encoding, closefd=False) as output_file:
+            with open(file_path, "r", encoding=self.config.encoding) as input_file:
+                with open(
+                    temp_fd, "w", encoding=self.config.encoding, closefd=False
+                ) as output_file:
                     reader = csv.reader(input_file, delimiter=self.config.delimiter)
                     writer = csv.writer(output_file, delimiter=self.config.delimiter)
 
@@ -340,6 +362,7 @@ class BatchProcessor:
                         writer.writerow(row)
         finally:
             import os
+
             os.close(temp_fd)
 
         return Path(temp_path)
@@ -375,10 +398,37 @@ class BatchProcessor:
             return False
 
         # Check for null bytes and other control characters that shouldn't be in CSV
-        problematic_chars = {'\x00', '\x01', '\x02', '\x03', '\x04', '\x05', '\x06', '\x07',
-                           '\x08', '\x0b', '\x0c', '\x0e', '\x0f', '\x10', '\x11', '\x12',
-                           '\x13', '\x14', '\x15', '\x16', '\x17', '\x18', '\x19', '\x1a',
-                           '\x1b', '\x1c', '\x1d', '\x1e', '\x1f'}
+        problematic_chars = {
+            "\x00",
+            "\x01",
+            "\x02",
+            "\x03",
+            "\x04",
+            "\x05",
+            "\x06",
+            "\x07",
+            "\x08",
+            "\x0b",
+            "\x0c",
+            "\x0e",
+            "\x0f",
+            "\x10",
+            "\x11",
+            "\x12",
+            "\x13",
+            "\x14",
+            "\x15",
+            "\x16",
+            "\x17",
+            "\x18",
+            "\x19",
+            "\x1a",
+            "\x1b",
+            "\x1c",
+            "\x1d",
+            "\x1e",
+            "\x1f",
+        }
 
         # Check if any problematic characters are present
         for char in line_content:
@@ -387,7 +437,7 @@ class BatchProcessor:
 
         # Check for other signs of corruption like invalid UTF-8 sequences
         # that might have been converted to replacement characters
-        if '\ufffd' in line_content:  # Unicode replacement character
+        if "\ufffd" in line_content:  # Unicode replacement character
             return True
 
         return False

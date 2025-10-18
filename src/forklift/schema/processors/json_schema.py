@@ -1,7 +1,9 @@
 """JSON Schema processing utilities."""
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 import pyarrow as pa
+
 from ..types.data_types import DataTypeConverter
 from ..utils.helpers import get_parquet_type_string
 
@@ -67,30 +69,17 @@ class JSONSchemaProcessor:
         return {
             "encodingPriority": [config.encoding, "utf-8-sig", "utf-8", "latin-1"],
             "delimiter": config.delimiter,
-            "quotechar": "\"",
+            "quotechar": '"',
             "escapechar": "\\",
             "multiline": True,
-            "header": {
-                "mode": "present",
-                "keywords": list(table.schema.names)[:4]
-            },
-            "footer": {
-                "mode": "regex",
-                "pattern": "^(total|summary|count)\\b"
-            },
-            "nulls": {
-                "global": ["", "NA", "N/A", "-", "NULL", "null"],
-                "perColumn": {}
-            },
+            "header": {"mode": "present", "keywords": list(table.schema.names)[:4]},
+            "footer": {"mode": "regex", "pattern": "^(total|summary|count)\\b"},
+            "nulls": {"global": ["", "NA", "N/A", "-", "NULL", "null"], "perColumn": {}},
             "dataTypes": {
                 col_name: get_parquet_type_string(table.schema.field(col_name).type)
                 for col_name in table.schema.names
             },
-            "validation": {
-                "enabled": True,
-                "onError": "log",
-                "maxErrors": 1000
-            }
+            "validation": {"enabled": True, "onError": "log", "maxErrors": 1000},
         }
 
     def generate_excel_extension(self, config) -> Dict[str, Any]:
@@ -107,14 +96,8 @@ class JSONSchemaProcessor:
             "header": {"mode": "present"},
             "skipRows": 0,
             "skipFooter": 0,
-            "nulls": {
-                "global": ["", "NA", "N/A", "-", "NULL"]
-            },
-            "validation": {
-                "enabled": True,
-                "onError": "log",
-                "maxErrors": 1000
-            }
+            "nulls": {"global": ["", "NA", "N/A", "-", "NULL"]},
+            "validation": {"enabled": True, "onError": "log", "maxErrors": 1000},
         }
 
     def generate_sample_data(self, table: pa.Table) -> Dict[str, Any]:
@@ -134,9 +117,6 @@ class JSONSchemaProcessor:
         df = sample_table.to_pandas()
 
         # Convert to records format
-        records = df.to_dict('records')
+        records = df.to_dict("records")
 
-        return {
-            "description": f"Sample data from first {sample_size} rows",
-            "rows": records
-        }
+        return {"description": f"Sample data from first {sample_size} rows", "rows": records}

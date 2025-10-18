@@ -18,6 +18,7 @@ class ProcessingResults:
         execution_time: Total processing time in seconds
         errors: List of error messages encountered during processing
     """
+
     total_rows: int = 0
     valid_rows: int = 0
     invalid_rows: int = 0

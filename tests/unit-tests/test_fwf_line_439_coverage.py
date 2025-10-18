@@ -1,10 +1,12 @@
 """Ultimate final test to achieve 100% coverage for fwf.py - targeting line 439."""
 
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
+
+from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
+                                    FwfInputConfig)
 from forklift.inputs.fwf import FwfInputHandler
-from forklift.inputs.config import FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
 
 
 class TestFwfLine439Coverage:
@@ -17,17 +19,21 @@ class TestFwfLine439Coverage:
 
         flag_column = FwfFieldSpec("record_type", 1, 1, parquet_type="string")
         conditional_schemas = [
-            FwfConditionalSchema("A", "Type A Records", [
-                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("field1", 2, 10, parquet_type="string")
-            ])
+            FwfConditionalSchema(
+                "A",
+                "Type A Records",
+                [
+                    FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("field1", 2, 10, parquet_type="string"),
+                ],
+            )
         ]
 
         # Create config with ONLY conditional schemas (no simple fields)
         config = FwfInputConfig(
             fields=None,  # Explicitly no simple fields
             flag_column=flag_column,
-            conditional_schemas=conditional_schemas
+            conditional_schemas=conditional_schemas,
         )
         handler = FwfInputHandler(config)
 
@@ -47,16 +53,17 @@ class TestFwfLine439Coverage:
 
         flag_column = FwfFieldSpec("flag", 1, 1, parquet_type="string")
         conditional_schemas = [
-            FwfConditionalSchema("Z", "Z Records", [
-                FwfFieldSpec("flag", 1, 1, parquet_type="string"),
-                FwfFieldSpec("data", 2, 5, parquet_type="string")
-            ])
+            FwfConditionalSchema(
+                "Z",
+                "Z Records",
+                [
+                    FwfFieldSpec("flag", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("data", 2, 5, parquet_type="string"),
+                ],
+            )
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
         handler = FwfInputHandler(config)
 
         # Test with a line that has a different flag

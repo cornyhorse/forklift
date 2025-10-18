@@ -1,17 +1,16 @@
 """Comprehensive tests for forklift.processors.column_mapper module to improve code coverage."""
 
-import pytest
-import pyarrow as pa
 from typing import Dict, List
 from unittest.mock import Mock
 
-from forklift.processors.column_mapper import (
-    ColumnMappingConfig,
-    ColumnMapper,
-    create_postgres_mapper,
-    create_custom_mapper
-)
+import pyarrow as pa
+import pytest
+
 from forklift.processors.base import ValidationResult
+from forklift.processors.column_mapper import (ColumnMapper,
+                                               ColumnMappingConfig,
+                                               create_custom_mapper,
+                                               create_postgres_mapper)
 
 
 class TestColumnMappingConfig:
@@ -35,7 +34,7 @@ class TestColumnMappingConfig:
 
     def test_config_valid_naming_conventions(self):
         """Test all valid naming conventions."""
-        valid_conventions = ['snake_case', 'camelCase', 'PascalCase', 'lowercase', 'UPPERCASE']
+        valid_conventions = ["snake_case", "camelCase", "PascalCase", "lowercase", "UPPERCASE"]
 
         for convention in valid_conventions:
             config = ColumnMappingConfig(naming_convention=convention)
@@ -44,10 +43,11 @@ class TestColumnMappingConfig:
     def test_config_invalid_naming_convention(self):
         """Test that invalid naming convention raises ValueError."""
         with pytest.raises(ValueError, match="naming_convention must be one of"):
-            ColumnMappingConfig(naming_convention='invalid_convention')
+            ColumnMappingConfig(naming_convention="invalid_convention")
 
     def test_config_with_custom_transform(self):
         """Test configuration with custom transform function."""
+
         def custom_func(name: str) -> str:
             return f"prefix_{name}"
 
@@ -61,15 +61,15 @@ class TestColumnMappingConfig:
 
         config = ColumnMappingConfig(
             explicit_mappings=mappings,
-            naming_convention='snake_case',
+            naming_convention="snake_case",
             custom_transform=custom_func,
             case_sensitive=False,
             allow_unmapped=False,
-            drop_unmapped=True
+            drop_unmapped=True,
         )
 
         assert config.explicit_mappings == mappings
-        assert config.naming_convention == 'snake_case'
+        assert config.naming_convention == "snake_case"
         assert config.custom_transform == custom_func
         assert config.case_sensitive is False
         assert config.allow_unmapped is False
@@ -92,16 +92,11 @@ class TestColumnMapper:
     def test_explicit_mapping_case_sensitive(self):
         """Test explicit column mapping with case sensitivity."""
         config = ColumnMappingConfig(
-            explicit_mappings={"OldName": "NewName", "AnotherCol": "MappedCol"},
-            case_sensitive=True
+            explicit_mappings={"OldName": "NewName", "AnotherCol": "MappedCol"}, case_sensitive=True
         )
         mapper = ColumnMapper(config)
 
-        data = {
-            "OldName": [1, 2, 3],
-            "AnotherCol": ["a", "b", "c"],
-            "UnmappedCol": [10, 20, 30]
-        }
+        data = {"OldName": [1, 2, 3], "AnotherCol": ["a", "b", "c"], "UnmappedCol": [10, 20, 30]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -116,15 +111,12 @@ class TestColumnMapper:
 
     def test_explicit_mapping_case_insensitive(self):
         """Test explicit column mapping without case sensitivity."""
-        config = ColumnMappingConfig(
-            explicit_mappings={"oldname": "NewName"},
-            case_sensitive=False
-        )
+        config = ColumnMappingConfig(explicit_mappings={"oldname": "NewName"}, case_sensitive=False)
         mapper = ColumnMapper(config)
 
         data = {
             "OLDNAME": [1, 2, 3],  # Different case than mapping key
-            "OtherCol": ["a", "b", "c"]
+            "OtherCol": ["a", "b", "c"],
         }
         batch = self.create_test_batch(data)
 
@@ -138,7 +130,7 @@ class TestColumnMapper:
 
     def test_snake_case_naming_convention(self):
         """Test snake_case naming convention transformation."""
-        config = ColumnMappingConfig(naming_convention='snake_case')
+        config = ColumnMappingConfig(naming_convention="snake_case")
         mapper = ColumnMapper(config)
 
         data = {
@@ -146,7 +138,7 @@ class TestColumnMapper:
             "firstName": ["John", "Jane"],
             "XMLParser": [True, False],
             "HTTPResponse": ["ok", "error"],
-            "already_snake": [1, 2]
+            "already_snake": [1, 2],
         }
         batch = self.create_test_batch(data)
 
@@ -163,7 +155,7 @@ class TestColumnMapper:
 
     def test_camel_case_naming_convention(self):
         """Test camelCase naming convention transformation."""
-        config = ColumnMappingConfig(naming_convention='camelCase')
+        config = ColumnMappingConfig(naming_convention="camelCase")
         mapper = ColumnMapper(config)
 
         data = {
@@ -171,7 +163,7 @@ class TestColumnMapper:
             "first_name": ["John", "Jane"],
             "some-hyphenated-name": [1, 2],
             "UPPER_CASE": [True, False],
-            "already_camelCase": [1, 2]
+            "already_camelCase": [1, 2],
         }
         batch = self.create_test_batch(data)
 
@@ -189,14 +181,14 @@ class TestColumnMapper:
 
     def test_pascal_case_naming_convention(self):
         """Test PascalCase naming convention transformation."""
-        config = ColumnMappingConfig(naming_convention='PascalCase')
+        config = ColumnMappingConfig(naming_convention="PascalCase")
         mapper = ColumnMapper(config)
 
         data = {
             "state_id": [1, 2],
             "first_name": ["John", "Jane"],
             "some-hyphenated": [1, 2],
-            "camelCase": [True, False]
+            "camelCase": [True, False],
         }
         batch = self.create_test_batch(data)
 
@@ -213,14 +205,10 @@ class TestColumnMapper:
 
     def test_lowercase_naming_convention(self):
         """Test lowercase naming convention transformation."""
-        config = ColumnMappingConfig(naming_convention='lowercase')
+        config = ColumnMappingConfig(naming_convention="lowercase")
         mapper = ColumnMapper(config)
 
-        data = {
-            "MixedCase": [1, 2],
-            "UPPERCASE": ["a", "b"],
-            "alreadylower": [True, False]
-        }
+        data = {"MixedCase": [1, 2], "UPPERCASE": ["a", "b"], "alreadylower": [True, False]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -234,14 +222,10 @@ class TestColumnMapper:
 
     def test_uppercase_naming_convention(self):
         """Test UPPERCASE naming convention transformation."""
-        config = ColumnMappingConfig(naming_convention='UPPERCASE')
+        config = ColumnMappingConfig(naming_convention="UPPERCASE")
         mapper = ColumnMapper(config)
 
-        data = {
-            "mixedCase": [1, 2],
-            "lowercase": ["a", "b"],
-            "ALREADYUPPER": [True, False]
-        }
+        data = {"mixedCase": [1, 2], "lowercase": ["a", "b"], "ALREADYUPPER": [True, False]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -255,16 +239,14 @@ class TestColumnMapper:
 
     def test_custom_transform_function(self):
         """Test custom transformation function."""
+
         def add_prefix(name: str) -> str:
             return f"col_{name}"
 
         config = ColumnMappingConfig(custom_transform=add_prefix)
         mapper = ColumnMapper(config)
 
-        data = {
-            "name": ["John", "Jane"],
-            "age": [25, 30]
-        }
+        data = {"name": ["John", "Jane"], "age": [25, 30]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -277,20 +259,18 @@ class TestColumnMapper:
 
     def test_combined_transformations(self):
         """Test explicit mapping + naming convention + custom transform."""
+
         def add_suffix(name: str) -> str:
             return f"{name}_final"
 
         config = ColumnMappingConfig(
             explicit_mappings={"old_column": "new_column"},
-            naming_convention='snake_case',
-            custom_transform=add_suffix
+            naming_convention="snake_case",
+            custom_transform=add_suffix,
         )
         mapper = ColumnMapper(config)
 
-        data = {
-            "old_column": [1, 2],
-            "CamelCase": ["a", "b"]
-        }
+        data = {"old_column": [1, 2], "CamelCase": ["a", "b"]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -308,15 +288,11 @@ class TestColumnMapper:
         config = ColumnMappingConfig(
             explicit_mappings={"keep_me": "renamed_column"},
             allow_unmapped=False,
-            drop_unmapped=True
+            drop_unmapped=True,
         )
         mapper = ColumnMapper(config)
 
-        data = {
-            "keep_me": [1, 2],
-            "drop_me": ["a", "b"],
-            "also_drop": [True, False]
-        }
+        data = {"keep_me": [1, 2], "drop_me": ["a", "b"], "also_drop": [True, False]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -330,15 +306,11 @@ class TestColumnMapper:
     def test_allow_unmapped_columns(self):
         """Test allowing unmapped columns to pass through."""
         config = ColumnMappingConfig(
-            explicit_mappings={"map_me": "mapped_column"},
-            allow_unmapped=True
+            explicit_mappings={"map_me": "mapped_column"}, allow_unmapped=True
         )
         mapper = ColumnMapper(config)
 
-        data = {
-            "map_me": [1, 2],
-            "keep_unchanged": ["a", "b"]
-        }
+        data = {"map_me": [1, 2], "keep_unchanged": ["a", "b"]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -352,16 +324,11 @@ class TestColumnMapper:
     def test_all_columns_dropped_validation_error(self):
         """Test validation error when all columns are dropped."""
         config = ColumnMappingConfig(
-            explicit_mappings={},  # No explicit mappings
-            allow_unmapped=False,
-            drop_unmapped=True
+            explicit_mappings={}, allow_unmapped=False, drop_unmapped=True  # No explicit mappings
         )
         mapper = ColumnMapper(config)
 
-        data = {
-            "column1": [1, 2],
-            "column2": ["a", "b"]
-        }
+        data = {"column1": [1, 2], "column2": ["a", "b"]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -412,9 +379,7 @@ class TestColumnMapper:
 
     def test_schema_field_preservation(self):
         """Test that field metadata and types are preserved during mapping."""
-        config = ColumnMappingConfig(
-            explicit_mappings={"old_name": "new_name"}
-        )
+        config = ColumnMappingConfig(explicit_mappings={"old_name": "new_name"})
         mapper = ColumnMapper(config)
 
         # Create batch with specific field types and metadata
@@ -464,7 +429,7 @@ class TestNamingConventionHelpers:
             ("simple", "simple"),
             ("ABC", "abc"),
             ("testABC", "test_abc"),
-            ("ABCTest", "abc_test")
+            ("ABCTest", "abc_test"),
         ]
 
         for input_name, expected in test_cases:
@@ -485,7 +450,7 @@ class TestNamingConventionHelpers:
             ("_leading_underscore", "LeadingUnderscore"),
             ("trailing_underscore_", "trailingUnderscore"),
             ("", ""),
-            ("single", "single")
+            ("single", "single"),
         ]
 
         for input_name, expected in test_cases:
@@ -505,7 +470,7 @@ class TestNamingConventionHelpers:
             ("_leading_underscore", "LeadingUnderscore"),
             ("trailing_underscore_", "TrailingUnderscore"),
             ("", ""),
-            ("single", "Single")
+            ("single", "Single"),
         ]
 
         for input_name, expected in test_cases:
@@ -525,7 +490,7 @@ class TestHelperFunctions:
         mapper = create_postgres_mapper()
 
         assert isinstance(mapper, ColumnMapper)
-        assert mapper.config.naming_convention == 'snake_case'
+        assert mapper.config.naming_convention == "snake_case"
         assert mapper.config.case_sensitive is False
         assert mapper.config.explicit_mappings == {}
 
@@ -536,7 +501,7 @@ class TestHelperFunctions:
 
         assert isinstance(mapper, ColumnMapper)
         assert mapper.config.explicit_mappings == mappings
-        assert mapper.config.naming_convention == 'snake_case'
+        assert mapper.config.naming_convention == "snake_case"
         assert mapper.config.case_sensitive is False
 
     def test_create_custom_mapper_without_postgres_style(self):
@@ -554,10 +519,7 @@ class TestHelperFunctions:
         mappings = {"OldName": "MappedName"}
         mapper = create_custom_mapper(mappings, postgres_style=True)
 
-        data = {
-            "OldName": [1, 2],
-            "CamelCase": ["a", "b"]
-        }
+        data = {"OldName": [1, 2], "CamelCase": ["a", "b"]}
         batch = self.create_test_batch(data)
 
         result_batch, validation_results = mapper.process_batch(batch)
@@ -596,8 +558,7 @@ class TestEdgeCases:
     def test_single_column_batch(self):
         """Test processing a batch with a single column."""
         config = ColumnMappingConfig(
-            explicit_mappings={"single": "mapped_single"},
-            naming_convention='snake_case'
+            explicit_mappings={"single": "mapped_single"}, naming_convention="snake_case"
         )
         mapper = ColumnMapper(config)
 
@@ -612,15 +573,10 @@ class TestEdgeCases:
     def test_duplicate_column_names_after_mapping(self):
         """Test scenario where mapping might create duplicate column names."""
         # This tests the behavior when multiple source columns map to the same target
-        config = ColumnMappingConfig(
-            explicit_mappings={"col1": "same_name", "col2": "same_name"}
-        )
+        config = ColumnMappingConfig(explicit_mappings={"col1": "same_name", "col2": "same_name"})
         mapper = ColumnMapper(config)
 
-        data = {
-            "col1": [1, 2],
-            "col2": [3, 4]
-        }
+        data = {"col1": [1, 2], "col2": [3, 4]}
         batch = self.create_test_batch(data)
 
         # This should not crash, but the behavior might be undefined
@@ -632,14 +588,14 @@ class TestEdgeCases:
 
     def test_special_characters_in_column_names(self):
         """Test handling of special characters in column names."""
-        config = ColumnMappingConfig(naming_convention='snake_case')
+        config = ColumnMappingConfig(naming_convention="snake_case")
         mapper = ColumnMapper(config)
 
         data = {
             "col.with.dots": [1, 2],
             "col-with-hyphens": [3, 4],
             "col with spaces": [5, 6],
-            "col_with_underscores": [7, 8]
+            "col_with_underscores": [7, 8],
         }
         batch = self.create_test_batch(data)
 
@@ -652,7 +608,7 @@ class TestEdgeCases:
 
     def test_regex_patterns_in_naming_conventions(self):
         """Test that regex patterns work correctly in naming convention transformations."""
-        config = ColumnMappingConfig(naming_convention='snake_case')
+        config = ColumnMappingConfig(naming_convention="snake_case")
         mapper = ColumnMapper(config)
 
         # Test edge cases for regex patterns
@@ -662,7 +618,7 @@ class TestEdgeCases:
             "URLPath",
             "JSONData",
             "SQLQuery",
-            "HTTPSConnection"
+            "HTTPSConnection",
         ]
 
         for test_case in test_cases:

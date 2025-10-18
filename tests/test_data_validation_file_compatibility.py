@@ -13,17 +13,10 @@ class TestDataValidationBackwardCompatibilityFile:
     def test_import_from_file_works(self):
         """Test that importing from the file works correctly."""
         from forklift.processors.data_validation import (
-            RangeValidation,
-            StringValidation,
-            EnumValidation,
-            DateValidation,
-            FieldValidationRule,
-            BadRowsConfig,
-            ValidationConfig,
-            ValidationRules,
-            BadRowsHandler,
-            DataValidationProcessor
-        )
+            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
+            DateValidation, EnumValidation, FieldValidationRule,
+            RangeValidation, StringValidation, ValidationConfig,
+            ValidationRules)
 
         # Verify all classes are imported and are callable
         assert callable(RangeValidation)
@@ -45,7 +38,7 @@ class TestDataValidationBackwardCompatibilityFile:
             "Data validation package",
             "comprehensive data validation",
             "Field validation",
-            "Bad rows handling"
+            "Bad rows handling",
         ]
 
         assert validation_file.__doc__ is not None
@@ -66,11 +59,11 @@ class TestDataValidationBackwardCompatibilityFile:
             "ValidationConfig",
             "ValidationRules",
             "BadRowsHandler",
-            "DataValidationProcessor"
+            "DataValidationProcessor",
         ]
 
         # Verify __all__ attribute exists and contains expected exports
-        assert hasattr(validation_file, '__all__')
+        assert hasattr(validation_file, "__all__")
         assert validation_file.__all__ == expected_all
 
     def test_validation_config_imports_coverage(self):
@@ -79,13 +72,13 @@ class TestDataValidationBackwardCompatibilityFile:
 
         # This tests lines 7-15 (validation config imports)
         config_classes = [
-            'RangeValidation',
-            'StringValidation',
-            'EnumValidation',
-            'DateValidation',
-            'FieldValidationRule',
-            'BadRowsConfig',
-            'ValidationConfig'
+            "RangeValidation",
+            "StringValidation",
+            "EnumValidation",
+            "DateValidation",
+            "FieldValidationRule",
+            "BadRowsConfig",
+            "ValidationConfig",
         ]
 
         for class_name in config_classes:
@@ -99,7 +92,7 @@ class TestDataValidationBackwardCompatibilityFile:
         import forklift.processors.data_validation as validation_file
 
         # This tests line 18 (validation rules import)
-        assert hasattr(validation_file, 'ValidationRules')
+        assert hasattr(validation_file, "ValidationRules")
         assert callable(validation_file.ValidationRules)
 
     def test_bad_rows_handler_import_coverage(self):
@@ -107,7 +100,7 @@ class TestDataValidationBackwardCompatibilityFile:
         import forklift.processors.data_validation as validation_file
 
         # This tests line 21 (bad rows handler import)
-        assert hasattr(validation_file, 'BadRowsHandler')
+        assert hasattr(validation_file, "BadRowsHandler")
         assert callable(validation_file.BadRowsHandler)
 
     def test_data_validation_processor_import_coverage(self):
@@ -115,16 +108,17 @@ class TestDataValidationBackwardCompatibilityFile:
         import forklift.processors.data_validation as validation_file
 
         # This tests line 24 (data validation processor import)
-        assert hasattr(validation_file, 'DataValidationProcessor')
+        assert hasattr(validation_file, "DataValidationProcessor")
         assert callable(validation_file.DataValidationProcessor)
 
     def test_backward_compatibility_maintained(self):
         """Test that backward compatibility is maintained."""
         # Import from the compatibility file
-        from forklift.processors.data_validation import DataValidationProcessor as FileProcessor
-
+        from forklift.processors.data_validation import \
+            DataValidationProcessor as FileProcessor
         # Import from the package directly
-        from forklift.processors.data_validation.data_validation_processor import DataValidationProcessor as PackageProcessor
+        from forklift.processors.data_validation.data_validation_processor import \
+            DataValidationProcessor as PackageProcessor
 
         # They should be the same class
         assert FileProcessor is PackageProcessor
@@ -141,19 +135,19 @@ class TestDataValidationBackwardCompatibilityFile:
         assert module.__doc__ is not None
 
         # Verify all imports by checking available attributes
-        assert hasattr(module, 'RangeValidation')
-        assert hasattr(module, 'StringValidation')
-        assert hasattr(module, 'EnumValidation')
-        assert hasattr(module, 'DateValidation')
-        assert hasattr(module, 'FieldValidationRule')
-        assert hasattr(module, 'BadRowsConfig')
-        assert hasattr(module, 'ValidationConfig')
-        assert hasattr(module, 'ValidationRules')
-        assert hasattr(module, 'BadRowsHandler')
-        assert hasattr(module, 'DataValidationProcessor')
+        assert hasattr(module, "RangeValidation")
+        assert hasattr(module, "StringValidation")
+        assert hasattr(module, "EnumValidation")
+        assert hasattr(module, "DateValidation")
+        assert hasattr(module, "FieldValidationRule")
+        assert hasattr(module, "BadRowsConfig")
+        assert hasattr(module, "ValidationConfig")
+        assert hasattr(module, "ValidationRules")
+        assert hasattr(module, "BadRowsHandler")
+        assert hasattr(module, "DataValidationProcessor")
 
         # Verify __all__ definition (lines 26-37)
-        assert hasattr(module, '__all__')
+        assert hasattr(module, "__all__")
         assert len(module.__all__) == 10
 
     def test_all_items_in_all_are_accessible(self):
@@ -172,7 +166,7 @@ class TestDataValidationBackwardCompatibilityFile:
         import forklift.processors.data_validation as validation_file
 
         # Check that the module has the expected attributes
-        required_attrs = ['__doc__', '__all__'] + validation_file.__all__
+        required_attrs = ["__doc__", "__all__"] + validation_file.__all__
 
         for attr in required_attrs:
             assert hasattr(validation_file, attr), f"Missing attribute: {attr}"

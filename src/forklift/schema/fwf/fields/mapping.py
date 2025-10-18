@@ -1,6 +1,7 @@
 """Field mapping utilities for FWF schemas."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List, Optional
 
 
@@ -12,7 +13,7 @@ class FieldMapper:
         has_conditional_schemas: bool,
         traditional_fields: List[Dict[str, Any]],
         flag_column: Optional[Dict[str, Any]],
-        schema_variants: List[Dict[str, Any]]
+        schema_variants: List[Dict[str, Any]],
     ) -> Dict[str, Dict[str, Any]]:
         """Get all possible fields from all schema variants combined.
 
@@ -50,7 +51,7 @@ class FieldMapper:
                     # Store the field with additional metadata about which variants contain it
                     all_fields[field_name] = {
                         **field,
-                        "_appears_in_variants": [variant.get("flagValue")]
+                        "_appears_in_variants": [variant.get("flagValue")],
                     }
                 elif field_name and field_name in all_fields:
                     # Add to existing field's variant list
@@ -64,7 +65,7 @@ class FieldMapper:
     def get_unified_parquet_schema(
         all_fields: Dict[str, Dict[str, Any]],
         flag_column: Optional[Dict[str, Any]],
-        schema_variants: List[Dict[str, Any]]
+        schema_variants: List[Dict[str, Any]],
     ) -> Dict[str, str]:
         """Get a unified Parquet schema that accommodates all variants.
 

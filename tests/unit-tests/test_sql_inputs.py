@@ -1,11 +1,12 @@
 """Tests for SQL input handler with explicit table specification."""
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-import pyarrow as pa
+from unittest.mock import MagicMock, Mock, patch
 
-from forklift.inputs.sql import SqlInputHandler
+import pyarrow as pa
+import pytest
+
 from forklift.inputs.config import SqlInputConfig
+from forklift.inputs.sql import SqlInputHandler
 
 
 class TestSqlInputHandler:
@@ -40,7 +41,7 @@ class TestSqlInputHandler:
 
     def test_connect_success(self, sql_handler):
         """Test successful database connection."""
-        with patch('pyodbc.connect') as mock_connect:
+        with patch("pyodbc.connect") as mock_connect:
             mock_connection = Mock()
             mock_connect.return_value = mock_connection
 
@@ -51,7 +52,7 @@ class TestSqlInputHandler:
 
     def test_connect_import_error(self, sql_handler):
         """Test connection failure when pyodbc is not available."""
-        with patch.dict('sys.modules', {'pyodbc': None}):
+        with patch.dict("sys.modules", {"pyodbc": None}):
             with pytest.raises(ImportError, match="pyodbc is required"):
                 sql_handler.connect()
 
@@ -126,11 +127,11 @@ class TestSqlInputHandler:
             ("public", "users"),
             ("sales", "orders"),
             ("inventory", "products"),
-            ("default", "logs")
+            ("default", "logs"),
         ]
 
-        with patch.object(sql_handler, 'get_table_list', return_value=available_tables):
-            with patch.object(sql_handler, 'connection', Mock()):
+        with patch.object(sql_handler, "get_table_list", return_value=available_tables):
+            with patch.object(sql_handler, "connection", Mock()):
                 # Test exact matches
                 specs = ["public.users", "sales.orders"]
                 result = sql_handler.get_specified_tables(specs)
@@ -154,8 +155,8 @@ class TestSqlInputHandler:
         # Mock get_table_list to return available tables
         available_tables = [("public", "users"), ("sales", "orders")]
 
-        with patch.object(sql_handler, 'get_table_list', return_value=available_tables):
-            with patch.object(sql_handler, 'connection', Mock()):
+        with patch.object(sql_handler, "get_table_list", return_value=available_tables):
+            with patch.object(sql_handler, "connection", Mock()):
                 # Test table that doesn't exist
                 specs = ["nonexistent.table", "public.users"]
                 result = sql_handler.get_specified_tables(specs)
@@ -184,8 +185,8 @@ class TestSqlInputHandler:
 
         # Test date/time types
         assert sql_handler._sql_type_to_pyarrow("DATE") == pa.date32()
-        assert sql_handler._sql_type_to_pyarrow("TIME") == pa.time64('us')
-        assert sql_handler._sql_type_to_pyarrow("TIMESTAMP") == pa.timestamp('us')
+        assert sql_handler._sql_type_to_pyarrow("TIME") == pa.time64("us")
+        assert sql_handler._sql_type_to_pyarrow("TIMESTAMP") == pa.timestamp("us")
 
         # Test default to string for unknown types
         assert sql_handler._sql_type_to_pyarrow("UNKNOWN_TYPE") == pa.string()
@@ -206,7 +207,7 @@ class TestSqlInputHandler:
         mock_schema_importer = Mock()
         mock_schema_importer.get_table_list.return_value = [
             ("sales", "customers", "customers_output"),
-            ("inventory", "products", "products_output")
+            ("inventory", "products", "products_output"),
         ]
 
         sql_handler.schema_importer = mock_schema_importer
@@ -214,7 +215,7 @@ class TestSqlInputHandler:
         result = sql_handler.get_tables_to_process()
         expected = [
             ("sales", "customers", "customers_output"),
-            ("inventory", "products", "products_output")
+            ("inventory", "products", "products_output"),
         ]
         assert result == expected
 
@@ -226,15 +227,15 @@ class TestSqlInputHandler:
         # Mock the connection and schema manager's get_table_list method to prevent connection errors
         sql_handler.connection = Mock()
 
-        with patch.object(sql_handler.schema_manager, 'get_table_list', return_value=mock_tables):
+        with patch.object(sql_handler.schema_manager, "get_table_list", return_value=mock_tables):
             result = sql_handler.get_tables_to_process()
             expected = [("public", "users", None), ("sales", "orders", None)]
             assert result == expected
 
     def test_context_manager(self, sql_handler):
         """Test context manager functionality."""
-        with patch.object(sql_handler, 'connect') as mock_connect:
-            with patch.object(sql_handler, 'disconnect') as mock_disconnect:
+        with patch.object(sql_handler, "connect") as mock_connect:
+            with patch.object(sql_handler, "disconnect") as mock_disconnect:
                 with sql_handler:
                     pass
 
@@ -271,7 +272,7 @@ class TestSqlInputHandler:
         column_data = ("not_a_number", "also_not_a_number")
         pa_type = pa.int32()
 
-        with patch('forklift.inputs.sql.types.logger') as mock_logger:
+        with patch("forklift.inputs.sql.types.logger") as mock_logger:
             result = sql_handler._convert_column_data(column_data, pa_type)
 
             # Should fallback to string representation
@@ -288,16 +289,17 @@ class TestSqlInputHandlerIntegration:
         # Verify that globbing-related methods don't exist
         handler = SqlInputHandler(Mock())
 
-        assert not hasattr(handler, 'filter_tables')
-        assert not hasattr(handler, '_glob_to_regex')
+        assert not hasattr(handler, "filter_tables")
+        assert not hasattr(handler, "_glob_to_regex")
 
         # Verify import statements don't include regex
-        import forklift.inputs.sql as sql_module
         import inspect
 
+        import forklift.inputs.sql as sql_module
+
         source = inspect.getsource(sql_module)
-        assert 'import re' not in source
-        assert 'from re import' not in source
+        assert "import re" not in source
+        assert "from re import" not in source
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Parquet type validation and utilities."""
 
 from __future__ import annotations
+
 from typing import List, Set
 
 
@@ -9,13 +10,33 @@ class ParquetTypeValidator:
 
     # Define supported Parquet data types
     SUPPORTED_PARQUET_TYPES: Set[str] = {
-        "int8", "int16", "int32", "int64",
-        "uint8", "uint16", "uint32", "uint64",
-        "float32", "double", "bool", "string", "binary",
-        "date32", "date64", "timestamp[s]", "timestamp[ms]",
-        "timestamp[us]", "timestamp[ns]", "duration[s]", "duration[ms]",
-        "duration[us]", "duration[ns]", "decimal128(10,2)",
-        "list<string>", "struct", "dictionary<values=string, indices=int32>"
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float32",
+        "double",
+        "bool",
+        "string",
+        "binary",
+        "date32",
+        "date64",
+        "timestamp[s]",
+        "timestamp[ms]",
+        "timestamp[us]",
+        "timestamp[ns]",
+        "duration[s]",
+        "duration[ms]",
+        "duration[us]",
+        "duration[ns]",
+        "decimal128(10,2)",
+        "list<string>",
+        "struct",
+        "dictionary<values=string, indices=int32>",
     }
 
     @classmethod
@@ -67,8 +88,26 @@ class ParquetTypeValidator:
             return True
 
         # Define compatibility groups
-        numeric_types = {"int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "float32", "double"}
-        temporal_types = {"date32", "date64", "timestamp[s]", "timestamp[ms]", "timestamp[us]", "timestamp[ns]"}
+        numeric_types = {
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "double",
+        }
+        temporal_types = {
+            "date32",
+            "date64",
+            "timestamp[s]",
+            "timestamp[ms]",
+            "timestamp[us]",
+            "timestamp[ns]",
+        }
         duration_types = {"duration[s]", "duration[ms]", "duration[us]", "duration[ns]"}
         string_types = {"string", "binary"}
 

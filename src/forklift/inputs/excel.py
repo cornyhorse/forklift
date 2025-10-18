@@ -1,6 +1,7 @@
 """Excel input handler for reading and preprocessing Excel files."""
 
 from __future__ import annotations
+
 import re
 import warnings
 from pathlib import Path
@@ -56,10 +57,10 @@ class ExcelInputHandler:
             return self.config.engine
 
         suffix = file_path.suffix.lower()
-        if suffix == '.xlsx':
-            return 'openpyxl'
-        elif suffix == '.xls':
-            return 'xlrd'
+        if suffix == ".xlsx":
+            return "openpyxl"
+        elif suffix == ".xls":
+            return "xlrd"
         else:
             raise ValueError(f"Unsupported Excel file extension: {suffix}")
 
@@ -76,14 +77,15 @@ class ExcelInputHandler:
         self._engine = self.detect_engine(file_path)
 
         try:
-            if self._engine == 'openpyxl':
+            if self._engine == "openpyxl":
                 import openpyxl
+
                 self._workbook = openpyxl.load_workbook(
-                    file_path,
-                    data_only=self.config.values_only
+                    file_path, data_only=self.config.values_only
                 )
-            elif self._engine == 'xlrd':
+            elif self._engine == "xlrd":
                 import xlrd
+
                 self._workbook = xlrd.open_workbook(str(file_path))
             else:
                 raise ValueError(f"Unsupported engine: {self._engine}")
@@ -92,7 +94,7 @@ class ExcelInputHandler:
 
     def close_workbook(self) -> None:
         """Close the opened workbook if applicable."""
-        if self._workbook and hasattr(self._workbook, 'close'):
+        if self._workbook and hasattr(self._workbook, "close"):
             self._workbook.close()
         self._workbook = None
         self._engine = None
@@ -109,14 +111,16 @@ class ExcelInputHandler:
         if not self._workbook:
             raise RuntimeError("Workbook not opened. Call open_workbook() first.")
 
-        if self._engine == 'openpyxl':
+        if self._engine == "openpyxl":
             return self._workbook.sheetnames
-        elif self._engine == 'xlrd':
+        elif self._engine == "xlrd":
             return self._workbook.sheet_names()
         else:
             raise ValueError(f"Unsupported engine: {self._engine}")
 
-    def select_sheets(self, sheet_configs: List[ExcelSheetConfig]) -> List[Tuple[str, ExcelSheetConfig]]:
+    def select_sheets(
+        self, sheet_configs: List[ExcelSheetConfig]
+    ) -> List[Tuple[str, ExcelSheetConfig]]:
         """Select sheets based on configuration criteria.
 
         Args:
@@ -138,21 +142,21 @@ class ExcelInputHandler:
         for config in sheet_configs:
             select_criteria = config.select
 
-            if 'name' in select_criteria:
+            if "name" in select_criteria:
                 # Select by exact name
-                sheet_name = select_criteria['name']
+                sheet_name = select_criteria["name"]
                 if sheet_name in available_sheets:
                     selected_sheets.append((sheet_name, config))
 
-            elif 'index' in select_criteria:
+            elif "index" in select_criteria:
                 # Select by index (0-based)
-                index = select_criteria['index']
+                index = select_criteria["index"]
                 if 0 <= index < len(available_sheets):
                     selected_sheets.append((available_sheets[index], config))
 
-            elif 'regex' in select_criteria:
+            elif "regex" in select_criteria:
                 # Select by regex pattern
-                pattern = re.compile(select_criteria['regex'])
+                pattern = re.compile(select_criteria["regex"])
                 matching_sheets = [name for name in available_sheets if pattern.match(name)]
                 for sheet_name in matching_sheets:
                     selected_sheets.append((sheet_name, config))
@@ -180,29 +184,33 @@ class ExcelInputHandler:
 
         # Build pandas read_excel parameters
         read_params = {
-            'io': self._workbook if self._engine == 'openpyxl' else self._workbook,
-            'sheet_name': sheet_name,
-            'engine': self._engine
+            "io": self._workbook if self._engine == "openpyxl" else self._workbook,
+            "sheet_name": sheet_name,
+            "engine": self._engine,
         }
 
         # Add header configuration
-        if sheet_config.header and 'row' in sheet_config.header:
-            read_params['header'] = sheet_config.header['row']
+        if sheet_config.header and "row" in sheet_config.header:
+            read_params["header"] = sheet_config.header["row"]
 
         # Add data range configuration
         if sheet_config.data_start_row is not None:
-            read_params['skiprows'] = sheet_config.data_start_row - 1 if sheet_config.header else sheet_config.data_start_row
+            read_params["skiprows"] = (
+                sheet_config.data_start_row - 1
+                if sheet_config.header
+                else sheet_config.data_start_row
+            )
 
         if sheet_config.data_end_row is not None:
             # Calculate nrows if both start and end are specified
             start_row = sheet_config.data_start_row or 1
-            read_params['nrows'] = sheet_config.data_end_row - start_row + 1
+            read_params["nrows"] = sheet_config.data_end_row - start_row + 1
 
         # Add null value handling
         if self.config.na_values:
-            read_params['na_values'] = self.config.na_values
+            read_params["na_values"] = self.config.na_values
 
-        read_params['keep_default_na'] = self.config.keep_default_na
+        read_params["keep_default_na"] = self.config.keep_default_na
 
         # For direct workbook objects, we need to use the file path instead
         # This is a simplified approach for the test cases

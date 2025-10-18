@@ -1,6 +1,7 @@
 """Pipeline for chaining multiple processors together."""
 
 from __future__ import annotations
+
 from typing import List, Tuple
 
 import pyarrow as pa

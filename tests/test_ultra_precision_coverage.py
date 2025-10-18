@@ -1,26 +1,21 @@
 """Ultra-precise tests to achieve 100% coverage - targeting every remaining line with surgical precision."""
 
-import pytest
-import tempfile
+import csv
 import json
 import os
-import csv
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open, call
+from unittest.mock import MagicMock, call, mock_open, patch
+
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
-from forklift.engine.forklift_core import (
-    ForkliftCore,
-    ImportConfig,
-    HeaderMode,
-    ExcessColumnMode,
-    ProcessingResults,
-    import_csv,
-    import_fwf,
-    import_excel,
-    import_sql
-)
+from forklift.engine.forklift_core import (ExcessColumnMode, ForkliftCore,
+                                           HeaderMode, ImportConfig,
+                                           ProcessingResults, import_csv,
+                                           import_excel, import_fwf,
+                                           import_sql)
 
 
 class TestUltraPrecisionCoverage:
@@ -29,7 +24,6 @@ class TestUltraPrecisionCoverage:
     def test_line_287_exact_header_search_break(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method io_handler no longer exists after ForkliftCore refactoring")
-
 
     def test_exhaustive_configuration_matrix(self):
         """Test exhaustive configuration combinations to hit remaining paths."""
@@ -51,18 +45,19 @@ class TestUltraPrecisionCoverage:
                             create_manifest=manifest,
                             create_metadata=manifest,
                             batch_size=batch_size,
-                            footer_detection={"stop_on_blank": True} if manifest else None
+                            footer_detection={"stop_on_blank": True} if manifest else None,
                         )
 
                         if validate:
-                            config.schema = pa.schema([
-                                pa.field("id", pa.string()),
-                                pa.field("data", pa.string())
-                            ])
+                            config.schema = pa.schema(
+                                [pa.field("id", pa.string()), pa.field("data", pa.string())]
+                            )
 
                         engine = ForkliftCore(config)
 
-                        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
+                        with tempfile.NamedTemporaryFile(
+                            mode="w", delete=False, suffix=".csv"
+                        ) as f:
                             if header_mode == HeaderMode.PRESENT:
                                 f.write("id,data\n1,test\n2,more\n")
                             elif header_mode == HeaderMode.ABSENT:

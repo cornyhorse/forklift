@@ -1,9 +1,11 @@
 import json
-import pytest
 import tempfile
 from pathlib import Path
 
-from forklift.schema.csv_schema_importer import CsvSchemaImporter, SchemaValidationError
+import pytest
+
+from forklift.schema.csv_schema_importer import (CsvSchemaImporter,
+                                                 SchemaValidationError)
 
 
 class TestCsvSchemaImporter:
@@ -19,18 +21,15 @@ class TestCsvSchemaImporter:
             "type": "object",
             "properties": {
                 "id": {"type": "integer", "minimum": 1},
-                "name": {"type": "string", "minLength": 1}
+                "name": {"type": "string", "minLength": 1},
             },
             "required": ["id"],
             "additionalProperties": False,
             "x-csv": {
                 "delimiter": ",",
                 "encodingPriority": ["utf-8"],
-                "parquetTypeMapping": {
-                    "id": "int64",
-                    "name": "string"
-                }
-            }
+                "parquetTypeMapping": {"id": "int64", "name": "string"},
+            },
         }
 
     def test_valid_schema_passes_validation(self):
@@ -218,13 +217,13 @@ class TestCsvSchemaImporter:
         """Test that comprehensive validation reports multiple errors at once."""
         schema = {
             "$schema": "invalid-version",  # Error 1
-            "$id": "invalid-pattern",      # Error 2
-            "type": "array",               # Error 3
+            "$id": "invalid-pattern",  # Error 2
+            "type": "array",  # Error 3
             "properties": {"test": {"type": "invalid"}},  # Error 4
             "x-csv": {
                 "encodingPriority": "invalid",  # Error 5
-                "delimiter": "toolongdelimiter"  # Error 6
-            }
+                "delimiter": "toolongdelimiter",  # Error 6
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -248,63 +247,36 @@ class TestCsvSchemaImporter:
             "description": "A test schema with all supported features",
             "type": "object",
             "properties": {
-                "id": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 999999
-                },
+                "id": {"type": "integer", "minimum": 1, "maximum": 999999},
                 "name": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 100,
-                    "pattern": "^[A-Za-z\\s]+$"
+                    "pattern": "^[A-Za-z\\s]+$",
                 },
-                "email": {
-                    "type": "string",
-                    "format": "email"
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {"type": "string"}
-                },
-                "metadata": {
-                    "type": "object",
-                    "additionalProperties": True
-                }
+                "email": {"type": "string", "format": "email"},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "metadata": {"type": "object", "additionalProperties": True},
             },
             "required": ["id", "name"],
             "additionalProperties": False,
             "x-csv": {
                 "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
                 "delimiter": ",",
-                "quotechar": "\"",
+                "quotechar": '"',
                 "escapechar": "\\",
-                "header": {
-                    "mode": "stability_scan",
-                    "keywords": ["id", "name", "email"]
-                },
-                "footer": {
-                    "mode": "regex",
-                    "pattern": "^TOTAL"
-                },
-                "nulls": {
-                    "global": ["", "NA", "NULL"],
-                    "perColumn": {
-                        "email": ["", "no-email"]
-                    }
-                },
-                "case": {
-                    "standardizeNames": "postgres",
-                    "dedupeNames": "suffix"
-                },
+                "header": {"mode": "stability_scan", "keywords": ["id", "name", "email"]},
+                "footer": {"mode": "regex", "pattern": "^TOTAL"},
+                "nulls": {"global": ["", "NA", "NULL"], "perColumn": {"email": ["", "no-email"]}},
+                "case": {"standardizeNames": "postgres", "dedupeNames": "suffix"},
                 "parquetTypeMapping": {
                     "id": "int64",
                     "name": "string",
                     "email": "string",
                     "tags": "list<string>",
-                    "metadata": "struct"
-                }
-            }
+                    "metadata": "struct",
+                },
+            },
         }
 
         # Should not raise any validation errors
@@ -315,7 +287,7 @@ class TestCsvSchemaImporter:
         """Test initialization with file path using valid schema."""
         schema = self.valid_base_schema
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(schema, f)
             temp_path = f.name
 
@@ -329,7 +301,7 @@ class TestCsvSchemaImporter:
         """Test initialization with pathlib.Path using valid schema."""
         schema = self.valid_base_schema
 
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(schema, f)
             temp_path = Path(f.name)
 
@@ -372,11 +344,8 @@ class TestCsvSchemaImporter:
             **self.valid_base_schema,
             "x-csv": {
                 **self.valid_base_schema["x-csv"],
-                "case": {
-                    "standardizeNames": "postgres",
-                    "dedupeNames": "suffix"
-                }
-            }
+                "case": {"standardizeNames": "postgres", "dedupeNames": "suffix"},
+            },
         }
 
         importer = CsvSchemaImporter(schema)
@@ -395,11 +364,8 @@ class TestCsvSchemaImporter:
             **self.valid_base_schema,
             "x-csv": {
                 **self.valid_base_schema["x-csv"],
-                "case": {
-                    "standardizeNames": "postgres",
-                    "dedupeNames": "prefix"
-                }
-            }
+                "case": {"standardizeNames": "postgres", "dedupeNames": "prefix"},
+            },
         }
         importer = CsvSchemaImporter(schema)
 
@@ -422,14 +388,33 @@ class TestSchemaValidationFeatures:
     def test_valid_parquet_types(self):
         """Test validation of various valid Parquet types."""
         valid_types = [
-            "int8", "int16", "int32", "int64",
-            "uint8", "uint16", "uint32", "uint64",
-            "float32", "double", "bool", "string", "binary",
-            "date32", "date64",
-            "timestamp[s]", "timestamp[ms]", "timestamp[us]", "timestamp[ns]",
-            "duration[s]", "duration[ms]", "duration[us]", "duration[ns]",
-            "decimal128(10,2)", "list<string>", "struct",
-            "dictionary<values=string, indices=int32>"
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "double",
+            "bool",
+            "string",
+            "binary",
+            "date32",
+            "date64",
+            "timestamp[s]",
+            "timestamp[ms]",
+            "timestamp[us]",
+            "timestamp[ns]",
+            "duration[s]",
+            "duration[ms]",
+            "duration[us]",
+            "duration[ns]",
+            "decimal128(10,2)",
+            "list<string>",
+            "struct",
+            "dictionary<values=string, indices=int32>",
         ]
 
         base_schema = {
@@ -438,16 +423,14 @@ class TestSchemaValidationFeatures:
             "title": "Test",
             "type": "object",
             "properties": {},
-            "x-csv": {"parquetTypeMapping": {}}
+            "x-csv": {"parquetTypeMapping": {}},
         }
 
         for parquet_type in valid_types:
             schema = {
                 **base_schema,
                 "properties": {"test_field": {"type": "string"}},
-                "x-csv": {
-                    "parquetTypeMapping": {"test_field": parquet_type}
-                }
+                "x-csv": {"parquetTypeMapping": {"test_field": parquet_type}},
             }
 
             # Should not raise validation error
@@ -464,16 +447,11 @@ class TestSchemaValidationFeatures:
             "title": "Test",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-csv": {}
+            "x-csv": {},
         }
 
         for mode in valid_modes:
-            schema = {
-                **base_schema,
-                "x-csv": {
-                    "header": {"mode": mode}
-                }
-            }
+            schema = {**base_schema, "x-csv": {"header": {"mode": mode}}}
 
             if mode == "stability_scan":
                 schema["x-csv"]["header"]["keywords"] = ["id"]
@@ -493,19 +471,14 @@ class TestSchemaValidationFeatures:
             "title": "Test",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-csv": {}
+            "x-csv": {},
         }
 
         for standardize in valid_standardize:
             for dedupe in valid_dedupe:
                 schema = {
                     **base_schema,
-                    "x-csv": {
-                        "case": {
-                            "standardizeNames": standardize,
-                            "dedupeNames": dedupe
-                        }
-                    }
+                    "x-csv": {"case": {"standardizeNames": standardize, "dedupeNames": dedupe}},
                 }
 
                 # Should not raise validation error
@@ -524,11 +497,8 @@ class TestEdgeCasesAndMissingCoverage:
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "Test Schema",
             "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"}
-            },
-            "x-csv": {}
+            "properties": {"id": {"type": "integer"}, "name": {"type": "string"}},
+            "x-csv": {},
         }
 
     def test_escape_char_validation_edge_cases(self):
@@ -545,9 +515,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_nulls_global_not_list_validation(self):
         """Test validation when nulls.global is not a list."""
         schema = {**self.base_schema}
-        schema["x-csv"]["nulls"] = {
-            "global": "not_a_list"  # Line 154
-        }
+        schema["x-csv"]["nulls"] = {"global": "not_a_list"}  # Line 154
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -557,9 +525,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_nulls_per_column_not_dict_validation(self):
         """Test validation when nulls.perColumn is not a dict."""
         schema = {**self.base_schema}
-        schema["x-csv"]["nulls"] = {
-            "perColumn": "not_a_dict"  # Line 156
-        }
+        schema["x-csv"]["nulls"] = {"perColumn": "not_a_dict"}  # Line 156
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -569,9 +535,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_header_invalid_mode_validation(self):
         """Test validation with invalid header mode."""
         schema = {**self.base_schema}
-        schema["x-csv"]["header"] = {
-            "mode": "invalid_mode"  # Line 164
-        }
+        schema["x-csv"]["header"] = {"mode": "invalid_mode"}  # Line 164
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -581,9 +545,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_stability_scan_missing_keywords_validation(self):
         """Test validation when stability_scan mode missing keywords."""
         schema = {**self.base_schema}
-        schema["x-csv"]["header"] = {
-            "mode": "stability_scan"  # Missing keywords - Line 170
-        }
+        schema["x-csv"]["header"] = {"mode": "stability_scan"}  # Missing keywords - Line 170
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -593,9 +555,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_footer_invalid_mode_validation(self):
         """Test validation with invalid footer mode."""
         schema = {**self.base_schema}
-        schema["x-csv"]["footer"] = {
-            "mode": "invalid_footer_mode"  # Line 177
-        }
+        schema["x-csv"]["footer"] = {"mode": "invalid_footer_mode"}  # Line 177
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -605,9 +565,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_footer_regex_missing_pattern_validation(self):
         """Test validation when footer regex mode missing pattern."""
         schema = {**self.base_schema}
-        schema["x-csv"]["footer"] = {
-            "mode": "regex"  # Missing pattern - Line 179
-        }
+        schema["x-csv"]["footer"] = {"mode": "regex"}  # Missing pattern - Line 179
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -617,9 +575,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_case_invalid_standardize_validation(self):
         """Test validation with invalid standardizeNames value."""
         schema = {**self.base_schema}
-        schema["x-csv"]["case"] = {
-            "standardizeNames": "invalid_standard"  # Line 186
-        }
+        schema["x-csv"]["case"] = {"standardizeNames": "invalid_standard"}  # Line 186
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -629,9 +585,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_case_invalid_dedupe_validation(self):
         """Test validation with invalid dedupeNames value."""
         schema = {**self.base_schema}
-        schema["x-csv"]["case"] = {
-            "dedupeNames": "invalid_dedupe"  # Line 190
-        }
+        schema["x-csv"]["case"] = {"dedupeNames": "invalid_dedupe"}  # Line 190
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -701,10 +655,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_array_items_not_dict_validation(self):
         """Test validation when array items is not a dict."""
         schema = {**self.base_schema}
-        schema["properties"]["tags"] = {
-            "type": "array",
-            "items": "not_a_dict"  # Line 250
-        }
+        schema["properties"]["tags"] = {"type": "array", "items": "not_a_dict"}  # Line 250
 
         with pytest.raises(SchemaValidationError) as exc_info:
             CsvSchemaImporter(schema)
@@ -719,14 +670,16 @@ class TestEdgeCasesAndMissingCoverage:
             "timestamp_field": "timestamp[us,UTC]",
             "duration_field": "duration[ms]",
             "list_field": "list<int32>",
-            "dict_field": "dictionary<values=int32, indices=string>"
+            "dict_field": "dictionary<values=int32, indices=string>",
         }
-        schema["properties"].update({
-            "timestamp_field": {"type": "string"},
-            "duration_field": {"type": "string"},
-            "list_field": {"type": "string"},
-            "dict_field": {"type": "string"}
-        })
+        schema["properties"].update(
+            {
+                "timestamp_field": {"type": "string"},
+                "duration_field": {"type": "string"},
+                "list_field": {"type": "string"},
+                "dict_field": {"type": "string"},
+            }
+        )
 
         # Should not raise validation error - these are valid parameterized types
         importer = CsvSchemaImporter(schema)
@@ -737,9 +690,7 @@ class TestEdgeCasesAndMissingCoverage:
         schema = {**self.base_schema}
         schema["x-csv"]["nulls"] = {
             "global": ["", "NULL"],
-            "perColumn": {
-                "special_column": ["", "N/A", "NONE"]
-            }
+            "perColumn": {"special_column": ["", "N/A", "NONE"]},
         }
 
         importer = CsvSchemaImporter(schema)
@@ -762,7 +713,9 @@ class TestEdgeCasesAndMissingCoverage:
         # Ensure x-csv extension is present
         schema["x-csv"] = {}
 
-        importer = CsvSchemaImporter(schema, validate=False)  # Skip validation to avoid x-csv requirement
+        importer = CsvSchemaImporter(
+            schema, validate=False
+        )  # Skip validation to avoid x-csv requirement
         test_names = ["User ID", "First Name", "Email"]
 
         # Should return unchanged (Line 315)
@@ -772,9 +725,7 @@ class TestEdgeCasesAndMissingCoverage:
     def test_standardize_column_names_non_postgres(self):
         """Test column name standardization with non-postgres method."""
         schema = {**self.base_schema}
-        schema["x-csv"]["case"] = {
-            "standardizeNames": "snake_case"  # Line 321
-        }
+        schema["x-csv"]["case"] = {"standardizeNames": "snake_case"}  # Line 321
 
         importer = CsvSchemaImporter(schema)
         test_names = ["User ID", "First Name"]
@@ -826,7 +777,7 @@ class TestEdgeCasesAndMissingCoverage:
         # Test to ensure we hit the specific validation lines 261, 269
         schema["x-csv"]["parquetTypeMapping"] = {
             "id": "timestamp[us,tz=UTC]",  # Line 261 - timestamp with timezone
-            "name": "duration[ns]"         # Line 269 - duration type
+            "name": "duration[ns]",  # Line 269 - duration type
         }
 
         # Should not raise validation error - these are valid parameterized types
@@ -845,11 +796,8 @@ class TestSpecificCoverageTargets:
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "Test Schema",
             "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"}
-            },
-            "x-csv": {}
+            "properties": {"id": {"type": "integer"}, "name": {"type": "string"}},
+            "x-csv": {},
         }
 
     def test_properties_not_dict_before_iteration(self):
@@ -918,12 +866,14 @@ class TestSpecificCoverageTargets:
         # Test duration validation specifically to hit line 269
         # This should trigger the duration validation check
         assert importer._is_valid_parquet_type("duration[ms]") == True
-        assert importer._is_valid_parquet_type("duration[invalid]") == True  # Still returns True due to pattern match
+        assert (
+            importer._is_valid_parquet_type("duration[invalid]") == True
+        )  # Still returns True due to pattern match
 
         # Test with schema that uses duration types to ensure validation path is covered
         schema["x-csv"]["parquetTypeMapping"] = {
-            "id": "duration[s]",    # This should hit line 269
-            "name": "duration[ms]"  # This should also hit line 269
+            "id": "duration[s]",  # This should hit line 269
+            "name": "duration[ms]",  # This should also hit line 269
         }
 
         # Validate the schema to ensure the duration validation is executed

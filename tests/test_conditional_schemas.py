@@ -1,7 +1,9 @@
 """Tests for the ConditionalSchemaManager class."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from forklift.schema.fwf.conditional.schemas import ConditionalSchemaManager
 
 
@@ -12,53 +14,36 @@ class TestConditionalSchemaManager:
         """Set up test fixtures."""
         # Sample conditional schemas configuration
         self.sample_conditional_schemas = {
-            "flagColumn": {
-                "name": "record_type",
-                "start": 0,
-                "length": 1
-            },
+            "flagColumn": {"name": "record_type", "start": 0, "length": 1},
             "schemas": [
                 {
                     "flagValue": "H",
                     "fields": [
                         {"name": "header_field1", "start": 1, "length": 10},
-                        {"name": "header_field2", "start": 11, "length": 20}
-                    ]
+                        {"name": "header_field2", "start": 11, "length": 20},
+                    ],
                 },
                 {
                     "flagValue": "D",
                     "fields": [
                         {"name": "data_field1", "start": 1, "length": 15},
-                        {"name": "data_field2", "start": 16, "length": 10}
-                    ]
+                        {"name": "data_field2", "start": 16, "length": 10},
+                    ],
                 },
                 {
                     "flagValue": "T",
-                    "fields": [
-                        {"name": "trailer_field1", "start": 1, "length": 12}
-                    ]
-                }
-            ]
+                    "fields": [{"name": "trailer_field1", "start": 1, "length": 12}],
+                },
+            ],
         }
 
         # Configuration with missing flagColumn
         self.schemas_no_flag_column = {
-            "schemas": [
-                {
-                    "flagValue": "A",
-                    "fields": [{"name": "field1", "start": 1, "length": 5}]
-                }
-            ]
+            "schemas": [{"flagValue": "A", "fields": [{"name": "field1", "start": 1, "length": 5}]}]
         }
 
         # Configuration with missing schemas
-        self.schemas_no_variants = {
-            "flagColumn": {
-                "name": "type",
-                "start": 0,
-                "length": 1
-            }
-        }
+        self.schemas_no_variants = {"flagColumn": {"name": "type", "start": 0, "length": 1}}
 
     def test_init_with_complete_configuration(self):
         """Test initialization with complete conditional schemas configuration."""
@@ -172,7 +157,7 @@ class TestConditionalSchemaManager:
                 {"flagValue": "A", "fields": []},
                 {"fields": []},  # Missing flagValue
                 {"flagValue": "C", "fields": []},
-                {"flagValue": None, "fields": []}  # None flagValue
+                {"flagValue": None, "fields": []},  # None flagValue
             ]
         }
         manager = ConditionalSchemaManager(schemas_with_missing)
@@ -220,15 +205,13 @@ class TestConditionalSchemaManager:
 
     def test_get_fields_for_flag_value_variant_without_fields(self):
         """Test getting fields for variant that has no fields key."""
-        schemas_no_fields = {
-            "schemas": [{"flagValue": "A"}]  # Missing fields key
-        }
+        schemas_no_fields = {"schemas": [{"flagValue": "A"}]}  # Missing fields key
         manager = ConditionalSchemaManager(schemas_no_fields)
 
         fields = manager.get_fields_for_flag_value("A")
         assert fields == []
 
-    @patch('forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row')
+    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
     def test_get_record_mapping_for_row_with_valid_flag(self, mock_extract):
         """Test getting record mapping for row with valid flag value."""
         mock_extract.return_value = "H"
@@ -242,7 +225,7 @@ class TestConditionalSchemaManager:
         assert len(mapping["fields"]) == 2
         mock_extract.assert_called_once_with("H123456789012345678901234567890", manager.flag_column)
 
-    @patch('forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row')
+    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
     def test_get_record_mapping_for_row_with_invalid_flag(self, mock_extract):
         """Test getting record mapping for row with invalid flag value."""
         mock_extract.return_value = "X"
@@ -253,7 +236,7 @@ class TestConditionalSchemaManager:
         assert mapping is None
         mock_extract.assert_called_once_with("X123456789012345678901234567890", manager.flag_column)
 
-    @patch('forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row')
+    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
     def test_get_record_mapping_for_row_with_none_flag_value(self, mock_extract):
         """Test getting record mapping when flag value extraction returns None."""
         mock_extract.return_value = None
@@ -264,7 +247,7 @@ class TestConditionalSchemaManager:
         assert mapping is None
         mock_extract.assert_called_once_with("123456789012345678901234567890", manager.flag_column)
 
-    @patch('forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row')
+    @patch("forklift.schema.fwf.conditional.schemas.PositionCalculator.extract_flag_value_from_row")
     def test_get_record_mapping_for_row_with_empty_flag_value(self, mock_extract):
         """Test getting record mapping when flag value extraction returns empty string."""
         mock_extract.return_value = ""
@@ -289,8 +272,8 @@ class TestConditionalSchemaManager:
             "flagColumn": {"name": "type", "start": 0, "length": 1},
             "schemas": [
                 {"flagValue": "", "fields": [{"name": "empty_field", "start": 1, "length": 5}]},
-                {"flagValue": "A", "fields": [{"name": "normal_field", "start": 1, "length": 5}]}
-            ]
+                {"flagValue": "A", "fields": [{"name": "normal_field", "start": 1, "length": 5}]},
+            ],
         }
         manager = ConditionalSchemaManager(schemas_with_empty_flag)
 

@@ -14,29 +14,14 @@ class TestTransformationsCompatibility:
         """Test importing all classes and functions from the transformations compatibility module."""
         # Import from the backward-compatibility module
         from forklift.processors.transformations import (
-            ColumnTransformer,
-            SchemaBasedTransformer,
-            trim_whitespace,
-            uppercase,
-            lowercase,
-            apply_money_conversion,
-            apply_numeric_cleaning,
-            apply_regex_replace,
-            apply_string_replace,
-            apply_html_xml_cleaning,
-            apply_string_padding,
-            apply_string_trimming,
-            DataTransformer,
-            create_transformation_from_config,
-            MoneyTypeConfig,
-            NumericCleaningConfig,
-            RegexReplaceConfig,
-            StringReplaceConfig,
-            HTMLXMLConfig,
-            StringPaddingConfig,
-            DateTimeTransformConfig,
-            StringCleaningConfig
-        )
+            ColumnTransformer, DataTransformer, DateTimeTransformConfig,
+            HTMLXMLConfig, MoneyTypeConfig, NumericCleaningConfig,
+            RegexReplaceConfig, SchemaBasedTransformer, StringCleaningConfig,
+            StringPaddingConfig, StringReplaceConfig, apply_html_xml_cleaning,
+            apply_money_conversion, apply_numeric_cleaning,
+            apply_regex_replace, apply_string_padding, apply_string_replace,
+            apply_string_trimming, create_transformation_from_config,
+            lowercase, trim_whitespace, uppercase)
 
         # Verify all classes and functions are imported and are callable
         assert callable(ColumnTransformer)
@@ -67,32 +52,32 @@ class TestTransformationsCompatibility:
         import forklift.processors.transformations as transformations_module
 
         expected_exports = [
-            'ColumnTransformer',
-            'SchemaBasedTransformer',
-            'trim_whitespace',
-            'uppercase',
-            'lowercase',
-            'apply_money_conversion',
-            'apply_numeric_cleaning',
-            'apply_regex_replace',
-            'apply_string_replace',
-            'apply_html_xml_cleaning',
-            'apply_string_padding',
-            'apply_string_trimming',
-            'DataTransformer',
-            'create_transformation_from_config',
-            'MoneyTypeConfig',
-            'NumericCleaningConfig',
-            'RegexReplaceConfig',
-            'StringReplaceConfig',
-            'HTMLXMLConfig',
-            'StringPaddingConfig',
-            'DateTimeTransformConfig',
-            'StringCleaningConfig'
+            "ColumnTransformer",
+            "SchemaBasedTransformer",
+            "trim_whitespace",
+            "uppercase",
+            "lowercase",
+            "apply_money_conversion",
+            "apply_numeric_cleaning",
+            "apply_regex_replace",
+            "apply_string_replace",
+            "apply_html_xml_cleaning",
+            "apply_string_padding",
+            "apply_string_trimming",
+            "DataTransformer",
+            "create_transformation_from_config",
+            "MoneyTypeConfig",
+            "NumericCleaningConfig",
+            "RegexReplaceConfig",
+            "StringReplaceConfig",
+            "HTMLXMLConfig",
+            "StringPaddingConfig",
+            "DateTimeTransformConfig",
+            "StringCleaningConfig",
         ]
 
         # Verify __all__ attribute exists and contains expected exports
-        assert hasattr(transformations_module, '__all__')
+        assert hasattr(transformations_module, "__all__")
         assert transformations_module.__all__ == expected_exports
 
         # Verify all items in __all__ are actually available in the module
@@ -105,52 +90,68 @@ class TestTransformationsCompatibility:
         """Test importing each class and function individually."""
         # Test transformer classes
         from forklift.processors.transformations import ColumnTransformer
+
         assert callable(ColumnTransformer)
 
         from forklift.processors.transformations import SchemaBasedTransformer
+
         assert callable(SchemaBasedTransformer)
 
         # Test common transformation functions
         from forklift.processors.transformations import trim_whitespace
+
         assert callable(trim_whitespace)
 
         from forklift.processors.transformations import uppercase
+
         assert callable(uppercase)
 
         from forklift.processors.transformations import lowercase
+
         assert callable(lowercase)
 
         # Test factory functions
         from forklift.processors.transformations import apply_money_conversion
+
         assert callable(apply_money_conversion)
 
         from forklift.processors.transformations import apply_numeric_cleaning
+
         assert callable(apply_numeric_cleaning)
 
         from forklift.processors.transformations import apply_regex_replace
+
         assert callable(apply_regex_replace)
 
         from forklift.processors.transformations import apply_string_replace
+
         assert callable(apply_string_replace)
 
         from forklift.processors.transformations import apply_html_xml_cleaning
+
         assert callable(apply_html_xml_cleaning)
 
         from forklift.processors.transformations import apply_string_padding
+
         assert callable(apply_string_padding)
 
         from forklift.processors.transformations import apply_string_trimming
+
         assert callable(apply_string_trimming)
 
         # Test utility classes
         from forklift.processors.transformations import DataTransformer
+
         assert callable(DataTransformer)
 
-        from forklift.processors.transformations import create_transformation_from_config
+        from forklift.processors.transformations import \
+            create_transformation_from_config
+
         assert callable(create_transformation_from_config)
 
         # Test config classes
         from forklift.processors.transformations import MoneyTypeConfig
+
         assert callable(MoneyTypeConfig)
 
     def test_module_docstring(self):
@@ -161,7 +162,7 @@ class TestTransformationsCompatibility:
             "Transformation processors package",
             "data transformation capabilities",
             "Basic column transformations",
-            "Schema-driven transformations"
+            "Schema-driven transformations",
         ]
 
         assert transformations_module.__doc__ is not None
@@ -171,10 +172,11 @@ class TestTransformationsCompatibility:
     def test_imports_are_same_as_source_modules(self):
         """Test that imports from compatibility module are the same as source modules."""
         # Import from compatibility module
-        from forklift.processors.transformations import ColumnTransformer as CompatTransformer
-
+        from forklift.processors.transformations import \
+            ColumnTransformer as CompatTransformer
         # Import from source module directly
-        from forklift.processors.transformations.column_transformer import ColumnTransformer as SourceTransformer
+        from forklift.processors.transformations.column_transformer import \
+            ColumnTransformer as SourceTransformer
 
         # They should be the same class
         assert CompatTransformer is SourceTransformer
@@ -184,7 +186,7 @@ class TestTransformationsCompatibility:
         import forklift.processors.transformations as transformations_module
 
         # Get all public names from the module
-        public_names = [name for name in dir(transformations_module) if not name.startswith('_')]
+        public_names = [name for name in dir(transformations_module) if not name.startswith("_")]
 
         # All items in __all__ should be in the public namespace
         for export_name in transformations_module.__all__:
@@ -198,19 +200,13 @@ class TestTransformationsCompatibility:
     def test_classes_and_functions_have_expected_attributes(self):
         """Test that imported classes and functions have expected attributes."""
         from forklift.processors.transformations import (
-            ColumnTransformer,
-            SchemaBasedTransformer,
-            trim_whitespace,
-            uppercase,
-            lowercase,
-            DataTransformer,
-            MoneyTypeConfig
-        )
+            ColumnTransformer, DataTransformer, MoneyTypeConfig,
+            SchemaBasedTransformer, lowercase, trim_whitespace, uppercase)
 
         # Test classes have __init__ method
         classes = [ColumnTransformer, SchemaBasedTransformer, DataTransformer, MoneyTypeConfig]
         for cls in classes:
-            assert hasattr(cls, '__init__'), f"{cls.__name__} should have __init__ method"
+            assert hasattr(cls, "__init__"), f"{cls.__name__} should have __init__ method"
 
         # Test functions are callable
         functions = [trim_whitespace, uppercase, lowercase]
@@ -220,9 +216,8 @@ class TestTransformationsCompatibility:
     def test_import_error_handling(self):
         """Test that the module handles import scenarios correctly."""
         # Test that the module can be imported without errors
-        import forklift.processors.transformations
-
         # Test that re-importing works
+        import forklift.processors.transformations
         import forklift.processors.transformations as transformations_alias
 
         # Both should reference the same module
@@ -235,29 +230,29 @@ class TestTransformationsCompatibility:
 
         # Verify the module has all expected attributes from the backward-compatibility interface
         expected_attributes = [
-            'ColumnTransformer',
-            'SchemaBasedTransformer',
-            'trim_whitespace',
-            'uppercase',
-            'lowercase',
-            'apply_money_conversion',
-            'apply_numeric_cleaning',
-            'apply_regex_replace',
-            'apply_string_replace',
-            'apply_html_xml_cleaning',
-            'apply_string_padding',
-            'apply_string_trimming',
-            'DataTransformer',
-            'create_transformation_from_config',
-            'MoneyTypeConfig',
-            'NumericCleaningConfig',
-            'RegexReplaceConfig',
-            'StringReplaceConfig',
-            'HTMLXMLConfig',
-            'StringPaddingConfig',
-            'DateTimeTransformConfig',
-            'StringCleaningConfig',
-            '__all__'
+            "ColumnTransformer",
+            "SchemaBasedTransformer",
+            "trim_whitespace",
+            "uppercase",
+            "lowercase",
+            "apply_money_conversion",
+            "apply_numeric_cleaning",
+            "apply_regex_replace",
+            "apply_string_replace",
+            "apply_html_xml_cleaning",
+            "apply_string_padding",
+            "apply_string_trimming",
+            "DataTransformer",
+            "create_transformation_from_config",
+            "MoneyTypeConfig",
+            "NumericCleaningConfig",
+            "RegexReplaceConfig",
+            "StringReplaceConfig",
+            "HTMLXMLConfig",
+            "StringPaddingConfig",
+            "DateTimeTransformConfig",
+            "StringCleaningConfig",
+            "__all__",
         ]
 
         for attr in expected_attributes:
@@ -265,36 +260,32 @@ class TestTransformationsCompatibility:
 
         # Verify __all__ contains exactly what we expect
         assert len(transformations_module.__all__) == 22
-        assert all(name in transformations_module.__all__ for name in expected_attributes[:-1])  # exclude __all__ itself
+        assert all(
+            name in transformations_module.__all__ for name in expected_attributes[:-1]
+        )  # exclude __all__ itself
 
     def test_comprehensive_compatibility_scenario(self):
         """Test a comprehensive scenario using the backward compatibility interface."""
         # Import core exports through the compatibility interface
         from forklift.processors.transformations import (
-            ColumnTransformer,
-            SchemaBasedTransformer,
-            trim_whitespace,
-            DataTransformer,
-            MoneyTypeConfig
-        )
+            ColumnTransformer, DataTransformer, MoneyTypeConfig,
+            SchemaBasedTransformer, trim_whitespace)
 
         # Verify exports are accessible and have expected properties
         class_exports = [
-            ('ColumnTransformer', ColumnTransformer),
-            ('SchemaBasedTransformer', SchemaBasedTransformer),
-            ('DataTransformer', DataTransformer),
-            ('MoneyTypeConfig', MoneyTypeConfig)
+            ("ColumnTransformer", ColumnTransformer),
+            ("SchemaBasedTransformer", SchemaBasedTransformer),
+            ("DataTransformer", DataTransformer),
+            ("MoneyTypeConfig", MoneyTypeConfig),
         ]
 
-        function_exports = [
-            ('trim_whitespace', trim_whitespace)
-        ]
+        function_exports = [("trim_whitespace", trim_whitespace)]
 
         # Test classes
         for export_name, export_item in class_exports:
             assert export_item is not None, f"{export_name} should not be None"
             assert callable(export_item), f"{export_name} should be callable (class)"
-            assert hasattr(export_item, '__init__'), f"{export_name} should have __init__ method"
+            assert hasattr(export_item, "__init__"), f"{export_name} should have __init__ method"
 
         # Test functions
         for export_name, export_item in function_exports:
@@ -310,15 +301,15 @@ class TestTransformationsCompatibility:
         module = forklift.processors.transformations
 
         # This test ensures that all import statements and __all__ definition are executed
-        assert hasattr(module, 'ColumnTransformer')
-        assert hasattr(module, 'SchemaBasedTransformer')
-        assert hasattr(module, 'trim_whitespace')
-        assert hasattr(module, 'uppercase')
-        assert hasattr(module, 'lowercase')
-        assert hasattr(module, 'apply_money_conversion')
-        assert hasattr(module, 'DataTransformer')
-        assert hasattr(module, 'MoneyTypeConfig')
-        assert hasattr(module, '__all__')
+        assert hasattr(module, "ColumnTransformer")
+        assert hasattr(module, "SchemaBasedTransformer")
+        assert hasattr(module, "trim_whitespace")
+        assert hasattr(module, "uppercase")
+        assert hasattr(module, "lowercase")
+        assert hasattr(module, "apply_money_conversion")
+        assert hasattr(module, "DataTransformer")
+        assert hasattr(module, "MoneyTypeConfig")
+        assert hasattr(module, "__all__")
 
         # Verify the __all__ list has the expected length
         assert len(module.__all__) == 22
@@ -328,7 +319,7 @@ class TestTransformationsCompatibility:
         import forklift.processors.transformations as transformations_module
 
         # Verify that transformer classes are available
-        transformer_classes = ['ColumnTransformer', 'SchemaBasedTransformer']
+        transformer_classes = ["ColumnTransformer", "SchemaBasedTransformer"]
 
         for class_name in transformer_classes:
             assert hasattr(transformations_module, class_name)
@@ -341,7 +332,7 @@ class TestTransformationsCompatibility:
         import forklift.processors.transformations as transformations_module
 
         # Verify that common functions are available
-        common_functions = ['trim_whitespace', 'uppercase', 'lowercase']
+        common_functions = ["trim_whitespace", "uppercase", "lowercase"]
 
         for func_name in common_functions:
             assert hasattr(transformations_module, func_name)
@@ -355,13 +346,13 @@ class TestTransformationsCompatibility:
 
         # Verify that factory functions are available
         factory_functions = [
-            'apply_money_conversion',
-            'apply_numeric_cleaning',
-            'apply_regex_replace',
-            'apply_string_replace',
-            'apply_html_xml_cleaning',
-            'apply_string_padding',
-            'apply_string_trimming'
+            "apply_money_conversion",
+            "apply_numeric_cleaning",
+            "apply_regex_replace",
+            "apply_string_replace",
+            "apply_html_xml_cleaning",
+            "apply_string_padding",
+            "apply_string_trimming",
         ]
 
         for func_name in factory_functions:
@@ -375,7 +366,7 @@ class TestTransformationsCompatibility:
         import forklift.processors.transformations as transformations_module
 
         # Verify that utility classes are available
-        utility_classes = ['DataTransformer', 'create_transformation_from_config']
+        utility_classes = ["DataTransformer", "create_transformation_from_config"]
 
         for class_name in utility_classes:
             assert hasattr(transformations_module, class_name)
@@ -389,14 +380,14 @@ class TestTransformationsCompatibility:
 
         # Verify that config classes are available
         config_classes = [
-            'MoneyTypeConfig',
-            'NumericCleaningConfig',
-            'RegexReplaceConfig',
-            'StringReplaceConfig',
-            'HTMLXMLConfig',
-            'StringPaddingConfig',
-            'DateTimeTransformConfig',
-            'StringCleaningConfig'
+            "MoneyTypeConfig",
+            "NumericCleaningConfig",
+            "RegexReplaceConfig",
+            "StringReplaceConfig",
+            "HTMLXMLConfig",
+            "StringPaddingConfig",
+            "DateTimeTransformConfig",
+            "StringCleaningConfig",
         ]
 
         for class_name in config_classes:
@@ -404,4 +395,3 @@ class TestTransformationsCompatibility:
             cls = getattr(transformations_module, class_name)
             assert cls is not None
             assert callable(cls)
-

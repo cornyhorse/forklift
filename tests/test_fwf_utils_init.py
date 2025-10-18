@@ -1,7 +1,8 @@
 """Tests for FWF utils package initialization."""
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from forklift.schema.fwf.utils import ColumnNameProcessor, ParquetMappingUtils
 
@@ -23,24 +24,23 @@ class TestFwfUtilsInit:
         """Test that the package exports the expected items."""
         from forklift.schema.fwf import utils
 
-        assert hasattr(utils, 'ColumnNameProcessor')
-        assert hasattr(utils, 'ParquetMappingUtils')
+        assert hasattr(utils, "ColumnNameProcessor")
+        assert hasattr(utils, "ParquetMappingUtils")
 
     def test_all_exports(self):
         """Test __all__ contains expected exports."""
         from forklift.schema.fwf import utils
 
-        expected_exports = [
-            'ColumnNameProcessor',
-            'ParquetMappingUtils'
-        ]
+        expected_exports = ["ColumnNameProcessor", "ParquetMappingUtils"]
 
         assert utils.__all__ == expected_exports
 
     def test_direct_imports(self):
         """Test direct imports from the utils package."""
-        from forklift.schema.fwf.utils import ColumnNameProcessor as DirectProcessor
-        from forklift.schema.fwf.utils import ParquetMappingUtils as DirectUtils
+        from forklift.schema.fwf.utils import \
+            ColumnNameProcessor as DirectProcessor
+        from forklift.schema.fwf.utils import \
+            ParquetMappingUtils as DirectUtils
 
         assert DirectProcessor is ColumnNameProcessor
         assert DirectUtils is ParquetMappingUtils

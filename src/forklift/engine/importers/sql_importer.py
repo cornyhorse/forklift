@@ -1,16 +1,17 @@
 """SQL importer implementation."""
 
 from __future__ import annotations
-import time
+
 import json
 import logging
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Union
-from datetime import datetime
 
+from ...io import create_parquet_writer
 from ..config import ProcessingResults
 from ..exceptions import ProcessingError
-from ...io import create_parquet_writer
 
 
 class SqlImporter:
@@ -21,11 +22,11 @@ class SqlImporter:
         connection_string: str,
         output_path: Union[str, Path],
         schema_file: Union[str, Path] = None,
-        **kwargs
+        **kwargs,
     ) -> ProcessingResults:
         """Import data from SQL database with ODBC connectivity."""
-        from ...inputs.sql import SqlInputHandler
         from ...inputs.config import SqlInputConfig
+        from ...inputs.sql import SqlInputHandler
         from ...schema.sql_schema_importer import SqlSchemaImporter
 
         logger = logging.getLogger(__name__)
@@ -40,7 +41,9 @@ class SqlImporter:
 
             # Schema file is now required for explicit table specification
             if not schema_file:
-                raise ProcessingError("Schema file is required for SQL import to specify which tables to process")
+                raise ProcessingError(
+                    "Schema file is required for SQL import to specify which tables to process"
+                )
 
             # Load and validate schema
             schema_path = Path(schema_file) if isinstance(schema_file, str) else schema_file
@@ -59,14 +62,14 @@ class SqlImporter:
 
             # Create SQL config
             config_kwargs = {
-                'connection_string': connection_string,
-                'batch_size': kwargs.get('batch_size', 10000),
-                'query_timeout': kwargs.get('query_timeout', 300),
-                'connection_timeout': kwargs.get('connection_timeout', 30),
-                'use_quoted_identifiers': kwargs.get('use_quoted_identifiers', False),
-                'schema_name': kwargs.get('schema_name'),
-                'enable_streaming': kwargs.get('enable_streaming', True),
-                'null_values': kwargs.get('null_values'),
+                "connection_string": connection_string,
+                "batch_size": kwargs.get("batch_size", 10000),
+                "query_timeout": kwargs.get("query_timeout", 300),
+                "connection_timeout": kwargs.get("connection_timeout", 30),
+                "use_quoted_identifiers": kwargs.get("use_quoted_identifiers", False),
+                "schema_name": kwargs.get("schema_name"),
+                "enable_streaming": kwargs.get("enable_streaming", True),
+                "null_values": kwargs.get("null_values"),
             }
 
             # Remove None values
@@ -95,7 +98,7 @@ class SqlImporter:
                         # Generate output filename
                         if output_name:
                             table_output_name = output_name
-                        elif schema_name and schema_name != 'default':
+                        elif schema_name and schema_name != "default":
                             table_output_name = f"{schema_name}_{table_name}"
                         else:
                             table_output_name = table_name
@@ -121,7 +124,9 @@ class SqlImporter:
 
                         if table_rows > 0:
                             output_files.append(str(output_file))
-                            logger.info(f"Completed {schema_name}.{table_name}: {table_rows} rows -> {output_file}")
+                            logger.info(
+                                f"Completed {schema_name}.{table_name}: {table_rows} rows -> {output_file}"
+                            )
                         else:
                             logger.warning(f"Table {schema_name}.{table_name} contained no data")
 
@@ -138,7 +143,7 @@ class SqlImporter:
                 valid_rows=valid_rows,
                 invalid_rows=invalid_rows,
                 execution_time=processing_time,
-                output_files=output_files
+                output_files=output_files,
             )
 
             # Create metadata file
@@ -149,19 +154,21 @@ class SqlImporter:
                     "valid_rows": valid_rows,
                     "invalid_rows": invalid_rows,
                     "execution_time_seconds": processing_time,
-                    "processed_at": datetime.now().isoformat()
+                    "processed_at": datetime.now().isoformat(),
                 },
                 "input_config": {
                     "connection_string": connection_string,
-                    "tables_processed": [(schema, table, output) for schema, table, output in tables_to_process],
+                    "tables_processed": [
+                        (schema, table, output) for schema, table, output in tables_to_process
+                    ],
                     "batch_size": sql_config.batch_size,
                     "query_timeout": sql_config.query_timeout,
                 },
-                "output_files": output_files
+                "output_files": output_files,
             }
 
             metadata_file = output_path / "metadata.json"
-            with open(metadata_file, 'w', encoding='utf-8') as f:
+            with open(metadata_file, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=2, ensure_ascii=False)
 
             logger.info(

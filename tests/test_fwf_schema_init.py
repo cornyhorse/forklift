@@ -1,7 +1,8 @@
 """Tests for FWF schema package initialization."""
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from forklift.schema.fwf import FwfSchemaImporter, SchemaValidationError
 
@@ -23,8 +24,8 @@ class TestFwfSchemaInit:
         """Test that the package exports the expected items."""
         from forklift.schema import fwf
 
-        assert hasattr(fwf, 'FwfSchemaImporter')
-        assert hasattr(fwf, 'SchemaValidationError')
+        assert hasattr(fwf, "FwfSchemaImporter")
+        assert hasattr(fwf, "SchemaValidationError")
 
     def test_direct_imports(self):
         """Test direct imports from the fwf package."""

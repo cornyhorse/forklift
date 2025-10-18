@@ -2,11 +2,12 @@
 
 import json
 import tempfile
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
 from forklift.outputs.config import OutputConfig
 from forklift.outputs.manifest import ManifestGenerator
@@ -29,10 +30,7 @@ class TestOutputConfig:
     def test_output_config_custom_values(self):
         """Test OutputConfig with custom values."""
         config = OutputConfig(
-            compression="gzip",
-            create_manifest=False,
-            create_metadata=False,
-            row_group_size=100000
+            compression="gzip", create_manifest=False, create_metadata=False, row_group_size=100000
         )
 
         assert config.compression == "gzip"
@@ -55,15 +53,14 @@ class TestManifestGenerator:
                 file_path = temp_path / f"test_file_{i}.parquet"
 
                 # Create test data
-                schema = pa.schema([
-                    pa.field("id", pa.int64()),
-                    pa.field("name", pa.string()),
-                ])
+                schema = pa.schema(
+                    [
+                        pa.field("id", pa.int64()),
+                        pa.field("name", pa.string()),
+                    ]
+                )
 
-                data = pa.table({
-                    "id": [1, 2, 3],
-                    "name": ["Alice", "Bob", "Charlie"]
-                })
+                data = pa.table({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
 
                 # Write parquet file
                 pq.write_table(data, file_path)
@@ -77,7 +74,7 @@ class TestManifestGenerator:
             assert Path(manifest_path).name == "manifest.json"
 
             # Verify manifest contents
-            with open(manifest_path, 'r') as f:
+            with open(manifest_path, "r") as f:
                 manifest = json.load(f)
 
             assert manifest["format_version"] == "1.0"
@@ -101,7 +98,7 @@ class TestManifestGenerator:
             # Use non-existent files
             test_files = [
                 str(temp_path / "nonexistent1.parquet"),
-                str(temp_path / "nonexistent2.parquet")
+                str(temp_path / "nonexistent2.parquet"),
             ]
 
             # Create manifest
@@ -111,7 +108,7 @@ class TestManifestGenerator:
             assert Path(manifest_path).exists()
 
             # Verify manifest contents
-            with open(manifest_path, 'r') as f:
+            with open(manifest_path, "r") as f:
                 manifest = json.load(f)
 
             assert manifest["total_files"] == 2
@@ -128,10 +125,7 @@ class TestManifestGenerator:
             file_path = Path(temp_dir) / "test.parquet"
 
             # Create test parquet file
-            data = pa.table({
-                "id": [1, 2, 3, 4, 5],
-                "value": ["a", "b", "c", "d", "e"]
-            })
+            data = pa.table({"id": [1, 2, 3, 4, 5], "value": ["a", "b", "c", "d", "e"]})
             pq.write_table(data, file_path)
 
             # Test row count extraction
@@ -154,7 +148,7 @@ class TestManifestGenerator:
 
     def test_get_parquet_row_count_exception_handling(self):
         """Test _get_parquet_row_count exception handling."""
-        with patch('pyarrow.parquet.ParquetFile') as mock_parquet_file:
+        with patch("pyarrow.parquet.ParquetFile") as mock_parquet_file:
             mock_parquet_file.side_effect = Exception("Simulated error")
 
             row_count = ManifestGenerator._get_parquet_row_count("any_file.parquet")
@@ -173,13 +167,10 @@ class TestMetadataGenerator:
                 "processing_summary": {
                     "total_records": 1000,
                     "valid_records": 950,
-                    "invalid_records": 50
+                    "invalid_records": 50,
                 },
-                "input_config": {
-                    "source_file": "input.csv",
-                    "delimiter": ","
-                },
-                "output_files": []
+                "input_config": {"source_file": "input.csv", "delimiter": ","},
+                "output_files": [],
             }
 
             # Create metadata
@@ -190,7 +181,7 @@ class TestMetadataGenerator:
             assert Path(metadata_path).name == "metadata.json"
 
             # Verify metadata contents
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
             assert metadata["processing_summary"] == processing_stats["processing_summary"]
@@ -207,24 +198,22 @@ class TestMetadataGenerator:
 
             # Create test parquet file
             output_file = temp_path / "output.parquet"
-            data = pa.table({
-                "id": [1, 2, 3],
-                "name": ["Alice", "Bob", "Charlie"],
-                "age": [25, 30, 35]
-            })
+            data = pa.table(
+                {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+            )
             pq.write_table(data, output_file)
 
             processing_stats = {
                 "processing_summary": {"total_records": 3},
                 "input_config": {"source": "test.csv"},
-                "output_files": [str(output_file)]
+                "output_files": [str(output_file)],
             }
 
             # Create metadata
             metadata_path = MetadataGenerator.create_metadata(temp_path, processing_stats)
 
             # Verify metadata contents
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
             assert metadata["output_files"] == [str(output_file)]
@@ -247,15 +236,15 @@ class TestMetadataGenerator:
                 "input_config": {},
                 "output_files": [
                     str(temp_path / "nonexistent.parquet"),
-                    str(temp_path / "also_missing.parquet")
-                ]
+                    str(temp_path / "also_missing.parquet"),
+                ],
             }
 
             # Create metadata
             metadata_path = MetadataGenerator.create_metadata(temp_path, processing_stats)
 
             # Verify metadata contents
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
             # Should still list the files even if they don't exist
@@ -270,20 +259,20 @@ class TestMetadataGenerator:
 
             # Create invalid parquet file
             invalid_file = temp_path / "invalid.parquet"
-            with open(invalid_file, 'w') as f:
+            with open(invalid_file, "w") as f:
                 f.write("not a parquet file")
 
             processing_stats = {
                 "processing_summary": {},
                 "input_config": {},
-                "output_files": [str(invalid_file)]
+                "output_files": [str(invalid_file)],
             }
 
             # Create metadata - should handle the invalid file gracefully
             metadata_path = MetadataGenerator.create_metadata(temp_path, processing_stats)
 
             # Verify metadata contents
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
             # Should list the file but skip column statistics due to read error
@@ -297,20 +286,20 @@ class TestMetadataGenerator:
 
             # Create non-parquet file
             csv_file = temp_path / "output.csv"
-            with open(csv_file, 'w') as f:
+            with open(csv_file, "w") as f:
                 f.write("id,name\n1,Alice\n2,Bob\n")
 
             processing_stats = {
                 "processing_summary": {},
                 "input_config": {},
-                "output_files": [str(csv_file)]
+                "output_files": [str(csv_file)],
             }
 
             # Create metadata
             metadata_path = MetadataGenerator.create_metadata(temp_path, processing_stats)
 
             # Verify metadata contents
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
             # Should list the file but skip column statistics for non-parquet files
@@ -329,7 +318,7 @@ class TestMetadataGenerator:
             metadata_path = MetadataGenerator.create_metadata(temp_path, processing_stats)
 
             # Verify metadata contents with defaults
-            with open(metadata_path, 'r') as f:
+            with open(metadata_path, "r") as f:
                 metadata = json.load(f)
 
             assert metadata["processing_summary"] == {}
@@ -358,10 +347,7 @@ class TestParquetOutputHandler:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = Path(temp_dir) / "test.parquet"
-            schema = pa.schema([
-                pa.field("id", pa.int64()),
-                pa.field("name", pa.string())
-            ])
+            schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
 
             # Create writer
             writer = handler.create_writer(file_path, schema)
@@ -381,19 +367,15 @@ class TestParquetOutputHandler:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = Path(temp_dir) / "test.parquet"
-            schema = pa.schema([
-                pa.field("id", pa.int64()),
-                pa.field("name", pa.string())
-            ])
+            schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
 
             # Create writer
             writer = handler.create_writer(file_path, schema)
 
             # Create test batch
-            batch = pa.record_batch([
-                pa.array([1, 2, 3]),
-                pa.array(["Alice", "Bob", "Charlie"])
-            ], schema=schema)
+            batch = pa.record_batch(
+                [pa.array([1, 2, 3]), pa.array(["Alice", "Bob", "Charlie"])], schema=schema
+            )
 
             # Write batch
             handler.write_batch(writer, batch)
@@ -416,19 +398,15 @@ class TestParquetOutputHandler:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = Path(temp_dir) / "test.parquet"
-            schema = pa.schema([
-                pa.field("id", pa.int64()),
-                pa.field("name", pa.string())
-            ])
+            schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
 
             # Create writer
             writer = handler.create_writer(file_path, schema)
 
             # Create empty batch
-            empty_batch = pa.record_batch([
-                pa.array([], type=pa.int64()),
-                pa.array([], type=pa.string())
-            ], schema=schema)
+            empty_batch = pa.record_batch(
+                [pa.array([], type=pa.int64()), pa.array([], type=pa.string())], schema=schema
+            )
 
             # Write empty batch (should be skipped)
             handler.write_batch(writer, empty_batch)
@@ -466,10 +444,7 @@ class TestParquetOutputHandler:
 
     def test_parquet_writer_with_custom_config(self):
         """Test ParquetWriter creation with custom configuration."""
-        config = OutputConfig(
-            compression="gzip",
-            row_group_size=1000
-        )
+        config = OutputConfig(compression="gzip", row_group_size=1000)
         handler = ParquetOutputHandler(config)
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -477,18 +452,14 @@ class TestParquetOutputHandler:
             schema = pa.schema([pa.field("id", pa.int64())])
 
             # Mock ParquetWriter to verify config is passed correctly
-            with patch('pyarrow.parquet.ParquetWriter') as mock_writer:
+            with patch("pyarrow.parquet.ParquetWriter") as mock_writer:
                 mock_instance = MagicMock()
                 mock_writer.return_value = mock_instance
 
                 writer = handler.create_writer(file_path, schema)
 
                 # Verify ParquetWriter was called with correct parameters
-                mock_writer.assert_called_once_with(
-                    file_path,
-                    schema,
-                    compression="gzip"
-                )
+                mock_writer.assert_called_once_with(file_path, schema, compression="gzip")
 
                 assert writer == mock_instance
                 assert str(file_path) in handler.writers

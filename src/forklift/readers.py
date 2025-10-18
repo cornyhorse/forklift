@@ -1,20 +1,25 @@
 """Forklift readers for ad-hoc DataFrame usage."""
 
 from __future__ import annotations
-import tempfile
-import shutil
+
 import atexit
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
-from .engine.forklift_core import import_csv, import_excel, import_fwf, import_sql
+
+from .engine.forklift_core import (import_csv, import_excel, import_fwf,
+                                   import_sql)
 
 # Global registry of temporary directories for cleanup
 _temp_dirs = set()
+
 
 def _cleanup_temp_dirs():
     """Clean up all temporary directories on exit."""
     for temp_dir in _temp_dirs:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 # Register cleanup function
 atexit.register(_cleanup_temp_dirs)
@@ -55,7 +60,9 @@ class DataFrameReader:
         try:
             import polars as pl
         except ImportError:
-            raise ImportError("polars is required for as_polars(). Install with: pip install polars")
+            raise ImportError(
+                "polars is required for as_polars(). Install with: pip install polars"
+            )
 
         if len(self.parquet_files) == 1:
             if lazy:
@@ -85,7 +92,9 @@ class DataFrameReader:
         try:
             import pandas as pd
         except ImportError:
-            raise ImportError("pandas is required for as_pandas(). Install with: pip install pandas")
+            raise ImportError(
+                "pandas is required for as_pandas(). Install with: pip install pandas"
+            )
 
         if len(self.parquet_files) == 1:
             return pd.read_parquet(self.parquet_files[0], **kwargs)
@@ -103,7 +112,9 @@ class DataFrameReader:
         try:
             import pyarrow.parquet as pq
         except ImportError:
-            raise ImportError("pyarrow is required for as_pyarrow(). Install with: pip install pyarrow")
+            raise ImportError(
+                "pyarrow is required for as_pyarrow(). Install with: pip install pyarrow"
+            )
 
         if len(self.parquet_files) == 1:
             return pq.read_table(self.parquet_files[0])
@@ -111,6 +122,7 @@ class DataFrameReader:
             # Concatenate multiple tables
             tables = [pq.read_table(f) for f in self.parquet_files]
             import pyarrow as pa
+
             return pa.concat_tables(tables)
 
     def cleanup(self):
@@ -129,7 +141,7 @@ def read_csv(
     schema_file: Optional[Union[str, Path]] = None,
     encoding: str = "utf-8",
     delimiter: str = ",",
-    **kwargs
+    **kwargs,
 ) -> DataFrameReader:
     """
     Read CSV file and return a DataFrameReader for conversion to Polars/Pandas.
@@ -164,7 +176,7 @@ def read_csv(
             schema_file=schema_file,
             encoding=encoding,
             delimiter=delimiter,
-            **kwargs
+            **kwargs,
         )
 
         # Return reader with the generated parquet files
@@ -180,7 +192,7 @@ def read_excel(
     input_path: Union[str, Path],
     schema_file: Optional[Union[str, Path]] = None,
     sheet: Optional[str] = None,
-    **kwargs
+    **kwargs,
 ) -> DataFrameReader:
     """
     Read Excel file and return a DataFrameReader for conversion to Polars/Pandas.
@@ -209,7 +221,7 @@ def read_excel(
             output_path=temp_dir,
             schema_file=schema_file,
             sheet=sheet,
-            **kwargs
+            **kwargs,
         )
 
         # Return reader with the generated parquet files
@@ -222,9 +234,7 @@ def read_excel(
 
 
 def read_fwf(
-    input_path: Union[str, Path],
-    schema_file: Union[str, Path],
-    **kwargs
+    input_path: Union[str, Path], schema_file: Union[str, Path], **kwargs
 ) -> DataFrameReader:
     """
     Read Fixed-Width File and return a DataFrameReader for conversion to Polars/Pandas.
@@ -248,10 +258,7 @@ def read_fwf(
     try:
         # Process FWF to Parquet
         results = import_fwf(
-            input_path=input_path,
-            output_path=temp_dir,
-            schema_file=schema_file,
-            **kwargs
+            input_path=input_path, output_path=temp_dir, schema_file=schema_file, **kwargs
         )
 
         # Return reader with the generated parquet files
@@ -264,9 +271,7 @@ def read_fwf(
 
 
 def read_sql(
-    input_path: Union[str, Path],
-    schema_file: Optional[Union[str, Path]] = None,
-    **kwargs
+    input_path: Union[str, Path], schema_file: Optional[Union[str, Path]] = None, **kwargs
 ) -> DataFrameReader:
     """
     Read SQL database and return a DataFrameReader for conversion to Polars/Pandas.
@@ -290,10 +295,7 @@ def read_sql(
     try:
         # Process SQL to Parquet
         results = import_sql(
-            input_path=input_path,
-            output_path=temp_dir,
-            schema_file=schema_file,
-            **kwargs
+            input_path=input_path, output_path=temp_dir, schema_file=schema_file, **kwargs
         )
 
         # Return reader with the generated parquet files

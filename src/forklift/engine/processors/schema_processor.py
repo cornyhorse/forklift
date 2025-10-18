@@ -1,13 +1,14 @@
 """Schema processing and validation logic."""
 
 from __future__ import annotations
+
 import json
 from typing import Any, Dict, Optional
 
 import pyarrow as pa
 
-from ..config import ImportConfig
 from ...io import UnifiedIOHandler
+from ..config import ImportConfig
 
 
 class SchemaProcessor:
@@ -41,7 +42,7 @@ class SchemaProcessor:
         if not self.io_handler.exists(self.config.schema_file):
             raise FileNotFoundError(f"Schema file not found: {self.config.schema_file}")
 
-        with self.io_handler.open_for_read(self.config.schema_file, encoding='utf-8') as f:
+        with self.io_handler.open_for_read(self.config.schema_file, encoding="utf-8") as f:
             self.schema_dict = json.load(f)
 
         # Convert JSON schema to PyArrow schema
@@ -110,8 +111,7 @@ class SchemaProcessor:
         Returns:
             True if schema contains row hash configuration
         """
-        return (self.schema_dict is not None and
-                'x-rowHash' in self.schema_dict)
+        return self.schema_dict is not None and "x-rowHash" in self.schema_dict
 
     def get_row_hash_config(self) -> Optional[Dict[str, Any]]:
         """Get row hash configuration from schema.
@@ -120,7 +120,7 @@ class SchemaProcessor:
             Row hash configuration dictionary or None
         """
         if self.schema_dict:
-            return self.schema_dict.get('x-rowHash')
+            return self.schema_dict.get("x-rowHash")
         return None
 
     def get_metadata_config(self) -> Dict[str, Any]:
@@ -130,5 +130,5 @@ class SchemaProcessor:
             Metadata configuration dictionary
         """
         if self.schema_dict:
-            return self.schema_dict.get('x-metadata-generation', {})
+            return self.schema_dict.get("x-metadata-generation", {})
         return {}

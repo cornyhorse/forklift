@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from .base import BaseFormatter, ValidationMixin
 from ..configs import SSNConfig
+from .base import BaseFormatter, ValidationMixin
 
 
 class SSNFormatter(BaseFormatter, ValidationMixin):

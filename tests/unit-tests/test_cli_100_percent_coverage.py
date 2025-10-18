@@ -1,13 +1,16 @@
 """Additional tests for CLI module to achieve 100% code coverage."""
+
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
+
 from forklift.cli import main
 
 
 class TestCLI100PercentCoverage:
     """Test suite specifically targeting the remaining missing branch coverage."""
 
-    @patch('forklift.cli.ForkliftCore')
+    @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_processing_no_optional_files(self, mock_forklift):
         """Test ingest CSV when optional files are None/empty (covers branches 93->95, 95->97)."""
         # Setup mock to return results with None/empty optional fields
@@ -23,14 +26,10 @@ class TestCLI100PercentCoverage:
         mock_core_instance.process_csv.return_value = mock_results
         mock_forklift.return_value = mock_core_instance
 
-        test_args = [
-            'forklift', 'ingest', 'input.csv',
-            '--dest', 'output/',
-            '--input-kind', 'csv'
-        ]
+        test_args = ["forklift", "ingest", "input.csv", "--dest", "output/", "--input-kind", "csv"]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
                 # Verify basic output is printed
                 mock_print.assert_any_call("Processing complete. Processed 500 rows.")
@@ -42,7 +41,7 @@ class TestCLI100PercentCoverage:
                 assert not any("Manifest file:" in call for call in print_calls)
                 assert not any("Metadata file:" in call for call in print_calls)
 
-    @patch('forklift.cli.ForkliftCore')
+    @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_processing_empty_output_files(self, mock_forklift):
         """Test ingest CSV when output_files is empty list (covers edge case)."""
         # Setup mock to return results with empty output files list
@@ -58,14 +57,10 @@ class TestCLI100PercentCoverage:
         mock_core_instance.process_csv.return_value = mock_results
         mock_forklift.return_value = mock_core_instance
 
-        test_args = [
-            'forklift', 'ingest', 'input.csv',
-            '--dest', 'output/',
-            '--input-kind', 'csv'
-        ]
+        test_args = ["forklift", "ingest", "input.csv", "--dest", "output/", "--input-kind", "csv"]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
                 # Verify basic output is printed
                 mock_print.assert_any_call("Processing complete. Processed 100 rows.")
@@ -77,7 +72,7 @@ class TestCLI100PercentCoverage:
                 print_calls = [str(call) for call in mock_print.call_args_list]
                 assert not any("Output files:" in call for call in print_calls)
 
-    @patch('forklift.cli.SchemaGenerator')
+    @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_metadata_output_no_file_returned(self, mock_schema_gen):
         """Test generate-schema when metadata generation returns None (covers branch 141->144)."""
         mock_generator = MagicMock()
@@ -89,13 +84,17 @@ class TestCLI100PercentCoverage:
         mock_generator.generate_and_save_metadata.return_value = None
 
         test_args = [
-            'forklift', 'generate-schema', 'input.csv',
-            '--file-type', 'csv',
-            '--metadata-output', 'metadata_output.json'
+            "forklift",
+            "generate-schema",
+            "input.csv",
+            "--file-type",
+            "csv",
+            "--metadata-output",
+            "metadata_output.json",
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
                 # Should call the metadata methods but not print success message
                 mock_generator._read_csv_sample.assert_called_once()
@@ -105,7 +104,7 @@ class TestCLI100PercentCoverage:
                 print_calls = [str(call) for call in mock_print.call_args_list]
                 assert not any("Metadata file written to:" in call for call in print_calls)
 
-    @patch('forklift.cli.ForkliftCore')
+    @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_processing_mixed_optional_files(self, mock_forklift):
         """Test ingest CSV with mixed optional file conditions."""
         # Setup mock with some files present, some None
@@ -121,14 +120,10 @@ class TestCLI100PercentCoverage:
         mock_core_instance.process_csv.return_value = mock_results
         mock_forklift.return_value = mock_core_instance
 
-        test_args = [
-            'forklift', 'ingest', 'input.csv',
-            '--dest', 'output/',
-            '--input-kind', 'csv'
-        ]
+        test_args = ["forklift", "ingest", "input.csv", "--dest", "output/", "--input-kind", "csv"]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
                 # Verify basic output is printed
                 mock_print.assert_any_call("Processing complete. Processed 250 rows.")
@@ -140,7 +135,7 @@ class TestCLI100PercentCoverage:
                 print_calls = [str(call) for call in mock_print.call_args_list]
                 assert not any("Manifest file:" in call for call in print_calls)
 
-    @patch('forklift.cli.SchemaGenerator')
+    @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_metadata_output_with_success_message(self, mock_schema_gen):
         """Test generate-schema when metadata generation succeeds (covers positive branch)."""
         mock_generator = MagicMock()
@@ -152,13 +147,17 @@ class TestCLI100PercentCoverage:
         mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
 
         test_args = [
-            'forklift', 'generate-schema', 'input.parquet',
-            '--file-type', 'parquet',
-            '--metadata-output', 'metadata_output.json'
+            "forklift",
+            "generate-schema",
+            "input.parquet",
+            "--file-type",
+            "parquet",
+            "--metadata-output",
+            "metadata_output.json",
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
                 # Should call the metadata methods and print success message
                 mock_generator._read_parquet_sample.assert_called_once()
@@ -170,14 +169,18 @@ class TestCLI100PercentCoverage:
     def test_generate_schema_file_output_validation_early_return(self):
         """Test generate-schema early return for file output validation (covers return at line 101)."""
         test_args = [
-            'forklift', 'generate-schema', 'input.csv',
-            '--file-type', 'csv',
-            '--output', 'file'
+            "forklift",
+            "generate-schema",
+            "input.csv",
+            "--file-type",
+            "csv",
+            "--output",
+            "file",
             # Missing --output-path
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 # The function should return early without proceeding further
                 result = main()
                 # Verify the error message is printed
@@ -185,7 +188,7 @@ class TestCLI100PercentCoverage:
                 # The function should return None (early return)
                 assert result is None
 
-    @patch('forklift.cli.ForkliftCore')
+    @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_processing_falsy_output_files(self, mock_forklift):
         """Test ingest CSV when output_files is falsy but not None (covers additional edge case)."""
         # Setup mock to return results with falsy output files
@@ -201,14 +204,10 @@ class TestCLI100PercentCoverage:
         mock_core_instance.process_csv.return_value = mock_results
         mock_forklift.return_value = mock_core_instance
 
-        test_args = [
-            'forklift', 'ingest', 'input.csv',
-            '--dest', 'output/',
-            '--input-kind', 'csv'
-        ]
+        test_args = ["forklift", "ingest", "input.csv", "--dest", "output/", "--input-kind", "csv"]
 
-        with patch('sys.argv', test_args):
-            with patch('builtins.print') as mock_print:
+        with patch("sys.argv", test_args):
+            with patch("builtins.print") as mock_print:
                 main()
                 # Verify basic output is printed
                 mock_print.assert_any_call("Processing complete. Processed 50 rows.")

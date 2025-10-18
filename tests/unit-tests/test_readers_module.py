@@ -1,12 +1,15 @@
 """Tests for the readers module."""
-import pytest
-import tempfile
-import shutil
-from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
-import json
 
-from forklift.readers import DataFrameReader, read_csv, _cleanup_temp_dirs, _temp_dirs
+import json
+import shutil
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, mock_open, patch
+
+import pytest
+
+from forklift.readers import (DataFrameReader, _cleanup_temp_dirs, _temp_dirs,
+                              read_csv)
 
 
 class TestDataFrameReader:
@@ -46,7 +49,7 @@ class TestDataFrameReader:
 
         mock_df = MagicMock()
 
-        with patch('polars.read_parquet', return_value=mock_df) as mock_read:
+        with patch("polars.read_parquet", return_value=mock_df) as mock_read:
             result = reader.as_polars(lazy=False)
 
             mock_read.assert_called_once_with(files[0])
@@ -59,7 +62,7 @@ class TestDataFrameReader:
 
         mock_lf = MagicMock()
 
-        with patch('polars.scan_parquet', return_value=mock_lf) as mock_scan:
+        with patch("polars.scan_parquet", return_value=mock_lf) as mock_scan:
             result = reader.as_polars(lazy=True)
 
             mock_scan.assert_called_once_with(files[0])
@@ -74,8 +77,9 @@ class TestDataFrameReader:
         mock_df2 = MagicMock()
         mock_concat_result = MagicMock()
 
-        with patch('polars.read_parquet', side_effect=[mock_df1, mock_df2]) as mock_read, \
-             patch('polars.concat', return_value=mock_concat_result) as mock_concat:
+        with patch("polars.read_parquet", side_effect=[mock_df1, mock_df2]) as mock_read, patch(
+            "polars.concat", return_value=mock_concat_result
+        ) as mock_concat:
 
             result = reader.as_polars(lazy=False)
 
@@ -92,8 +96,9 @@ class TestDataFrameReader:
         mock_lf2 = MagicMock()
         mock_concat_result = MagicMock()
 
-        with patch('polars.scan_parquet', side_effect=[mock_lf1, mock_lf2]) as mock_scan, \
-             patch('polars.concat', return_value=mock_concat_result) as mock_concat:
+        with patch("polars.scan_parquet", side_effect=[mock_lf1, mock_lf2]) as mock_scan, patch(
+            "polars.concat", return_value=mock_concat_result
+        ) as mock_concat:
 
             result = reader.as_polars(lazy=True)
 
@@ -106,8 +111,8 @@ class TestDataFrameReader:
         files = ["/path/to/file.parquet"]
         reader = DataFrameReader(files)
 
-        with patch.dict('sys.modules', {'polars': None}):
-            with patch('builtins.__import__', side_effect=ImportError()):
+        with patch.dict("sys.modules", {"polars": None}):
+            with patch("builtins.__import__", side_effect=ImportError()):
                 with pytest.raises(ImportError) as exc_info:
                     reader.as_polars()
 
@@ -121,10 +126,10 @@ class TestDataFrameReader:
 
         mock_df = MagicMock()
 
-        with patch('pandas.read_parquet', return_value=mock_df) as mock_read:
-            result = reader.as_pandas(columns=['col1', 'col2'])
+        with patch("pandas.read_parquet", return_value=mock_df) as mock_read:
+            result = reader.as_pandas(columns=["col1", "col2"])
 
-            mock_read.assert_called_once_with(files[0], columns=['col1', 'col2'])
+            mock_read.assert_called_once_with(files[0], columns=["col1", "col2"])
             assert result == mock_df
 
     def test_as_pandas_multiple_files(self):
@@ -136,8 +141,9 @@ class TestDataFrameReader:
         mock_df2 = MagicMock()
         mock_concat_result = MagicMock()
 
-        with patch('pandas.read_parquet', side_effect=[mock_df1, mock_df2]) as mock_read, \
-             patch('pandas.concat', return_value=mock_concat_result) as mock_concat:
+        with patch("pandas.read_parquet", side_effect=[mock_df1, mock_df2]) as mock_read, patch(
+            "pandas.concat", return_value=mock_concat_result
+        ) as mock_concat:
 
             result = reader.as_pandas()
 
@@ -150,8 +156,8 @@ class TestDataFrameReader:
         files = ["/path/to/file.parquet"]
         reader = DataFrameReader(files)
 
-        with patch.dict('sys.modules', {'pandas': None}):
-            with patch('builtins.__import__', side_effect=ImportError()):
+        with patch.dict("sys.modules", {"pandas": None}):
+            with patch("builtins.__import__", side_effect=ImportError()):
                 with pytest.raises(ImportError) as exc_info:
                     reader.as_pandas()
 
@@ -165,7 +171,7 @@ class TestDataFrameReader:
 
         mock_table = MagicMock()
 
-        with patch('pyarrow.parquet.read_table', return_value=mock_table) as mock_read:
+        with patch("pyarrow.parquet.read_table", return_value=mock_table) as mock_read:
             result = reader.as_pyarrow()
 
             mock_read.assert_called_once_with(files[0])
@@ -180,8 +186,11 @@ class TestDataFrameReader:
         mock_table2 = MagicMock()
         mock_concat_result = MagicMock()
 
-        with patch('pyarrow.parquet.read_table', side_effect=[mock_table1, mock_table2]) as mock_read, \
-             patch('pyarrow.concat_tables', return_value=mock_concat_result) as mock_concat:
+        with patch(
+            "pyarrow.parquet.read_table", side_effect=[mock_table1, mock_table2]
+        ) as mock_read, patch(
+            "pyarrow.concat_tables", return_value=mock_concat_result
+        ) as mock_concat:
 
             result = reader.as_pyarrow()
 
@@ -194,15 +203,15 @@ class TestDataFrameReader:
         files = ["/path/to/file.parquet"]
         reader = DataFrameReader(files)
 
-        with patch.dict('sys.modules', {'pyarrow.parquet': None}):
-            with patch('builtins.__import__', side_effect=ImportError()):
+        with patch.dict("sys.modules", {"pyarrow.parquet": None}):
+            with patch("builtins.__import__", side_effect=ImportError()):
                 with pytest.raises(ImportError) as exc_info:
                     reader.as_pyarrow()
 
                 assert "pyarrow is required for as_pyarrow()" in str(exc_info.value)
                 assert "pip install pyarrow" in str(exc_info.value)
 
-    @patch('forklift.readers.shutil.rmtree')
+    @patch("forklift.readers.shutil.rmtree")
     def test_cleanup(self, mock_rmtree):
         """Test manual cleanup of temporary files."""
         files = ["/path/to/file.parquet"]
@@ -218,7 +227,7 @@ class TestDataFrameReader:
         mock_rmtree.assert_called_once_with(temp_dir, ignore_errors=True)
         assert temp_dir not in _temp_dirs
 
-    @patch('forklift.readers.shutil.rmtree')
+    @patch("forklift.readers.shutil.rmtree")
     def test_cleanup_no_temp_dir(self, mock_rmtree):
         """Test cleanup when no temp_dir is set."""
         files = ["/path/to/file.parquet"]
@@ -228,7 +237,7 @@ class TestDataFrameReader:
 
         mock_rmtree.assert_not_called()
 
-    @patch('forklift.readers.shutil.rmtree')
+    @patch("forklift.readers.shutil.rmtree")
     def test_del_cleanup(self, mock_rmtree):
         """Test that __del__ triggers cleanup."""
         files = ["/path/to/file.parquet"]
@@ -246,8 +255,8 @@ class TestDataFrameReader:
 class TestReadCsv:
     """Test cases for the read_csv function."""
 
-    @patch('forklift.readers.import_csv')
-    @patch('forklift.readers.tempfile.mkdtemp')
+    @patch("forklift.readers.import_csv")
+    @patch("forklift.readers.tempfile.mkdtemp")
     def test_read_csv_basic(self, mock_mkdtemp, mock_import_csv):
         """Test basic read_csv functionality."""
         # Setup mocks
@@ -269,7 +278,7 @@ class TestReadCsv:
             output_path=temp_dir,
             schema_file=None,
             encoding="utf-8",
-            delimiter=","
+            delimiter=",",
         )
 
         # Verify result
@@ -277,8 +286,8 @@ class TestReadCsv:
         assert result.parquet_files == mock_result.output_files
         assert result._temp_dir == temp_dir
 
-    @patch('forklift.readers.import_csv')
-    @patch('forklift.readers.tempfile.mkdtemp')
+    @patch("forklift.readers.import_csv")
+    @patch("forklift.readers.tempfile.mkdtemp")
     def test_read_csv_with_schema(self, mock_mkdtemp, mock_import_csv):
         """Test read_csv with schema file."""
         temp_dir = "/tmp/test_temp"
@@ -288,10 +297,7 @@ class TestReadCsv:
         mock_result.output_files = ["/tmp/output.parquet"]
         mock_import_csv.return_value = mock_result
 
-        result = read_csv(
-            "/path/to/input.csv",
-            schema_file="/path/to/schema.json"
-        )
+        result = read_csv("/path/to/input.csv", schema_file="/path/to/schema.json")
 
         # Now encoding and delimiter are passed through with default values
         mock_import_csv.assert_called_once_with(
@@ -299,7 +305,7 @@ class TestReadCsv:
             output_path=temp_dir,
             schema_file="/path/to/schema.json",
             encoding="utf-8",
-            delimiter=","
+            delimiter=",",
         )
 
         assert isinstance(result, DataFrameReader)
@@ -310,7 +316,7 @@ class TestReadCsv:
 class TestGlobalCleanup:
     """Test cases for global cleanup functionality."""
 
-    @patch('forklift.readers.shutil.rmtree')
+    @patch("forklift.readers.shutil.rmtree")
     def test_cleanup_temp_dirs(self, mock_rmtree):
         """Test global temp directory cleanup."""
         # Save original state
@@ -329,7 +335,7 @@ class TestGlobalCleanup:
             for call in mock_rmtree.call_args_list:
                 args, kwargs = call
                 assert args[0] in test_dirs
-                assert kwargs == {'ignore_errors': True}
+                assert kwargs == {"ignore_errors": True}
 
         finally:
             # Restore original state

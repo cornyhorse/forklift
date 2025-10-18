@@ -1,9 +1,11 @@
 """Metadata generation and analysis."""
 
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import pandas as pd
 import pyarrow as pa
+
 from ..utils.helpers import get_parquet_type_string
 
 
@@ -26,18 +28,18 @@ class MetadataGenerator:
             "generated_at": datetime.now().isoformat(),
             "analysis_config": {
                 "rows_analyzed": table.num_rows,
-                "enum_threshold": config.get('enum_threshold', 0.1),
-                "uniqueness_threshold": config.get('uniqueness_threshold', 0.95),
-                "top_n_values": config.get('top_n_values', 10),
-                "quantiles": config.get('quantiles', [0.25, 0.5, 0.75, 0.9, 0.95, 0.99])
+                "enum_threshold": config.get("enum_threshold", 0.1),
+                "uniqueness_threshold": config.get("uniqueness_threshold", 0.95),
+                "top_n_values": config.get("top_n_values", 10),
+                "quantiles": config.get("quantiles", [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),
             },
             "table_metadata": {
                 "row_count": table.num_rows,
                 "column_count": len(table.schema),
-                "source_file": config.get('source_file', 'unknown')
+                "source_file": config.get("source_file", "unknown"),
             },
             "column_metadata": {},
-            "enum_suggestions": {}
+            "enum_suggestions": {},
         }
 
         # Generate column-level metadata
@@ -57,14 +59,20 @@ class MetadataGenerator:
                 "nullable": field.nullable,
                 "null_count": int(column_data.null_count),
                 "non_null_count": int(len(pandas_series) - column_data.null_count),
-                "null_percentage": float(column_data.null_count / len(pandas_series) * 100) if len(pandas_series) > 0 else 0.0
+                "null_percentage": (
+                    float(column_data.null_count / len(pandas_series) * 100)
+                    if len(pandas_series) > 0
+                    else 0.0
+                ),
             }
 
             # Add NaN count for numeric types
             if pa.types.is_floating(arrow_type):
                 nan_count = int(pandas_series.isna().sum() - column_data.null_count)
                 column_metadata["nan_count"] = nan_count
-                column_metadata["nan_percentage"] = float(nan_count / len(pandas_series) * 100) if len(pandas_series) > 0 else 0.0
+                column_metadata["nan_percentage"] = (
+                    float(nan_count / len(pandas_series) * 100) if len(pandas_series) > 0 else 0.0
+                )
 
             # Calculate distinct values and uniqueness
             non_null_series = pandas_series.dropna()
@@ -78,28 +86,34 @@ class MetadataGenerator:
 
                 # Top N values
                 top_values = []
-                top_n = config.get('top_n_values', 10)
+                top_n = config.get("top_n_values", 10)
                 for value, count in value_counts.head(top_n).items():
-                    top_values.append({
-                        "value": str(value),
-                        "count": int(count),
-                        "percentage": float(count / len(non_null_series) * 100)
-                    })
+                    top_values.append(
+                        {
+                            "value": str(value),
+                            "count": int(count),
+                            "percentage": float(count / len(non_null_series) * 100),
+                        }
+                    )
                 column_metadata["top_values"] = top_values
 
                 # Bottom N values (if there are enough unique values)
                 if distinct_count > top_n:
                     bottom_values = []
                     for value, count in value_counts.tail(top_n).items():
-                        bottom_values.append({
-                            "value": str(value),
-                            "count": int(count),
-                            "percentage": float(count / len(non_null_series) * 100)
-                        })
+                        bottom_values.append(
+                            {
+                                "value": str(value),
+                                "count": int(count),
+                                "percentage": float(count / len(non_null_series) * 100),
+                            }
+                        )
                     column_metadata["bottom_values"] = bottom_values
 
                 # Enum type suggestions
-                enum_suggestion = self._analyze_enum_potential(column_name, non_null_series, value_counts, config)
+                enum_suggestion = self._analyze_enum_potential(
+                    column_name, non_null_series, value_counts, config
+                )
                 if enum_suggestion:
                     metadata["enum_suggestions"][column_name] = enum_suggestion
 
@@ -118,7 +132,9 @@ class MetadataGenerator:
 
         return metadata
 
-    def _analyze_enum_potential(self, column_name: str, series: pd.Series, value_counts: pd.Series, config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _analyze_enum_potential(
+        self, column_name: str, series: pd.Series, value_counts: pd.Series, config: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """Analyze if a column is a good candidate for enum type."""
         if len(series) == 0:
             return None
@@ -127,14 +143,14 @@ class MetadataGenerator:
         total_count = len(series)
         uniqueness_ratio = distinct_count / total_count
 
-        enum_threshold = config.get('enum_threshold', 0.1)
-        uniqueness_threshold = config.get('uniqueness_threshold', 0.95)
+        enum_threshold = config.get("enum_threshold", 0.1)
+        uniqueness_threshold = config.get("uniqueness_threshold", 0.95)
 
         # Check if it meets enum criteria
         is_enum_candidate = (
-            uniqueness_ratio <= enum_threshold and
-            distinct_count <= 50 and
-            uniqueness_ratio < uniqueness_threshold
+            uniqueness_ratio <= enum_threshold
+            and distinct_count <= 50
+            and uniqueness_ratio < uniqueness_threshold
         )
 
         if is_enum_candidate:
@@ -151,17 +167,19 @@ class MetadataGenerator:
                 "top_value_dominance_percentage": float(top_value_percentage),
                 "suggested_enum_values": value_counts.index.tolist(),
                 "recommendation": f"Column '{column_name}' appears to be categorical with {distinct_count} distinct values. "
-                               f"Consider using enum type with values: {', '.join(map(str, value_counts.head(10).index.tolist()))}"
+                f"Consider using enum type with values: {', '.join(map(str, value_counts.head(10).index.tolist()))}",
             }
 
         return {
             "is_enum_candidate": False,
             "reason": f"Too unique ({uniqueness_ratio:.2%}) or too many distinct values ({distinct_count})",
             "distinct_count": int(distinct_count),
-            "uniqueness_ratio": float(uniqueness_ratio)
+            "uniqueness_ratio": float(uniqueness_ratio),
         }
 
-    def _calculate_numeric_statistics(self, series: pd.Series, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _calculate_numeric_statistics(
+        self, series: pd.Series, config: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Calculate comprehensive numeric statistics."""
         if len(series) == 0:
             return {}
@@ -173,19 +191,21 @@ class MetadataGenerator:
                 "mean": float(series.mean()),
                 "median": float(series.median()),
                 "std_dev": float(series.std()),
-                "variance": float(series.var())
+                "variance": float(series.var()),
             }
 
             # Calculate quantiles
             quantile_dict = {}
-            quantiles = config.get('quantiles', [0.25, 0.5, 0.75, 0.9, 0.95, 0.99])
+            quantiles = config.get("quantiles", [0.25, 0.5, 0.75, 0.9, 0.95, 0.99])
             for q in quantiles:
                 quantile_dict[f"quantile_{int(q*100)}"] = float(series.quantile(q))
             stats["quantiles"] = quantile_dict
 
             # Additional statistics
             stats["range"] = float(stats["max_value"] - stats["min_value"])
-            stats["coefficient_of_variation"] = float(stats["std_dev"] / stats["mean"]) if stats["mean"] != 0 else None
+            stats["coefficient_of_variation"] = (
+                float(stats["std_dev"] / stats["mean"]) if stats["mean"] != 0 else None
+            )
 
             # Detect potential outliers using IQR method
             q1 = series.quantile(0.25)
@@ -227,21 +247,29 @@ class MetadataGenerator:
                 "min_length": int(lengths.min()),
                 "max_length": int(lengths.max()),
                 "avg_length": float(lengths.mean()),
-                "median_length": float(lengths.median())
+                "median_length": float(lengths.median()),
             }
 
             # Pattern analysis
             actual_empty_strings = int((str_series_for_analysis == "").sum())
             stats["empty_strings"] = actual_empty_strings + int(nan_count)
-            stats["contains_whitespace"] = int(str_series_for_analysis.str.contains(r'\s', na=False).sum())
-            stats["contains_numbers"] = int(str_series_for_analysis.str.contains(r'\d', na=False).sum())
-            stats["contains_special_chars"] = int(str_series_for_analysis.str.contains(r'[^a-zA-Z0-9\s]', na=False).sum())
+            stats["contains_whitespace"] = int(
+                str_series_for_analysis.str.contains(r"\s", na=False).sum()
+            )
+            stats["contains_numbers"] = int(
+                str_series_for_analysis.str.contains(r"\d", na=False).sum()
+            )
+            stats["contains_special_chars"] = int(
+                str_series_for_analysis.str.contains(r"[^a-zA-Z0-9\s]", na=False).sum()
+            )
             stats["all_uppercase"] = int(str_series_for_analysis.str.isupper().sum())
             stats["all_lowercase"] = int(str_series_for_analysis.str.islower().sum())
 
             # Character encoding analysis
             try:
-                ascii_count = sum(1 for s in str_series_for_analysis if isinstance(s, str) and s.isascii())
+                ascii_count = sum(
+                    1 for s in str_series_for_analysis if isinstance(s, str) and s.isascii()
+                )
                 stats["ascii_only"] = ascii_count
                 stats["non_ascii_count"] = len(str_series_for_analysis) - ascii_count
             except:
@@ -267,7 +295,7 @@ class MetadataGenerator:
                 "true_count": int(true_count),
                 "false_count": int(false_count),
                 "true_percentage": float(true_count / total * 100) if total > 0 else 0.0,
-                "false_percentage": float(false_count / total * 100) if total > 0 else 0.0
+                "false_percentage": float(false_count / total * 100) if total > 0 else 0.0,
             }
         except Exception as e:
             return {"error": f"Failed to calculate boolean statistics: {str(e)}"}

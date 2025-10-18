@@ -1,11 +1,12 @@
 """Import configuration class for Forklift engine."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .enums import HeaderMode, ExcessColumnMode
+from .enums import ExcessColumnMode, HeaderMode
 
 
 @dataclass
@@ -33,6 +34,7 @@ class ImportConfig:
         compression: Compression type for output files (default: snappy)
         excess_column_mode: How to handle rows with excess columns (default: TRUNCATE)
     """
+
     input_path: Union[str, Path]
     output_path: Union[str, Path]
     schema_file: Optional[Union[str, Path]] = None

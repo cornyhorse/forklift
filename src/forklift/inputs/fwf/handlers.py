@@ -1,15 +1,17 @@
 """Main FWF input handler with simplified responsibilities."""
 
 from __future__ import annotations
-from typing import Dict, Any, List, Optional
+
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 import pyarrow as pa
 
-from ..config import FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
-from .validators import FwfConfigValidator
+from ..config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from .converters import FwfTypeConverter, FwfValueProcessor
 from .detectors import FwfEncodingDetector, FwfSchemaDetector
-from .parsers import FwfLineParser, FwfFieldExtractor
+from .parsers import FwfFieldExtractor, FwfLineParser
+from .validators import FwfConfigValidator
 
 
 class FwfInputHandler:
@@ -203,7 +205,9 @@ class FwfInputHandler:
             # Add flag column if present
             if self.config.flag_column:
                 arrow_type = FwfTypeConverter.get_arrow_type(self.config.flag_column.parquet_type)
-                unique_fields[self.config.flag_column.name] = pa.field(self.config.flag_column.name, arrow_type)
+                unique_fields[self.config.flag_column.name] = pa.field(
+                    self.config.flag_column.name, arrow_type
+                )
 
             # Add all fields from all conditional schemas
             for schema in self.config.conditional_schemas:
@@ -216,10 +220,9 @@ class FwfInputHandler:
         fields = list(unique_fields.values())
 
         # Add metadata fields
-        fields.extend([
-            pa.field('__line_number__', pa.int64()),
-            pa.field('__source_file__', pa.string())
-        ])
+        fields.extend(
+            [pa.field("__line_number__", pa.int64()), pa.field("__source_file__", pa.string())]
+        )
 
         return pa.schema(fields)
 
@@ -246,17 +249,17 @@ class FwfInputHandler:
 
         records = []
 
-        with open(file_path, 'r', encoding=encoding) as f:
+        with open(file_path, "r", encoding=encoding) as f:
             for line_num, line in enumerate(f, 1):
                 # Remove newline characters
-                line = line.rstrip('\r\n')
+                line = line.rstrip("\r\n")
 
                 try:
                     parsed_record = self.line_parser.parse_line(line)
                     if parsed_record is not None:
                         # Add metadata fields
-                        parsed_record['__line_number__'] = line_num
-                        parsed_record['__source_file__'] = str(file_path)
+                        parsed_record["__line_number__"] = line_num
+                        parsed_record["__source_file__"] = str(file_path)
                         records.append(parsed_record)
                 except Exception:
                     # Handle parsing exceptions gracefully - continue processing
@@ -309,7 +312,7 @@ class FwfInputHandler:
                             value = float(value) if value != "" else None
                         elif field.type == pa.bool_():
                             value = bool(value) if value != "" else None
-                        elif str(field.type).startswith('decimal128'):
+                        elif str(field.type).startswith("decimal128"):
                             try:
                                 value = float(value) if value != "" else None
                             except (ValueError, TypeError):

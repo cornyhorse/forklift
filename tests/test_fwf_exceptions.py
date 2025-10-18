@@ -2,12 +2,10 @@
 
 import pytest
 
-from forklift.schema.fwf.exceptions import (
-    SchemaValidationError,
-    FieldValidationError,
-    ConditionalSchemaError,
-    ParquetTypeError
-)
+from forklift.schema.fwf.exceptions import (ConditionalSchemaError,
+                                            FieldValidationError,
+                                            ParquetTypeError,
+                                            SchemaValidationError)
 
 
 class TestFwfExceptions:

@@ -1,9 +1,11 @@
 """Tests for FWF fields package initialization."""
 
-import pytest
 from unittest.mock import Mock
 
-from forklift.schema.fwf.fields import FieldParser, PositionCalculator, FieldMapper
+import pytest
+
+from forklift.schema.fwf.fields import (FieldMapper, FieldParser,
+                                        PositionCalculator)
 
 
 class TestFwfFieldsInit:
@@ -28,27 +30,24 @@ class TestFwfFieldsInit:
         """Test that the package exports the expected items."""
         from forklift.schema.fwf import fields
 
-        assert hasattr(fields, 'FieldParser')
-        assert hasattr(fields, 'PositionCalculator')
-        assert hasattr(fields, 'FieldMapper')
+        assert hasattr(fields, "FieldParser")
+        assert hasattr(fields, "PositionCalculator")
+        assert hasattr(fields, "FieldMapper")
 
     def test_all_exports(self):
         """Test __all__ contains expected exports."""
         from forklift.schema.fwf import fields
 
-        expected_exports = [
-            'FieldParser',
-            'PositionCalculator',
-            'FieldMapper'
-        ]
+        expected_exports = ["FieldParser", "PositionCalculator", "FieldMapper"]
 
         assert fields.__all__ == expected_exports
 
     def test_direct_imports(self):
         """Test direct imports from the fields package."""
-        from forklift.schema.fwf.fields import FieldParser as DirectParser
-        from forklift.schema.fwf.fields import PositionCalculator as DirectCalculator
         from forklift.schema.fwf.fields import FieldMapper as DirectMapper
+        from forklift.schema.fwf.fields import FieldParser as DirectParser
+        from forklift.schema.fwf.fields import \
+            PositionCalculator as DirectCalculator
 
         assert DirectParser is FieldParser
         assert DirectCalculator is PositionCalculator

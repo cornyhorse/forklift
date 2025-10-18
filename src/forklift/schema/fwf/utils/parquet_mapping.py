@@ -1,6 +1,7 @@
 """Parquet mapping utilities."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List
 
 from ..validation.parquet_types import ParquetTypeValidator
@@ -46,7 +47,11 @@ class ParquetMappingUtils:
             for j, field in enumerate(fields):
                 if isinstance(field, dict):
                     parquet_type = field.get("parquetType")
-                    if parquet_type and not ParquetTypeValidator.is_valid_parquet_type(parquet_type):
-                        errors.append(f"Variant {i} field {j} invalid Parquet type '{parquet_type}'")
+                    if parquet_type and not ParquetTypeValidator.is_valid_parquet_type(
+                        parquet_type
+                    ):
+                        errors.append(
+                            f"Variant {i} field {j} invalid Parquet type '{parquet_type}'"
+                        )
 
         return errors

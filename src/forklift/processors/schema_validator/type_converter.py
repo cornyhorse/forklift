@@ -1,8 +1,9 @@
 """Type conversion utilities for schema validation."""
 
-from typing import Dict, Any, Optional
-import pyarrow as pa
 from datetime import datetime
+from typing import Any, Dict, Optional
+
+import pyarrow as pa
 
 
 class TypeConverter:
@@ -28,8 +29,8 @@ class TypeConverter:
             "bool": pa.bool_(),
             "boolean": pa.bool_(),
             "date": pa.date32(),
-            "datetime": pa.timestamp('us'),
-            "timestamp": pa.timestamp('us')
+            "datetime": pa.timestamp("us"),
+            "timestamp": pa.timestamp("us"),
         }
 
         return type_mapping.get(type_str, pa.string())
@@ -43,7 +44,7 @@ class TypeConverter:
                 "name": field.name,
                 "type": str(field.type),
                 "nullable": field.nullable,
-                "constraints": {}
+                "constraints": {},
             }
             columns.append(column_def)
 
@@ -51,8 +52,8 @@ class TypeConverter:
             "columns": columns,
             "metadata": {
                 "converted_from_arrow_schema": True,
-                "creation_timestamp": datetime.now().isoformat()
-            }
+                "creation_timestamp": datetime.now().isoformat(),
+            },
         }
 
     @staticmethod
@@ -77,9 +78,11 @@ class TypeConverter:
     @staticmethod
     def is_numeric_type(data_type: pa.DataType) -> bool:
         """Check if a PyArrow data type is numeric."""
-        return (pa.types.is_integer(data_type) or
-                pa.types.is_floating(data_type) or
-                pa.types.is_decimal(data_type))
+        return (
+            pa.types.is_integer(data_type)
+            or pa.types.is_floating(data_type)
+            or pa.types.is_decimal(data_type)
+        )
 
     @staticmethod
     def is_type_compatible(actual_type: pa.DataType, expected_type_str: str) -> bool:
@@ -119,7 +122,11 @@ class TypeConverter:
         if pa.types.is_string(from_type):
             return True  # Strings can usually be coerced to other types
 
-        if TypeConverter.is_numeric_type(from_type) and to_type_str.lower() in ["string", "str", "text"]:
+        if TypeConverter.is_numeric_type(from_type) and to_type_str.lower() in [
+            "string",
+            "str",
+            "text",
+        ]:
             return True  # Numbers can be converted to strings
 
         return False

@@ -1,16 +1,20 @@
 """Tests for processor factories and smaller processors with 0% coverage."""
 
-import pytest
-import pyarrow as pa
 from datetime import datetime, timezone
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
-# Import processors to test
-from forklift.processors.row_hash_factory import create_row_hash_processor_from_schema
-from forklift.processors.row_hash import RowHashProcessor, RowHashConfig
-from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
-from forklift.processors.validation_factory import create_validation_processor_from_schema
+import pyarrow as pa
+import pytest
+
 from forklift.processors.base import ValidationResult
+from forklift.processors.calculated_columns_factory import \
+    create_calculated_columns_processor_from_schema
+from forklift.processors.row_hash import RowHashConfig, RowHashProcessor
+# Import processors to test
+from forklift.processors.row_hash_factory import \
+    create_row_hash_processor_from_schema
+from forklift.processors.validation_factory import \
+    create_validation_processor_from_schema
 
 
 class TestRowHashFactory:
@@ -25,7 +29,7 @@ class TestRowHashFactory:
             "includeColumns": ["id", "name"],
             "excludeColumns": ["secret"],
             "nullValue": "NULL",
-            "separator": "||"
+            "separator": "||",
         }
 
         processor = create_row_hash_processor_from_schema(schema_config)
@@ -52,7 +56,7 @@ class TestRowHashFactory:
             "ingestedAtColumnName": "_ingested_custom",
             "rowNumberEnabled": True,
             "sourceRowNumberColumnName": "_src_row_custom",
-            "processingRowNumberColumnName": "_proc_row_custom"
+            "processingRowNumberColumnName": "_proc_row_custom",
         }
 
         processor = create_row_hash_processor_from_schema(schema_config)
@@ -76,7 +80,7 @@ class TestRowHashFactory:
             "inputHashEnabled": False,
             "sourceUriEnabled": False,
             "ingestedAtEnabled": False,
-            "rowNumberEnabled": False
+            "rowNumberEnabled": False,
         }
 
         processor = create_row_hash_processor_from_schema(schema_config)
@@ -151,7 +155,7 @@ class TestRowHashProcessor:
         assert processor.source_row_offset == 100
         assert processor.ingestion_timestamp is not None
         # Verify timestamp format
-        datetime.fromisoformat(processor.ingestion_timestamp.replace('Z', '+00:00'))
+        datetime.fromisoformat(processor.ingestion_timestamp.replace("Z", "+00:00"))
 
     def test_set_source_context_no_timestamp(self):
         """Test setting source context without timestamp enabled."""
@@ -170,10 +174,7 @@ class TestRowHashProcessor:
         processor = RowHashProcessor(config)
 
         # Create test data
-        data = {
-            'id': [1, 2, 3],
-            'name': ['Alice', 'Bob', 'Charlie']
-        }
+        data = {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
         batch = pa.RecordBatch.from_pydict(data)
 
         result_batch, validation_results = processor.process_batch(batch)
@@ -194,15 +195,15 @@ class TestRowHashProcessor:
             input_hash_enabled=True,
             source_uri_enabled=True,
             ingested_at_enabled=True,
-            row_number_enabled=True
+            row_number_enabled=True,
         )
         processor = RowHashProcessor(config)
         processor.set_source_context("test.csv", 10)
 
         # Create test data
-        data = {'id': [1, 2], 'name': ['Alice', 'Bob']}
+        data = {"id": [1, 2], "name": ["Alice", "Bob"]}
         batch = pa.RecordBatch.from_pydict(data)
-        input_batch = pa.RecordBatch.from_pydict({'raw_id': [1, 2], 'raw_name': ['Alice', 'Bob']})
+        input_batch = pa.RecordBatch.from_pydict({"raw_id": [1, 2], "raw_name": ["Alice", "Bob"]})
 
         result_batch, validation_results = processor.process_batch(batch, input_batch)
 
@@ -223,15 +224,11 @@ class TestRowHashProcessor:
         config = RowHashConfig(
             enabled=True,
             include_columns=["name"],  # Only include name column
-            column_name="partial_hash"
+            column_name="partial_hash",
         )
         processor = RowHashProcessor(config)
 
-        data = {
-            'id': [1, 2],
-            'name': ['Alice', 'Bob'],
-            'secret': ['password1', 'password2']
-        }
+        data = {"id": [1, 2], "name": ["Alice", "Bob"], "secret": ["password1", "password2"]}
         batch = pa.RecordBatch.from_pydict(data)
 
         result_batch, validation_results = processor.process_batch(batch)
@@ -244,15 +241,11 @@ class TestRowHashProcessor:
         config = RowHashConfig(
             enabled=True,
             exclude_columns=["secret"],  # Exclude secret column
-            column_name="safe_hash"
+            column_name="safe_hash",
         )
         processor = RowHashProcessor(config)
 
-        data = {
-            'id': [1, 2],
-            'name': ['Alice', 'Bob'],
-            'secret': ['password1', 'password2']
-        }
+        data = {"id": [1, 2], "name": ["Alice", "Bob"], "secret": ["password1", "password2"]}
         batch = pa.RecordBatch.from_pydict(data)
 
         result_batch, validation_results = processor.process_batch(batch)
@@ -262,18 +255,11 @@ class TestRowHashProcessor:
 
     def test_process_batch_with_nulls(self):
         """Test hash calculation with null values."""
-        config = RowHashConfig(
-            enabled=True,
-            null_value="NULL",
-            separator="|"
-        )
+        config = RowHashConfig(enabled=True, null_value="NULL", separator="|")
         processor = RowHashProcessor(config)
 
         # Create data with null values
-        data = {
-            'id': [1, None, 3],
-            'name': ['Alice', 'Bob', None]
-        }
+        data = {"id": [1, None, 3], "name": ["Alice", "Bob", None]}
         batch = pa.RecordBatch.from_pydict(data)
 
         result_batch, validation_results = processor.process_batch(batch)
@@ -284,7 +270,7 @@ class TestRowHashProcessor:
     def test_process_batch_different_algorithms(self):
         """Test hash calculation with different algorithms."""
         algorithms = ["md5", "sha1", "sha256", "sha384", "sha512"]
-        data = {'id': [1], 'name': ['test']}
+        data = {"id": [1], "name": ["test"]}
         batch = pa.RecordBatch.from_pydict(data)
 
         hash_lengths = {"md5": 32, "sha1": 40, "sha256": 64, "sha384": 96, "sha512": 128}
@@ -307,9 +293,11 @@ class TestRowHashProcessor:
         # Create a batch that might cause issues
         # We'll mock an error by temporarily breaking the _get_hash_columns method
         original_method = processor._get_hash_columns
-        processor._get_hash_columns = lambda schema: (_ for _ in ()).throw(RuntimeError("Test error"))
+        processor._get_hash_columns = lambda schema: (_ for _ in ()).throw(
+            RuntimeError("Test error")
+        )
 
-        data = {'id': [1]}
+        data = {"id": [1]}
         batch = pa.RecordBatch.from_pydict(data)
 
         result_batch, validation_results = processor.process_batch(batch)
@@ -341,7 +329,9 @@ class TestRowHashProcessor:
         input_schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
         output_schema = processor.get_output_schema(input_schema)
 
-        assert len(output_schema.names) == len(input_schema.names) + 1  # Fix: use len(schema.names) instead of num_fields
+        assert (
+            len(output_schema.names) == len(input_schema.names) + 1
+        )  # Fix: use len(schema.names) instead of num_fields
         assert output_schema.field(-1).name == "test_hash"
         assert pa.types.is_string(output_schema.field(-1).type)
 
@@ -352,12 +342,12 @@ class TestRowHashProcessor:
         processor.set_source_context("test.csv", 100)
 
         # Process first batch
-        data1 = {'id': [1, 2]}
+        data1 = {"id": [1, 2]}
         batch1 = pa.RecordBatch.from_pydict(data1)
         result1, _ = processor.process_batch(batch1)
 
         # Process second batch
-        data2 = {'id': [3, 4, 5]}
+        data2 = {"id": [3, 4, 5]}
         batch2 = pa.RecordBatch.from_pydict(data2)
         result2, _ = processor.process_batch(batch2)
 
@@ -365,13 +355,13 @@ class TestRowHashProcessor:
         src_rows1 = result1.column("_rownum_in_source_file").to_pylist()
         proc_rows1 = result1.column("_rownum").to_pylist()
         assert src_rows1 == [101, 102]  # source_offset(100) + processing_counter(0) + 1
-        assert proc_rows1 == [1, 2]     # processing counter starts at 0
+        assert proc_rows1 == [1, 2]  # processing counter starts at 0
 
         # Check second batch row numbers
         src_rows2 = result2.column("_rownum_in_source_file").to_pylist()
         proc_rows2 = result2.column("_rownum").to_pylist()
         assert src_rows2 == [103, 104, 105]  # continues from previous batch
-        assert proc_rows2 == [3, 4, 5]       # continues processing counter
+        assert proc_rows2 == [3, 4, 5]  # continues processing counter
 
 
 class TestCalculatedColumnsFactory:
@@ -379,7 +369,8 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_empty_config(self):
         """Test with empty configuration."""
-        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import \
+            create_calculated_columns_processor_from_schema
 
         processor = create_calculated_columns_processor_from_schema({})
         # Empty config should create a processor with empty lists, not None
@@ -397,14 +388,16 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_none_config(self):
         """Test with None configuration."""
-        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import \
+            create_calculated_columns_processor_from_schema
 
         processor = create_calculated_columns_processor_from_schema(None)
         assert processor is None
 
     def test_create_processor_with_constants(self):
         """Test creating processor with constants."""
-        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import \
+            create_calculated_columns_processor_from_schema
 
         schema_config = {
             "constants": [
@@ -412,13 +405,9 @@ class TestCalculatedColumnsFactory:
                     "name": "PI",
                     "value": 3.14159,
                     "dataType": "float64",
-                    "description": "Pi constant"
+                    "description": "Pi constant",
                 },
-                {
-                    "name": "APP_VERSION",
-                    "value": "1.0.0",
-                    "dataType": "string"
-                }
+                {"name": "APP_VERSION", "value": "1.0.0", "dataType": "string"},
             ]
         }
 
@@ -433,7 +422,8 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_with_expressions(self):
         """Test creating processor with expressions."""
-        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import \
+            create_calculated_columns_processor_from_schema
 
         schema_config = {
             "expressions": [
@@ -442,7 +432,7 @@ class TestCalculatedColumnsFactory:
                     "expression": "CONCAT(first_name, ' ', last_name)",
                     "dataType": "string",
                     "description": "Full name concatenation",
-                    "dependencies": ["first_name", "last_name"]
+                    "dependencies": ["first_name", "last_name"],
                 }
             ]
         }
@@ -457,7 +447,8 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_with_calculated(self):
         """Test creating processor with calculated columns."""
-        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import \
+            create_calculated_columns_processor_from_schema
 
         schema_config = {
             "calculated": [
@@ -466,7 +457,7 @@ class TestCalculatedColumnsFactory:
                     "function": "SUM",
                     "dependencies": ["score1", "score2", "score3"],
                     "dataType": "int64",
-                    "description": "Sum of all scores"
+                    "description": "Sum of all scores",
                 }
             ]
         }
@@ -481,11 +472,10 @@ class TestCalculatedColumnsFactory:
 
     def test_create_processor_with_partition_columns(self):
         """Test creating processor with partition columns."""
-        from forklift.processors.calculated_columns_factory import create_calculated_columns_processor_from_schema
+        from forklift.processors.calculated_columns_factory import \
+            create_calculated_columns_processor_from_schema
 
-        schema_config = {
-            "partitionColumns": ["year", "month", "day"]
-        }
+        schema_config = {"partitionColumns": ["year", "month", "day"]}
 
         processor = create_calculated_columns_processor_from_schema(schema_config)
 
@@ -494,8 +484,10 @@ class TestCalculatedColumnsFactory:
 
     def test_parse_data_type_simple_types(self):
         """Test parsing simple data types."""
-        from forklift.processors.calculated_columns_factory import _parse_data_type
         import pyarrow as pa
+
+        from forklift.processors.calculated_columns_factory import \
+            _parse_data_type
 
         # Test simple types
         assert _parse_data_type("string") == pa.string()
@@ -510,12 +502,14 @@ class TestCalculatedColumnsFactory:
 
     def test_parse_data_type_complex_types(self):
         """Test parsing complex data types."""
-        from forklift.processors.calculated_columns_factory import _parse_data_type
         import pyarrow as pa
 
+        from forklift.processors.calculated_columns_factory import \
+            _parse_data_type
+
         # Test timestamp with unit
-        assert _parse_data_type("timestamp[us]") == pa.timestamp('us')
-        assert _parse_data_type("timestamp[ms]") == pa.timestamp('ms')
+        assert _parse_data_type("timestamp[us]") == pa.timestamp("us")
+        assert _parse_data_type("timestamp[ms]") == pa.timestamp("ms")
 
         # Test decimal
         assert _parse_data_type("decimal128(10,2)") == pa.decimal128(10, 2)
@@ -526,8 +520,10 @@ class TestCalculatedColumnsFactory:
 
     def test_parse_data_type_none_and_unknown(self):
         """Test parsing None and unknown data types."""
-        from forklift.processors.calculated_columns_factory import _parse_data_type
         import pyarrow as pa
+
+        from forklift.processors.calculated_columns_factory import \
+            _parse_data_type
 
         # Test None
         assert _parse_data_type(None) is None
@@ -543,7 +539,8 @@ class TestValidationFactory:
     def test_create_processor_empty_config(self):
         """Test with empty configuration."""
         try:
-            from forklift.processors.validation_factory import create_validation_processor_from_schema
+            from forklift.processors.validation_factory import \
+                create_validation_processor_from_schema
 
             processor = create_validation_processor_from_schema({})
             # The behavior depends on implementation - could be None or empty processor
@@ -554,7 +551,8 @@ class TestValidationFactory:
     def test_create_processor_none_config(self):
         """Test with None configuration."""
         try:
-            from forklift.processors.validation_factory import create_validation_processor_from_schema
+            from forklift.processors.validation_factory import \
+                create_validation_processor_from_schema
 
             processor = create_validation_processor_from_schema(None)
             assert processor is None

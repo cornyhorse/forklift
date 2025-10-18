@@ -1,13 +1,15 @@
 """Additional tests to achieve 100% coverage for fwf.py."""
 
-import pytest
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-import pyarrow as pa
 
+import pyarrow as pa
+import pytest
+
+from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
+                                    FwfInputConfig)
 from forklift.inputs.fwf import FwfInputHandler
-from forklift.inputs.config import FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
 
 
 class TestFwfCoverageCompletion:
@@ -15,9 +17,9 @@ class TestFwfCoverageCompletion:
 
     def test_decimal_type_without_params(self):
         """Test decimal type conversion without parameters."""
-        handler = FwfInputHandler(FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, parquet_type="decimal")
-        ]))
+        handler = FwfInputHandler(
+            FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="decimal")])
+        )
 
         # Test the default decimal case without parentheses
         arrow_type = handler._get_arrow_type("decimal")
@@ -27,9 +29,9 @@ class TestFwfCoverageCompletion:
 
     def test_decimal_type_with_precision_only(self):
         """Test decimal type with precision only (no scale)."""
-        handler = FwfInputHandler(FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, parquet_type="decimal128(15)")
-        ]))
+        handler = FwfInputHandler(
+            FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="decimal128(15)")])
+        )
 
         # Test decimal with precision only
         arrow_type = handler._get_arrow_type("decimal128(15)")
@@ -43,21 +45,28 @@ class TestFwfCoverageCompletion:
         flag_column = FwfFieldSpec("record_type", 1, 1, parquet_type="string")
 
         conditional_schemas = [
-            FwfConditionalSchema("A", "Schema A", [
-                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("field1", 2, 10, parquet_type="string")
-            ]),
-            FwfConditionalSchema("B", "Schema B", [
-                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("field2", 2, 10, parquet_type="string"),
-                FwfFieldSpec("field1", 12, 5, parquet_type="int64")  # Same name, different type
-            ])
+            FwfConditionalSchema(
+                "A",
+                "Schema A",
+                [
+                    FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("field1", 2, 10, parquet_type="string"),
+                ],
+            ),
+            FwfConditionalSchema(
+                "B",
+                "Schema B",
+                [
+                    FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("field2", 2, 10, parquet_type="string"),
+                    FwfFieldSpec(
+                        "field1", 12, 5, parquet_type="int64"
+                    ),  # Same name, different type
+                ],
+            ),
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
         handler = FwfInputHandler(config)
 
         # Generate schema and verify unique field collection
@@ -73,22 +82,22 @@ class TestFwfCoverageCompletion:
 
     def test_mixed_simple_and_conditional_fields(self):
         """Test schema generation with both simple fields and conditional schemas."""
-        simple_fields = [
-            FwfFieldSpec("global_field", 50, 10, parquet_type="string")
-        ]
+        simple_fields = [FwfFieldSpec("global_field", 50, 10, parquet_type="string")]
 
         flag_column = FwfFieldSpec("type", 1, 1, parquet_type="string")
         conditional_schemas = [
-            FwfConditionalSchema("X", "Schema X", [
-                FwfFieldSpec("type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("conditional_field", 2, 10, parquet_type="string")
-            ])
+            FwfConditionalSchema(
+                "X",
+                "Schema X",
+                [
+                    FwfFieldSpec("type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("conditional_field", 2, 10, parquet_type="string"),
+                ],
+            )
         ]
 
         config = FwfInputConfig(
-            fields=simple_fields,
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
+            fields=simple_fields, flag_column=flag_column, conditional_schemas=conditional_schemas
         )
         handler = FwfInputHandler(config)
 
@@ -102,9 +111,7 @@ class TestFwfCoverageCompletion:
 
     def test_process_null_values_no_config_edge_cases(self):
         """Test null value processing edge cases."""
-        config = FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, parquet_type="string")
-        ])
+        config = FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="string")])
         handler = FwfInputHandler(config)
 
         # Test with no null_values config - empty string should return None
@@ -115,12 +122,7 @@ class TestFwfCoverageCompletion:
         """Test null value processing with various configurations."""
         config = FwfInputConfig(
             fields=[FwfFieldSpec("test", 1, 5, parquet_type="string")],
-            null_values={
-                "global": ["NULL", ""],
-                "perColumn": {
-                    "test": ["MISSING", "N/A"]
-                }
-            }
+            null_values={"global": ["NULL", ""], "perColumn": {"test": ["MISSING", "N/A"]}},
         )
         handler = FwfInputHandler(config)
 
@@ -140,9 +142,9 @@ class TestFwfCoverageCompletion:
 
     def test_extract_field_value_edge_cases(self):
         """Test field extraction edge cases."""
-        config = FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, align="right", pad="0", trim=True)
-        ])
+        config = FwfInputConfig(
+            fields=[FwfFieldSpec("test", 1, 5, align="right", pad="0", trim=True)]
+        )
         handler = FwfInputHandler(config)
 
         # Test field that starts beyond line length
@@ -159,31 +161,33 @@ class TestFwfCoverageCompletion:
         """Test arrow table creation with conditional schemas."""
         flag_column = FwfFieldSpec("type", 1, 1, parquet_type="string")
         conditional_schemas = [
-            FwfConditionalSchema("H", "Header", [
-                FwfFieldSpec("type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("header_field", 2, 10, parquet_type="string")
-            ]),
-            FwfConditionalSchema("D", "Detail", [
-                FwfFieldSpec("type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("detail_field", 2, 10, parquet_type="int64")
-            ])
+            FwfConditionalSchema(
+                "H",
+                "Header",
+                [
+                    FwfFieldSpec("type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("header_field", 2, 10, parquet_type="string"),
+                ],
+            ),
+            FwfConditionalSchema(
+                "D",
+                "Detail",
+                [
+                    FwfFieldSpec("type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("detail_field", 2, 10, parquet_type="int64"),
+                ],
+            ),
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
         handler = FwfInputHandler(config)
 
         # Create test data
-        test_data = [
-            "Hheader_val",
-            "D000000123"
-        ]
+        test_data = ["Hheader_val", "D000000123"]
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             for line in test_data:
-                f.write(line + '\n')
+                f.write(line + "\n")
             temp_path = Path(f.name)
 
         try:
@@ -202,9 +206,7 @@ class TestFwfCoverageCompletion:
 
     def test_type_conversion_edge_cases(self):
         """Test type conversion edge cases."""
-        config = FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, parquet_type="string")
-        ])
+        config = FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="string")])
         handler = FwfInputHandler(config)
 
         # Test conversion with empty string
@@ -220,10 +222,7 @@ class TestFwfCoverageCompletion:
         """Test parse_line with footer row detection."""
         config = FwfInputConfig(
             fields=[FwfFieldSpec("test", 1, 5, parquet_type="string")],
-            footer_detection={
-                "mode": "regex",
-                "pattern": r"^FOOTER.*"
-            }
+            footer_detection={"mode": "regex", "pattern": r"^FOOTER.*"},
         )
         handler = FwfInputHandler(config)
 
@@ -243,7 +242,7 @@ class TestFwfCoverageCompletion:
             footer_detection={
                 "mode": "regex"
                 # No pattern specified
-            }
+            },
         )
         handler = FwfInputHandler(config)
 
@@ -252,16 +251,14 @@ class TestFwfCoverageCompletion:
 
     def test_create_arrow_table_fallback_behavior(self):
         """Test arrow table creation with type conversion fallbacks."""
-        config = FwfInputConfig(fields=[
-            FwfFieldSpec("problematic", 1, 10, parquet_type="int64")
-        ])
+        config = FwfInputConfig(fields=[FwfFieldSpec("problematic", 1, 10, parquet_type="int64")])
         handler = FwfInputHandler(config)
 
         # Create data that will cause type conversion issues
         test_data = "text_value"
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
-            f.write(test_data + '\n')
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
+            f.write(test_data + "\n")
             temp_path = Path(f.name)
 
         try:
@@ -270,13 +267,13 @@ class TestFwfCoverageCompletion:
 
             def mock_array_side_effect(*args, **kwargs):
                 # Check if this is the first call with int64 type
-                if kwargs.get('type') == pa.int64():
+                if kwargs.get("type") == pa.int64():
                     raise Exception("Simulated conversion error")
                 else:
                     # Use original function for other calls
                     return original_array(*args, **kwargs)
 
-            with patch('pyarrow.array', side_effect=mock_array_side_effect):
+            with patch("pyarrow.array", side_effect=mock_array_side_effect):
                 table = handler.create_arrow_table(temp_path)
 
                 # Should still create table with fallback behavior
@@ -286,20 +283,19 @@ class TestFwfCoverageCompletion:
 
     def test_encoding_detection_import_error(self):
         """Test encoding detection when chardet import fails."""
-        config = FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, parquet_type="string")
-        ])
+        config = FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="string")])
         handler = FwfInputHandler(config)
 
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as f:
-            f.write(b'test data')
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
+            f.write(b"test data")
             temp_path = Path(f.name)
 
         try:
             # Mock import error for chardet
-            with patch('builtins.__import__') as mock_import:
+            with patch("builtins.__import__") as mock_import:
+
                 def import_side_effect(name, *args, **kwargs):
-                    if name == 'chardet':
+                    if name == "chardet":
                         raise ImportError("chardet not available")
                     return __import__(name, *args, **kwargs)
 
@@ -307,6 +303,6 @@ class TestFwfCoverageCompletion:
 
                 # Should fall back to utf-8
                 encoding = handler.detect_encoding(temp_path)
-                assert encoding == 'utf-8'
+                assert encoding == "utf-8"
         finally:
             temp_path.unlink()

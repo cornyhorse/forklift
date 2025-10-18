@@ -1,12 +1,15 @@
 """Targeted test for forklift_core.py missing line 706 - empty valid batch creation."""
-import pytest
-import tempfile
-import os
-import json
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
+import json
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
+                                           ImportConfig)
 
 
 class TestForkliftCoreLine706Coverage:
@@ -15,7 +18,6 @@ class TestForkliftCoreLine706Coverage:
     def test_batch_validation_all_rows_invalid(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method _load_schema no longer exists after ForkliftCore refactoring")
-
 
     def test_batch_validation_mixed_valid_invalid(self):
         """Test batch validation with some valid and some invalid rows."""
@@ -33,13 +35,14 @@ Alice,,ValidCity
             "properties": {
                 "name": {"type": "string"},
                 "age": {"type": "integer"},
-                "city": {"type": "string"}
+                "city": {"type": "string"},
             },
-            "required": ["name", "age", "city"]  # All fields are required (non-nullable)
+            "required": ["name", "age", "city"],  # All fields are required (non-nullable)
         }
 
         # Use regular files instead of NamedTemporaryFile
         import tempfile
+
         temp_dir = tempfile.mkdtemp()
         csv_path = os.path.join(temp_dir, "test_data.csv")
         schema_path = os.path.join(temp_dir, "test_schema.json")
@@ -47,10 +50,10 @@ Alice,,ValidCity
 
         try:
             # Write files
-            with open(csv_path, 'w') as f:
+            with open(csv_path, "w") as f:
                 f.write(csv_content)
 
-            with open(schema_path, 'w') as f:
+            with open(schema_path, "w") as f:
                 json.dump(schema_content, f)
 
             config = ImportConfig(
@@ -59,7 +62,7 @@ Alice,,ValidCity
                 schema_file=schema_path,
                 header_mode=HeaderMode.PRESENT,
                 validate_schema=True,
-                max_validation_errors=100
+                max_validation_errors=100,
             )
 
             core = ForkliftCore(config)
@@ -68,11 +71,16 @@ Alice,,ValidCity
             result = core.process_csv()
 
             assert result is not None
-            assert result.valid_rows == 2, f"Expected 2 valid rows, got {result.valid_rows}"    # John and Bob should be valid
-            assert result.invalid_rows == 2, f"Expected 2 invalid rows, got {result.invalid_rows}"  # Jane and Alice should be invalid
+            assert (
+                result.valid_rows == 2
+            ), f"Expected 2 valid rows, got {result.valid_rows}"  # John and Bob should be valid
+            assert (
+                result.invalid_rows == 2
+            ), f"Expected 2 invalid rows, got {result.invalid_rows}"  # Jane and Alice should be invalid
 
         finally:
             import shutil
+
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_batch_validation_no_schema_all_valid(self):
@@ -85,20 +93,21 @@ Bob,35,Chicago
 
         # Use regular files instead of NamedTemporaryFile
         import tempfile
+
         temp_dir = tempfile.mkdtemp()
         csv_path = os.path.join(temp_dir, "test_data.csv")
         output_path = os.path.join(temp_dir, "output")
 
         try:
             # Write files
-            with open(csv_path, 'w') as f:
+            with open(csv_path, "w") as f:
                 f.write(csv_content)
 
             config = ImportConfig(
                 input_path=csv_path,
                 output_path=output_path,
                 header_mode=HeaderMode.PRESENT,
-                validate_schema=False  # No validation
+                validate_schema=False,  # No validation
             )
 
             core = ForkliftCore(config)
@@ -112,4 +121,5 @@ Bob,35,Chicago
 
         finally:
             import shutil
+
             shutil.rmtree(temp_dir, ignore_errors=True)

@@ -1,11 +1,7 @@
 """Field handling modules for FWF schemas."""
 
+from .mapping import FieldMapper
 from .parser import FieldParser
 from .positions import PositionCalculator
-from .mapping import FieldMapper
 
-__all__ = [
-    'FieldParser',
-    'PositionCalculator',
-    'FieldMapper'
-]
+__all__ = ["FieldParser", "PositionCalculator", "FieldMapper"]

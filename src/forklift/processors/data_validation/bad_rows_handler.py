@@ -1,7 +1,8 @@
 """Bad rows handling functionality."""
 
-from typing import List, Dict, Any, Optional
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import pyarrow as pa
 
 from .validation_config import BadRowsConfig
@@ -70,7 +71,7 @@ class BadRowsHandler:
                 error_fields = [
                     pa.field("_validation_errors", pa.string()),
                     pa.field("_error_count", pa.int32()),
-                    pa.field("_processed_timestamp", pa.string())
+                    pa.field("_processed_timestamp", pa.string()),
                 ]
 
         schema = pa.schema(original_fields + error_fields)
@@ -109,20 +110,20 @@ class BadRowsHandler:
         types_seen = set()
         for value in values:
             if isinstance(value, bool):
-                types_seen.add('bool')
+                types_seen.add("bool")
             elif isinstance(value, int):
-                types_seen.add('int')
+                types_seen.add("int")
             elif isinstance(value, float):
-                types_seen.add('float')
+                types_seen.add("float")
             else:
-                types_seen.add('string')
+                types_seen.add("string")
 
         # Return most appropriate type
-        if 'float' in types_seen:
+        if "float" in types_seen:
             return pa.float64()
-        elif 'int' in types_seen and 'string' not in types_seen:
+        elif "int" in types_seen and "string" not in types_seen:
             return pa.int64()
-        elif 'bool' in types_seen and len(types_seen) == 1:
+        elif "bool" in types_seen and len(types_seen) == 1:
             return pa.bool_()
         else:
             return pa.string()

@@ -14,14 +14,13 @@ This demonstrates the new string cleaning capabilities including:
 10. Encoding error correction
 """
 
-import pytest
 import pyarrow as pa
-from forklift.utils.transformations import (
-    DataTransformer,
-    StringCleaningConfig,
-    create_transformation_from_config
-)
+import pytest
+
 from forklift.processors.transformations import SchemaBasedTransformer
+from forklift.utils.transformations import (DataTransformer,
+                                            StringCleaningConfig,
+                                            create_transformation_from_config)
 
 
 class TestStringCleaningTransformations:
@@ -38,27 +37,22 @@ class TestStringCleaningTransformations:
             normalize_dashes=False,
             normalize_spaces=False,
             collapse_whitespace=False,
-            strip_whitespace=False
+            strip_whitespace=False,
         )
 
         # Various smart quotes
         test_data = [
             "\u2018Hello\u2019",  # Left/right single quotes
-            "\u201CHello\u201D",  # Left/right double quotes
+            "\u201cHello\u201d",  # Left/right double quotes
             "It\u2019s working",  # Smart apostrophe
-            "\u00ABHello\u00BB",  # Angle quotes
+            "\u00abHello\u00bb",  # Angle quotes
         ]
         column = pa.array(test_data)
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        expected = [
-            "'Hello'",
-            '"Hello"',
-            "It's working",
-            '"Hello"'
-        ]
+        expected = ["'Hello'", '"Hello"', "It's working", '"Hello"']
 
         assert result_list == expected
 
@@ -69,26 +63,21 @@ class TestStringCleaningTransformations:
             normalize_dashes=True,
             normalize_spaces=False,
             collapse_whitespace=False,
-            strip_whitespace=False
+            strip_whitespace=False,
         )
 
         test_data = [
             "Hello\u2014world",  # Em dash
             "Hello\u2013world",  # En dash
             "Hello\u2212world",  # Minus sign
-            "2020\u20142021",    # Em dash in date range
+            "2020\u20142021",  # Em dash in date range
         ]
         column = pa.array(test_data)
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        expected = [
-            "Hello-world",
-            "Hello-world",
-            "Hello-world",
-            "2020-2021"
-        ]
+        expected = ["Hello-world", "Hello-world", "Hello-world", "2020-2021"]
 
         assert result_list == expected
 
@@ -99,11 +88,11 @@ class TestStringCleaningTransformations:
             normalize_dashes=False,
             normalize_spaces=True,
             collapse_whitespace=False,
-            strip_whitespace=False
+            strip_whitespace=False,
         )
 
         test_data = [
-            "Hello\u00A0world",  # Non-breaking space
+            "Hello\u00a0world",  # Non-breaking space
             "Hello\u2003world",  # Em space
             "Hello\u2009world",  # Thin space
             "Hello\u3000world",  # Ideographic space
@@ -113,67 +102,47 @@ class TestStringCleaningTransformations:
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        expected = [
-            "Hello world",
-            "Hello world",
-            "Hello world",
-            "Hello world"
-        ]
+        expected = ["Hello world", "Hello world", "Hello world", "Hello world"]
 
         assert result_list == expected
 
     def test_whitespace_collapse(self):
         """Test collapsing multiple spaces to single space."""
-        config = StringCleaningConfig(
-            collapse_whitespace=True,
-            strip_whitespace=True
-        )
+        config = StringCleaningConfig(collapse_whitespace=True, strip_whitespace=True)
 
         test_data = [
-            "Hello    world",     # Multiple spaces
+            "Hello    world",  # Multiple spaces
             "  Hello   world  ",  # Leading/trailing + multiple
-            "Hello\t\tworld",     # Tabs
-            "Hello\n\nworld",     # Newlines
+            "Hello\t\tworld",  # Tabs
+            "Hello\n\nworld",  # Newlines
         ]
         column = pa.array(test_data)
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        expected = [
-            "Hello world",
-            "Hello world",
-            "Hello world",
-            "Hello world"
-        ]
+        expected = ["Hello world", "Hello world", "Hello world", "Hello world"]
 
         assert result_list == expected
 
     def test_zero_width_character_removal(self):
         """Test removal of zero-width characters."""
         config = StringCleaningConfig(
-            remove_zero_width=True,
-            collapse_whitespace=False,
-            strip_whitespace=False
+            remove_zero_width=True, collapse_whitespace=False, strip_whitespace=False
         )
 
         test_data = [
-            "Hello\u200Bworld",     # Zero-width space
-            "Hello\u200Cworld",     # Zero-width non-joiner
-            "Hello\u200Dworld",     # Zero-width joiner
-            "\uFEFFHello world",    # BOM at start
+            "Hello\u200bworld",  # Zero-width space
+            "Hello\u200cworld",  # Zero-width non-joiner
+            "Hello\u200dworld",  # Zero-width joiner
+            "\ufeffHello world",  # BOM at start
         ]
         column = pa.array(test_data)
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        expected = [
-            "Helloworld",
-            "Helloworld",
-            "Helloworld",
-            "Hello world"
-        ]
+        expected = ["Helloworld", "Helloworld", "Helloworld", "Hello world"]
 
         assert result_list == expected
 
@@ -184,42 +153,35 @@ class TestStringCleaningTransformations:
             preserve_newlines=True,
             preserve_tabs=False,
             collapse_whitespace=False,
-            strip_whitespace=False
+            strip_whitespace=False,
         )
 
         test_data = [
-            "Hello\x01world",      # Control character
-            "Hello\nworld",        # Newline (should be preserved)
-            "Hello\tworld",        # Tab (should be removed)
-            "Hello\x7Fworld",      # DEL character
+            "Hello\x01world",  # Control character
+            "Hello\nworld",  # Newline (should be preserved)
+            "Hello\tworld",  # Tab (should be removed)
+            "Hello\x7fworld",  # DEL character
         ]
         column = pa.array(test_data)
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        expected = [
-            "Helloworld",
-            "Hello\nworld",
-            "Helloworld",
-            "Helloworld"
-        ]
+        expected = ["Helloworld", "Hello\nworld", "Helloworld", "Helloworld"]
 
         assert result_list == expected
 
     def test_unicode_normalization(self):
         """Test Unicode normalization."""
         config = StringCleaningConfig(
-            unicode_normalize="NFKC",
-            collapse_whitespace=False,
-            strip_whitespace=False
+            unicode_normalize="NFKC", collapse_whitespace=False, strip_whitespace=False
         )
 
         test_data = [
-            "café",           # Composed form
-            "cafe\u0301",     # Decomposed form (e + combining acute)
-            "ﬁle",           # Ligature fi
-            "²",             # Superscript 2
+            "café",  # Composed form
+            "cafe\u0301",  # Decomposed form (e + combining acute)
+            "ﬁle",  # Ligature fi
+            "²",  # Superscript 2
         ]
         column = pa.array(test_data)
 
@@ -233,46 +195,30 @@ class TestStringCleaningTransformations:
     def test_accent_removal(self):
         """Test removal of diacritical marks."""
         config = StringCleaningConfig(
-            remove_accents=True,
-            collapse_whitespace=False,
-            strip_whitespace=False
+            remove_accents=True, collapse_whitespace=False, strip_whitespace=False
         )
 
-        test_data = [
-            "café",
-            "naïve",
-            "résumé",
-            "piñata",
-            "Zürich"
-        ]
+        test_data = ["café", "naïve", "résumé", "piñata", "Zürich"]
         column = pa.array(test_data)
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        expected = [
-            "cafe",
-            "naive",
-            "resume",
-            "pinata",
-            "Zurich"
-        ]
+        expected = ["cafe", "naive", "resume", "pinata", "Zurich"]
 
         assert result_list == expected
 
     def test_ascii_only_conversion(self):
         """Test conversion to ASCII-only text."""
         config = StringCleaningConfig(
-            ascii_only=True,
-            collapse_whitespace=False,
-            strip_whitespace=False
+            ascii_only=True, collapse_whitespace=False, strip_whitespace=False
         )
 
         test_data = [
             "café",
             "Hello 世界",  # Chinese characters
-            "Москва",      # Cyrillic
-            "العربية",     # Arabic
+            "Москва",  # Cyrillic
+            "العربية",  # Arabic
         ]
         column = pa.array(test_data)
 
@@ -288,16 +234,14 @@ class TestStringCleaningTransformations:
     def test_case_issue_fixing(self):
         """Test fixing common case issues."""
         config = StringCleaningConfig(
-            fix_case_issues=True,
-            collapse_whitespace=False,
-            strip_whitespace=False
+            fix_case_issues=True, collapse_whitespace=False, strip_whitespace=False
         )
 
         test_data = [
             "HELLO WORLD",
             "THE QUICK BROWN FOX",
             "NASA AND THE FBI",
-            "hello world"  # Should not change
+            "hello world",  # Should not change
         ]
         column = pa.array(test_data)
 
@@ -308,7 +252,7 @@ class TestStringCleaningTransformations:
             "Hello World",
             "The Quick Brown Fox",
             "NASA and the FBI",  # Articles should be lowercase
-            "hello world"
+            "hello world",
         ]
 
         assert result_list == expected
@@ -324,13 +268,13 @@ class TestStringCleaningTransformations:
             strip_whitespace=False,
             remove_zero_width=False,  # Explicitly disable
             remove_control_chars=False,  # Explicitly disable
-            unicode_normalize=None  # Explicitly disable
+            unicode_normalize=None,  # Explicitly disable
         )
 
         test_data = [
-            "Donâ€™t worry",   # Mojibake apostrophe
-            "âœ\"",              # Encoded checkmark
-            "Café",             # Normal text (should not change)
+            "Donâ€™t worry",  # Mojibake apostrophe
+            'âœ"',  # Encoded checkmark
+            "Café",  # Normal text (should not change)
         ]
         column = pa.array(test_data)
 
@@ -338,7 +282,9 @@ class TestStringCleaningTransformations:
         result_list = result.to_pylist()
 
         # Should fix the first case
-        assert "Don't worry" in result_list[0] or result_list[0] == "Donâ€™t worry"  # May or may not fix depending on specific encoding
+        assert (
+            "Don't worry" in result_list[0] or result_list[0] == "Donâ€™t worry"
+        )  # May or may not fix depending on specific encoding
 
     def test_comprehensive_cleaning(self):
         """Test comprehensive string cleaning with all options enabled."""
@@ -356,13 +302,13 @@ class TestStringCleaningTransformations:
             fix_case_issues=False,
             remove_accents=False,
             ascii_only=False,
-            fix_encoding_errors=True
+            fix_encoding_errors=True,
         )
 
         # Messy text with multiple issues
         test_data = [
-            "  \u201CHello\u201D   \u2013   this\u200Bis\u00A0messy   ",
-            "CAFÉ\u2014WORLD\u200B   WITH   ISSUES  ",
+            "  \u201cHello\u201d   \u2013   this\u200bis\u00a0messy   ",
+            "CAFÉ\u2014WORLD\u200b   WITH   ISSUES  ",
         ]
         column = pa.array(test_data)
 
@@ -371,7 +317,7 @@ class TestStringCleaningTransformations:
 
         # Should be cleaned up significantly
         assert '"Hello" - this is messy' == result_list[0]
-        assert 'CAFÉ-WORLD WITH ISSUES' == result_list[1]
+        assert "CAFÉ-WORLD WITH ISSUES" == result_list[1]
 
     def test_schema_based_string_cleaning(self):
         """Test schema-based string cleaning configuration."""
@@ -385,7 +331,7 @@ class TestStringCleaningTransformations:
                             "normalize_dashes": True,
                             "collapse_whitespace": True,
                             "strip_whitespace": True,
-                            "fix_case_issues": True
+                            "fix_case_issues": True,
                         }
                     }
                 }
@@ -393,7 +339,7 @@ class TestStringCleaningTransformations:
         }
 
         pa_schema = pa.schema([pa.field("name_col", pa.string())])
-        data = {"name_col": ["  \u201CJOHN   SMITH\u201D  ", "MARY\u2014JANE  WATSON"]}
+        data = {"name_col": ["  \u201cJOHN   SMITH\u201d  ", "MARY\u2014JANE  WATSON"]}
         batch = pa.record_batch(data, pa_schema)
 
         transformer = SchemaBasedTransformer(schema_dict)
@@ -401,10 +347,7 @@ class TestStringCleaningTransformations:
 
         result_col = result_batch.column("name_col").to_pylist()
 
-        expected = [
-            '"John Smith"',
-            'Mary-jane Watson'
-        ]
+        expected = ['"John Smith"', "Mary-jane Watson"]
 
         assert result_col == expected
         assert len(validation_results) == 0
@@ -413,9 +356,7 @@ class TestStringCleaningTransformations:
         """Test different tab handling options."""
         # Remove tabs
         config_remove = StringCleaningConfig(
-            remove_tabs=True,
-            collapse_whitespace=False,
-            strip_whitespace=False
+            remove_tabs=True, collapse_whitespace=False, strip_whitespace=False
         )
 
         # Replace tabs with spaces
@@ -423,7 +364,7 @@ class TestStringCleaningTransformations:
             remove_tabs=False,
             tab_replacement="    ",  # 4 spaces
             collapse_whitespace=False,
-            strip_whitespace=False
+            strip_whitespace=False,
         )
 
         test_data = ["Hello\tworld\ttabs"]
@@ -439,24 +380,24 @@ class TestStringCleaningTransformations:
         """Test that individual cleaning options can be disabled."""
         config = StringCleaningConfig(
             normalize_quotes=False,  # Disabled
-            normalize_dashes=True,   # Enabled
+            normalize_dashes=True,  # Enabled
             normalize_spaces=False,  # Disabled
             collapse_whitespace=False,
             strip_whitespace=False,
             remove_zero_width=False,  # Explicitly disable
             remove_control_chars=False,  # Explicitly disable
             fix_encoding_errors=False,  # Explicitly disable
-            unicode_normalize=None  # Explicitly disable
+            unicode_normalize=None,  # Explicitly disable
         )
 
-        test_data = ["\u201CHello\u2014world\u00A0test\u201D"]
+        test_data = ["\u201cHello\u2014world\u00a0test\u201d"]
         column = pa.array(test_data)
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
         # Only dashes should be normalized
-        assert "\u201CHello-world\u00A0test\u201D" == result_list[0]
+        assert "\u201cHello-world\u00a0test\u201d" == result_list[0]
 
 
 def test_string_cleaning_transformation_factory():
@@ -466,13 +407,13 @@ def test_string_cleaning_transformation_factory():
         "normalize_quotes": True,
         "normalize_dashes": True,
         "collapse_whitespace": True,
-        "strip_whitespace": True
+        "strip_whitespace": True,
     }
 
     transform_func = create_transformation_from_config("string_cleaning", config_dict)
 
     # Test the created function
-    test_data = ["  \u201CHello\u201D\u2014world  "]
+    test_data = ["  \u201cHello\u201d\u2014world  "]
     column = pa.array(test_data)
 
     result = transform_func(column)

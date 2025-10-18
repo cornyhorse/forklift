@@ -1,13 +1,16 @@
 """Variant management functionality."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List, Optional
 
 
 class VariantManager:
     """Manages schema variant operations and configurations."""
 
-    def __init__(self, schema_variants: List[Dict[str, Any]], flag_column_info: Optional[Dict[str, Any]]):
+    def __init__(
+        self, schema_variants: List[Dict[str, Any]], flag_column_info: Optional[Dict[str, Any]]
+    ):
         """Initialize the variant manager.
 
         Args:
@@ -37,7 +40,11 @@ class VariantManager:
         Returns:
             List of all valid flag values
         """
-        return [variant.get("flagValue") for variant in self.schema_variants if variant.get("flagValue") is not None]
+        return [
+            variant.get("flagValue")
+            for variant in self.schema_variants
+            if variant.get("flagValue") is not None
+        ]
 
     def get_variant_fields(self, flag_value: str) -> List[Dict[str, Any]]:
         """Get the fields for a specific variant.

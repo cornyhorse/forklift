@@ -1,12 +1,15 @@
 """Tests for FWF detection utilities."""
 
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-from forklift.inputs.fwf.detectors import FwfEncodingDetector, FwfSchemaDetector
-from forklift.inputs.config import FwfInputConfig, FwfConditionalSchema, FwfFieldSpec
+import pytest
+
+from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
+                                    FwfInputConfig)
+from forklift.inputs.fwf.detectors import (FwfEncodingDetector,
+                                           FwfSchemaDetector)
 
 
 class TestFwfEncodingDetector:
@@ -14,20 +17,20 @@ class TestFwfEncodingDetector:
 
     def test_detect_encoding_with_chardet_success(self):
         """Test encoding detection when chardet is available and succeeds."""
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp_file:
             # Write UTF-8 encoded content
             content = "This is a test file with UTF-8 encoding\nLine 2: ñáéíóú"
-            tmp_file.write(content.encode('utf-8'))
+            tmp_file.write(content.encode("utf-8"))
             tmp_file.flush()
 
             file_path = Path(tmp_file.name)
 
             try:
-                with patch('chardet.detect') as mock_detect:
-                    mock_detect.return_value = {'encoding': 'utf-8', 'confidence': 0.99}
+                with patch("chardet.detect") as mock_detect:
+                    mock_detect.return_value = {"encoding": "utf-8", "confidence": 0.99}
 
                     result = FwfEncodingDetector.detect_encoding(file_path)
-                    assert result == 'utf-8'
+                    assert result == "utf-8"
 
                     # Verify chardet.detect was called
                     mock_detect.assert_called_once()
@@ -36,24 +39,24 @@ class TestFwfEncodingDetector:
 
     def test_detect_encoding_with_chardet_no_encoding(self):
         """Test encoding detection when chardet returns None for encoding."""
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp_file:
             tmp_file.write(b"test content")
             tmp_file.flush()
 
             file_path = Path(tmp_file.name)
 
             try:
-                with patch('chardet.detect') as mock_detect:
-                    mock_detect.return_value = {'confidence': 0.5}  # No encoding key
+                with patch("chardet.detect") as mock_detect:
+                    mock_detect.return_value = {"confidence": 0.5}  # No encoding key
 
                     result = FwfEncodingDetector.detect_encoding(file_path)
-                    assert result == 'utf-8'  # Should default to utf-8
+                    assert result == "utf-8"  # Should default to utf-8
             finally:
                 file_path.unlink()
 
     def test_detect_encoding_chardet_import_error(self):
         """Test encoding detection when chardet is not available."""
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp_file:
             tmp_file.write(b"test content")
             tmp_file.flush()
 
@@ -61,27 +64,29 @@ class TestFwfEncodingDetector:
 
             try:
                 # Mock ImportError when trying to import chardet
-                with patch('builtins.__import__', side_effect=ImportError("No module named 'chardet'")):
+                with patch(
+                    "builtins.__import__", side_effect=ImportError("No module named 'chardet'")
+                ):
                     result = FwfEncodingDetector.detect_encoding(file_path)
-                    assert result == 'utf-8'  # Should default to utf-8
+                    assert result == "utf-8"  # Should default to utf-8
             finally:
                 file_path.unlink()
 
     def test_detect_encoding_different_encodings(self):
         """Test detection of different character encodings."""
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as tmp_file:
             tmp_file.write(b"test content")
             tmp_file.flush()
 
             file_path = Path(tmp_file.name)
 
             try:
-                with patch('chardet.detect') as mock_detect:
+                with patch("chardet.detect") as mock_detect:
                     # Test different encoding results
-                    encodings = ['latin-1', 'cp1252', 'iso-8859-1', 'ascii']
+                    encodings = ["latin-1", "cp1252", "iso-8859-1", "ascii"]
 
                     for encoding in encodings:
-                        mock_detect.return_value = {'encoding': encoding, 'confidence': 0.9}
+                        mock_detect.return_value = {"encoding": encoding, "confidence": 0.9}
                         result = FwfEncodingDetector.detect_encoding(file_path)
                         assert result == encoding
             finally:
@@ -95,10 +100,7 @@ class TestFwfSchemaDetector:
     def sample_config_with_conditionals(self):
         """Create a sample FWF config with conditional schemas."""
         flag_column = FwfFieldSpec(
-            name="record_type",
-            start=1,  # 1-based positioning
-            length=2,
-            parquet_type="string"
+            name="record_type", start=1, length=2, parquet_type="string"  # 1-based positioning
         )
 
         schema1 = FwfConditionalSchema(
@@ -106,8 +108,8 @@ class TestFwfSchemaDetector:
             description="Type 1 records",
             fields=[
                 FwfFieldSpec(name="id", start=3, length=8, parquet_type="int64"),
-                FwfFieldSpec(name="name", start=11, length=20, parquet_type="string")
-            ]
+                FwfFieldSpec(name="name", start=11, length=20, parquet_type="string"),
+            ],
         )
 
         schema2 = FwfConditionalSchema(
@@ -115,14 +117,11 @@ class TestFwfSchemaDetector:
             description="Type 2 records",
             fields=[
                 FwfFieldSpec(name="code", start=3, length=6, parquet_type="string"),
-                FwfFieldSpec(name="amount", start=9, length=10, parquet_type="float64")
-            ]
+                FwfFieldSpec(name="amount", start=9, length=10, parquet_type="float64"),
+            ],
         )
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=[schema1, schema2]
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=[schema1, schema2])
 
         return config
 
@@ -182,7 +181,7 @@ class TestFwfSchemaDetector:
                 FwfConditionalSchema(
                     flag_value="01",
                     description="Test schema",
-                    fields=[FwfFieldSpec(name="test", start=1, length=5, parquet_type="string")]
+                    fields=[FwfFieldSpec(name="test", start=1, length=5, parquet_type="string")],
                 )
             ]
         )
@@ -229,30 +228,22 @@ class TestFwfSchemaDetector:
 
     def test_multiple_schemas_same_condition(self):
         """Test behavior when multiple schemas have the same condition value."""
-        flag_column = FwfFieldSpec(
-            name="record_type",
-            start=1,
-            length=2,
-            parquet_type="string"
-        )
+        flag_column = FwfFieldSpec(name="record_type", start=1, length=2, parquet_type="string")
 
         # Two schemas with same condition value
         schema1 = FwfConditionalSchema(
             flag_value="01",
             description="First schema",
-            fields=[FwfFieldSpec(name="field1", start=3, length=8, parquet_type="string")]
+            fields=[FwfFieldSpec(name="field1", start=3, length=8, parquet_type="string")],
         )
 
         schema2 = FwfConditionalSchema(
             flag_value="01",  # Same condition value
             description="Second schema",
-            fields=[FwfFieldSpec(name="field2", start=3, length=13, parquet_type="string")]
+            fields=[FwfFieldSpec(name="field2", start=3, length=13, parquet_type="string")],
         )
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=[schema1, schema2]
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=[schema1, schema2])
 
         detector = FwfSchemaDetector(config)
 

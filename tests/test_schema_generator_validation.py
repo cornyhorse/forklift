@@ -1,8 +1,9 @@
 """Tests for schema generator validation functionality."""
 
-import pytest
-import pyarrow as pa
 from unittest.mock import Mock, patch
+
+import pyarrow as pa
+import pytest
 
 from forklift.schema.generator.validation import SchemaValidator
 
@@ -18,9 +19,9 @@ class TestSchemaValidator:
             "properties": {
                 "id": {"type": "string"},
                 "name": {"type": "string"},
-                "age": {"type": "integer"}
+                "age": {"type": "integer"},
             },
-            "required": ["id", "name"]
+            "required": ["id", "name"],
         }
 
         is_valid, errors = SchemaValidator.validate_schema_structure(schema)
@@ -46,7 +47,7 @@ class TestSchemaValidator:
         schema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
-            "properties": "invalid_properties"  # Should be dict
+            "properties": "invalid_properties",  # Should be dict
         }
 
         is_valid, errors = SchemaValidator.validate_schema_structure(schema)
@@ -61,8 +62,8 @@ class TestSchemaValidator:
             "type": "object",
             "properties": {
                 "id": "invalid_property_def",  # Should be dict
-                "name": {"type": "string"}
-            }
+                "name": {"type": "string"},
+            },
         }
 
         is_valid, errors = SchemaValidator.validate_schema_structure(schema)
@@ -75,10 +76,7 @@ class TestSchemaValidator:
         schema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
-            "properties": {
-                "id": {},  # Missing type
-                "name": {"type": "string"}
-            }
+            "properties": {"id": {}, "name": {"type": "string"}},  # Missing type
         }
 
         is_valid, errors = SchemaValidator.validate_schema_structure(schema)
@@ -91,10 +89,8 @@ class TestSchemaValidator:
         schema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
-            "properties": {
-                "id": {"type": "string"}
-            },
-            "required": "invalid_required"  # Should be list
+            "properties": {"id": {"type": "string"}},
+            "required": "invalid_required",  # Should be list
         }
 
         is_valid, errors = SchemaValidator.validate_schema_structure(schema)
@@ -107,10 +103,8 @@ class TestSchemaValidator:
         schema = {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
-            "properties": {
-                "id": {"type": "string"}
-            },
-            "required": ["id", "name"]  # 'name' not in properties
+            "properties": {"id": {"type": "string"}},
+            "required": ["id", "name"],  # 'name' not in properties
         }
 
         is_valid, errors = SchemaValidator.validate_schema_structure(schema)
@@ -124,16 +118,14 @@ class TestSchemaValidator:
             "properties": {
                 "id": {"type": "string"},
                 "name": {"type": "string"},
-                "age": {"type": "integer"}
+                "age": {"type": "integer"},
             }
         }
 
         # Create compatible PyArrow table
-        table = pa.table({
-            "id": ["1", "2", "3"],
-            "name": ["Alice", "Bob", "Charlie"],
-            "age": [25, 30, 35]
-        })
+        table = pa.table(
+            {"id": ["1", "2", "3"], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
+        )
 
         is_compatible, issues = SchemaValidator.validate_data_compatibility(schema, table)
 
@@ -156,15 +148,12 @@ class TestSchemaValidator:
             "properties": {
                 "id": {"type": "string"},
                 "name": {"type": "string"},
-                "email": {"type": "string"}
+                "email": {"type": "string"},
             }
         }
 
         # Table missing 'email' column
-        table = pa.table({
-            "id": ["1", "2"],
-            "name": ["Alice", "Bob"]
-        })
+        table = pa.table({"id": ["1", "2"], "name": ["Alice", "Bob"]})
 
         is_compatible, issues = SchemaValidator.validate_data_compatibility(schema, table)
 
@@ -173,19 +162,10 @@ class TestSchemaValidator:
 
     def test_validate_data_compatibility_extra_columns(self):
         """Test data compatibility validation with extra columns in data."""
-        schema = {
-            "properties": {
-                "id": {"type": "string"},
-                "name": {"type": "string"}
-            }
-        }
+        schema = {"properties": {"id": {"type": "string"}, "name": {"type": "string"}}}
 
         # Table has extra 'age' column
-        table = pa.table({
-            "id": ["1", "2"],
-            "name": ["Alice", "Bob"],
-            "age": [25, 30]
-        })
+        table = pa.table({"id": ["1", "2"], "name": ["Alice", "Bob"], "age": [25, 30]})
 
         is_compatible, issues = SchemaValidator.validate_data_compatibility(schema, table)
 
@@ -195,18 +175,12 @@ class TestSchemaValidator:
     def test_validate_data_compatibility_required_field_with_nulls(self):
         """Test data compatibility validation with nulls in required fields."""
         schema = {
-            "properties": {
-                "id": {"type": "string"},
-                "name": {"type": "string"}
-            },
-            "required": ["id", "name"]
+            "properties": {"id": {"type": "string"}, "name": {"type": "string"}},
+            "required": ["id", "name"],
         }
 
         # Table with nulls in required field
-        table = pa.table({
-            "id": ["1", None, "3"],
-            "name": ["Alice", "Bob", "Charlie"]
-        })
+        table = pa.table({"id": ["1", None, "3"], "name": ["Alice", "Bob", "Charlie"]})
 
         is_compatible, issues = SchemaValidator.validate_data_compatibility(schema, table)
 
@@ -216,19 +190,11 @@ class TestSchemaValidator:
     def test_validate_transformation_config_valid(self):
         """Test transformation config validation with valid config."""
         transform_config = {
-            "global_settings": {
-                "trim_whitespace": True,
-                "case_conversion": "lower"
-            },
+            "global_settings": {"trim_whitespace": True, "case_conversion": "lower"},
             "column_transformations": {
-                "name": {
-                    "uppercase": {"enabled": True},
-                    "trim": {"enabled": False}
-                },
-                "email": {
-                    "validate_email": {"enabled": True}
-                }
-            }
+                "name": {"uppercase": {"enabled": True}, "trim": {"enabled": False}},
+                "email": {"validate_email": {"enabled": True}},
+            },
         }
 
         is_valid, errors = SchemaValidator.validate_transformation_config(transform_config)
@@ -247,9 +213,7 @@ class TestSchemaValidator:
 
     def test_validate_transformation_config_invalid_global_settings(self):
         """Test transformation config validation with invalid global settings."""
-        transform_config = {
-            "global_settings": "invalid_settings"  # Should be dict
-        }
+        transform_config = {"global_settings": "invalid_settings"}  # Should be dict
 
         is_valid, errors = SchemaValidator.validate_transformation_config(transform_config)
 
@@ -258,9 +222,7 @@ class TestSchemaValidator:
 
     def test_validate_transformation_config_invalid_column_transformations(self):
         """Test transformation config validation with invalid column transformations."""
-        transform_config = {
-            "column_transformations": "invalid_transforms"  # Should be dict
-        }
+        transform_config = {"column_transformations": "invalid_transforms"}  # Should be dict
 
         is_valid, errors = SchemaValidator.validate_transformation_config(transform_config)
 
@@ -270,9 +232,7 @@ class TestSchemaValidator:
     def test_validate_transformation_config_invalid_column_transform_def(self):
         """Test transformation config validation with invalid column transform definition."""
         transform_config = {
-            "column_transformations": {
-                "name": "invalid_transform_def"  # Should be dict
-            }
+            "column_transformations": {"name": "invalid_transform_def"}  # Should be dict
         }
 
         is_valid, errors = SchemaValidator.validate_transformation_config(transform_config)
@@ -283,11 +243,7 @@ class TestSchemaValidator:
     def test_validate_transformation_config_invalid_transform_definition(self):
         """Test transformation config validation with invalid individual transform definition."""
         transform_config = {
-            "column_transformations": {
-                "name": {
-                    "uppercase": "invalid_def"  # Should be dict
-                }
-            }
+            "column_transformations": {"name": {"uppercase": "invalid_def"}}  # Should be dict
         }
 
         is_valid, errors = SchemaValidator.validate_transformation_config(transform_config)
@@ -298,11 +254,7 @@ class TestSchemaValidator:
     def test_validate_transformation_config_missing_enabled_field(self):
         """Test transformation config validation with missing enabled field."""
         transform_config = {
-            "column_transformations": {
-                "name": {
-                    "uppercase": {}  # Missing 'enabled' field
-                }
-            }
+            "column_transformations": {"name": {"uppercase": {}}}  # Missing 'enabled' field
         }
 
         is_valid, errors = SchemaValidator.validate_transformation_config(transform_config)
@@ -322,9 +274,7 @@ class TestSchemaValidator:
     def test_validate_transformation_config_partial(self):
         """Test transformation config validation with partial config."""
         transform_config = {
-            "global_settings": {
-                "trim_whitespace": True
-            }
+            "global_settings": {"trim_whitespace": True}
             # No column_transformations
         }
 

@@ -1,6 +1,7 @@
 """Tests for the VariantManager class."""
 
 import pytest
+
 from forklift.schema.fwf.conditional.variants import VariantManager
 
 
@@ -15,30 +16,21 @@ class TestVariantManager:
                 "flagValue": "A",
                 "fields": [
                     {"name": "field1", "start": 1, "length": 10},
-                    {"name": "field2", "start": 11, "length": 5}
-                ]
+                    {"name": "field2", "start": 11, "length": 5},
+                ],
             },
             {
                 "flagValue": "B",
                 "fields": [
                     {"name": "field3", "start": 1, "length": 8},
-                    {"name": "field4", "start": 9, "length": 12}
-                ]
+                    {"name": "field4", "start": 9, "length": 12},
+                ],
             },
-            {
-                "flagValue": "C",
-                "fields": [
-                    {"name": "field5", "start": 1, "length": 15}
-                ]
-            }
+            {"flagValue": "C", "fields": [{"name": "field5", "start": 1, "length": 15}]},
         ]
 
         # Sample flag column info
-        self.sample_flag_column = {
-            "name": "record_type",
-            "start": 0,
-            "length": 1
-        }
+        self.sample_flag_column = {"name": "record_type", "start": 0, "length": 1}
 
     def test_init_with_variants_and_flag_column(self):
         """Test initialization with variants and flag column info."""
@@ -112,7 +104,7 @@ class TestVariantManager:
             {"flagValue": "A", "fields": []},
             {"fields": []},  # Missing flagValue
             {"flagValue": "C", "fields": []},
-            {"flagValue": None, "fields": []}  # None flagValue
+            {"flagValue": None, "fields": []},  # None flagValue
         ]
         manager = VariantManager(variants_with_missing, self.sample_flag_column)
 

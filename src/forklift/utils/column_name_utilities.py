@@ -1,6 +1,7 @@
 import re
 from typing import List
 
+
 def dedupe_column_names(names: List[str], method: str = "suffix") -> List[str]:
     """
     Ensure all names in the given list are unique by appending numeric suffixes

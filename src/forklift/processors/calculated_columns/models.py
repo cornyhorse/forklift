@@ -1,8 +1,10 @@
 """Data models and configuration classes for calculated columns."""
 
 from __future__ import annotations
-from typing import List, Any, Optional
+
 from dataclasses import dataclass
+from typing import Any, List, Optional
+
 import pyarrow as pa
 
 # Sentinel value to distinguish between not provided and explicitly None
@@ -12,6 +14,7 @@ _UNSET = object()
 @dataclass
 class CalculatedColumn:
     """Configuration for a calculated column."""
+
     name: str
     expression: str
     data_type: Optional[pa.DataType] = _UNSET
@@ -28,6 +31,7 @@ class CalculatedColumn:
 @dataclass
 class ConstantColumn:
     """Configuration for a constant value column."""
+
     name: str
     value: Any
     data_type: Optional[pa.DataType] = _UNSET
@@ -53,13 +57,14 @@ class ConstantColumn:
             expression=expression,
             data_type=self.data_type,
             description=self.description,
-            dependencies=[]
+            dependencies=[],
         )
 
 
 @dataclass
 class ExpressionColumn:
     """Configuration for an expression-based calculated column."""
+
     name: str
     expression: str
     data_type: Optional[pa.DataType] = None
@@ -80,13 +85,14 @@ class ExpressionColumn:
             expression=self.expression,
             data_type=self.data_type,
             description=self.description,
-            dependencies=self.dependencies
+            dependencies=self.dependencies,
         )
 
 
 @dataclass
 class CalculatedColumnsConfig:
     """Configuration for calculated columns processor."""
+
     columns: List[CalculatedColumn]
     fail_on_error: bool = True
     add_metadata: bool = False

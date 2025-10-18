@@ -1,12 +1,13 @@
 """Configuration classes and enums for schema validation."""
 
-from enum import Enum
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 
 class SchemaValidationMode(Enum):
     """Schema validation modes."""
+
     STRICT = "strict"  # All columns must match schema exactly
     PERMISSIVE = "permissive"  # Allow extra columns not in schema
     COERCE = "coerce"  # Attempt to coerce types when possible
@@ -14,6 +15,7 @@ class SchemaValidationMode(Enum):
 
 class NullabilityMode(Enum):
     """How to handle nullability violations."""
+
     ERROR = "error"  # Raise validation errors for null violations
     WARNING = "warning"  # Log warnings but continue processing
     IGNORE = "ignore"  # Ignore nullability constraints
@@ -22,6 +24,7 @@ class NullabilityMode(Enum):
 @dataclass
 class SchemaValidatorConfig:
     """Configuration for schema validation."""
+
     validation_mode: SchemaValidationMode = SchemaValidationMode.STRICT
     nullability_mode: NullabilityMode = NullabilityMode.ERROR
     allow_type_coercion: bool = False

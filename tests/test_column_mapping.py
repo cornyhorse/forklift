@@ -4,12 +4,12 @@ Test demonstrating the new column mapping capabilities for the Forklift schema s
 """
 
 import pyarrow as pa
-from forklift.processors.column_mapper import (
-    ColumnMapper,
-    ColumnMappingConfig,
-    create_postgres_mapper,
-    create_custom_mapper
-)
+
+from forklift.processors.column_mapper import (ColumnMapper,
+                                               ColumnMappingConfig,
+                                               create_custom_mapper,
+                                               create_postgres_mapper)
+
 
 def test_basic_column_mapping():
     """Test basic column name mapping functionality."""
@@ -18,17 +18,19 @@ def test_basic_column_mapping():
 
     # Create test data with mixed column names
     test_data = {
-        "A": [1, 2, 3],           # Simple letter column
-        "B": [4, 5, 6],           # Another simple column
-        "StateID": [7, 8, 9],     # CamelCase with ID
+        "A": [1, 2, 3],  # Simple letter column
+        "B": [4, 5, 6],  # Another simple column
+        "StateID": [7, 8, 9],  # CamelCase with ID
         "first_name": ["John", "Jane", "Bob"],  # Already snake_case
-        "LastName": ["Doe", "Smith", "Wilson"], # PascalCase
-        "XMLParser": [10, 11, 12] # Acronym case
+        "LastName": ["Doe", "Smith", "Wilson"],  # PascalCase
+        "XMLParser": [10, 11, 12],  # Acronym case
     }
 
     # Create PyArrow batch
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     print(f"\n📋 Original Data Schema:")
@@ -39,6 +41,7 @@ def test_basic_column_mapping():
     assert len(batch.schema.names) == 6
     assert "A" in batch.schema.names
     assert "StateID" in batch.schema.names
+
 
 def test_explicit_mapping():
     """Test explicit column name mappings."""
@@ -52,20 +55,18 @@ def test_explicit_mapping():
         "StateID": [7, 8, 9],
         "first_name": ["John", "Jane", "Bob"],
         "LastName": ["Doe", "Smith", "Wilson"],
-        "XMLParser": [10, 11, 12]
+        "XMLParser": [10, 11, 12],
     }
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     # Configure explicit mappings
     config = ColumnMappingConfig(
-        explicit_mappings={
-            "A": "StateCode",
-            "B": "CountyCode",
-            "StateID": "StateIdentifier"
-        },
-        allow_unmapped=True
+        explicit_mappings={"A": "StateCode", "B": "CountyCode", "StateID": "StateIdentifier"},
+        allow_unmapped=True,
     )
 
     mapper = ColumnMapper(config)
@@ -93,6 +94,7 @@ def test_explicit_mapping():
     assert "B" not in result_batch.schema.names  # Should be mapped to CountyCode
     assert len(validation_results) == 0  # Should be no validation errors
 
+
 def test_postgres_naming_convention():
     """Test PostgreSQL snake_case naming convention."""
     print("\n2️⃣ POSTGRESQL SNAKE_CASE CONVENTION")
@@ -105,10 +107,12 @@ def test_postgres_naming_convention():
         "StateID": [7, 8, 9],
         "first_name": ["John", "Jane", "Bob"],
         "LastName": ["Doe", "Smith", "Wilson"],
-        "XMLParser": [10, 11, 12]
+        "XMLParser": [10, 11, 12],
     }
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     # Use the built-in PostgreSQL mapper
@@ -135,6 +139,7 @@ def test_postgres_naming_convention():
     assert "first_name" in result_batch.schema.names  # Already snake_case
     assert len(validation_results) == 0  # Should be no validation errors
 
+
 def test_combined_mapping():
     """Test combining explicit mappings with naming conventions."""
     print("\n3️⃣ COMBINED MAPPING + NAMING CONVENTION")
@@ -147,20 +152,19 @@ def test_combined_mapping():
         "StateID": [7, 8, 9],
         "first_name": ["John", "Jane", "Bob"],
         "LastName": ["Doe", "Smith", "Wilson"],
-        "XMLParser": [10, 11, 12]
+        "XMLParser": [10, 11, 12],
     }
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     # First map specific columns, then apply PostgreSQL naming
     config = ColumnMappingConfig(
-        explicit_mappings={
-            "A": "StateCode",
-            "B": "CountyCode"
-        },
-        naming_convention='snake_case',
-        case_sensitive=False
+        explicit_mappings={"A": "StateCode", "B": "CountyCode"},
+        naming_convention="snake_case",
+        case_sensitive=False,
     )
 
     mapper = ColumnMapper(config)
@@ -184,6 +188,7 @@ def test_combined_mapping():
     assert "last_name" in result_batch.schema.names  # LastName -> last_name
     assert len(validation_results) == 0  # Should be no validation errors
 
+
 def test_custom_mapper_example():
     """Test the convenient custom mapper function."""
     print("\n4️⃣ CUSTOM MAPPER WITH POSTGRES STYLE")
@@ -196,18 +201,16 @@ def test_custom_mapper_example():
         "StateID": [7, 8, 9],
         "first_name": ["John", "Jane", "Bob"],
         "LastName": ["Doe", "Smith", "Wilson"],
-        "XMLParser": [10, 11, 12]
+        "XMLParser": [10, 11, 12],
     }
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     # Use the convenience function for common use case
-    custom_mappings = {
-        "A": "StateCode",
-        "B": "CountyCode",
-        "StateID": "StateIdentifier"
-    }
+    custom_mappings = {"A": "StateCode", "B": "CountyCode", "StateID": "StateIdentifier"}
 
     custom_mapper = create_custom_mapper(custom_mappings, postgres_style=True)
     result_batch, validation_results = custom_mapper.process_batch(batch)
@@ -226,9 +229,12 @@ def test_custom_mapper_example():
     # Assert the custom mapping worked correctly
     assert "state_code" in result_batch.schema.names  # A -> StateCode -> state_code
     assert "county_code" in result_batch.schema.names  # B -> CountyCode -> county_code
-    assert "state_identifier" in result_batch.schema.names  # StateID -> StateIdentifier -> state_identifier
+    assert (
+        "state_identifier" in result_batch.schema.names
+    )  # StateID -> StateIdentifier -> state_identifier
     assert "last_name" in result_batch.schema.names  # LastName -> last_name
     assert len(validation_results) == 0  # Should be no validation errors
+
 
 def test_column_dropping():
     """Test dropping unmapped columns."""
@@ -242,20 +248,19 @@ def test_column_dropping():
         "StateID": [7, 8, 9],
         "first_name": ["John", "Jane", "Bob"],
         "LastName": ["Doe", "Smith", "Wilson"],
-        "XMLParser": [10, 11, 12]
+        "XMLParser": [10, 11, 12],
     }
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     # Only map specific columns, drop the rest
     config = ColumnMappingConfig(
-        explicit_mappings={
-            "A": "StateCode",
-            "StateID": "StateIdentifier"
-        },
+        explicit_mappings={"A": "StateCode", "StateID": "StateIdentifier"},
         allow_unmapped=False,
-        drop_unmapped=True
+        drop_unmapped=True,
     )
 
     mapper = ColumnMapper(config)
@@ -282,6 +287,7 @@ def test_column_dropping():
     assert "XMLParser" not in result_batch.schema.names  # Should be dropped
     assert len(validation_results) == 0  # Should be no validation errors
 
+
 def test_schema_integration_example():
     """Show how this would integrate with schema configuration."""
     print("\n6️⃣ SCHEMA CONFIGURATION INTEGRATION")
@@ -294,23 +300,24 @@ def test_schema_integration_example():
             "explicit_mappings": {
                 "A": "StateCode",
                 "B": "CountyCode",
-                "StateID": "StateIdentifier"
+                "StateID": "StateIdentifier",
             },
             "naming_convention": "snake_case",
             "case_sensitive": False,
             "allow_unmapped": True,
-            "drop_unmapped": False
+            "drop_unmapped": False,
         },
         "properties": {
             "state_code": {"type": "string"},
             "county_code": {"type": "string"},
-            "state_identifier": {"type": "integer"}
-        }
+            "state_identifier": {"type": "integer"},
+        },
     }
 
     print("Example schema configuration:")
     print("```json")
     import json
+
     print(json.dumps(schema_config_example, indent=2))
     print("```")
 
@@ -320,6 +327,7 @@ def test_schema_integration_example():
     print("  3. Map 'StateID' → 'StateIdentifier' → 'state_identifier'")
     print("  4. Convert all other columns to snake_case")
     print("  5. Keep unmapped columns")
+
 
 if __name__ == "__main__":
     test_explicit_mapping()

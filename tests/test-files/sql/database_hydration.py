@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
 import argparse
-import subprocess
 import os
+import socket
+import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Iterable, List
-import time
-import socket
 
 # Optional .env
 try:
@@ -35,15 +36,19 @@ def _wait_for_tcp(host: str, port: int, timeout: int = 180) -> bool:
     return False
 
 
-def _wait_for_oracle(dsn: str, user: str, password: str, timeout: int = 900, interval: int = 5) -> None:
+def _wait_for_oracle(
+    dsn: str, user: str, password: str, timeout: int = 900, interval: int = 5
+) -> None:
     """
     Poll the Oracle PDB until we can connect and run a trivial query.
     Prints each attempt and the error if it fails.
     Raises RuntimeError if it never becomes ready within timeout seconds.
     """
-    import time
     import datetime
+    import time
+
     import oracledb  # thin driver
+
     last = None
     attempt = 0
     deadline = time.time() + timeout
@@ -52,7 +57,10 @@ def _wait_for_oracle(dsn: str, user: str, password: str, timeout: int = 900, int
         if attempt == 1:
             try:
                 import oracledb
-                print(f"[oracle] python-oracledb version: {getattr(oracledb, '__version__', 'unknown')}")
+
+                print(
+                    f"[oracle] python-oracledb version: {getattr(oracledb, '__version__', 'unknown')}"
+                )
             except Exception:
                 pass
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -98,7 +106,10 @@ def find_sql_root(cli_override: str | None) -> Path:
             return c.resolve()
 
     # Nothing found
-    print("[error] Could not locate SQL root. Tried:\n  " + "\n  ".join(map(str, candidates)), file=sys.stderr)
+    print(
+        "[error] Could not locate SQL root. Tried:\n  " + "\n  ".join(map(str, candidates)),
+        file=sys.stderr,
+    )
     sys.exit(2)
 
 
@@ -169,7 +180,9 @@ def _split_oracle(sql_text: str) -> list[str]:
         stripped = line.strip()
 
         # If we encounter a PL/SQL start keyword at the beginning of a line, enter PL/SQL mode
-        if not in_plsql and (stripped.upper().startswith("BEGIN") or stripped.upper().startswith("DECLARE")):
+        if not in_plsql and (
+            stripped.upper().startswith("BEGIN") or stripped.upper().startswith("DECLARE")
+        ):
             in_plsql = True
 
         if in_plsql:
@@ -240,6 +253,7 @@ def hydrate_postgres(sql_root: Path) -> None:
         print(f"[pg] Skipping: {sql_file} not found")
         return
     from sqlalchemy import create_engine
+
     engine = create_engine(url, future=True)
     _run_statements(engine, _split_pg_mysql(_read(sql_file)), "pg")
 
@@ -300,20 +314,30 @@ def _hydrate_mssql_via_docker(sql_file: Path, sa_pwd: str, db_name: str = "testd
     image = "mcr.microsoft.com/mssql-tools18"
     sqlcmd = "/opt/mssql-tools18/bin/sqlcmd"
     base = [
-        "docker", "run", "--rm",
-        "--platform", "linux/amd64",
-        "-e", "ACCEPT_EULA=Y",
+        "docker",
+        "run",
+        "--rm",
+        "--platform",
+        "linux/amd64",
+        "-e",
+        "ACCEPT_EULA=Y",
     ]
 
     # 1) Ensure DB exists
     create_cmd = base + [
-        image, sqlcmd,
-        "-S", "host.docker.internal,1433",
-        "-U", "sa",
-        "-P", sa_pwd,
+        image,
+        sqlcmd,
+        "-S",
+        "host.docker.internal,1433",
+        "-U",
+        "sa",
+        "-P",
+        sa_pwd,
         "-C",
-        "-l", "30",
-        "-Q", f"IF DB_ID(N'{db_name}') IS NULL CREATE DATABASE [{db_name}];",
+        "-l",
+        "30",
+        "-Q",
+        f"IF DB_ID(N'{db_name}') IS NULL CREATE DATABASE [{db_name}];",
     ]
     print("[mssql] Ensuring DB exists via docker:", " ".join(create_cmd))
     res1 = subprocess.run(create_cmd, capture_output=True, text=True)
@@ -324,15 +348,23 @@ def _hydrate_mssql_via_docker(sql_file: Path, sa_pwd: str, db_name: str = "testd
 
     # 2) Run script against db_name
     run_cmd = base + [
-        "-v", f"{sql_file.parent}:/sql:ro",
-        image, sqlcmd,
-        "-S", "host.docker.internal,1433",
-        "-U", "sa",
-        "-P", sa_pwd,
+        "-v",
+        f"{sql_file.parent}:/sql:ro",
+        image,
+        sqlcmd,
+        "-S",
+        "host.docker.internal,1433",
+        "-U",
+        "sa",
+        "-P",
+        sa_pwd,
         "-C",
-        "-l", "30",
-        "-d", db_name,
-        "-i", f"/sql/{sql_file.name}",
+        "-l",
+        "30",
+        "-d",
+        db_name,
+        "-i",
+        f"/sql/{sql_file.name}",
     ]
     print("[mssql] Running script via docker:", " ".join(run_cmd))
     res2 = subprocess.run(run_cmd, capture_output=True, text=True)
@@ -382,7 +414,9 @@ def hydrate_oracle(sql_root: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Hydrate local DBs with test schemas/data.")
-    ap.add_argument("--only", choices=["pg", "mysql", "mssql", "oracle"], help="Run only one engine")
+    ap.add_argument(
+        "--only", choices=["pg", "mysql", "mssql", "oracle"], help="Run only one engine"
+    )
     ap.add_argument("--sql-root", help="Override path to source-sql-ddl-and-data/")
     args = ap.parse_args()
 

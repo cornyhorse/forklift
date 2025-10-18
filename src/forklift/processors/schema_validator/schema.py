@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 @dataclass
 class ColumnSchema:
     """Schema definition for a single column."""
+
     name: str
     data_type: str
     nullable: bool = True

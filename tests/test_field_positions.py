@@ -11,7 +11,7 @@ class TestPositionCalculator:
         fields = [
             {"name": "field1", "start": 1, "length": 5},
             {"name": "field2", "start": 6, "length": 10},
-            {"name": "field3", "start": 16, "length": 8}
+            {"name": "field3", "start": 16, "length": 8},
         ]
 
         result = PositionCalculator.get_field_positions(fields)
@@ -27,7 +27,7 @@ class TestPositionCalculator:
         """Test with fields missing start attribute (defaults to 1)."""
         fields = [
             {"name": "field1", "length": 5},  # No start
-            {"name": "field2", "start": 6, "length": 10}
+            {"name": "field2", "start": 6, "length": 10},
         ]
 
         result = PositionCalculator.get_field_positions(fields)
@@ -38,7 +38,7 @@ class TestPositionCalculator:
         """Test with fields missing length attribute (defaults to 1)."""
         fields = [
             {"name": "field1", "start": 1, "length": 5},
-            {"name": "field2", "start": 6}  # No length
+            {"name": "field2", "start": 6},  # No length
         ]
 
         result = PositionCalculator.get_field_positions(fields)
@@ -49,7 +49,7 @@ class TestPositionCalculator:
         """Test with fields missing both start and length (both default to 1)."""
         fields = [
             {"name": "field1"},  # No start or length
-            {"name": "field2", "start": 3, "length": 2}
+            {"name": "field2", "start": 3, "length": 2},
         ]
 
         result = PositionCalculator.get_field_positions(fields)
@@ -61,7 +61,7 @@ class TestPositionCalculator:
         fields = [
             {"name": "char1", "start": 1, "length": 1},
             {"name": "char2", "start": 2, "length": 1},
-            {"name": "char3", "start": 3, "length": 1}
+            {"name": "char3", "start": 3, "length": 1},
         ]
 
         result = PositionCalculator.get_field_positions(fields)
@@ -72,7 +72,7 @@ class TestPositionCalculator:
         """Test with overlapping fields (edge case)."""
         fields = [
             {"name": "field1", "start": 1, "length": 10},
-            {"name": "field2", "start": 5, "length": 8}  # Overlaps with field1
+            {"name": "field2", "start": 5, "length": 8},  # Overlaps with field1
         ]
 
         result = PositionCalculator.get_field_positions(fields)
@@ -84,7 +84,7 @@ class TestPositionCalculator:
         flag_column = {"name": "flag", "start": 1, "length": 1}
         variant_fields = [
             {"name": "field1", "start": 2, "length": 5},
-            {"name": "field2", "start": 7, "length": 10}
+            {"name": "field2", "start": 7, "length": 10},
         ]
 
         result = PositionCalculator.get_field_positions_for_flag_value(flag_column, variant_fields)
@@ -95,7 +95,7 @@ class TestPositionCalculator:
         """Test flag value field positions with no flag column."""
         variant_fields = [
             {"name": "field1", "start": 2, "length": 5},
-            {"name": "field2", "start": 7, "length": 10}
+            {"name": "field2", "start": 7, "length": 10},
         ]
 
         result = PositionCalculator.get_field_positions_for_flag_value(None, variant_fields)
@@ -133,7 +133,7 @@ class TestPositionCalculator:
         flag_column = {"name": "flag", "start": 1, "length": 1}
         variant_fields = [
             {"name": "field1", "length": 5},  # No start
-            {"name": "field2", "start": 6, "length": 3}
+            {"name": "field2", "start": 6, "length": 3},
         ]
 
         result = PositionCalculator.get_field_positions_for_flag_value(flag_column, variant_fields)
@@ -145,7 +145,7 @@ class TestPositionCalculator:
         flag_column = {"name": "flag", "start": 1, "length": 1}
         variant_fields = [
             {"name": "field1", "start": 2},  # No length
-            {"name": "field2", "start": 3, "length": 5}
+            {"name": "field2", "start": 3, "length": 5},
         ]
 
         result = PositionCalculator.get_field_positions_for_flag_value(flag_column, variant_fields)

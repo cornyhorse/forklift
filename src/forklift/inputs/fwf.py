@@ -5,25 +5,18 @@ This file now serves as a backward-compatible interface to the new package.
 """
 
 # Import from the new package structure to maintain backward compatibility
-from .fwf import (
-    FwfInputHandler,
-    FwfConfigValidator,
-    FwfTypeConverter,
-    FwfValueProcessor,
-    FwfEncodingDetector,
-    FwfSchemaDetector,
-    FwfFieldExtractor,
-    FwfLineParser,
-)
+from .fwf import (FwfConfigValidator, FwfEncodingDetector, FwfFieldExtractor,
+                  FwfInputHandler, FwfLineParser, FwfSchemaDetector,
+                  FwfTypeConverter, FwfValueProcessor)
 
 # Re-export everything for backward compatibility
 __all__ = [
-    'FwfInputHandler',
-    'FwfConfigValidator',
-    'FwfTypeConverter',
-    'FwfValueProcessor',
-    'FwfEncodingDetector',
-    'FwfSchemaDetector',
-    'FwfFieldExtractor',
-    'FwfLineParser',
+    "FwfInputHandler",
+    "FwfConfigValidator",
+    "FwfTypeConverter",
+    "FwfValueProcessor",
+    "FwfEncodingDetector",
+    "FwfSchemaDetector",
+    "FwfFieldExtractor",
+    "FwfLineParser",
 ]

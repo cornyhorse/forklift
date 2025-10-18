@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import html
 import re
-import pyarrow as pa
+
 import pandas as pd
+import pyarrow as pa
 
 from .configs import HTMLXMLConfig
 
@@ -37,11 +38,11 @@ class HTMLXMLTransformer:
 
             # Strip HTML/XML tags
             if config.strip_tags:
-                str_value = re.sub(r'<[^>]+>', '', str_value)
+                str_value = re.sub(r"<[^>]+>", "", str_value)
 
             # Handle whitespace
             if not config.preserve_whitespace:
-                str_value = re.sub(r'\s+', ' ', str_value).strip()
+                str_value = re.sub(r"\s+", " ", str_value).strip()
 
             transformed_values.append(str_value)
 

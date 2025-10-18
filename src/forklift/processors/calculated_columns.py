@@ -9,12 +9,12 @@ from .calculated_columns import *  # pragma: no cover
 
 # Ensure backward compatibility by re-exporting all classes
 __all__ = [  # pragma: no cover
-    'CalculatedColumn',
-    'ConstantColumn',
-    'ExpressionColumn',
-    'CalculatedColumnsConfig',
-    'CalculatedColumnsProcessor',
-    'ExpressionEvaluator',
-    'get_available_functions',
-    'get_constants'
+    "CalculatedColumn",
+    "ConstantColumn",
+    "ExpressionColumn",
+    "CalculatedColumnsConfig",
+    "CalculatedColumnsProcessor",
+    "ExpressionEvaluator",
+    "get_available_functions",
+    "get_constants",
 ]

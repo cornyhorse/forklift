@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 
 class SchemaValidationError(Exception):
     """Raised when schema validation fails."""
+
     pass
 
 
@@ -30,15 +31,34 @@ class ExcelSchemaImporter:
 
     # Define supported Parquet data types
     SUPPORTED_PARQUET_TYPES = {
-        "int8", "int16", "int32", "int64",
-        "uint8", "uint16", "uint32", "uint64",
-        "float32", "double", "bool", "string", "binary",
-        "date32", "date64", "timestamp[s]", "timestamp[ms]",
-        "timestamp[us]", "timestamp[ns]", "duration[s]", "duration[ms]",
-        "duration[us]", "duration[ns]", "decimal128(10,2)",
-        "list<string>", "struct", "dictionary<values=string, indices=int32>"
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float32",
+        "double",
+        "bool",
+        "string",
+        "binary",
+        "date32",
+        "date64",
+        "timestamp[s]",
+        "timestamp[ms]",
+        "timestamp[us]",
+        "timestamp[ns]",
+        "duration[s]",
+        "duration[ms]",
+        "duration[us]",
+        "duration[ns]",
+        "decimal128(10,2)",
+        "list<string>",
+        "struct",
+        "dictionary<values=string, indices=int32>",
     }
-
 
     def __init__(self, schema: Union[str, Path, Dict[str, Any]], validate: bool = True):
         if isinstance(schema, (str, Path)):
@@ -87,7 +107,9 @@ class ExcelSchemaImporter:
 
         self.validation_errors = errors
         if errors:
-            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(f"  - {err}" for err in errors)
+            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(
+                f"  - {err}" for err in errors
+            )
             raise SchemaValidationError(error_msg)
 
     def _validate_json_schema_structure(self) -> List[str]:
@@ -102,7 +124,9 @@ class ExcelSchemaImporter:
 
         if not self.schema.get("$id"):
             errors.append("Missing required '$id' field")
-        elif not self.schema["$id"].startswith("https://github.com/cornyhorse/forklift/schema-standards/"):
+        elif not self.schema["$id"].startswith(
+            "https://github.com/cornyhorse/forklift/schema-standards/"
+        ):
             errors.append("Schema $id must follow the standard GitHub URL pattern")
 
         if not self.schema.get("title"):
@@ -209,7 +233,7 @@ class ExcelSchemaImporter:
                 errors.append(f"Sheet {sheet_index} column {j} missing required 'position'")
             elif isinstance(position, str):
                 # Validate Excel column notation (A, B, AA, etc.)
-                if not re.match(r'^[A-Z]+$', position):
+                if not re.match(r"^[A-Z]+$", position):
                     errors.append(f"Sheet {sheet_index} column {j} invalid position '{position}'")
                 elif position in positions_used:
                     errors.append(f"Sheet {sheet_index} column {j} duplicate position '{position}'")
@@ -233,7 +257,9 @@ class ExcelSchemaImporter:
             # Validate Parquet type
             parquet_type = column.get("parquetType")
             if parquet_type and not self._is_valid_parquet_type(parquet_type):
-                errors.append(f"Sheet {sheet_index} column {j} invalid Parquet type '{parquet_type}'")
+                errors.append(
+                    f"Sheet {sheet_index} column {j} invalid Parquet type '{parquet_type}'"
+                )
 
             # Validate format
             format_val = column.get("format")

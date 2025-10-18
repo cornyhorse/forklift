@@ -3,7 +3,4 @@
 from .schemas import ConditionalSchemaManager
 from .variants import VariantManager
 
-__all__ = [
-    'ConditionalSchemaManager',
-    'VariantManager'
-]
+__all__ = ["ConditionalSchemaManager", "VariantManager"]

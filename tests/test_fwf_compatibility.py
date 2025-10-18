@@ -1,7 +1,8 @@
 """Tests for FWF schema compatibility validation functionality."""
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import patch, Mock
 
 from forklift.schema.fwf.validation.compatibility import CompatibilityValidator
 
@@ -24,8 +25,8 @@ class TestCompatibilityValidator:
                 "flagValue": "A",
                 "fields": [
                     {"name": "id", "start": 1, "length": 5, "parquetType": "string"},
-                    {"name": "name", "start": 6, "length": 20, "parquetType": "string"}
-                ]
+                    {"name": "name", "start": 6, "length": 20, "parquetType": "string"},
+                ],
             }
         ]
 
@@ -35,10 +36,7 @@ class TestCompatibilityValidator:
 
     def test_validate_schema_compatibility_variants_without_fields(self):
         """Test validation with variants that don't have fields."""
-        schema_variants = [
-            {"flagValue": "A"},
-            {"flagValue": "B", "fields": []}
-        ]
+        schema_variants = [{"flagValue": "A"}, {"flagValue": "B", "fields": []}]
 
         errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
 
@@ -51,15 +49,15 @@ class TestCompatibilityValidator:
                 "flagValue": "A",
                 "fields": [
                     {"start": 1, "length": 5, "parquetType": "string"},  # No name
-                    {"name": "valid_field", "start": 6, "length": 10, "parquetType": "string"}
-                ]
+                    {"name": "valid_field", "start": 6, "length": 10, "parquetType": "string"},
+                ],
             },
             {
                 "flagValue": "B",
                 "fields": [
                     {"name": "valid_field", "start": 6, "length": 10, "parquetType": "string"}
-                ]
-            }
+                ],
+            },
         ]
 
         errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
@@ -73,26 +71,28 @@ class TestCompatibilityValidator:
                 "flagValue": "A",
                 "fields": [
                     {"name": "id", "start": 1, "length": 5, "parquetType": "string"},
-                    {"name": "name", "start": 6, "length": 20, "parquetType": "string"}
-                ]
+                    {"name": "name", "start": 6, "length": 20, "parquetType": "string"},
+                ],
             },
             {
                 "flagValue": "B",
                 "fields": [
                     {"name": "id", "start": 1, "length": 5, "parquetType": "string"},
-                    {"name": "description", "start": 26, "length": 50, "parquetType": "string"}
-                ]
-            }
+                    {"name": "description", "start": 26, "length": 50, "parquetType": "string"},
+                ],
+            },
         ]
 
-        with patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible') as mock_compatible:
+        with patch(
+            "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+        ) as mock_compatible:
             mock_compatible.return_value = True
 
             errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
 
             assert errors == []
 
-    @patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible')
+    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
     def test_validate_schema_compatibility_incompatible_parquet_types(self, mock_compatible):
         """Test validation with incompatible Parquet types."""
         mock_compatible.return_value = False
@@ -100,16 +100,19 @@ class TestCompatibilityValidator:
         schema_variants = [
             {
                 "flagValue": "A",
-                "fields": [
-                    {"name": "id", "start": 1, "length": 5, "parquetType": "string"}
-                ]
+                "fields": [{"name": "id", "start": 1, "length": 5, "parquetType": "string"}],
             },
             {
                 "flagValue": "B",
                 "fields": [
-                    {"name": "id", "start": 10, "length": 5, "parquetType": "int64"}  # Different position to avoid overlap
-                ]
-            }
+                    {
+                        "name": "id",
+                        "start": 10,
+                        "length": 5,
+                        "parquetType": "int64",
+                    }  # Different position to avoid overlap
+                ],
+            },
         ]
 
         errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
@@ -118,8 +121,10 @@ class TestCompatibilityValidator:
         assert "Field 'id' has incompatible Parquet types across variants" in errors[0]
         assert "string" in errors[0] and "int64" in errors[0]
 
-    @patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible')
-    def test_validate_schema_compatibility_overlapping_incompatible_positions(self, mock_compatible):
+    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
+    def test_validate_schema_compatibility_overlapping_incompatible_positions(
+        self, mock_compatible
+    ):
         """Test validation with overlapping positions and incompatible types."""
         # Mock to return False for type compatibility checks
         mock_compatible.return_value = False
@@ -127,16 +132,19 @@ class TestCompatibilityValidator:
         schema_variants = [
             {
                 "flagValue": "A",
-                "fields": [
-                    {"name": "field1", "start": 1, "length": 10, "parquetType": "string"}
-                ]
+                "fields": [{"name": "field1", "start": 1, "length": 10, "parquetType": "string"}],
             },
             {
                 "flagValue": "B",
                 "fields": [
-                    {"name": "field1", "start": 5, "length": 10, "parquetType": "int64"}  # Overlaps with variant A
-                ]
-            }
+                    {
+                        "name": "field1",
+                        "start": 5,
+                        "length": 10,
+                        "parquetType": "int64",
+                    }  # Overlaps with variant A
+                ],
+            },
         ]
 
         errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
@@ -144,9 +152,12 @@ class TestCompatibilityValidator:
         # Should have both parquet type incompatibility and position overlap errors
         assert len(errors) >= 1
         error_text = " ".join(errors)
-        assert "incompatible Parquet types" in error_text or "incompatible overlapping positions" in error_text
+        assert (
+            "incompatible Parquet types" in error_text
+            or "incompatible overlapping positions" in error_text
+        )
 
-    @patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible')
+    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
     def test_validate_schema_compatibility_overlapping_compatible_positions(self, mock_compatible):
         """Test validation with overlapping positions but compatible types."""
         # Mock to return True for type compatibility checks
@@ -155,16 +166,19 @@ class TestCompatibilityValidator:
         schema_variants = [
             {
                 "flagValue": "A",
-                "fields": [
-                    {"name": "field1", "start": 1, "length": 10, "parquetType": "string"}
-                ]
+                "fields": [{"name": "field1", "start": 1, "length": 10, "parquetType": "string"}],
             },
             {
                 "flagValue": "B",
                 "fields": [
-                    {"name": "field1", "start": 5, "length": 10, "parquetType": "string"}  # Overlaps but same type
-                ]
-            }
+                    {
+                        "name": "field1",
+                        "start": 5,
+                        "length": 10,
+                        "parquetType": "string",
+                    }  # Overlaps but same type
+                ],
+            },
         ]
 
         errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
@@ -177,19 +191,24 @@ class TestCompatibilityValidator:
         schema_variants = [
             {
                 "flagValue": "A",
-                "fields": [
-                    {"name": "field1", "start": 1, "length": 10, "parquetType": "string"}
-                ]
+                "fields": [{"name": "field1", "start": 1, "length": 10, "parquetType": "string"}],
             },
             {
                 "flagValue": "B",
                 "fields": [
-                    {"name": "field1", "start": 15, "length": 10, "parquetType": "int64"}  # No overlap
-                ]
-            }
+                    {
+                        "name": "field1",
+                        "start": 15,
+                        "length": 10,
+                        "parquetType": "int64",
+                    }  # No overlap
+                ],
+            },
         ]
 
-        with patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible') as mock_compatible:
+        with patch(
+            "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+        ) as mock_compatible:
             mock_compatible.return_value = False
 
             errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
@@ -204,19 +223,24 @@ class TestCompatibilityValidator:
         schema_variants = [
             {
                 "flagValue": "A",
-                "fields": [
-                    {"name": "field1", "parquetType": "string"}  # Missing start/length
-                ]
+                "fields": [{"name": "field1", "parquetType": "string"}],  # Missing start/length
             },
             {
                 "flagValue": "B",
                 "fields": [
-                    {"name": "field1", "start": "invalid", "length": 10, "parquetType": "string"}  # Invalid start
-                ]
-            }
+                    {
+                        "name": "field1",
+                        "start": "invalid",
+                        "length": 10,
+                        "parquetType": "string",
+                    }  # Invalid start
+                ],
+            },
         ]
 
-        with patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible') as mock_compatible:
+        with patch(
+            "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+        ) as mock_compatible:
             mock_compatible.return_value = True
 
             errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
@@ -229,16 +253,12 @@ class TestCompatibilityValidator:
         schema_variants = [
             {
                 "flagValue": "A",
-                "fields": [
-                    {"name": "field1", "start": 1, "length": 10}  # Missing parquetType
-                ]
+                "fields": [{"name": "field1", "start": 1, "length": 10}],  # Missing parquetType
             },
             {
                 "flagValue": "B",
-                "fields": [
-                    {"name": "field1", "start": 5, "length": 10, "parquetType": "string"}
-                ]
-            }
+                "fields": [{"name": "field1", "start": 5, "length": 10, "parquetType": "string"}],
+            },
         ]
 
         errors = CompatibilityValidator.validate_schema_compatibility(schema_variants)
@@ -250,7 +270,7 @@ class TestCompatibilityValidator:
         """Test field compatibility validation when no parquet types are present."""
         field_defs = [
             (0, {"name": "field1", "start": 1, "length": 10}),
-            (1, {"name": "field1", "start": 1, "length": 10})
+            (1, {"name": "field1", "start": 1, "length": 10}),
         ]
 
         errors = CompatibilityValidator._validate_field_compatibility("field1", field_defs)
@@ -261,7 +281,7 @@ class TestCompatibilityValidator:
         """Test field compatibility with position overlap but no parquet types."""
         field_defs = [
             (0, {"name": "field1", "start": 1, "length": 10}),
-            (1, {"name": "field1", "start": 5, "length": 10})  # Overlaps
+            (1, {"name": "field1", "start": 5, "length": 10}),  # Overlaps
         ]
 
         errors = CompatibilityValidator._validate_field_compatibility("field1", field_defs)
@@ -269,14 +289,14 @@ class TestCompatibilityValidator:
         # Should not generate error because no parquet types to check compatibility
         assert errors == []
 
-    @patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible')
+    @patch("forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible")
     def test_validate_field_compatibility_position_overlap_one_missing_type(self, mock_compatible):
         """Test field compatibility with position overlap and one missing parquet type."""
         mock_compatible.return_value = False
 
         field_defs = [
             (0, {"name": "field1", "start": 1, "length": 10, "parquetType": "string"}),
-            (1, {"name": "field1", "start": 5, "length": 10})  # Overlaps, no parquetType
+            (1, {"name": "field1", "start": 5, "length": 10}),  # Overlaps, no parquetType
         ]
 
         errors = CompatibilityValidator._validate_field_compatibility("field1", field_defs)
@@ -338,27 +358,44 @@ class TestCompatibilityValidator:
                 "fields": [
                     {"name": "id", "start": 1, "length": 5, "parquetType": "string"},
                     {"name": "name", "start": 6, "length": 20, "parquetType": "string"},
-                    {"name": "amount", "start": 26, "length": 10, "parquetType": "decimal"}
-                ]
+                    {"name": "amount", "start": 26, "length": 10, "parquetType": "decimal"},
+                ],
             },
             {
                 "flagValue": "B",
                 "fields": [
                     {"name": "id", "start": 1, "length": 5, "parquetType": "string"},  # Compatible
-                    {"name": "description", "start": 6, "length": 30, "parquetType": "string"},  # Different field
-                    {"name": "amount", "start": 26, "length": 10, "parquetType": "double"}  # Incompatible type
-                ]
+                    {
+                        "name": "description",
+                        "start": 6,
+                        "length": 30,
+                        "parquetType": "string",
+                    },  # Different field
+                    {
+                        "name": "amount",
+                        "start": 26,
+                        "length": 10,
+                        "parquetType": "double",
+                    },  # Incompatible type
+                ],
             },
             {
                 "flagValue": "C",
                 "fields": [
-                    {"name": "id", "start": 1, "length": 5, "parquetType": "int64"},  # Incompatible type
-                    {"name": "code", "start": 6, "length": 15, "parquetType": "string"}
-                ]
-            }
+                    {
+                        "name": "id",
+                        "start": 1,
+                        "length": 5,
+                        "parquetType": "int64",
+                    },  # Incompatible type
+                    {"name": "code", "start": 6, "length": 15, "parquetType": "string"},
+                ],
+            },
         ]
 
-        with patch('forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible') as mock_compatible:
+        with patch(
+            "forklift.schema.fwf.validation.compatibility.ParquetTypeValidator.are_types_compatible"
+        ) as mock_compatible:
             # Mock different results for different type combinations
             def side_effect(types):
                 if "string" in types and "int64" in types:

@@ -1,16 +1,17 @@
 """Bad rows handler for managing invalid data during processing."""
 
 from __future__ import annotations
-from typing import Dict, List, Optional, Union, Any
-from dataclasses import dataclass
-from pathlib import Path
+
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 import pyarrow.csv as pv_csv
+import pyarrow.parquet as pq
 
 from .base import ValidationResult
 from .constraint_validator import ConstraintViolation
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BadRowsConfig:
     """Configuration for bad rows handling."""
+
     output_path: Optional[Union[str, Path]] = None
     output_format: str = "parquet"  # parquet, csv, json
     include_original_data: bool = True
@@ -50,9 +52,13 @@ class BadRowsHandler:
         self.row_count = 0
         self.bad_row_count = 0
 
-    def add_bad_row(self, row_data: Dict[str, Any], row_index: int,
-                   validation_results: Optional[List[ValidationResult]] = None,
-                   constraint_violations: Optional[List[ConstraintViolation]] = None):
+    def add_bad_row(
+        self,
+        row_data: Dict[str, Any],
+        row_index: int,
+        validation_results: Optional[List[ValidationResult]] = None,
+        constraint_violations: Optional[List[ConstraintViolation]] = None,
+    ):
         """Add a bad row with its validation errors.
 
         Args:
@@ -62,14 +68,13 @@ class BadRowsHandler:
             constraint_violations: Constraint violations for this row
         """
         if self.config.max_bad_rows and self.bad_row_count >= self.config.max_bad_rows:
-            logger.warning(f"Maximum bad rows limit ({self.config.max_bad_rows}) reached. "
-                         f"Subsequent bad rows will not be collected.")
+            logger.warning(
+                f"Maximum bad rows limit ({self.config.max_bad_rows}) reached. "
+                f"Subsequent bad rows will not be collected."
+            )
             return
 
-        bad_row_entry = {
-            "row_index": row_index,
-            "timestamp": datetime.now().isoformat()
-        }
+        bad_row_entry = {"row_index": row_index, "timestamp": datetime.now().isoformat()}
 
         # Include original data if configured
         if self.config.include_original_data:
@@ -83,25 +88,29 @@ class BadRowsHandler:
             if validation_results:
                 for result in validation_results:
                     if not result.is_valid:
-                        errors.append({
-                            "type": "validation_error",
-                            "error_code": result.error_code,
-                            "error_message": result.error_message,
-                            "column_name": result.column_name,
-                            "row_index": result.row_index
-                        })
+                        errors.append(
+                            {
+                                "type": "validation_error",
+                                "error_code": result.error_code,
+                                "error_message": result.error_message,
+                                "column_name": result.column_name,
+                                "row_index": result.row_index,
+                            }
+                        )
 
             # Add constraint violations
             if constraint_violations:
                 for violation in constraint_violations:
-                    errors.append({
-                        "type": "constraint_violation",
-                        "violation_type": violation.violation_type,
-                        "error_message": violation.error_message,
-                        "columns": violation.columns,
-                        "values": violation.values,
-                        "constraint_name": violation.constraint_name
-                    })
+                    errors.append(
+                        {
+                            "type": "constraint_violation",
+                            "violation_type": violation.violation_type,
+                            "error_message": violation.error_message,
+                            "columns": violation.columns,
+                            "values": violation.values,
+                            "constraint_name": violation.constraint_name,
+                        }
+                    )
 
             bad_row_entry["errors"] = errors
 
@@ -115,9 +124,13 @@ class BadRowsHandler:
 
         self.bad_row_count += 1
 
-    def add_bad_rows_from_batch(self, batch: pa.RecordBatch, invalid_indices: List[int],
-                               validation_results: List[ValidationResult],
-                               constraint_violations: Optional[List[ConstraintViolation]] = None):
+    def add_bad_rows_from_batch(
+        self,
+        batch: pa.RecordBatch,
+        invalid_indices: List[int],
+        validation_results: List[ValidationResult],
+        constraint_violations: Optional[List[ConstraintViolation]] = None,
+    ):
         """Add multiple bad rows from a batch.
 
         Args:
@@ -162,7 +175,7 @@ class BadRowsHandler:
                 row_data=row_data,
                 row_index=self.row_count + row_idx,
                 validation_results=row_validations,
-                constraint_violations=row_violations
+                constraint_violations=row_violations,
             )
 
     def increment_row_count(self, count: int = 1):
@@ -189,15 +202,19 @@ class BadRowsHandler:
 
         for violation in self.constraint_violations:
             violation_type = violation.violation_type
-            constraint_violation_counts[violation_type] = constraint_violation_counts.get(violation_type, 0) + 1
+            constraint_violation_counts[violation_type] = (
+                constraint_violation_counts.get(violation_type, 0) + 1
+            )
 
         return {
             "total_rows_processed": self.row_count,
             "bad_rows_count": self.bad_row_count,
-            "bad_rows_percentage": (self.bad_row_count / self.row_count * 100) if self.row_count > 0 else 0,
+            "bad_rows_percentage": (
+                (self.bad_row_count / self.row_count * 100) if self.row_count > 0 else 0
+            ),
             "validation_errors": validation_error_counts,
             "constraint_violations": constraint_violation_counts,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     def write_bad_rows(self, output_path: Optional[Union[str, Path]] = None) -> Optional[Path]:
@@ -258,10 +275,7 @@ class BadRowsHandler:
         # Flatten the data for Parquet
         flattened_rows = []
         for bad_row in self.bad_rows:
-            flattened = {
-                "row_index": bad_row["row_index"],
-                "timestamp": bad_row["timestamp"]
-            }
+            flattened = {"row_index": bad_row["row_index"], "timestamp": bad_row["timestamp"]}
 
             # Add original data columns
             if "original_data" in bad_row:
@@ -296,10 +310,7 @@ class BadRowsHandler:
         # Use the same flattening logic as Parquet
         flattened_rows = []
         for bad_row in self.bad_rows:
-            flattened = {
-                "row_index": bad_row["row_index"],
-                "timestamp": bad_row["timestamp"]
-            }
+            flattened = {"row_index": bad_row["row_index"], "timestamp": bad_row["timestamp"]}
 
             if "original_data" in bad_row:
                 for key, value in bad_row["original_data"].items():
@@ -323,11 +334,11 @@ class BadRowsHandler:
 
     def _write_json(self, file_path: Path):
         """Write bad rows in JSON format."""
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             json.dump(self.bad_rows, f, indent=2, default=str)
 
     def _write_summary(self, file_path: Path):
         """Write summary information."""
         summary = self.get_summary()
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)

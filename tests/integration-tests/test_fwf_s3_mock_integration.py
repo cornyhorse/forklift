@@ -1,19 +1,21 @@
 """Integration tests for FWF processing with proper S3 mocking support."""
 
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 from unittest.mock import MagicMock
+
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pandas as pd
+import pytest
 
+from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
+                                    FwfInputConfig)
 from forklift.inputs.fwf import FwfInputHandler
-from forklift.inputs.config import FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
 from forklift.inputs.fwf_utils import create_fwf_config_from_schema
-from forklift.io.s3_streaming import S3StreamingClient, S3Path
+from forklift.io.s3_streaming import S3Path, S3StreamingClient
 
 
 class MockS3StreamingClient:
@@ -42,7 +44,7 @@ class MockS3StreamingClient:
         """Mock S3 size check."""
         s3_path_obj = S3Path(s3_path) if isinstance(s3_path, str) else s3_path
         key = f"{s3_path_obj.bucket}/{s3_path_obj.key}"
-        return len(self._objects.get(key, b''))
+        return len(self._objects.get(key, b""))
 
 
 class MockS3Writer:
@@ -51,11 +53,11 @@ class MockS3Writer:
     def __init__(self, client, s3_path):
         self.client = client
         self.s3_path = s3_path
-        self.buffer = b''
+        self.buffer = b""
 
     def write(self, data):
         if isinstance(data, str):
-            data = data.encode('utf-8')
+            data = data.encode("utf-8")
         self.buffer += data
 
     def __enter__(self):
@@ -76,15 +78,15 @@ class MockS3Reader:
         self.s3_path = s3_path
         s3_path_obj = S3Path(s3_path) if isinstance(s3_path, str) else s3_path
         key = f"{s3_path_obj.bucket}/{s3_path_obj.key}"
-        self.data = client._objects.get(key, b'')
+        self.data = client._objects.get(key, b"")
         self.position = 0
 
     def read(self, size=-1):
         if size == -1:
-            result = self.data[self.position:]
+            result = self.data[self.position :]
             self.position = len(self.data)
         else:
-            result = self.data[self.position:self.position + size]
+            result = self.data[self.position : self.position + size]
             self.position += len(result)
         return result
 
@@ -111,10 +113,10 @@ class TestFwfS3MockableIntegration:
         else:
             # Using real S3
             return S3StreamingClient(
-                aws_access_key_id=aws_credentials['aws_access_key_id'],
-                aws_secret_access_key=aws_credentials['aws_secret_access_key'],
-                region_name=aws_credentials['region_name'],
-                endpoint_url=aws_credentials['endpoint_url']
+                aws_access_key_id=aws_credentials["aws_access_key_id"],
+                aws_secret_access_key=aws_credentials["aws_secret_access_key"],
+                region_name=aws_credentials["region_name"],
+                endpoint_url=aws_credentials["endpoint_url"],
             )
 
     @pytest.fixture
@@ -131,20 +133,21 @@ class TestFwfS3MockableIntegration:
                 try:
                     s3_path_obj = S3Path(s3_path) if isinstance(s3_path, str) else s3_path
                     s3_client._s3_client.delete_object(
-                        Bucket=s3_path_obj.bucket,
-                        Key=s3_path_obj.key
+                        Bucket=s3_path_obj.bucket, Key=s3_path_obj.key
                     )
                 except Exception:
                     pass  # Best effort cleanup
 
-    def test_single_schema_fwf_to_parquet_s3_upload_mockable(self, s3_client, s3_test_bucket, cleanup_s3_objects, s3_mock_conditional):
+    def test_single_schema_fwf_to_parquet_s3_upload_mockable(
+        self, s3_client, s3_test_bucket, cleanup_s3_objects, s3_mock_conditional
+    ):
         """Test single-schema FWF processing with S3 upload (supports mocking)."""
         # Define field specification for test data
         fields = [
             FwfFieldSpec("id", 1, 6, align="right", pad="0", parquet_type="int64"),
             FwfFieldSpec("name", 7, 20, align="left", parquet_type="string"),
             FwfFieldSpec("amount", 27, 10, align="right", pad="0", parquet_type="int64"),
-            FwfFieldSpec("status", 37, 8, align="left", parquet_type="string")
+            FwfFieldSpec("status", 37, 8, align="left", parquet_type="string"),
         ]
 
         config = FwfInputConfig(fields=fields, skip_blank_lines=True)
@@ -153,14 +156,16 @@ class TestFwfS3MockableIntegration:
         test_data = [
             "000001John Doe          0000012500ACTIVE  ",
             "000002Jane Smith        0000025000ACTIVE  ",
-            "000003Bob Johnson       0000015000INACTIVE"
+            "000003Bob Johnson       0000015000INACTIVE",
         ]
 
         # Create temporary FWF file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.fwf', delete=False, encoding='utf-8') as tmp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".fwf", delete=False, encoding="utf-8"
+        ) as tmp_file:
             fwf_path = Path(tmp_file.name)
             for line in test_data:
-                tmp_file.write(line + '\n')
+                tmp_file.write(line + "\n")
 
         try:
             handler = FwfInputHandler(config)
@@ -173,7 +178,7 @@ class TestFwfS3MockableIntegration:
             assert table.num_columns > 0, "Should have columns"
 
             # Create temporary parquet file
-            with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_parquet:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_parquet:
                 parquet_path = Path(tmp_parquet.name)
 
             try:
@@ -181,12 +186,14 @@ class TestFwfS3MockableIntegration:
                 pa.parquet.write_table(table, parquet_path)
 
                 # Upload to S3
-                test_key = f"forklift/integration-test/fwf-single-mockable-{int(time.time())}.parquet"
+                test_key = (
+                    f"forklift/integration-test/fwf-single-mockable-{int(time.time())}.parquet"
+                )
                 s3_path = f"s3://{s3_test_bucket}/{test_key}"
                 cleanup_s3_objects.append(s3_path)
 
                 # Upload parquet file to S3
-                with open(parquet_path, 'rb') as local_file:
+                with open(parquet_path, "rb") as local_file:
                     with s3_client.open_for_write(s3_path) as s3_writer:
                         s3_writer.write(local_file.read())
 
@@ -205,30 +212,42 @@ class TestFwfS3MockableIntegration:
         finally:
             fwf_path.unlink()
 
-    def test_multi_schema_fwf_to_parquet_s3_upload_mockable(self, s3_client, s3_test_bucket, cleanup_s3_objects, s3_mock_conditional):
+    def test_multi_schema_fwf_to_parquet_s3_upload_mockable(
+        self, s3_client, s3_test_bucket, cleanup_s3_objects, s3_mock_conditional
+    ):
         """Test multi-schema FWF processing with S3 upload (supports mocking)."""
         # Create multi-schema configuration
         flag_column = FwfFieldSpec("record_type", 1, 1, parquet_type="string")
 
         conditional_schemas = [
-            FwfConditionalSchema("H", "Header Record", [
-                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("batch_id", 2, 8, align="right", pad="0", parquet_type="int64"),
-                FwfFieldSpec("batch_date", 10, 8, parquet_type="string"),
-                FwfFieldSpec("record_count", 18, 5, align="right", pad="0", parquet_type="int32")
-            ]),
-            FwfConditionalSchema("D", "Detail Record", [
-                FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
-                FwfFieldSpec("transaction_id", 2, 8, align="right", pad="0", parquet_type="int64"),
-                FwfFieldSpec("amount", 10, 10, align="right", pad="0", parquet_type="int64"),
-                FwfFieldSpec("description", 20, 15, align="left", parquet_type="string")
-            ])
+            FwfConditionalSchema(
+                "H",
+                "Header Record",
+                [
+                    FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec("batch_id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                    FwfFieldSpec("batch_date", 10, 8, parquet_type="string"),
+                    FwfFieldSpec(
+                        "record_count", 18, 5, align="right", pad="0", parquet_type="int32"
+                    ),
+                ],
+            ),
+            FwfConditionalSchema(
+                "D",
+                "Detail Record",
+                [
+                    FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
+                    FwfFieldSpec(
+                        "transaction_id", 2, 8, align="right", pad="0", parquet_type="int64"
+                    ),
+                    FwfFieldSpec("amount", 10, 10, align="right", pad="0", parquet_type="int64"),
+                    FwfFieldSpec("description", 20, 15, align="left", parquet_type="string"),
+                ],
+            ),
         ]
 
         config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas,
-            skip_blank_lines=True
+            flag_column=flag_column, conditional_schemas=conditional_schemas, skip_blank_lines=True
         )
 
         # Create test multi-schema data
@@ -236,14 +255,16 @@ class TestFwfS3MockableIntegration:
             "H0000123420250101000003",  # Header
             "D000001230000125000Payment 1      ",  # Detail
             "D000002340000250000Payment 2      ",  # Detail
-            "D000003450000187500Payment 3      "   # Detail
+            "D000003450000187500Payment 3      ",  # Detail
         ]
 
         # Create temporary FWF file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.fwf', delete=False, encoding='utf-8') as tmp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".fwf", delete=False, encoding="utf-8"
+        ) as tmp_file:
             fwf_path = Path(tmp_file.name)
             for line in test_data:
-                tmp_file.write(line + '\n')
+                tmp_file.write(line + "\n")
 
         try:
             handler = FwfInputHandler(config)
@@ -255,12 +276,12 @@ class TestFwfS3MockableIntegration:
             assert table.num_rows == 4, "Should have 4 records"
 
             df = table.to_pandas()
-            record_types = df['record_type'].unique()
-            assert 'H' in record_types, "Should have header records"
-            assert 'D' in record_types, "Should have detail records"
+            record_types = df["record_type"].unique()
+            assert "H" in record_types, "Should have header records"
+            assert "D" in record_types, "Should have detail records"
 
             # Create temporary parquet file
-            with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_parquet:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_parquet:
                 parquet_path = Path(tmp_parquet.name)
 
             try:
@@ -268,12 +289,14 @@ class TestFwfS3MockableIntegration:
                 pa.parquet.write_table(table, parquet_path)
 
                 # Upload to S3
-                test_key = f"forklift/integration-test/fwf-multi-mockable-{int(time.time())}.parquet"
+                test_key = (
+                    f"forklift/integration-test/fwf-multi-mockable-{int(time.time())}.parquet"
+                )
                 s3_path = f"s3://{s3_test_bucket}/{test_key}"
                 cleanup_s3_objects.append(s3_path)
 
                 # Upload parquet file to S3
-                with open(parquet_path, 'rb') as local_file:
+                with open(parquet_path, "rb") as local_file:
                     with s3_client.open_for_write(s3_path) as s3_writer:
                         s3_writer.write(local_file.read())
 
@@ -292,13 +315,15 @@ class TestFwfS3MockableIntegration:
         finally:
             fwf_path.unlink()
 
-    def test_large_fwf_file_streaming_to_s3_mockable(self, s3_client, s3_test_bucket, cleanup_s3_objects, s3_mock_conditional):
+    def test_large_fwf_file_streaming_to_s3_mockable(
+        self, s3_client, s3_test_bucket, cleanup_s3_objects, s3_mock_conditional
+    ):
         """Test large FWF file processing with S3 streaming (supports mocking)."""
         # Create fields for large file test
         fields = [
             FwfFieldSpec("id", 1, 8, align="right", pad="0", parquet_type="int64"),
             FwfFieldSpec("data", 9, 20, align="left", parquet_type="string"),
-            FwfFieldSpec("value", 29, 10, align="right", pad="0", parquet_type="int64")
+            FwfFieldSpec("value", 29, 10, align="right", pad="0", parquet_type="int64"),
         ]
 
         config = FwfInputConfig(fields=fields, skip_blank_lines=True)
@@ -307,7 +332,9 @@ class TestFwfS3MockableIntegration:
         test_size = 1000
 
         # Create temporary FWF file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.fwf', delete=False, encoding='utf-8') as tmp_file:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".fwf", delete=False, encoding="utf-8"
+        ) as tmp_file:
             fwf_path = Path(tmp_file.name)
 
             for i in range(test_size):
@@ -324,7 +351,7 @@ class TestFwfS3MockableIntegration:
             assert table.num_rows == test_size, f"Should have {test_size} records"
 
             # Create temporary parquet file
-            with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp_parquet:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp_parquet:
                 parquet_path = Path(tmp_parquet.name)
 
             try:
@@ -332,12 +359,14 @@ class TestFwfS3MockableIntegration:
                 pa.parquet.write_table(table, parquet_path)
 
                 # Upload to S3
-                test_key = f"forklift/integration-test/fwf-large-mockable-{int(time.time())}.parquet"
+                test_key = (
+                    f"forklift/integration-test/fwf-large-mockable-{int(time.time())}.parquet"
+                )
                 s3_path = f"s3://{s3_test_bucket}/{test_key}"
                 cleanup_s3_objects.append(s3_path)
 
                 # Upload large parquet file to S3
-                with open(parquet_path, 'rb') as local_file:
+                with open(parquet_path, "rb") as local_file:
                     with s3_client.open_for_write(s3_path) as s3_writer:
                         # Stream in chunks
                         while True:

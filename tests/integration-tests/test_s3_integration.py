@@ -1,17 +1,19 @@
 """Integration tests for S3 streaming with real S3 operations using .env file configuration."""
 
-import pytest
-import tempfile
-import json
 import csv
-from pathlib import Path
-from typing import Dict, Any
+import json
+import tempfile
 import time
+from pathlib import Path
+from typing import Any, Dict
 
-from forklift.io.s3_streaming import S3StreamingClient, S3Path
-from forklift.io.unified_io import UnifiedIOHandler
-from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 import pyarrow as pa
+import pytest
+
+from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
+                                           ImportConfig)
+from forklift.io.s3_streaming import S3Path, S3StreamingClient
+from forklift.io.unified_io import UnifiedIOHandler
 
 
 @pytest.mark.integration
@@ -22,33 +24,34 @@ class TestS3StreamingIntegration:
     def s3_config(self):
         """Get S3 configuration from .env file."""
         config = {
-            'aws_access_key_id': None,
-            'aws_secret_access_key': None,
-            'region_name': 'us-east-1',
-            'test_bucket': 'cornyhorse-data',
-            'endpoint_url': None
+            "aws_access_key_id": None,
+            "aws_secret_access_key": None,
+            "region_name": "us-east-1",
+            "test_bucket": "cornyhorse-data",
+            "endpoint_url": None,
         }
 
         # Load from environment variables or .env file
-        from dotenv import load_dotenv
         import os
         from pathlib import Path
 
+        from dotenv import load_dotenv
+
         # Load from ~/.credentials/.env first, then fallback to local .env
-        credentials_path = Path.home() / '.credentials' / '.env'
+        credentials_path = Path.home() / ".credentials" / ".env"
         if credentials_path.exists():
             load_dotenv(credentials_path)
         else:
             load_dotenv()  # fallback to local .env
 
-        config['aws_access_key_id'] = os.getenv('AWS_ACCESS_KEY_ID')
-        config['aws_secret_access_key'] = os.getenv('AWS_SECRET_ACCESS_KEY')
-        config['region_name'] = os.getenv('AWS_DEFAULT_REGION', 'eu-north-1')
-        config['test_bucket'] = os.getenv('S3_TEST_BUCKET', 'cornyhorse-data')
-        config['endpoint_url'] = os.getenv('AWS_ENDPOINT_URL')
+        config["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID")
+        config["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY")
+        config["region_name"] = os.getenv("AWS_DEFAULT_REGION", "eu-north-1")
+        config["test_bucket"] = os.getenv("S3_TEST_BUCKET", "cornyhorse-data")
+        config["endpoint_url"] = os.getenv("AWS_ENDPOINT_URL")
 
         # Skip if no credentials are configured
-        if not config['aws_access_key_id'] or not config['aws_secret_access_key']:
+        if not config["aws_access_key_id"] or not config["aws_secret_access_key"]:
             pytest.skip("AWS credentials not configured")
 
         return config
@@ -57,28 +60,28 @@ class TestS3StreamingIntegration:
     def s3_client(self, s3_config):
         """Create real S3 client for integration tests."""
         return S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name'],
-            endpoint_url=s3_config['endpoint_url']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
+            endpoint_url=s3_config["endpoint_url"],
         )
 
     @pytest.fixture
     def test_data(self):
         """Sample test data for S3 operations."""
         return {
-            'csv_content': "name,age,city,salary\nAlice,25,New York,75000\nBob,30,San Francisco,85000\nCharlie,35,Chicago,70000\nDiana,28,Boston,80000",
-            'schema_content': {
+            "csv_content": "name,age,city,salary\nAlice,25,New York,75000\nBob,30,San Francisco,85000\nCharlie,35,Chicago,70000\nDiana,28,Boston,80000",
+            "schema_content": {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
                 "properties": {
                     "name": {"type": "string"},
                     "age": {"type": "integer"},
                     "city": {"type": "string"},
-                    "salary": {"type": "number"}
+                    "salary": {"type": "number"},
                 },
-                "required": ["name", "age"]
-            }
+                "required": ["name", "age"],
+            },
         }
 
     @pytest.fixture
@@ -88,10 +91,10 @@ class TestS3StreamingIntegration:
 
         # Create client for cleanup operations
         client = S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name'],
-            endpoint_url=s3_config['endpoint_url']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
+            endpoint_url=s3_config["endpoint_url"],
         )
 
         yield objects_to_cleanup
@@ -106,10 +109,10 @@ class TestS3StreamingIntegration:
     def cleanup_before_test(self, s3_config):
         """Clean up any existing test files before running tests to ensure clean state."""
         client = S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name'],
-            endpoint_url=s3_config['endpoint_url']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
+            endpoint_url=s3_config["endpoint_url"],
         )
 
         # Define test prefixes to clean up
@@ -117,46 +120,48 @@ class TestS3StreamingIntegration:
             "forklift/integration-test/",
             "forklift/performance-test/",
             "forklift/test-files-upload/",
-            "forklift/pipeline-test/"
+            "forklift/pipeline-test/",
         ]
 
         # Clean up any existing test files
         for prefix in test_prefixes:
             try:
                 response = client._s3_client.list_objects_v2(
-                    Bucket=s3_config['test_bucket'],
-                    Prefix=prefix
+                    Bucket=s3_config["test_bucket"], Prefix=prefix
                 )
 
-                if 'Contents' in response:
-                    objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                if "Contents" in response:
+                    objects_to_delete = [{"Key": obj["Key"]} for obj in response["Contents"]]
                     if objects_to_delete:
                         client._s3_client.delete_objects(
-                            Bucket=s3_config['test_bucket'],
-                            Delete={'Objects': objects_to_delete}
+                            Bucket=s3_config["test_bucket"], Delete={"Objects": objects_to_delete}
                         )
-                        print(f"Cleaned up {len(objects_to_delete)} existing objects with prefix: {prefix}")
+                        print(
+                            f"Cleaned up {len(objects_to_delete)} existing objects with prefix: {prefix}"
+                        )
             except Exception as e:
                 print(f"Warning: Could not clean up prefix {prefix}: {e}")
 
-    def test_s3_upload_download_roundtrip(self, s3_client, s3_config, test_data, cleanup_s3_objects):
+    def test_s3_upload_download_roundtrip(
+        self, s3_client, s3_config, test_data, cleanup_s3_objects
+    ):
         """Test uploading and downloading data to/from S3."""
         test_key = f"forklift/integration-test/roundtrip-test.csv"
         s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
         cleanup_s3_objects.append(s3_path)
 
         # Upload test data
-        with s3_client.open_for_write(s3_path, encoding='utf-8') as writer:
-            writer.write(test_data['csv_content'])
+        with s3_client.open_for_write(s3_path, encoding="utf-8") as writer:
+            writer.write(test_data["csv_content"])
 
         # Verify object exists
         assert s3_client.exists(s3_path)
 
         # Download and verify content
-        with s3_client.open_for_read(s3_path, encoding='utf-8') as reader:
+        with s3_client.open_for_read(s3_path, encoding="utf-8") as reader:
             downloaded_content = reader.read()
 
-        assert downloaded_content.strip() == test_data['csv_content']
+        assert downloaded_content.strip() == test_data["csv_content"]
 
     def test_large_file_multipart_upload(self, s3_client, s3_config, cleanup_s3_objects):
         """Test multipart upload with large file."""
@@ -173,7 +178,7 @@ class TestS3StreamingIntegration:
             large_content += f"{i},name_{i},description for item {i},{'x' * 100}\n"
 
         # Upload large content
-        with s3_client.open_for_write(s3_path, encoding='utf-8') as writer:
+        with s3_client.open_for_write(s3_path, encoding="utf-8") as writer:
             writer.write(large_content)
 
         # Verify upload succeeded
@@ -192,8 +197,8 @@ class TestS3StreamingIntegration:
         cleanup_s3_objects.append(s3_path)
 
         # Write using unified handler
-        with io_handler.open_for_write(s3_path, encoding='utf-8') as writer:
-            writer.write(test_data['csv_content'])
+        with io_handler.open_for_write(s3_path, encoding="utf-8") as writer:
+            writer.write(test_data["csv_content"])
 
         # Verify exists
         assert io_handler.exists(s3_path)
@@ -203,11 +208,11 @@ class TestS3StreamingIntegration:
         assert size > 0
 
         # Read CSV using unified handler
-        rows = list(io_handler.csv_reader(s3_path, encoding='utf-8'))
+        rows = list(io_handler.csv_reader(s3_path, encoding="utf-8"))
 
         assert len(rows) == 5  # Header + 4 data rows
-        assert rows[0] == ['name', 'age', 'city', 'salary']
-        assert rows[1] == ['Alice', '25', 'New York', '75000']
+        assert rows[0] == ["name", "age", "city", "salary"]
+        assert rows[1] == ["Alice", "25", "New York", "75000"]
 
     def test_forklift_core_s3_to_s3_processing(self, s3_config, test_data, cleanup_s3_objects):
         """Test ForkliftCore processing S3 input to S3 output."""
@@ -224,11 +229,11 @@ class TestS3StreamingIntegration:
 
         # Upload test data and schema to S3
 
-        with UnifiedIOHandler().open_for_write(input_s3_path, encoding='utf-8') as writer:
-            writer.write(test_data['csv_content'])
+        with UnifiedIOHandler().open_for_write(input_s3_path, encoding="utf-8") as writer:
+            writer.write(test_data["csv_content"])
 
-        with UnifiedIOHandler().open_for_write(schema_s3_path, encoding='utf-8') as writer:
-            json.dump(test_data['schema_content'], writer, indent=2)
+        with UnifiedIOHandler().open_for_write(schema_s3_path, encoding="utf-8") as writer:
+            json.dump(test_data["schema_content"], writer, indent=2)
 
         # Configure ForkliftCore for S3 to S3 processing
         config = ImportConfig(
@@ -236,7 +241,7 @@ class TestS3StreamingIntegration:
             output_path=output_s3_path,
             schema_file=schema_s3_path,
             header_mode=HeaderMode.PRESENT,
-            batch_size=2  # Small batch size for testing
+            batch_size=2,  # Small batch size for testing
         )
 
         # Process the data
@@ -269,8 +274,8 @@ class TestS3StreamingIntegration:
         output_s3_path = f"s3://{s3_config['test_bucket']}/{output_prefix}"
 
         # Create temporary local input file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as tmp_file:
-            tmp_file.write(test_data['csv_content'])
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as tmp_file:
+            tmp_file.write(test_data["csv_content"])
             local_input_path = tmp_file.name
 
         try:
@@ -278,7 +283,7 @@ class TestS3StreamingIntegration:
             config = ImportConfig(
                 input_path=local_input_path,
                 output_path=output_s3_path,
-                header_mode=HeaderMode.PRESENT
+                header_mode=HeaderMode.PRESENT,
             )
 
             # Process the data
@@ -309,10 +314,10 @@ class TestS3StreamingIntegration:
     def test_error_handling_nonexistent_bucket(self, s3_config):
         """Test error handling with non-existent bucket."""
         client = S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name'],
-            endpoint_url=s3_config['endpoint_url']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
+            endpoint_url=s3_config["endpoint_url"],
         )
 
         nonexistent_path = "s3://this-bucket-should-not-exist-12345/test.csv"
@@ -322,6 +327,7 @@ class TestS3StreamingIntegration:
 
         # Should raise error for actual operations
         from botocore.exceptions import ClientError
+
         with pytest.raises(ClientError):
             client.get_size(nonexistent_path)
 
@@ -338,12 +344,12 @@ class TestS3StreamingIntegration:
 "李小明","Software Engineer","Full-stack developer"'''
 
         # Upload
-        with s3_client.open_for_write(s3_path, encoding='utf-8') as writer:
+        with s3_client.open_for_write(s3_path, encoding="utf-8") as writer:
             writer.write(special_content)
 
         # Read back using CSV reader
         io_handler = UnifiedIOHandler()
-        rows = list(io_handler.csv_reader(s3_path, encoding='utf-8'))
+        rows = list(io_handler.csv_reader(s3_path, encoding="utf-8"))
 
         assert len(rows) == 4  # Header + 3 data rows
         assert rows[1][0] == "Smith, John"  # Comma preserved

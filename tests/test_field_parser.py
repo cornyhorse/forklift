@@ -13,7 +13,7 @@ class TestFieldParser:
         fields = [
             {"name": "field1", "start": 1, "length": 5},
             {"name": "field2", "start": 6, "length": 10},
-            {"name": "field3", "start": 16, "length": 8}
+            {"name": "field3", "start": 16, "length": 8},
         ]
         result = FieldParser.get_column_names(fields)
         assert result == ["field1", "field2", "field3"]
@@ -28,19 +28,19 @@ class TestFieldParser:
         fields = [
             {"name": "field1", "start": 1, "length": 5},
             {"start": 6, "length": 10},  # No name
-            {"name": "field3", "start": 16, "length": 8}
+            {"name": "field3", "start": 16, "length": 8},
         ]
         result = FieldParser.get_column_names(fields)
         assert result == ["field1", "", "field3"]
 
-    @patch('forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names')
+    @patch("forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names")
     def test_get_column_names_with_standardization(self, mock_standardize):
         """Test column name extraction with standardization."""
         mock_standardize.return_value = ["std_field1", "std_field2"]
 
         fields = [
             {"name": "Field1", "start": 1, "length": 5},
-            {"name": "Field2", "start": 6, "length": 10}
+            {"name": "Field2", "start": 6, "length": 10},
         ]
 
         result = FieldParser.get_column_names(fields, standardize_names="postgres")
@@ -48,14 +48,14 @@ class TestFieldParser:
         mock_standardize.assert_called_once_with(["Field1", "Field2"], "postgres", None)
         assert result == ["std_field1", "std_field2"]
 
-    @patch('forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names')
+    @patch("forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names")
     def test_get_column_names_with_deduplication(self, mock_standardize):
         """Test column name extraction with deduplication."""
         mock_standardize.return_value = ["field1", "field2_1"]
 
         fields = [
             {"name": "field1", "start": 1, "length": 5},
-            {"name": "field1", "start": 6, "length": 10}
+            {"name": "field1", "start": 6, "length": 10},
         ]
 
         result = FieldParser.get_column_names(fields, dedupe_names="suffix")
@@ -63,17 +63,19 @@ class TestFieldParser:
         mock_standardize.assert_called_once_with(["field1", "field1"], None, "suffix")
         assert result == ["field1", "field2_1"]
 
-    @patch('forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names')
+    @patch("forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names")
     def test_get_column_names_with_both_processing(self, mock_standardize):
         """Test column name extraction with both standardization and deduplication."""
         mock_standardize.return_value = ["std_field1", "std_field1_1"]
 
         fields = [
             {"name": "Field1", "start": 1, "length": 5},
-            {"name": "Field1", "start": 6, "length": 10}
+            {"name": "Field1", "start": 6, "length": 10},
         ]
 
-        result = FieldParser.get_column_names(fields, standardize_names="postgres", dedupe_names="suffix")
+        result = FieldParser.get_column_names(
+            fields, standardize_names="postgres", dedupe_names="suffix"
+        )
 
         mock_standardize.assert_called_once_with(["Field1", "Field1"], "postgres", "suffix")
         assert result == ["std_field1", "std_field1_1"]
@@ -83,7 +85,7 @@ class TestFieldParser:
         flag_column = {"name": "flag", "start": 1, "length": 1}
         variant_fields = [
             {"name": "field1", "start": 2, "length": 5},
-            {"name": "field2", "start": 7, "length": 10}
+            {"name": "field2", "start": 7, "length": 10},
         ]
 
         result = FieldParser.get_column_names_for_flag_value(flag_column, variant_fields)
@@ -93,7 +95,7 @@ class TestFieldParser:
         """Test flag value column names with no flag column."""
         variant_fields = [
             {"name": "field1", "start": 2, "length": 5},
-            {"name": "field2", "start": 7, "length": 10}
+            {"name": "field2", "start": 7, "length": 10},
         ]
 
         result = FieldParser.get_column_names_for_flag_value(None, variant_fields)
@@ -102,9 +104,7 @@ class TestFieldParser:
     def test_get_column_names_for_flag_value_missing_flag_name(self):
         """Test flag value column names with flag column missing name."""
         flag_column = {"start": 1, "length": 1}  # No name
-        variant_fields = [
-            {"name": "field1", "start": 2, "length": 5}
-        ]
+        variant_fields = [{"name": "field1", "start": 2, "length": 5}]
 
         result = FieldParser.get_column_names_for_flag_value(flag_column, variant_fields)
         assert result == ["field1"]
@@ -114,7 +114,7 @@ class TestFieldParser:
         flag_column = {"name": "flag", "start": 1, "length": 1}
         variant_fields = [
             {"name": "flag", "start": 2, "length": 5},  # Same as flag column
-            {"name": "field2", "start": 7, "length": 10}
+            {"name": "field2", "start": 7, "length": 10},
         ]
 
         result = FieldParser.get_column_names_for_flag_value(flag_column, variant_fields)
@@ -125,13 +125,13 @@ class TestFieldParser:
         flag_column = {"name": "flag", "start": 1, "length": 1}
         variant_fields = [
             {"name": "", "start": 2, "length": 5},  # Empty name
-            {"start": 7, "length": 10}  # No name
+            {"start": 7, "length": 10},  # No name
         ]
 
         result = FieldParser.get_column_names_for_flag_value(flag_column, variant_fields)
         assert result == ["flag"]
 
-    @patch('forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names')
+    @patch("forklift.schema.fwf.fields.parser.ColumnNameProcessor.standardize_column_names")
     def test_get_column_names_for_flag_value_with_processing(self, mock_standardize):
         """Test flag value column names with standardization and deduplication."""
         mock_standardize.return_value = ["std_flag", "std_field1"]
@@ -140,9 +140,7 @@ class TestFieldParser:
         variant_fields = [{"name": "Field1", "start": 2, "length": 5}]
 
         result = FieldParser.get_column_names_for_flag_value(
-            flag_column, variant_fields,
-            standardize_names="postgres",
-            dedupe_names="suffix"
+            flag_column, variant_fields, standardize_names="postgres", dedupe_names="suffix"
         )
 
         mock_standardize.assert_called_once_with(["Flag", "Field1"], "postgres", "suffix")
@@ -192,10 +190,7 @@ class TestFieldParser:
         """Test getting null values for specific column that exists in config."""
         nulls_config = {
             "global": ["", "NULL"],
-            "perColumn": {
-                "field1": ["", "EMPTY", "NONE"],
-                "field2": ["0", ""]
-            }
+            "perColumn": {"field1": ["", "EMPTY", "NONE"], "field2": ["0", ""]},
         }
 
         result = FieldParser.get_null_values("field1", nulls_config)
@@ -203,12 +198,7 @@ class TestFieldParser:
 
     def test_get_null_values_per_column_missing(self):
         """Test getting null values for column not in per-column config."""
-        nulls_config = {
-            "global": ["", "NULL"],
-            "perColumn": {
-                "field1": ["", "EMPTY"]
-            }
-        }
+        nulls_config = {"global": ["", "NULL"], "perColumn": {"field1": ["", "EMPTY"]}}
 
         result = FieldParser.get_null_values("field2", nulls_config)
         assert result == ["", "NULL"]  # Falls back to global

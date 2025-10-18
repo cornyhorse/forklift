@@ -12,13 +12,14 @@ Environment variables (optional):
   DEST: override output directory path.
 """
 from __future__ import annotations
+
+import argparse
 import json
 import os
-import sys
-import argparse
-from pathlib import Path
 import shutil
+import sys
 from datetime import datetime
+from pathlib import Path
 
 # Ensure project root on sys.path when running directly
 ROOT = Path(__file__).resolve().parents[3]
@@ -39,7 +40,7 @@ def load_schema() -> dict:
 
 
 def derive_input_opts(schema: dict) -> dict:
-    xcsv = (schema.get("x-csv") or {})
+    xcsv = schema.get("x-csv") or {}
     opts: dict = {}
     if "delimiter" in xcsv:
         opts["delimiter"] = xcsv["delimiter"]
@@ -92,7 +93,9 @@ def run(clean: bool, dest: Path) -> None:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Run forklift Engine on good_csv1 sample")
-    parser.add_argument("--clean", action="store_true", help="Remove existing output directory before running")
+    parser.add_argument(
+        "--clean", action="store_true", help="Remove existing output directory before running"
+    )
     parser.add_argument("--dest", type=str, help="Override destination output directory")
     args = parser.parse_args(argv)
     dest_override = Path(os.environ.get("DEST", args.dest or DEFAULT_DEST))
@@ -101,4 +104,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
-

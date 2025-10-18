@@ -1,26 +1,21 @@
 """Final surgical tests to achieve 100% coverage - targeting the last 59 lines."""
 
-import pytest
-import tempfile
+import csv
 import json
 import os
-import csv
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open, call
+from unittest.mock import MagicMock, call, mock_open, patch
+
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
-from forklift.engine.forklift_core import (
-    ForkliftCore,
-    ImportConfig,
-    HeaderMode,
-    ExcessColumnMode,
-    ProcessingResults,
-    import_csv,
-    import_fwf,
-    import_excel,
-    import_sql
-)
+from forklift.engine.forklift_core import (ExcessColumnMode, ForkliftCore,
+                                           HeaderMode, ImportConfig,
+                                           ProcessingResults, import_csv,
+                                           import_excel, import_fwf,
+                                           import_sql)
 
 
 class TestFinalSurgicalCoverage:
@@ -28,8 +23,9 @@ class TestFinalSurgicalCoverage:
 
     def test_line_287_empty_row_skip_exact(self):
         """Test skipped - method no longer exists after refactoring."""
-        pytest.skip("Method _handle_column_mismatch_reader no longer exists after ForkliftCore refactoring")
-
+        pytest.skip(
+            "Method _handle_column_mismatch_reader no longer exists after ForkliftCore refactoring"
+        )
 
     def test_force_all_remaining_lines(self):
         """Comprehensive test to force remaining uncovered lines."""
@@ -44,7 +40,7 @@ class TestFinalSurgicalCoverage:
                         validate_schema=validate,
                         create_manifest=manifest,
                         create_metadata=manifest,
-                        batch_size=1
+                        batch_size=1,
                     )
 
                     if validate:
@@ -52,7 +48,7 @@ class TestFinalSurgicalCoverage:
 
                     engine = ForkliftCore(config)
 
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as f:
+                    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".csv") as f:
                         if header_mode == HeaderMode.PRESENT:
                             f.write("id\n1\n2\n")
                         elif header_mode == HeaderMode.ABSENT:

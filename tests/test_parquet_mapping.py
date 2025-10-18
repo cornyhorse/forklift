@@ -1,7 +1,8 @@
 """Tests for Parquet mapping utilities."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 from forklift.schema.fwf.utils.parquet_mapping import ParquetMappingUtils
 
@@ -16,10 +17,7 @@ class TestParquetMappingUtils:
 
     def test_validate_parquet_types_in_fields_no_parquet_type(self):
         """Test validation with fields that don't have parquetType."""
-        fields = [
-            {"name": "field1", "type": "string"},
-            {"name": "field2", "width": 10}
-        ]
+        fields = [{"name": "field1", "type": "string"}, {"name": "field2", "width": 10}]
         result = ParquetMappingUtils.validate_parquet_types_in_fields(fields)
         assert result == []
 
@@ -28,10 +26,13 @@ class TestParquetMappingUtils:
         fields = [
             {"name": "field1", "parquetType": "string"},
             {"name": "field2", "parquetType": "int32"},
-            {"name": "field3", "parquetType": "double"}
+            {"name": "field3", "parquetType": "double"},
         ]
 
-        with patch('forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type', return_value=True):
+        with patch(
+            "forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type",
+            return_value=True,
+        ):
             result = ParquetMappingUtils.validate_parquet_types_in_fields(fields)
             assert result == []
 
@@ -40,18 +41,21 @@ class TestParquetMappingUtils:
         fields = [
             {"name": "field1", "parquetType": "invalid_type"},
             {"name": "field2", "parquetType": "string"},
-            {"name": "field3", "parquetType": "another_invalid"}
+            {"name": "field3", "parquetType": "another_invalid"},
         ]
 
         def mock_validator(parquet_type):
             return parquet_type in ["string", "int32", "double"]
 
-        with patch('forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type', side_effect=mock_validator):
+        with patch(
+            "forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type",
+            side_effect=mock_validator,
+        ):
             result = ParquetMappingUtils.validate_parquet_types_in_fields(fields)
 
             expected_errors = [
                 "Field 0 invalid Parquet type 'invalid_type'",
-                "Field 2 invalid Parquet type 'another_invalid'"
+                "Field 2 invalid Parquet type 'another_invalid'",
             ]
             assert result == expected_errors
 
@@ -61,13 +65,16 @@ class TestParquetMappingUtils:
             {"name": "field1", "parquetType": "string"},
             "not_a_dict",
             {"name": "field3", "parquetType": "invalid_type"},
-            None
+            None,
         ]
 
         def mock_validator(parquet_type):
             return parquet_type == "string"
 
-        with patch('forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type', side_effect=mock_validator):
+        with patch(
+            "forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type",
+            side_effect=mock_validator,
+        ):
             result = ParquetMappingUtils.validate_parquet_types_in_fields(fields)
 
             expected_errors = ["Field 2 invalid Parquet type 'invalid_type'"]
@@ -82,7 +89,7 @@ class TestParquetMappingUtils:
         """Test validation with variants that have no fields."""
         variants = [
             {"condition": "some_condition"},
-            {"condition": "another_condition", "fields": []}
+            {"condition": "another_condition", "fields": []},
         ]
         result = ParquetMappingUtils.validate_parquet_types_in_variants(variants)
         assert result == []
@@ -94,18 +101,16 @@ class TestParquetMappingUtils:
                 "condition": "condition1",
                 "fields": [
                     {"name": "field1", "parquetType": "string"},
-                    {"name": "field2", "parquetType": "int32"}
-                ]
+                    {"name": "field2", "parquetType": "int32"},
+                ],
             },
-            {
-                "condition": "condition2",
-                "fields": [
-                    {"name": "field3", "parquetType": "double"}
-                ]
-            }
+            {"condition": "condition2", "fields": [{"name": "field3", "parquetType": "double"}]},
         ]
 
-        with patch('forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type', return_value=True):
+        with patch(
+            "forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type",
+            return_value=True,
+        ):
             result = ParquetMappingUtils.validate_parquet_types_in_variants(variants)
             assert result == []
 
@@ -116,28 +121,31 @@ class TestParquetMappingUtils:
                 "condition": "condition1",
                 "fields": [
                     {"name": "field1", "parquetType": "invalid_type1"},
-                    {"name": "field2", "parquetType": "string"}
-                ]
+                    {"name": "field2", "parquetType": "string"},
+                ],
             },
             {
                 "condition": "condition2",
                 "fields": [
                     {"name": "field3", "parquetType": "invalid_type2"},
-                    {"name": "field4", "parquetType": "another_invalid"}
-                ]
-            }
+                    {"name": "field4", "parquetType": "another_invalid"},
+                ],
+            },
         ]
 
         def mock_validator(parquet_type):
             return parquet_type in ["string", "int32", "double"]
 
-        with patch('forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type', side_effect=mock_validator):
+        with patch(
+            "forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type",
+            side_effect=mock_validator,
+        ):
             result = ParquetMappingUtils.validate_parquet_types_in_variants(variants)
 
             expected_errors = [
                 "Variant 0 field 0 invalid Parquet type 'invalid_type1'",
                 "Variant 1 field 0 invalid Parquet type 'invalid_type2'",
-                "Variant 1 field 1 invalid Parquet type 'another_invalid'"
+                "Variant 1 field 1 invalid Parquet type 'another_invalid'",
             ]
             assert result == expected_errors
 
@@ -150,15 +158,18 @@ class TestParquetMappingUtils:
                     {"name": "field1", "parquetType": "string"},
                     "not_a_dict",
                     {"name": "field3", "parquetType": "invalid_type"},
-                    None
-                ]
+                    None,
+                ],
             }
         ]
 
         def mock_validator(parquet_type):
             return parquet_type == "string"
 
-        with patch('forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type', side_effect=mock_validator):
+        with patch(
+            "forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type",
+            side_effect=mock_validator,
+        ):
             result = ParquetMappingUtils.validate_parquet_types_in_variants(variants)
 
             expected_errors = ["Variant 0 field 2 invalid Parquet type 'invalid_type'"]
@@ -169,10 +180,7 @@ class TestParquetMappingUtils:
         variants = [
             {
                 "condition": "condition1",
-                "fields": [
-                    {"name": "field1", "type": "string"},
-                    {"name": "field2", "width": 10}
-                ]
+                "fields": [{"name": "field1", "type": "string"}, {"name": "field2", "width": 10}],
             }
         ]
         result = ParquetMappingUtils.validate_parquet_types_in_variants(variants)
@@ -184,7 +192,7 @@ class TestParquetMappingUtils:
         fields = [
             {"name": "id", "parquetType": "int64"},
             {"name": "name", "parquetType": "string"},
-            {"name": "invalid_field", "parquetType": "bad_type"}
+            {"name": "invalid_field", "parquetType": "bad_type"},
         ]
 
         # Test variants validation
@@ -193,15 +201,18 @@ class TestParquetMappingUtils:
                 "condition": "version == 1",
                 "fields": [
                     {"name": "old_field", "parquetType": "string"},
-                    {"name": "bad_field", "parquetType": "bad_type"}
-                ]
+                    {"name": "bad_field", "parquetType": "bad_type"},
+                ],
             }
         ]
 
         def mock_validator(parquet_type):
             return parquet_type in ["int64", "string", "double"]
 
-        with patch('forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type', side_effect=mock_validator):
+        with patch(
+            "forklift.schema.fwf.utils.parquet_mapping.ParquetTypeValidator.is_valid_parquet_type",
+            side_effect=mock_validator,
+        ):
             field_errors = ParquetMappingUtils.validate_parquet_types_in_fields(fields)
             variant_errors = ParquetMappingUtils.validate_parquet_types_in_variants(variants)
 

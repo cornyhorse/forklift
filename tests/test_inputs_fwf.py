@@ -1,7 +1,8 @@
 """Tests for FWF input module backward compatibility."""
 
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from forklift.inputs import fwf
 
@@ -12,26 +13,26 @@ class TestFwfInputsModule:
     def test_module_imports(self):
         """Test that all expected components are importable."""
         # Test that all components are available
-        assert hasattr(fwf, 'FwfInputHandler')
-        assert hasattr(fwf, 'FwfConfigValidator')
-        assert hasattr(fwf, 'FwfTypeConverter')
-        assert hasattr(fwf, 'FwfValueProcessor')
-        assert hasattr(fwf, 'FwfEncodingDetector')
-        assert hasattr(fwf, 'FwfSchemaDetector')
-        assert hasattr(fwf, 'FwfFieldExtractor')
-        assert hasattr(fwf, 'FwfLineParser')
+        assert hasattr(fwf, "FwfInputHandler")
+        assert hasattr(fwf, "FwfConfigValidator")
+        assert hasattr(fwf, "FwfTypeConverter")
+        assert hasattr(fwf, "FwfValueProcessor")
+        assert hasattr(fwf, "FwfEncodingDetector")
+        assert hasattr(fwf, "FwfSchemaDetector")
+        assert hasattr(fwf, "FwfFieldExtractor")
+        assert hasattr(fwf, "FwfLineParser")
 
     def test_all_exports(self):
         """Test that __all__ contains expected exports."""
         expected_exports = [
-            'FwfInputHandler',
-            'FwfConfigValidator',
-            'FwfTypeConverter',
-            'FwfValueProcessor',
-            'FwfEncodingDetector',
-            'FwfSchemaDetector',
-            'FwfFieldExtractor',
-            'FwfLineParser',
+            "FwfInputHandler",
+            "FwfConfigValidator",
+            "FwfTypeConverter",
+            "FwfValueProcessor",
+            "FwfEncodingDetector",
+            "FwfSchemaDetector",
+            "FwfFieldExtractor",
+            "FwfLineParser",
         ]
 
         assert fwf.__all__ == expected_exports
@@ -39,14 +40,11 @@ class TestFwfInputsModule:
     def test_backward_compatibility_imports(self):
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
-        from forklift.inputs.fwf import FwfInputHandler
-        from forklift.inputs.fwf import FwfConfigValidator
-        from forklift.inputs.fwf import FwfTypeConverter
-        from forklift.inputs.fwf import FwfValueProcessor
-        from forklift.inputs.fwf import FwfEncodingDetector
-        from forklift.inputs.fwf import FwfSchemaDetector
-        from forklift.inputs.fwf import FwfFieldExtractor
-        from forklift.inputs.fwf import FwfLineParser
+        from forklift.inputs.fwf import (FwfConfigValidator,
+                                         FwfEncodingDetector,
+                                         FwfFieldExtractor, FwfInputHandler,
+                                         FwfLineParser, FwfSchemaDetector,
+                                         FwfTypeConverter, FwfValueProcessor)
 
         # Verify they are the same as the module attributes
         assert FwfInputHandler is fwf.FwfInputHandler

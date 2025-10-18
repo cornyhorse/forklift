@@ -1,6 +1,7 @@
 """Database connection management for SQL inputs."""
 
 from __future__ import annotations
+
 import logging
 
 from ..config import SqlInputConfig
@@ -49,10 +50,7 @@ class SqlConnectionManager:
                 params = ";".join(f"{k}={v}" for k, v in self.config.connection_params.items())
                 conn_str = f"{conn_str};{params}"
 
-            self.connection = pyodbc.connect(
-                conn_str,
-                timeout=self.config.connection_timeout
-            )
+            self.connection = pyodbc.connect(conn_str, timeout=self.config.connection_timeout)
 
             # Set query timeout
             self.connection.timeout = self.config.query_timeout

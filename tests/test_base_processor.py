@@ -1,12 +1,13 @@
 """Comprehensive unit tests for BaseProcessor - targeting 100% coverage."""
 
-import pytest
+import inspect
 from abc import ABC
 from unittest.mock import Mock, patch
-import inspect
 
+import pytest
+
+from forklift.engine.config import HeaderMode, ImportConfig, ProcessingResults
 from forklift.engine.processors.base import BaseProcessor
-from forklift.engine.config import ImportConfig, ProcessingResults, HeaderMode
 
 
 class TestBaseProcessor:
@@ -20,8 +21,8 @@ class TestBaseProcessor:
     def test_base_processor_inheritance(self):
         """Test that BaseProcessor is properly configured as an ABC."""
         assert issubclass(BaseProcessor, ABC)
-        assert hasattr(BaseProcessor, '__abstractmethods__')
-        assert 'process' in BaseProcessor.__abstractmethods__
+        assert hasattr(BaseProcessor, "__abstractmethods__")
+        assert "process" in BaseProcessor.__abstractmethods__
 
     def test_concrete_implementation_must_implement_process(self):
         """Test that concrete subclasses must implement the process method."""
@@ -106,7 +107,7 @@ class TestBaseProcessor:
             input_path="/test/input.csv",
             output_path="/test/output",
             batch_size=5000,
-            header_mode=HeaderMode.PRESENT
+            header_mode=HeaderMode.PRESENT,
         )
 
         result = processor.process(config)
@@ -161,7 +162,7 @@ class TestBaseProcessor:
         # Verify the abstract method is correctly identified
         abstract_methods = BaseProcessor.__abstractmethods__
         assert len(abstract_methods) == 1
-        assert 'process' in abstract_methods
+        assert "process" in abstract_methods
 
     def test_processor_with_additional_methods(self):
         """Test processor with additional non-abstract methods."""
@@ -206,18 +207,14 @@ class TestBaseProcessor:
 
         # Test valid case
         valid_config = ImportConfig(
-            input_path="/test/input.csv",
-            output_path="/test/output",
-            batch_size=1000
+            input_path="/test/input.csv", output_path="/test/output", batch_size=1000
         )
         result = processor.process(valid_config)
         assert result.total_rows == 1000
 
         # Test error case
         invalid_config = ImportConfig(
-            input_path="/test/input.csv",
-            output_path="/test/output",
-            batch_size=-5
+            input_path="/test/input.csv", output_path="/test/output", batch_size=-5
         )
         with pytest.raises(ValueError, match="Batch size must be positive"):
             processor.process(invalid_config)
@@ -281,10 +278,7 @@ class TestBaseProcessor:
                 return self._version
 
             def process(self, config: ImportConfig) -> ProcessingResults:
-                return ProcessingResults(
-                    total_rows=100,
-                    execution_time=2.0
-                )
+                return ProcessingResults(total_rows=100, execution_time=2.0)
 
         processor = PropertyProcessor()
         assert processor.name == "PropertyProcessor"
@@ -297,11 +291,12 @@ class TestBaseProcessor:
 
     def test_base_processor_module_attributes(self):
         """Test module-level attributes and imports."""
-        from forklift.engine.processors.base import BaseProcessor as ImportedBaseProcessor
+        from forklift.engine.processors.base import \
+            BaseProcessor as ImportedBaseProcessor
 
         assert ImportedBaseProcessor is BaseProcessor
-        assert hasattr(BaseProcessor, '__module__')
-        assert BaseProcessor.__module__ == 'forklift.engine.processors.base'
+        assert hasattr(BaseProcessor, "__module__")
+        assert BaseProcessor.__module__ == "forklift.engine.processors.base"
 
     def test_abstract_method_code_coverage(self):
         """Test to ensure the abstract method's pass statement is covered."""
@@ -310,26 +305,26 @@ class TestBaseProcessor:
         process_method = BaseProcessor.process
 
         # Verify it's an abstract method
-        assert getattr(process_method, '__isabstractmethod__', False)
+        assert getattr(process_method, "__isabstractmethod__", False)
 
         # Check the method signature
         sig = inspect.signature(process_method)
         params = list(sig.parameters.keys())
-        assert 'self' in params
-        assert 'config' in params
+        assert "self" in params
+        assert "config" in params
 
         # Verify return annotation
         assert sig.return_annotation == "ProcessingResults"
-        assert sig.parameters['config'].annotation == "ImportConfig"
+        assert sig.parameters["config"].annotation == "ImportConfig"
 
         # Check that the method exists and has the expected attributes
-        assert hasattr(BaseProcessor, 'process')
+        assert hasattr(BaseProcessor, "process")
         assert callable(BaseProcessor.process)
 
         # Verify the method's source contains 'pass'
         try:
             source = inspect.getsource(process_method)
-            assert 'pass' in source
+            assert "pass" in source
         except (OSError, TypeError):
             # If we can't get the source, at least verify it's abstract
-            assert getattr(process_method, '__isabstractmethod__', False)
+            assert getattr(process_method, "__isabstractmethod__", False)

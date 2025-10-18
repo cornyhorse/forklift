@@ -1,6 +1,7 @@
 """Position calculation utilities for FWF fields."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -27,8 +28,7 @@ class PositionCalculator:
 
     @staticmethod
     def get_field_positions_for_flag_value(
-        flag_column: Optional[Dict[str, Any]],
-        variant_fields: List[Dict[str, Any]]
+        flag_column: Optional[Dict[str, Any]], variant_fields: List[Dict[str, Any]]
     ) -> List[Tuple[int, int]]:
         """Get field positions for a specific flag value including flag column.
 
@@ -71,6 +71,6 @@ class PositionCalculator:
         flag_length = flag_column.get("length", 1)
 
         if len(row_data) > flag_start + flag_length:
-            return row_data[flag_start:flag_start + flag_length].strip()
+            return row_data[flag_start : flag_start + flag_length].strip()
 
         return None

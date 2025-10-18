@@ -6,10 +6,13 @@ or schema validators) without importing the full Engine.
 
 Updated to work with simplified one-to-one schema/table mapping instead of glob patterns.
 """
+
 from __future__ import annotations
-from typing import Any, Dict, List, Tuple, Optional
+
+from typing import Any, Dict, List, Optional, Tuple
 
 __all__ = ["derive_sql_table_list"]
+
 
 def derive_sql_table_list(schema: Dict[str, Any] | None) -> List[Tuple[str, str, Optional[str]]]:
     """Return a list of tables to process from SQL schema configuration.

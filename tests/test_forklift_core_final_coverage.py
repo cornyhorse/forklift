@@ -1,26 +1,21 @@
 """Final tests to achieve 100% coverage for forklift_core.py - targeting remaining missing lines."""
 
-import pytest
-import tempfile
+import csv
 import json
 import os
-import csv
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import MagicMock, mock_open, patch
+
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 
-from forklift.engine.forklift_core import (
-    ForkliftCore,
-    ImportConfig,
-    HeaderMode,
-    ExcessColumnMode,
-    ProcessingResults,
-    import_csv,
-    import_fwf,
-    import_excel,
-    import_sql
-)
+from forklift.engine.forklift_core import (ExcessColumnMode, ForkliftCore,
+                                           HeaderMode, ImportConfig,
+                                           ProcessingResults, import_csv,
+                                           import_excel, import_fwf,
+                                           import_sql)
 
 
 class TestFinalMissingLines:
@@ -30,23 +25,24 @@ class TestFinalMissingLines:
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 
-
     def test_lines_1537_1553_excel_helper_functions(self):
         """Test Excel helper functions (lines 1537-1553)."""
         # Test ExcelImporter._create_default_excel_config
         try:
             from forklift.engine.importers.excel_importer import ExcelImporter
 
-            with tempfile.NamedTemporaryFile(suffix='.xlsx') as f:
+            with tempfile.NamedTemporaryFile(suffix=".xlsx") as f:
                 test_file = Path(f.name)
 
                 # Mock Excel handler for config creation
-                with patch('forklift.inputs.excel.ExcelInputHandler') as mock_handler:
+                with patch("forklift.inputs.excel.ExcelInputHandler") as mock_handler:
                     mock_handler_instance = MagicMock()
                     mock_handler.return_value = mock_handler_instance
-                    mock_handler_instance.get_sheet_names.return_value = ['Sheet1', 'Sheet2']
+                    mock_handler_instance.get_sheet_names.return_value = ["Sheet1", "Sheet2"]
 
-                    config = ExcelImporter._create_default_excel_config(test_file, engine='openpyxl')
+                    config = ExcelImporter._create_default_excel_config(
+                        test_file, engine="openpyxl"
+                    )
                     assert config is not None
 
         except ImportError:
@@ -85,9 +81,7 @@ class TestFinalMissingLines:
 
             # Mock schema for testing
             mock_schema = MagicMock()
-            mock_schema.get_sheet_configs.return_value = [
-                {"sheet_name": "Sheet1", "header_row": 0}
-            ]
+            mock_schema.get_sheet_configs.return_value = [{"sheet_name": "Sheet1", "header_row": 0}]
 
             config = ExcelImporter._create_excel_config_from_schema(mock_schema)
             assert config is not None

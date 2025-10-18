@@ -3,12 +3,14 @@
 import json
 import tempfile
 from pathlib import Path
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 # Import the row hash processor
-from forklift.processors.row_hash import RowHashProcessor, RowHashConfig
-from forklift.processors.row_hash_factory import create_row_hash_processor_from_schema
+from forklift.processors.row_hash import RowHashConfig, RowHashProcessor
+from forklift.processors.row_hash_factory import \
+    create_row_hash_processor_from_schema
 
 
 def test_row_hash_basic():
@@ -16,22 +18,14 @@ def test_row_hash_basic():
     print("🔧 Testing basic row hash functionality...")
 
     # Create test data
-    data = {
-        'id': [1, 2, 3],
-        'name': ['Alice', 'Bob', 'Charlie'],
-        'age': [25, 30, 35]
-    }
+    data = {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"], "age": [25, 30, 35]}
 
     # Create PyArrow batch
     batch = pa.RecordBatch.from_pydict(data)
     print(f"✅ Created test batch with {batch.num_rows} rows")
 
     # Test with SHA256 (default)
-    config = RowHashConfig(
-        enabled=True,
-        column_name="data_hash",
-        algorithm="sha256"
-    )
+    config = RowHashConfig(enabled=True, column_name="data_hash", algorithm="sha256")
 
     processor = RowHashProcessor(config)
     processed_batch, validation_results = processor.process_batch(batch)
@@ -56,17 +50,13 @@ def test_different_algorithms():
     print("\n🔧 Testing different hash algorithms...")
 
     # Create test data
-    data = {'id': [1], 'name': ['Test']}
+    data = {"id": [1], "name": ["Test"]}
     batch = pa.RecordBatch.from_pydict(data)
 
-    algorithms = ['md5', 'sha1', 'sha256', 'sha384', 'sha512']
+    algorithms = ["md5", "sha1", "sha256", "sha384", "sha512"]
 
     for algo in algorithms:
-        config = RowHashConfig(
-            enabled=True,
-            column_name=f"{algo}_hash",
-            algorithm=algo
-        )
+        config = RowHashConfig(enabled=True, column_name=f"{algo}_hash", algorithm=algo)
 
         processor = RowHashProcessor(config)
         processed_batch, _ = processor.process_batch(batch)
@@ -84,10 +74,10 @@ def test_column_selection():
 
     # Create test data
     data = {
-        'id': [1, 2],
-        'name': ['Alice', 'Bob'],
-        'secret': ['password123', 'secret456'],
-        'timestamp': ['2024-01-01', '2024-01-02']
+        "id": [1, 2],
+        "name": ["Alice", "Bob"],
+        "secret": ["password123", "secret456"],
+        "timestamp": ["2024-01-01", "2024-01-02"],
     }
     batch = pa.RecordBatch.from_pydict(data)
 
@@ -96,7 +86,7 @@ def test_column_selection():
         enabled=True,
         column_name="content_hash",
         algorithm="sha256",
-        exclude_columns=['secret', 'timestamp']
+        exclude_columns=["secret", "timestamp"],
     )
 
     processor = RowHashProcessor(config)
@@ -106,10 +96,7 @@ def test_column_selection():
 
     # Test including only specific columns
     config2 = RowHashConfig(
-        enabled=True,
-        column_name="key_hash",
-        algorithm="sha256",
-        include_columns=['id', 'name']
+        enabled=True, column_name="key_hash", algorithm="sha256", include_columns=["id", "name"]
     )
 
     processor2 = RowHashProcessor(config2)
@@ -138,7 +125,7 @@ def test_schema_integration():
         "algorithm": "md5",
         "excludeColumns": ["internal_id"],
         "nullValue": "MISSING",
-        "separator": "|"
+        "separator": "|",
     }
 
     # Create processor from schema
@@ -149,14 +136,16 @@ def test_schema_integration():
 
         # Test with data
         data = {
-            'id': [1, 2, 3],
-            'name': ['Alice', 'Bob', 'Charlie'],
-            'internal_id': [101, 102, 103]  # This should be excluded
+            "id": [1, 2, 3],
+            "name": ["Alice", "Bob", "Charlie"],
+            "internal_id": [101, 102, 103],  # This should be excluded
         }
         batch = pa.RecordBatch.from_pydict(data)
 
         processed_batch, validation_results = processor.process_batch(batch)
-        print(f"✅ Processed batch with schema config - added '{processed_batch.schema.field(-1).name}' column")
+        print(
+            f"✅ Processed batch with schema config - added '{processed_batch.schema.field(-1).name}' column"
+        )
 
         # Show sample
         table = pa.Table.from_batches([processed_batch])
@@ -174,7 +163,7 @@ def test_disabled_by_default():
     schema_config = {
         "enabled": False,  # Explicitly disabled
         "columnName": "row_hash",
-        "algorithm": "sha256"
+        "algorithm": "sha256",
     }
 
     processor = create_row_hash_processor_from_schema(schema_config)
@@ -185,10 +174,7 @@ def test_disabled_by_default():
         print("❌ Should return None when disabled")
 
     # Test with missing enabled field (should default to disabled)
-    schema_config_no_enabled = {
-        "columnName": "row_hash",
-        "algorithm": "sha256"
-    }
+    schema_config_no_enabled = {"columnName": "row_hash", "algorithm": "sha256"}
 
     processor2 = create_row_hash_processor_from_schema(schema_config_no_enabled)
 
@@ -210,7 +196,7 @@ def create_test_schema_file():
         "properties": {
             "id": {"type": "integer"},
             "name": {"type": "string"},
-            "email": {"type": "string"}
+            "email": {"type": "string"},
         },
         "required": ["id", "name"],
         "x-rowHash": {
@@ -219,12 +205,12 @@ def create_test_schema_file():
             "algorithm": "sha256",
             "excludeColumns": ["email"],  # Exclude PII from hash
             "nullValue": "NULL",
-            "separator": "||"
-        }
+            "separator": "||",
+        },
     }
 
     # Save to temporary file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(schema, f, indent=2)
         schema_file = f.name
 

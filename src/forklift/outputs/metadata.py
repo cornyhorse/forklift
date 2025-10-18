@@ -1,10 +1,11 @@
 """Metadata generator for creating processing statistics and configuration details."""
 
 from __future__ import annotations
+
 import json
-from pathlib import Path
-from typing import Dict, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict
 
 import pyarrow.parquet as pq
 
@@ -41,7 +42,7 @@ class MetadataGenerator:
         column_stats = {}
         if processing_stats.get("output_files"):
             for file_path in processing_stats["output_files"]:
-                if Path(file_path).exists() and file_path.endswith('.parquet'):
+                if Path(file_path).exists() and file_path.endswith(".parquet"):
                     try:
                         # Read parquet file to get column statistics
                         table = pq.read_table(file_path)
@@ -64,7 +65,7 @@ class MetadataGenerator:
             "metadata_version": "1.0",
         }
 
-        with open(metadata_path, 'w', encoding='utf-8') as f:
+        with open(metadata_path, "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
 
         return str(metadata_path)

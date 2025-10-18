@@ -1,6 +1,7 @@
 """Compatibility validation for schema variants."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List, Tuple
 
 from .parquet_types import ParquetTypeValidator
@@ -36,12 +37,16 @@ class CompatibilityValidator:
         # Check for compatibility issues
         for field_name, field_defs in all_fields.items():
             if len(field_defs) > 1:  # Field appears in multiple variants
-                errors.extend(CompatibilityValidator._validate_field_compatibility(field_name, field_defs))
+                errors.extend(
+                    CompatibilityValidator._validate_field_compatibility(field_name, field_defs)
+                )
 
         return errors
 
     @staticmethod
-    def _validate_field_compatibility(field_name: str, field_defs: List[Tuple[int, Dict[str, Any]]]) -> List[str]:
+    def _validate_field_compatibility(
+        field_name: str, field_defs: List[Tuple[int, Dict[str, Any]]]
+    ) -> List[str]:
         """Validate compatibility of a field across multiple schema variants.
 
         Args:
@@ -71,18 +76,44 @@ class CompatibilityValidator:
         if len(parquet_types) > 1:
             compatible = ParquetTypeValidator.are_types_compatible(list(parquet_types))
             if not compatible:
-                errors.append(f"Field '{field_name}' has incompatible Parquet types across variants: {list(parquet_types)}")
+                errors.append(
+                    f"Field '{field_name}' has incompatible Parquet types across variants: {list(parquet_types)}"
+                )
 
         # Check for overlapping positions that might cause issues
         for i, (v1_idx, v1_start, v1_end) in enumerate(position_ranges):
-            for v2_idx, v2_start, v2_end in position_ranges[i+1:]:
+            for v2_idx, v2_start, v2_end in position_ranges[i + 1 :]:
                 # Check if positions overlap in a way that could cause data corruption
-                if CompatibilityValidator._positions_overlap_incompatibly(v1_start, v1_end, v2_start, v2_end):
-                    parquet_type_1 = next((field_def.get("parquetType") for variant_idx, field_def in field_defs if variant_idx == v1_idx), None)
-                    parquet_type_2 = next((field_def.get("parquetType") for variant_idx, field_def in field_defs if variant_idx == v2_idx), None)
+                if CompatibilityValidator._positions_overlap_incompatibly(
+                    v1_start, v1_end, v2_start, v2_end
+                ):
+                    parquet_type_1 = next(
+                        (
+                            field_def.get("parquetType")
+                            for variant_idx, field_def in field_defs
+                            if variant_idx == v1_idx
+                        ),
+                        None,
+                    )
+                    parquet_type_2 = next(
+                        (
+                            field_def.get("parquetType")
+                            for variant_idx, field_def in field_defs
+                            if variant_idx == v2_idx
+                        ),
+                        None,
+                    )
 
-                    if parquet_type_1 and parquet_type_2 and not ParquetTypeValidator.are_types_compatible([parquet_type_1, parquet_type_2]):
-                        errors.append(f"Field '{field_name}' has incompatible overlapping positions and types between variants {v1_idx} and {v2_idx}")
+                    if (
+                        parquet_type_1
+                        and parquet_type_2
+                        and not ParquetTypeValidator.are_types_compatible(
+                            [parquet_type_1, parquet_type_2]
+                        )
+                    ):
+                        errors.append(
+                            f"Field '{field_name}' has incompatible overlapping positions and types between variants {v1_idx} and {v2_idx}"
+                        )
 
         return errors
 

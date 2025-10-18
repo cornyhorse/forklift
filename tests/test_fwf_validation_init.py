@@ -1,15 +1,14 @@
 """Tests for FWF validation package initialization."""
 
-import pytest
 from unittest.mock import Mock
 
-from forklift.schema.fwf.validation import (
-    JsonSchemaValidator,
-    FwfExtensionValidator,
-    FieldValidator,
-    ParquetTypeValidator,
-    CompatibilityValidator
-)
+import pytest
+
+from forklift.schema.fwf.validation import (CompatibilityValidator,
+                                            FieldValidator,
+                                            FwfExtensionValidator,
+                                            JsonSchemaValidator,
+                                            ParquetTypeValidator)
 
 
 class TestFwfValidationInit:
@@ -44,33 +43,38 @@ class TestFwfValidationInit:
         """Test that the package exports the expected items."""
         from forklift.schema.fwf import validation
 
-        assert hasattr(validation, 'JsonSchemaValidator')
-        assert hasattr(validation, 'FwfExtensionValidator')
-        assert hasattr(validation, 'FieldValidator')
-        assert hasattr(validation, 'ParquetTypeValidator')
-        assert hasattr(validation, 'CompatibilityValidator')
+        assert hasattr(validation, "JsonSchemaValidator")
+        assert hasattr(validation, "FwfExtensionValidator")
+        assert hasattr(validation, "FieldValidator")
+        assert hasattr(validation, "ParquetTypeValidator")
+        assert hasattr(validation, "CompatibilityValidator")
 
     def test_all_exports(self):
         """Test __all__ contains expected exports."""
         from forklift.schema.fwf import validation
 
         expected_exports = [
-            'JsonSchemaValidator',
-            'FwfExtensionValidator',
-            'FieldValidator',
-            'ParquetTypeValidator',
-            'CompatibilityValidator'
+            "JsonSchemaValidator",
+            "FwfExtensionValidator",
+            "FieldValidator",
+            "ParquetTypeValidator",
+            "CompatibilityValidator",
         ]
 
         assert validation.__all__ == expected_exports
 
     def test_direct_imports(self):
         """Test direct imports from the validation package."""
-        from forklift.schema.fwf.validation import JsonSchemaValidator as DirectJson
-        from forklift.schema.fwf.validation import FwfExtensionValidator as DirectFwf
-        from forklift.schema.fwf.validation import FieldValidator as DirectField
-        from forklift.schema.fwf.validation import ParquetTypeValidator as DirectParquet
-        from forklift.schema.fwf.validation import CompatibilityValidator as DirectCompat
+        from forklift.schema.fwf.validation import \
+            CompatibilityValidator as DirectCompat
+        from forklift.schema.fwf.validation import \
+            FieldValidator as DirectField
+        from forklift.schema.fwf.validation import \
+            FwfExtensionValidator as DirectFwf
+        from forklift.schema.fwf.validation import \
+            JsonSchemaValidator as DirectJson
+        from forklift.schema.fwf.validation import \
+            ParquetTypeValidator as DirectParquet
 
         assert DirectJson is JsonSchemaValidator
         assert DirectFwf is FwfExtensionValidator

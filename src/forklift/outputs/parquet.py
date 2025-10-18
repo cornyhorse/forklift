@@ -1,6 +1,7 @@
 """Parquet output handler for writing processed data to Parquet files."""
 
 from __future__ import annotations
+
 from pathlib import Path
 from typing import Dict
 

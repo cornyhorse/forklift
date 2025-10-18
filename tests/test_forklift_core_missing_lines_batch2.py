@@ -3,16 +3,18 @@ Test coverage for missing lines in forklift_core.py - Batch 2
 Targeting lines: 751->exit, 808->811, 886, 902->909, 927, 975->982, 979, 1020, 1028->1031
 """
 
-import tempfile
 import json
 import os
 import shutil
+import tempfile
 from pathlib import Path
-import pytest
-import pyarrow as pa
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
-from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
+import pyarrow as pa
+import pytest
+
+from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
+                                           ImportConfig)
 
 
 class TestForkliftCoreMissingLinesBatch2:
@@ -21,7 +23,6 @@ class TestForkliftCoreMissingLinesBatch2:
     def test_line_751_exit_error_handling(self):
         """Test skipped - method no longer exists after refactoring."""
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
-
 
     def test_edge_case_empty_csv_file(self):
         """Test edge case: completely empty CSV file"""
@@ -32,13 +33,11 @@ class TestForkliftCoreMissingLinesBatch2:
 
         try:
             # Create completely empty file
-            with open(csv_path, 'w') as f:
+            with open(csv_path, "w") as f:
                 pass  # Empty file
 
             config = ImportConfig(
-                input_path=csv_path,
-                output_path=output_path,
-                header_mode=HeaderMode.AUTO
+                input_path=csv_path, output_path=output_path, header_mode=HeaderMode.AUTO
             )
 
             core = ForkliftCore(config)
@@ -59,13 +58,10 @@ class TestForkliftCoreMissingLinesBatch2:
 
         try:
             # Create file with unknown extension
-            with open(invalid_path, 'w') as f:
+            with open(invalid_path, "w") as f:
                 f.write("some content")
 
-            config = ImportConfig(
-                input_path=invalid_path,
-                output_path=output_path
-            )
+            config = ImportConfig(input_path=invalid_path, output_path=output_path)
 
             core = ForkliftCore(config)
 

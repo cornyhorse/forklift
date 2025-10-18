@@ -1,11 +1,13 @@
 """Common helper functions and exceptions for schema generation."""
 
 from typing import Any, Dict
+
 import pyarrow as pa
 
 
 class SchemaValidationError(Exception):
     """Exception raised when schema validation fails."""
+
     pass
 
 
@@ -77,7 +79,7 @@ def get_parquet_type_string(arrow_type: pa.DataType) -> str:
     elif pa.types.is_duration(arrow_type):
         return "duration[ms]"
     elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-        if hasattr(arrow_type, 'value_type'):
+        if hasattr(arrow_type, "value_type"):
             return f"list<{get_parquet_type_string(arrow_type.value_type)}>"
         else:
             return "list<string>"

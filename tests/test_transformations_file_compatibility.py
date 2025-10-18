@@ -13,22 +13,12 @@ class TestTransformationsBackwardCompatibilityFile:
     def test_import_from_file_works(self):
         """Test that importing from the file works correctly."""
         from forklift.processors.transformations import (
-            ColumnTransformer,
-            SchemaBasedTransformer,
-            trim_whitespace,
-            uppercase,
-            lowercase,
-            apply_money_conversion,
-            apply_numeric_cleaning,
-            apply_regex_replace,
-            apply_string_replace,
-            apply_html_xml_cleaning,
-            apply_string_padding,
-            apply_string_trimming,
-            DataTransformer,
-            create_transformation_from_config,
-            MoneyTypeConfig
-        )
+            ColumnTransformer, DataTransformer, MoneyTypeConfig,
+            SchemaBasedTransformer, apply_html_xml_cleaning,
+            apply_money_conversion, apply_numeric_cleaning,
+            apply_regex_replace, apply_string_padding, apply_string_replace,
+            apply_string_trimming, create_transformation_from_config,
+            lowercase, trim_whitespace, uppercase)
 
         # Verify all classes and functions are imported and are callable
         assert callable(ColumnTransformer)
@@ -56,7 +46,7 @@ class TestTransformationsBackwardCompatibilityFile:
             "data transformation capabilities",
             "Basic column transformations",
             "Schema-driven transformations",
-            "Common transformation functions"
+            "Common transformation functions",
         ]
 
         assert transformations_file.__doc__ is not None
@@ -68,32 +58,32 @@ class TestTransformationsBackwardCompatibilityFile:
         import forklift.processors.transformations as transformations_file
 
         expected_all = [
-            'ColumnTransformer',
-            'SchemaBasedTransformer',
-            'trim_whitespace',
-            'uppercase',
-            'lowercase',
-            'apply_money_conversion',
-            'apply_numeric_cleaning',
-            'apply_regex_replace',
-            'apply_string_replace',
-            'apply_html_xml_cleaning',
-            'apply_string_padding',
-            'apply_string_trimming',
-            'DataTransformer',
-            'create_transformation_from_config',
-            'MoneyTypeConfig',
-            'NumericCleaningConfig',
-            'RegexReplaceConfig',
-            'StringReplaceConfig',
-            'HTMLXMLConfig',
-            'StringPaddingConfig',
-            'DateTimeTransformConfig',
-            'StringCleaningConfig'
+            "ColumnTransformer",
+            "SchemaBasedTransformer",
+            "trim_whitespace",
+            "uppercase",
+            "lowercase",
+            "apply_money_conversion",
+            "apply_numeric_cleaning",
+            "apply_regex_replace",
+            "apply_string_replace",
+            "apply_html_xml_cleaning",
+            "apply_string_padding",
+            "apply_string_trimming",
+            "DataTransformer",
+            "create_transformation_from_config",
+            "MoneyTypeConfig",
+            "NumericCleaningConfig",
+            "RegexReplaceConfig",
+            "StringReplaceConfig",
+            "HTMLXMLConfig",
+            "StringPaddingConfig",
+            "DateTimeTransformConfig",
+            "StringCleaningConfig",
         ]
 
         # Verify __all__ attribute exists and contains expected exports
-        assert hasattr(transformations_file, '__all__')
+        assert hasattr(transformations_file, "__all__")
         assert transformations_file.__all__ == expected_all
 
     def test_transformer_classes_import_coverage(self):
@@ -101,8 +91,8 @@ class TestTransformationsBackwardCompatibilityFile:
         import forklift.processors.transformations as transformations_file
 
         # This tests lines 9-10 (transformer classes imports)
-        assert hasattr(transformations_file, 'ColumnTransformer')
-        assert hasattr(transformations_file, 'SchemaBasedTransformer')
+        assert hasattr(transformations_file, "ColumnTransformer")
+        assert hasattr(transformations_file, "SchemaBasedTransformer")
         assert callable(transformations_file.ColumnTransformer)
         assert callable(transformations_file.SchemaBasedTransformer)
 
@@ -111,7 +101,7 @@ class TestTransformationsBackwardCompatibilityFile:
         import forklift.processors.transformations as transformations_file
 
         # This tests lines 11-15 (common functions imports)
-        common_functions = ['trim_whitespace', 'uppercase', 'lowercase']
+        common_functions = ["trim_whitespace", "uppercase", "lowercase"]
 
         for func_name in common_functions:
             assert hasattr(transformations_file, func_name)
@@ -125,13 +115,13 @@ class TestTransformationsBackwardCompatibilityFile:
 
         # This tests lines 16-24 (factory functions imports)
         factory_functions = [
-            'apply_money_conversion',
-            'apply_numeric_cleaning',
-            'apply_regex_replace',
-            'apply_string_replace',
-            'apply_html_xml_cleaning',
-            'apply_string_padding',
-            'apply_string_trimming'
+            "apply_money_conversion",
+            "apply_numeric_cleaning",
+            "apply_regex_replace",
+            "apply_string_replace",
+            "apply_html_xml_cleaning",
+            "apply_string_padding",
+            "apply_string_trimming",
         ]
 
         for func_name in factory_functions:
@@ -146,16 +136,16 @@ class TestTransformationsBackwardCompatibilityFile:
 
         # This tests lines 26-35 (utils imports)
         utils_items = [
-            'DataTransformer',
-            'create_transformation_from_config',
-            'MoneyTypeConfig',
-            'NumericCleaningConfig',
-            'RegexReplaceConfig',
-            'StringReplaceConfig',
-            'HTMLXMLConfig',
-            'StringPaddingConfig',
-            'DateTimeTransformConfig',
-            'StringCleaningConfig'
+            "DataTransformer",
+            "create_transformation_from_config",
+            "MoneyTypeConfig",
+            "NumericCleaningConfig",
+            "RegexReplaceConfig",
+            "StringReplaceConfig",
+            "HTMLXMLConfig",
+            "StringPaddingConfig",
+            "DateTimeTransformConfig",
+            "StringCleaningConfig",
         ]
 
         for item_name in utils_items:
@@ -167,10 +157,11 @@ class TestTransformationsBackwardCompatibilityFile:
     def test_backward_compatibility_maintained(self):
         """Test that backward compatibility is maintained."""
         # Import from the compatibility file
-        from forklift.processors.transformations import ColumnTransformer as FileTransformer
-
+        from forklift.processors.transformations import \
+            ColumnTransformer as FileTransformer
         # Import from the package directly
-        from forklift.processors.transformations.column_transformer import ColumnTransformer as PackageTransformer
+        from forklift.processors.transformations.column_transformer import \
+            ColumnTransformer as PackageTransformer
 
         # They should be the same class
         assert FileTransformer is PackageTransformer
@@ -187,31 +178,31 @@ class TestTransformationsBackwardCompatibilityFile:
         assert module.__doc__ is not None
 
         # Verify all imports by checking available attributes
-        assert hasattr(module, 'ColumnTransformer')
-        assert hasattr(module, 'SchemaBasedTransformer')
-        assert hasattr(module, 'trim_whitespace')
-        assert hasattr(module, 'uppercase')
-        assert hasattr(module, 'lowercase')
-        assert hasattr(module, 'apply_money_conversion')
-        assert hasattr(module, 'apply_numeric_cleaning')
-        assert hasattr(module, 'apply_regex_replace')
-        assert hasattr(module, 'apply_string_replace')
-        assert hasattr(module, 'apply_html_xml_cleaning')
-        assert hasattr(module, 'apply_string_padding')
-        assert hasattr(module, 'apply_string_trimming')
-        assert hasattr(module, 'DataTransformer')
-        assert hasattr(module, 'create_transformation_from_config')
-        assert hasattr(module, 'MoneyTypeConfig')
-        assert hasattr(module, 'NumericCleaningConfig')
-        assert hasattr(module, 'RegexReplaceConfig')
-        assert hasattr(module, 'StringReplaceConfig')
-        assert hasattr(module, 'HTMLXMLConfig')
-        assert hasattr(module, 'StringPaddingConfig')
-        assert hasattr(module, 'DateTimeTransformConfig')
-        assert hasattr(module, 'StringCleaningConfig')
+        assert hasattr(module, "ColumnTransformer")
+        assert hasattr(module, "SchemaBasedTransformer")
+        assert hasattr(module, "trim_whitespace")
+        assert hasattr(module, "uppercase")
+        assert hasattr(module, "lowercase")
+        assert hasattr(module, "apply_money_conversion")
+        assert hasattr(module, "apply_numeric_cleaning")
+        assert hasattr(module, "apply_regex_replace")
+        assert hasattr(module, "apply_string_replace")
+        assert hasattr(module, "apply_html_xml_cleaning")
+        assert hasattr(module, "apply_string_padding")
+        assert hasattr(module, "apply_string_trimming")
+        assert hasattr(module, "DataTransformer")
+        assert hasattr(module, "create_transformation_from_config")
+        assert hasattr(module, "MoneyTypeConfig")
+        assert hasattr(module, "NumericCleaningConfig")
+        assert hasattr(module, "RegexReplaceConfig")
+        assert hasattr(module, "StringReplaceConfig")
+        assert hasattr(module, "HTMLXMLConfig")
+        assert hasattr(module, "StringPaddingConfig")
+        assert hasattr(module, "DateTimeTransformConfig")
+        assert hasattr(module, "StringCleaningConfig")
 
         # Verify __all__ definition (lines 37-59)
-        assert hasattr(module, '__all__')
+        assert hasattr(module, "__all__")
         assert len(module.__all__) == 22
 
     def test_all_items_in_all_are_accessible(self):
@@ -230,7 +221,7 @@ class TestTransformationsBackwardCompatibilityFile:
         import forklift.processors.transformations as transformations_file
 
         # Check that the module has the expected attributes
-        required_attrs = ['__doc__', '__all__'] + transformations_file.__all__
+        required_attrs = ["__doc__", "__all__"] + transformations_file.__all__
 
         for attr in required_attrs:
             assert hasattr(transformations_file, attr), f"Missing attribute: {attr}"

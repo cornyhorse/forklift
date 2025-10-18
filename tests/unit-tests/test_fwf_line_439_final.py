@@ -1,10 +1,11 @@
 """Final test to hit line 439 specifically for 100% coverage."""
 
-import pytest
 from unittest.mock import patch
 
+import pytest
+
+from forklift.inputs.config import FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
-from forklift.inputs.config import FwfInputConfig, FwfFieldSpec
 
 
 class TestFwfLine439Final:
@@ -13,9 +14,7 @@ class TestFwfLine439Final:
     def test_parse_line_simple_fields_becomes_none(self):
         """Test scenario where simple fields exists but becomes None, hitting line 439."""
         # Create config with simple fields
-        config = FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, parquet_type="string")
-        ])
+        config = FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="string")])
         handler = FwfInputHandler(config)
 
         # Mock the config.fields to be None after initialization
@@ -35,9 +34,7 @@ class TestFwfLine439Final:
     def test_parse_line_empty_fields_list(self):
         """Test with empty fields list to hit line 439."""
         # Create config with valid fields first to pass validation
-        config = FwfInputConfig(fields=[
-            FwfFieldSpec("test", 1, 5, parquet_type="string")
-        ])
+        config = FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="string")])
         handler = FwfInputHandler(config)
 
         # After initialization, modify the config to have empty fields

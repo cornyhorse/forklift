@@ -5,17 +5,8 @@ The original functionality is preserved through imports from the new modules.
 """
 
 # Import everything from the new modular structure to maintain backward compatibility
-from .generator.core import (
-    SchemaGenerator,
-    SchemaGenerationConfig,
-    OutputTarget,
-    FileType
-)
+from .generator.core import (FileType, OutputTarget, SchemaGenerationConfig,
+                             SchemaGenerator)
 
 # For any code that might import directly from this file
-__all__ = [
-    'SchemaGenerator',
-    'SchemaGenerationConfig',
-    'OutputTarget',
-    'FileType'
-]
+__all__ = ["SchemaGenerator", "SchemaGenerationConfig", "OutputTarget", "FileType"]

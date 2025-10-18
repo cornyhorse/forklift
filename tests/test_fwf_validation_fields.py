@@ -1,7 +1,8 @@
 """Tests for FWF field validation functionality."""
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 
 from forklift.schema.fwf.validation.fields import FieldValidator
 
@@ -20,10 +21,10 @@ class TestFieldValidator:
         """Test validation with valid traditional fields."""
         fields = [
             {"name": "id", "start": 1, "length": 5, "type": "string", "parquetType": "string"},
-            {"name": "name", "start": 6, "length": 20, "type": "string", "parquetType": "string"}
+            {"name": "name", "start": 6, "length": 20, "type": "string", "parquetType": "string"},
         ]
 
-        with patch('forklift.schema.fwf.validation.fields.ParquetTypeValidator') as mock_validator:
+        with patch("forklift.schema.fwf.validation.fields.ParquetTypeValidator") as mock_validator:
             mock_validator.is_valid_parquet_type.return_value = True
 
             errors = FieldValidator.validate_traditional_fields(fields)
@@ -42,7 +43,7 @@ class TestFieldValidator:
         """Test validation with overlapping field positions."""
         fields = [
             {"name": "field1", "start": 1, "length": 5},
-            {"name": "field2", "start": 3, "length": 5}  # Overlaps with field1
+            {"name": "field2", "start": 3, "length": 5},  # Overlaps with field1
         ]
 
         errors = FieldValidator.validate_traditional_fields(fields)
@@ -59,11 +60,11 @@ class TestFieldValidator:
 
     def test_validate_conditional_fields_empty_schemas(self):
         """Test validation with empty schemas array."""
-        conditional_schemas = {
-            "flagColumn": {"name": "flag", "start": 1, "length": 1}
-        }
+        conditional_schemas = {"flagColumn": {"name": "flag", "start": 1, "length": 1}}
 
-        with patch('forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field') as mock_validate:
+        with patch(
+            "forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field"
+        ) as mock_validate:
             mock_validate.return_value = []
 
             errors = FieldValidator.validate_conditional_fields(conditional_schemas)
@@ -79,13 +80,15 @@ class TestFieldValidator:
                     "flagValue": "A",
                     "fields": [
                         {"name": "flag", "start": 1, "length": 1},
-                        {"name": "data", "start": 2, "length": 10}
-                    ]
+                        {"name": "data", "start": 2, "length": 10},
+                    ],
                 }
-            ]
+            ],
         }
 
-        with patch('forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field') as mock_validate:
+        with patch(
+            "forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field"
+        ) as mock_validate:
             mock_validate.return_value = []
 
             errors = FieldValidator.validate_conditional_fields(conditional_schemas)
@@ -95,10 +98,12 @@ class TestFieldValidator:
         """Test validation with invalid schema variant."""
         conditional_schemas = {
             "flagColumn": {"name": "flag", "start": 1, "length": 1},
-            "schemas": ["invalid_variant"]
+            "schemas": ["invalid_variant"],
         }
 
-        with patch('forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field') as mock_validate:
+        with patch(
+            "forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field"
+        ) as mock_validate:
             mock_validate.return_value = []
 
             errors = FieldValidator.validate_conditional_fields(conditional_schemas)
@@ -109,14 +114,12 @@ class TestFieldValidator:
         """Test validation with missing flag value in variant."""
         conditional_schemas = {
             "flagColumn": {"name": "flag", "start": 1, "length": 1},
-            "schemas": [
-                {
-                    "fields": [{"name": "data", "start": 1, "length": 10}]
-                }
-            ]
+            "schemas": [{"fields": [{"name": "data", "start": 1, "length": 10}]}],
         }
 
-        with patch('forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field') as mock_validate:
+        with patch(
+            "forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field"
+        ) as mock_validate:
             mock_validate.return_value = []
 
             errors = FieldValidator.validate_conditional_fields(conditional_schemas)
@@ -127,14 +130,12 @@ class TestFieldValidator:
         """Test validation with missing fields in variant."""
         conditional_schemas = {
             "flagColumn": {"name": "flag", "start": 1, "length": 1},
-            "schemas": [
-                {
-                    "flagValue": "A"
-                }
-            ]
+            "schemas": [{"flagValue": "A"}],
         }
 
-        with patch('forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field') as mock_validate:
+        with patch(
+            "forklift.schema.fwf.validation.fields.FieldValidator._validate_single_field"
+        ) as mock_validate:
             mock_validate.return_value = []
 
             errors = FieldValidator.validate_conditional_fields(conditional_schemas)
@@ -205,7 +206,7 @@ class TestFieldValidator:
         """Test single field validation with invalid Parquet type."""
         field = {"name": "test", "start": 1, "length": 5, "parquetType": "invalid_parquet"}
 
-        with patch('forklift.schema.fwf.validation.fields.ParquetTypeValidator') as mock_validator:
+        with patch("forklift.schema.fwf.validation.fields.ParquetTypeValidator") as mock_validator:
             mock_validator.is_valid_parquet_type.return_value = False
 
             errors = FieldValidator._validate_single_field(field, 0, set())
@@ -216,7 +217,7 @@ class TestFieldValidator:
         """Test single field validation with valid Parquet type."""
         field = {"name": "test", "start": 1, "length": 5, "parquetType": "string"}
 
-        with patch('forklift.schema.fwf.validation.fields.ParquetTypeValidator') as mock_validator:
+        with patch("forklift.schema.fwf.validation.fields.ParquetTypeValidator") as mock_validator:
             mock_validator.is_valid_parquet_type.return_value = True
 
             errors = FieldValidator._validate_single_field(field, 0, set())
@@ -230,7 +231,10 @@ class TestFieldValidator:
 
         errors = FieldValidator._validate_single_field(field, 0, set())
 
-        assert "Field 0 invalid alignment 'invalid_align', must be 'left', 'right', or 'center'" in errors
+        assert (
+            "Field 0 invalid alignment 'invalid_align', must be 'left', 'right', or 'center'"
+            in errors
+        )
 
     def test_validate_single_field_valid_alignments(self):
         """Test single field validation with valid alignments."""
@@ -289,10 +293,10 @@ class TestFieldValidator:
             "type": "string",
             "parquetType": "string",
             "alignment": "left",
-            "padChar": " "
+            "padChar": " ",
         }
 
-        with patch('forklift.schema.fwf.validation.fields.ParquetTypeValidator') as mock_validator:
+        with patch("forklift.schema.fwf.validation.fields.ParquetTypeValidator") as mock_validator:
             mock_validator.is_valid_parquet_type.return_value = True
 
             errors = FieldValidator._validate_single_field(field, 0, set())

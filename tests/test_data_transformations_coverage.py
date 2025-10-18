@@ -1,42 +1,25 @@
 """Comprehensive tests for data_transformations.py to achieve 100% code coverage."""
 
-import pytest
-import sys
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, List, Callable, Any
-from decimal import Decimal, InvalidOperation
 import datetime
 import re
+import sys
+from decimal import Decimal, InvalidOperation
+from typing import Any, Callable, Dict, List
+from unittest.mock import MagicMock, Mock, patch
 
-import pyarrow as pa
 import pandas as pd
+import pyarrow as pa
+import pytest
 
 # Add src to Python path for imports
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
-from forklift.utils.transformations import (
-    # Configuration classes
-    DateTimeTransformConfig,
-    RegexReplaceConfig,
-    StringReplaceConfig,
-    MoneyTypeConfig,
-    NumericCleaningConfig,
-    StringPaddingConfig,
-    HTMLXMLConfig,
-    SSNConfig,
-    ZipCodeConfig,
-    PhoneNumberConfig,
-    EmailConfig,
-    IPAddressConfig,
-    MACAddressConfig,
-    StringCleaningConfig,
-
-    # Main transformer class
-    DataTransformer,
-
-    # Factory function
-    create_transformation_from_config
-)
+from forklift.utils.transformations import (  # Configuration classes; Main transformer class; Factory function
+    DataTransformer, DateTimeTransformConfig, EmailConfig, HTMLXMLConfig,
+    IPAddressConfig, MACAddressConfig, MoneyTypeConfig, NumericCleaningConfig,
+    PhoneNumberConfig, RegexReplaceConfig, SSNConfig, StringCleaningConfig,
+    StringPaddingConfig, StringReplaceConfig, ZipCodeConfig,
+    create_transformation_from_config)
 
 
 class TestConfigurationClasses:
@@ -67,7 +50,9 @@ class TestConfigurationClasses:
 
     def test_datetime_transform_config_specify_formats_without_formats(self):
         """Test DateTimeTransformConfig specify_formats mode without formats list."""
-        with pytest.raises(ValueError, match="Formats list must be specified when mode is 'specify_formats'"):
+        with pytest.raises(
+            ValueError, match="Formats list must be specified when mode is 'specify_formats'"
+        ):
             DateTimeTransformConfig(mode="specify_formats")
 
     def test_datetime_transform_config_invalid_target_type(self):
@@ -164,7 +149,9 @@ class TestConfigurationClasses:
 
     def test_ssn_config(self):
         """Test SSNConfig."""
-        config = SSNConfig(format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False)
+        config = SSNConfig(
+            format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False
+        )
         assert config.format_with_dashes is True
         assert config.zero_pad is True
         assert config.validate is True
@@ -221,7 +208,7 @@ class TestConfigurationClasses:
             validate_format=True,
             allow_invalid=False,
             strip_whitespace=True,
-            normalize_domain=True
+            normalize_domain=True,
         )
         assert config.normalize_case is True
         assert config.validate_format is True
@@ -303,7 +290,27 @@ class TestConfigurationClasses:
         assert config.fix_encoding_errors is True
 
         # Check default title_case_exceptions
-        expected_exceptions = ["a", "an", "and", "as", "at", "but", "by", "for", "if", "in", "nor", "of", "on", "or", "so", "the", "to", "up", "yet"]
+        expected_exceptions = [
+            "a",
+            "an",
+            "and",
+            "as",
+            "at",
+            "but",
+            "by",
+            "for",
+            "if",
+            "in",
+            "nor",
+            "of",
+            "on",
+            "or",
+            "so",
+            "the",
+            "to",
+            "up",
+            "yet",
+        ]
         assert config.title_case_exceptions == expected_exceptions
 
         # Check default empty collections
@@ -322,13 +329,13 @@ class TestConfigurationClasses:
 
     def test_string_cleaning_config_valid_case_transforms(self):
         """Test StringCleaningConfig with valid case transforms."""
-        for transform in [None, 'upper', 'lower', 'title', 'proper']:
+        for transform in [None, "upper", "lower", "title", "proper"]:
             config = StringCleaningConfig(case_transform=transform)
             assert config.case_transform == transform
 
     def test_string_cleaning_config_valid_case_mapping_modes(self):
         """Test StringCleaningConfig with valid case mapping modes."""
-        for mode in ['exact', 'contains', 'startswith', 'endswith']:
+        for mode in ["exact", "contains", "startswith", "endswith"]:
             config = StringCleaningConfig(case_mapping_mode=mode)
             assert config.case_mapping_mode == mode
 
@@ -341,7 +348,7 @@ class TestConfigurationClasses:
         config = StringCleaningConfig(
             title_case_exceptions=custom_exceptions,
             custom_case_mapping=custom_mapping,
-            acronyms=custom_acronyms
+            acronyms=custom_acronyms,
         )
 
         assert config.title_case_exceptions == custom_exceptions
@@ -574,7 +581,9 @@ class TestNumericCleaning:
         config = NumericCleaningConfig(allow_nan=True)
 
         # Mock the numeric transformer's method, not the delegated one
-        with patch.object(transformer.numeric_transformer, '_clean_numeric_string', side_effect=OverflowError):
+        with patch.object(
+            transformer.numeric_transformer, "_clean_numeric_string", side_effect=OverflowError
+        ):
             column = pa.array(["100"])
             result = transformer.apply_numeric_cleaning(column, config)
             expected = [None]
@@ -781,8 +790,8 @@ class TestHTMLXMLCleaning:
 class TestDateTimeTransformation:
     """Test datetime transformation functionality."""
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
-    @patch('pytz.timezone')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
+    @patch("pytz.timezone")
     def test_apply_datetime_transformation_enforce_mode(self, mock_timezone, mock_coerce):
         """Test datetime transformation in enforce mode."""
         transformer = DataTransformer()
@@ -795,21 +804,15 @@ class TestDateTimeTransformation:
 
         # Should call coerce_datetime with strict format
         mock_coerce.assert_called_with(
-            "2023-02-01",
-            fmt="%Y-%m-%d",
-            allow_fuzzy=False,
-            from_epoch=False,
-            to_epoch=None
+            "2023-02-01", fmt="%Y-%m-%d", allow_fuzzy=False, from_epoch=False, to_epoch=None
         )
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_specify_formats_mode(self, mock_coerce):
         """Test datetime transformation in specify_formats mode."""
         transformer = DataTransformer()
         config = DateTimeTransformConfig(
-            mode="specify_formats",
-            formats=["%Y-%m-%d", "%m/%d/%Y"],
-            allow_fuzzy=True
+            mode="specify_formats", formats=["%Y-%m-%d", "%m/%d/%Y"], allow_fuzzy=True
         )
 
         mock_coerce.return_value = datetime.datetime(2023, 1, 1)
@@ -822,10 +825,10 @@ class TestDateTimeTransformation:
             formats=["%Y-%m-%d", "%m/%d/%Y"],
             allow_fuzzy=True,
             from_epoch=False,
-            to_epoch=None
+            to_epoch=None,
         )
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_common_formats_mode(self, mock_coerce):
         """Test datetime transformation in common_formats mode."""
         transformer = DataTransformer()
@@ -837,13 +840,10 @@ class TestDateTimeTransformation:
         result = transformer.apply_datetime_transformation(column, config)
 
         mock_coerce.assert_called_with(
-            "2023-01-01",
-            allow_fuzzy=True,
-            from_epoch=False,
-            to_epoch=None
+            "2023-01-01", allow_fuzzy=True, from_epoch=False, to_epoch=None
         )
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_to_epoch(self, mock_coerce):
         """Test datetime transformation with to_epoch conversion."""
         transformer = DataTransformer()
@@ -856,8 +856,8 @@ class TestDateTimeTransformation:
 
         assert result.to_pylist() == [1672531200]
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
-    @patch('pytz.timezone')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
+    @patch("pytz.timezone")
     def test_apply_datetime_transformation_with_timezone(self, mock_timezone, mock_coerce):
         """Test datetime transformation with timezone conversion."""
         transformer = DataTransformer()
@@ -880,7 +880,7 @@ class TestDateTimeTransformation:
         mock_timezone.assert_called_with("America/New_York")
         mock_dt.astimezone.assert_called_with(mock_tz)
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_target_date(self, mock_coerce):
         """Test datetime transformation with date target type."""
         transformer = DataTransformer()
@@ -894,7 +894,7 @@ class TestDateTimeTransformation:
 
         assert result.type == pa.date32()
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_target_timestamp(self, mock_coerce):
         """Test datetime transformation with timestamp target type."""
         transformer = DataTransformer()
@@ -911,7 +911,7 @@ class TestDateTimeTransformation:
         expected_timestamp = mock_dt.timestamp()
         assert result.to_pylist() == [expected_timestamp]
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_target_string_with_format(self, mock_coerce):
         """Test datetime transformation with string target type and custom format."""
         transformer = DataTransformer()
@@ -926,7 +926,7 @@ class TestDateTimeTransformation:
         expected = ["01/01/2023"]
         assert result.to_pylist() == expected
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_target_string_without_format(self, mock_coerce):
         """Test datetime transformation with string target type and no format."""
         transformer = DataTransformer()
@@ -953,7 +953,7 @@ class TestDateTimeTransformation:
         assert result.to_pylist()[1] is None
         assert result.to_pylist()[2] is None
 
-    @patch('forklift.utils.transformations.datetime_transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
     def test_apply_datetime_transformation_parse_error(self, mock_coerce):
         """Test datetime transformation with parse error."""
         transformer = DataTransformer()
@@ -1032,7 +1032,7 @@ class TestStringCleaning:
         config = StringCleaningConfig(normalize_quotes=True)
 
         # Using Unicode escape sequences for smart quotes
-        column = pa.array(["\u201Chello\u201D", "\u2018world\u2019"])  # Smart quotes
+        column = pa.array(["\u201chello\u201d", "\u2018world\u2019"])  # Smart quotes
         result = transformer.apply_string_cleaning(column, config)
 
         expected = ['"hello"', "'world'"]
@@ -1055,7 +1055,7 @@ class TestStringCleaning:
         config = StringCleaningConfig(normalize_spaces=True)
 
         # Non-breaking space and other space characters
-        column = pa.array(["hello\u00A0world", "test\u2003case"])
+        column = pa.array(["hello\u00a0world", "test\u2003case"])
         result = transformer.apply_string_cleaning(column, config)
 
         expected = ["hello world", "test case"]
@@ -1066,7 +1066,7 @@ class TestStringCleaning:
         transformer = DataTransformer()
         config = StringCleaningConfig(remove_zero_width=True, collapse_whitespace=True)
 
-        column = pa.array(["hello\u200Bworld"])  # Zero-width space
+        column = pa.array(["hello\u200bworld"])  # Zero-width space
         result = transformer.apply_string_cleaning(column, config)
 
         expected = ["hello world"]
@@ -1077,7 +1077,7 @@ class TestStringCleaning:
         transformer = DataTransformer()
         config = StringCleaningConfig(remove_zero_width=True, collapse_whitespace=False)
 
-        column = pa.array(["hello\u200Bworld"])  # Zero-width space
+        column = pa.array(["hello\u200bworld"])  # Zero-width space
         result = transformer.apply_string_cleaning(column, config)
 
         expected = ["helloworld"]
@@ -1198,8 +1198,7 @@ class TestStringCleaning:
         """Test string cleaning with exact custom case mapping."""
         transformer = DataTransformer()
         config = StringCleaningConfig(
-            custom_case_mapping={"california": "CA"},
-            case_mapping_mode="exact"
+            custom_case_mapping={"california": "CA"}, case_mapping_mode="exact"
         )
 
         column = pa.array(["california", "texas"])
@@ -1212,8 +1211,7 @@ class TestStringCleaning:
         """Test string cleaning with contains custom case mapping."""
         transformer = DataTransformer()
         config = StringCleaningConfig(
-            custom_case_mapping={"cal": "CAL"},
-            case_mapping_mode="contains"
+            custom_case_mapping={"cal": "CAL"}, case_mapping_mode="contains"
         )
 
         column = pa.array(["california", "texas"])
@@ -1226,8 +1224,7 @@ class TestStringCleaning:
         """Test string cleaning with startswith custom case mapping."""
         transformer = DataTransformer()
         config = StringCleaningConfig(
-            custom_case_mapping={"cal": "CAL"},
-            case_mapping_mode="startswith"
+            custom_case_mapping={"cal": "CAL"}, case_mapping_mode="startswith"
         )
 
         column = pa.array(["california", "texas"])
@@ -1240,8 +1237,7 @@ class TestStringCleaning:
         """Test string cleaning with endswith custom case mapping."""
         transformer = DataTransformer()
         config = StringCleaningConfig(
-            custom_case_mapping={"nia": "NIA"},
-            case_mapping_mode="endswith"
+            custom_case_mapping={"nia": "NIA"}, case_mapping_mode="endswith"
         )
 
         column = pa.array(["california", "texas"])
@@ -1809,7 +1805,9 @@ class TestIPAddressFormatting:
         """Test IPv6 address normalization."""
         transformer = DataTransformer()
 
-        result = transformer._normalize_ipv6_address("2001:0db8:0000:0000:0000:0000:0000:0001", True)
+        result = transformer._normalize_ipv6_address(
+            "2001:0db8:0000:0000:0000:0000:0000:0001", True
+        )
         assert result == "2001:db8::1"
 
     def test_normalize_ipv6_address_invalid(self):
@@ -1995,10 +1993,10 @@ class TestStringCleaningHelperMethods:
         transformer = DataTransformer()
 
         # Test various smart quotes using Unicode escape sequences
-        result = transformer._normalize_quotes("\u2018hello\u2019 \u201Cworld\u201D")
+        result = transformer._normalize_quotes("\u2018hello\u2019 \u201cworld\u201d")
         assert result == "'hello' \"world\""
 
-        result = transformer._normalize_quotes("\u2039single\u203A \u00ABdouble\u00BB")
+        result = transformer._normalize_quotes("\u2039single\u203a \u00abdouble\u00bb")
         assert result == "'single' \"double\""
 
     def test_normalize_dashes(self):
@@ -2017,7 +2015,7 @@ class TestStringCleaningHelperMethods:
         transformer = DataTransformer()
 
         # Test various space types
-        result = transformer._normalize_spaces("hello\u00A0world")  # Non-breaking space
+        result = transformer._normalize_spaces("hello\u00a0world")  # Non-breaking space
         assert result == "hello world"
 
         result = transformer._normalize_spaces("test\u2003case")  # Em space
@@ -2027,28 +2025,32 @@ class TestStringCleaningHelperMethods:
         """Test zero-width character removal with space replacement."""
         transformer = DataTransformer()
 
-        result = transformer._remove_zero_width_chars("hello\u200Bworld", replace_with_space=True)
+        result = transformer._remove_zero_width_chars("hello\u200bworld", replace_with_space=True)
         assert result == "hello world"
 
     def test_remove_zero_width_chars_without_space(self):
         """Test zero-width character removal without space replacement."""
         transformer = DataTransformer()
 
-        result = transformer._remove_zero_width_chars("hello\u200Bworld", replace_with_space=False)
+        result = transformer._remove_zero_width_chars("hello\u200bworld", replace_with_space=False)
         assert result == "helloworld"
 
     def test_remove_control_chars_preserve_newlines(self):
         """Test control character removal with newline preservation."""
         transformer = DataTransformer()
 
-        result = transformer._remove_control_chars("hello\nworld\x00test", preserve_newlines=True, preserve_tabs=False)
+        result = transformer._remove_control_chars(
+            "hello\nworld\x00test", preserve_newlines=True, preserve_tabs=False
+        )
         assert result == "hello\nworldtest"
 
     def test_remove_control_chars_preserve_tabs(self):
         """Test control character removal with tab preservation."""
         transformer = DataTransformer()
 
-        result = transformer._remove_control_chars("hello\tworld\x00test", preserve_newlines=False, preserve_tabs=True)
+        result = transformer._remove_control_chars(
+            "hello\tworld\x00test", preserve_newlines=False, preserve_tabs=True
+        )
         assert result == "hello\tworldtest"
 
     def test_remove_accents(self):
@@ -2083,13 +2085,13 @@ class TestStringCleaningHelperMethods:
         # Remove accents first (as the method does)
         text_no_accents = transformer._remove_accents(test_text)
         # Apply manual ASCII filtering (the fallback logic)
-        manual_result = ''.join(char for char in text_no_accents if ord(char) < 128)
+        manual_result = "".join(char for char in text_no_accents if ord(char) < 128)
         assert manual_result == "cafe  test"
 
         # Verify that both paths produce the same result for ASCII-compatible text
         ascii_text = "hello world"
         normal_result = transformer._to_ascii_only(ascii_text)
-        manual_result = ''.join(char for char in ascii_text if ord(char) < 128)
+        manual_result = "".join(char for char in ascii_text if ord(char) < 128)
         assert normal_result == manual_result == "hello world"
 
     def test_fix_case_issues_all_caps(self):
@@ -2103,7 +2105,9 @@ class TestStringCleaningHelperMethods:
         """Test case issue fixing with custom acronyms."""
         transformer = DataTransformer()
 
-        result = transformer._fix_case_issues("WORK AT NASA WITH API", ["of", "the"], ["NASA", "API"])
+        result = transformer._fix_case_issues(
+            "WORK AT NASA WITH API", ["of", "the"], ["NASA", "API"]
+        )
         assert result == "Work At NASA With API"
 
     def test_fix_case_issues_with_exceptions(self):
@@ -2297,7 +2301,12 @@ class TestCreateTransformationFromConfig:
 
     def test_enabled_key_removed_from_config(self):
         """Test that 'enabled' key is removed from config before creating transformation."""
-        config = {"pattern": r"\d+", "replacement": "NUMBER", "enabled": True, "extra_param": "value"}
+        config = {
+            "pattern": r"\d+",
+            "replacement": "NUMBER",
+            "enabled": True,
+            "extra_param": "value",
+        }
         transform_func = create_transformation_from_config("regex_replace", config)
 
         # Should work without the 'enabled' key causing issues
@@ -2305,4 +2314,3 @@ class TestCreateTransformationFromConfig:
         result = transform_func(column)
         expected = ["testNUMBER"]
         assert result.to_pylist() == expected
-

@@ -17,14 +17,14 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
 
         # Verify that all expected items are available after wildcard import
         expected_items = [
-            'CalculatedColumn',
-            'ConstantColumn',
-            'ExpressionColumn',
-            'CalculatedColumnsConfig',
-            'CalculatedColumnsProcessor',
-            'ExpressionEvaluator',
-            'get_available_functions',
-            'get_constants'
+            "CalculatedColumn",
+            "ConstantColumn",
+            "ExpressionColumn",
+            "CalculatedColumnsConfig",
+            "CalculatedColumnsProcessor",
+            "ExpressionEvaluator",
+            "get_available_functions",
+            "get_constants",
         ]
 
         for item_name in expected_items:
@@ -40,7 +40,7 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
         expected_docstring_parts = [
             "Calculated columns package",
             "dynamic field generation",
-            "computation"
+            "computation",
         ]
 
         assert calc_file.__doc__ is not None
@@ -52,29 +52,25 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
         import forklift.processors.calculated_columns as calc_file
 
         expected_all = [
-            'CalculatedColumn',
-            'ConstantColumn',
-            'ExpressionColumn',
-            'CalculatedColumnsConfig',
-            'CalculatedColumnsProcessor',
-            'ExpressionEvaluator',
-            'get_available_functions',
-            'get_constants'
+            "CalculatedColumn",
+            "ConstantColumn",
+            "ExpressionColumn",
+            "CalculatedColumnsConfig",
+            "CalculatedColumnsProcessor",
+            "ExpressionEvaluator",
+            "get_available_functions",
+            "get_constants",
         ]
 
         # Verify __all__ attribute exists and contains expected exports
-        assert hasattr(calc_file, '__all__')
+        assert hasattr(calc_file, "__all__")
         assert calc_file.__all__ == expected_all
 
     def test_import_from_file_works(self):
         """Test that importing from the file works correctly."""
         from forklift.processors.calculated_columns import (
-            CalculatedColumn,
-            ConstantColumn,
-            ExpressionColumn,
-            CalculatedColumnsConfig,
-            CalculatedColumnsProcessor
-        )
+            CalculatedColumn, CalculatedColumnsConfig,
+            CalculatedColumnsProcessor, ConstantColumn, ExpressionColumn)
 
         # Verify all classes are imported and are callable
         assert callable(CalculatedColumn)
@@ -86,10 +82,11 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
     def test_backward_compatibility_maintained(self):
         """Test that backward compatibility is maintained."""
         # Import from the compatibility file
-        from forklift.processors.calculated_columns import CalculatedColumnsProcessor as FileProcessor
-
+        from forklift.processors.calculated_columns import \
+            CalculatedColumnsProcessor as FileProcessor
         # Import from the package directly
-        from forklift.processors.calculated_columns.processor import CalculatedColumnsProcessor as PackageProcessor
+        from forklift.processors.calculated_columns.processor import \
+            CalculatedColumnsProcessor as PackageProcessor
 
         # They should be the same class
         assert FileProcessor is PackageProcessor
@@ -106,17 +103,17 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
         assert module.__doc__ is not None
 
         # Verify wildcard import (line 8) by checking available attributes
-        assert hasattr(module, 'CalculatedColumn')
-        assert hasattr(module, 'ConstantColumn')
-        assert hasattr(module, 'ExpressionColumn')
-        assert hasattr(module, 'CalculatedColumnsConfig')
-        assert hasattr(module, 'CalculatedColumnsProcessor')
-        assert hasattr(module, 'ExpressionEvaluator')
-        assert hasattr(module, 'get_available_functions')
-        assert hasattr(module, 'get_constants')
+        assert hasattr(module, "CalculatedColumn")
+        assert hasattr(module, "ConstantColumn")
+        assert hasattr(module, "ExpressionColumn")
+        assert hasattr(module, "CalculatedColumnsConfig")
+        assert hasattr(module, "CalculatedColumnsProcessor")
+        assert hasattr(module, "ExpressionEvaluator")
+        assert hasattr(module, "get_available_functions")
+        assert hasattr(module, "get_constants")
 
         # Verify __all__ definition (lines 10-19)
-        assert hasattr(module, '__all__')
+        assert hasattr(module, "__all__")
         assert len(module.__all__) == 8
 
     def test_all_items_in_all_are_accessible(self):
@@ -136,14 +133,14 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
 
         # Access each class individually to ensure wildcard import worked
         classes_and_functions = [
-            'CalculatedColumn',
-            'ConstantColumn',
-            'ExpressionColumn',
-            'CalculatedColumnsConfig',
-            'CalculatedColumnsProcessor',
-            'ExpressionEvaluator',
-            'get_available_functions',
-            'get_constants'
+            "CalculatedColumn",
+            "ConstantColumn",
+            "ExpressionColumn",
+            "CalculatedColumnsConfig",
+            "CalculatedColumnsProcessor",
+            "ExpressionEvaluator",
+            "get_available_functions",
+            "get_constants",
         ]
 
         for name in classes_and_functions:
@@ -156,7 +153,7 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
         import forklift.processors.calculated_columns as calc_file
 
         # Check that the module has the expected attributes
-        required_attrs = ['__doc__', '__all__'] + calc_file.__all__
+        required_attrs = ["__doc__", "__all__"] + calc_file.__all__
 
         for attr in required_attrs:
             assert hasattr(calc_file, attr), f"Missing attribute: {attr}"

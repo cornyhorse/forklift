@@ -1,11 +1,12 @@
 """Detection utilities for FWF processing including encoding and schema detection."""
 
 from __future__ import annotations
-import re
-from typing import Optional
-from pathlib import Path
 
-from ..config import FwfInputConfig, FwfConditionalSchema, FwfFieldSpec
+import re
+from pathlib import Path
+from typing import Optional
+
+from ..config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 
 
 class FwfEncodingDetector:
@@ -23,12 +24,13 @@ class FwfEncodingDetector:
         """
         try:
             import chardet
-            with open(file_path, 'rb') as f:
+
+            with open(file_path, "rb") as f:
                 raw_data = f.read(10240)  # Read first 10KB
             result = chardet.detect(raw_data)
-            return result.get('encoding', 'utf-8')
+            return result.get("encoding", "utf-8")
         except ImportError:
-            return 'utf-8'
+            return "utf-8"
 
 
 class FwfSchemaDetector:

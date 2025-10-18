@@ -1,10 +1,11 @@
 """Tests for FWF schema importer core functionality."""
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from forklift.schema.fwf.core import FwfSchemaImporter
 from forklift.schema.fwf.exceptions import SchemaValidationError
@@ -18,27 +19,21 @@ class TestFwfSchemaImporter:
         """Create a minimal valid FWF schema."""
         return {
             "type": "object",
-            "properties": {
-                "id": {"type": "string"},
-                "name": {"type": "string"}
-            },
+            "properties": {"id": {"type": "string"}, "name": {"type": "string"}},
             "required": ["id"],
             "additionalProperties": False,
             "x-fwf": {
                 "fields": [
                     {"name": "id", "start": 1, "length": 5, "parquetType": "string"},
-                    {"name": "name", "start": 6, "length": 20, "parquetType": "string"}
+                    {"name": "name", "start": 6, "length": 20, "parquetType": "string"},
                 ],
                 "encoding": "utf-8",
                 "headerRows": 1,
                 "footerRows": 2,
                 "trim": {"id": True, "name": False},
                 "nulls": {"global": ["", "NULL"], "id": ["EMPTY"]},
-                "case": {
-                    "standardizeNames": "snake_case",
-                    "dedupeNames": "suffix"
-                }
-            }
+                "case": {"standardizeNames": "snake_case", "dedupeNames": "suffix"},
+            },
         }
 
     @pytest.fixture
@@ -46,35 +41,38 @@ class TestFwfSchemaImporter:
         """Create a schema with conditional configurations."""
         return {
             "type": "object",
-            "properties": {
-                "record_type": {"type": "string"},
-                "data": {"type": "string"}
-            },
+            "properties": {"record_type": {"type": "string"}, "data": {"type": "string"}},
             "x-fwf": {
                 "conditionalSchemas": {
-                    "flagColumn": {
-                        "name": "record_type",
-                        "start": 0,
-                        "length": 1
-                    },
+                    "flagColumn": {"name": "record_type", "start": 0, "length": 1},
                     "schemas": [
                         {
                             "flagValue": "A",
                             "fields": [
-                                {"name": "record_type", "start": 0, "length": 1, "parquetType": "string"},
-                                {"name": "data", "start": 1, "length": 10, "parquetType": "string"}
-                            ]
+                                {
+                                    "name": "record_type",
+                                    "start": 0,
+                                    "length": 1,
+                                    "parquetType": "string",
+                                },
+                                {"name": "data", "start": 1, "length": 10, "parquetType": "string"},
+                            ],
                         },
                         {
                             "flagValue": "B",
                             "fields": [
-                                {"name": "record_type", "start": 0, "length": 1, "parquetType": "string"},
-                                {"name": "data", "start": 1, "length": 15, "parquetType": "string"}
-                            ]
-                        }
-                    ]
+                                {
+                                    "name": "record_type",
+                                    "start": 0,
+                                    "length": 1,
+                                    "parquetType": "string",
+                                },
+                                {"name": "data", "start": 1, "length": 15, "parquetType": "string"},
+                            ],
+                        },
+                    ],
                 }
-            }
+            },
         }
 
     @pytest.fixture
@@ -90,11 +88,11 @@ class TestFwfSchemaImporter:
                             "flagValue": "A",
                             "fields": [
                                 {"name": "field1", "start": 1, "length": -5}  # Invalid length
-                            ]
+                            ],
                         }
                     ]
                 }
-            }
+            },
         }
 
     def test_init_with_dict_schema(self, minimal_valid_schema):
@@ -117,7 +115,7 @@ class TestFwfSchemaImporter:
 
     def test_init_with_file_path(self, minimal_valid_schema):
         """Test initialization with a file path."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp_file:
             json.dump(minimal_valid_schema, tmp_file)
             tmp_path = Path(tmp_file.name)
 
@@ -129,7 +127,7 @@ class TestFwfSchemaImporter:
 
     def test_init_with_string_path(self, minimal_valid_schema):
         """Test initialization with a string path."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_file:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp_file:
             json.dump(minimal_valid_schema, tmp_file)
             tmp_path = tmp_file.name
 
@@ -179,32 +177,29 @@ class TestFwfSchemaImporter:
 
     def test_init_with_non_dict_case_config(self):
         """Test initialization when case config is not a dict."""
-        schema = {
-            "type": "object",
-            "x-fwf": {
-                "case": "invalid_type"  # Should be dict, not string
-            }
-        }
+        schema = {"type": "object", "x-fwf": {"case": "invalid_type"}}  # Should be dict, not string
         importer = FwfSchemaImporter(schema, validate=False)
 
         assert importer.standardize_names is None
         assert importer.dedupe_names is None
 
-    @patch('forklift.schema.fwf.validation.JsonSchemaValidator.validate')
-    @patch('forklift.schema.fwf.validation.FwfExtensionValidator.validate')
-    def test_validate_schema_success(self, mock_fwf_validator, mock_json_validator, minimal_valid_schema):
+    @patch("forklift.schema.fwf.validation.JsonSchemaValidator.validate")
+    @patch("forklift.schema.fwf.validation.FwfExtensionValidator.validate")
+    def test_validate_schema_success(
+        self, mock_fwf_validator, mock_json_validator, minimal_valid_schema
+    ):
         """Test successful schema validation."""
         mock_json_validator.return_value = []
         mock_fwf_validator.return_value = []
 
-        with patch.object(FwfSchemaImporter, '_validate_fields', return_value=[]), \
-             patch.object(FwfSchemaImporter, '_validate_parquet_types', return_value=[]), \
-             patch.object(FwfSchemaImporter, '_validate_properties', return_value=[]):
+        with patch.object(FwfSchemaImporter, "_validate_fields", return_value=[]), patch.object(
+            FwfSchemaImporter, "_validate_parquet_types", return_value=[]
+        ), patch.object(FwfSchemaImporter, "_validate_properties", return_value=[]):
 
             importer = FwfSchemaImporter(minimal_valid_schema, validate=True)
             assert importer.validation_errors == []
 
-    @patch('forklift.schema.fwf.validation.JsonSchemaValidator.validate')
+    @patch("forklift.schema.fwf.validation.JsonSchemaValidator.validate")
     def test_validate_schema_with_errors(self, mock_json_validator, minimal_valid_schema):
         """Test schema validation with errors."""
         mock_json_validator.return_value = ["JSON validation error"]
@@ -212,7 +207,7 @@ class TestFwfSchemaImporter:
         with pytest.raises(SchemaValidationError, match="Schema validation failed"):
             FwfSchemaImporter(minimal_valid_schema, validate=True)
 
-    @patch('forklift.schema.fwf.validation.fields.FieldValidator.validate_traditional_fields')
+    @patch("forklift.schema.fwf.validation.fields.FieldValidator.validate_traditional_fields")
     def test_validate_fields_traditional(self, mock_validator, minimal_valid_schema):
         """Test field validation for traditional (non-conditional) schemas."""
         mock_validator.return_value = []
@@ -223,7 +218,7 @@ class TestFwfSchemaImporter:
         mock_validator.assert_called_once_with(importer.fields)
         assert errors == []
 
-    @patch('forklift.schema.fwf.validation.fields.FieldValidator.validate_conditional_fields')
+    @patch("forklift.schema.fwf.validation.fields.FieldValidator.validate_conditional_fields")
     def test_validate_fields_conditional(self, mock_validator, conditional_schema):
         """Test field validation for conditional schemas."""
         mock_validator.return_value = []
@@ -234,7 +229,7 @@ class TestFwfSchemaImporter:
         mock_validator.assert_called_once_with(importer.conditional_schemas)
         assert errors == []
 
-    @patch('forklift.schema.fwf.utils.ParquetMappingUtils.validate_parquet_types_in_fields')
+    @patch("forklift.schema.fwf.utils.ParquetMappingUtils.validate_parquet_types_in_fields")
     def test_validate_parquet_types_traditional(self, mock_validator, minimal_valid_schema):
         """Test Parquet type validation for traditional schemas."""
         mock_validator.return_value = []
@@ -245,7 +240,7 @@ class TestFwfSchemaImporter:
         mock_validator.assert_called_once_with(importer.fields)
         assert errors == []
 
-    @patch('forklift.schema.fwf.utils.ParquetMappingUtils.validate_parquet_types_in_variants')
+    @patch("forklift.schema.fwf.utils.ParquetMappingUtils.validate_parquet_types_in_variants")
     def test_validate_parquet_types_conditional(self, mock_validator, conditional_schema):
         """Test Parquet type validation for conditional schemas."""
         mock_validator.return_value = []
@@ -256,7 +251,7 @@ class TestFwfSchemaImporter:
         mock_validator.assert_called_once()
         assert errors == []
 
-    @patch('forklift.schema.fwf.validation.CompatibilityValidator.validate_schema_compatibility')
+    @patch("forklift.schema.fwf.validation.CompatibilityValidator.validate_schema_compatibility")
     def test_validate_properties_conditional(self, mock_validator, conditional_schema):
         """Test properties validation for conditional schemas."""
         mock_validator.return_value = []
@@ -303,7 +298,7 @@ class TestFwfSchemaImporter:
 
         assert encoding == "utf-8"
 
-    @patch('forklift.schema.fwf.fields.FieldParser.get_null_values')
+    @patch("forklift.schema.fwf.fields.FieldParser.get_null_values")
     def test_get_null_values(self, mock_parser, minimal_valid_schema):
         """Test getting null values."""
         mock_parser.return_value = ["", "NULL"]
@@ -314,7 +309,7 @@ class TestFwfSchemaImporter:
         mock_parser.assert_called_once_with("test_column", importer.nulls)
         assert null_values == ["", "NULL"]
 
-    @patch('forklift.schema.fwf.fields.PositionCalculator.get_field_positions')
+    @patch("forklift.schema.fwf.fields.PositionCalculator.get_field_positions")
     def test_get_field_positions(self, mock_calculator, minimal_valid_schema):
         """Test getting field positions."""
         mock_calculator.return_value = [(1, 5), (6, 25)]
@@ -325,7 +320,7 @@ class TestFwfSchemaImporter:
         mock_calculator.assert_called_once_with(importer.fields)
         assert positions == [(1, 5), (6, 25)]
 
-    @patch('forklift.schema.fwf.fields.FieldParser.get_column_names')
+    @patch("forklift.schema.fwf.fields.FieldParser.get_column_names")
     def test_get_column_names(self, mock_parser, minimal_valid_schema):
         """Test getting column names."""
         mock_parser.return_value = ["id", "name"]
@@ -338,7 +333,7 @@ class TestFwfSchemaImporter:
         )
         assert column_names == ["id", "name"]
 
-    @patch('forklift.schema.fwf.fields.FieldParser.should_trim_field')
+    @patch("forklift.schema.fwf.fields.FieldParser.should_trim_field")
     def test_should_trim_field(self, mock_parser, minimal_valid_schema):
         """Test checking if field should be trimmed."""
         mock_parser.return_value = True
@@ -373,7 +368,7 @@ class TestFwfSchemaImporter:
         """Test getting flag column info with conditional schema."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        with patch.object(importer._conditional_manager, 'get_flag_column_info') as mock_method:
+        with patch.object(importer._conditional_manager, "get_flag_column_info") as mock_method:
             mock_method.return_value = {"name": "record_type", "start": 0, "length": 1}
 
             flag_column = importer.get_flag_column_info()
@@ -393,7 +388,7 @@ class TestFwfSchemaImporter:
         """Test getting schema variants with conditional schema."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        with patch.object(importer._conditional_manager, 'get_schema_variants') as mock_method:
+        with patch.object(importer._conditional_manager, "get_schema_variants") as mock_method:
             mock_method.return_value = [{"flagValue": "A"}, {"flagValue": "B"}]
 
             variants = importer.get_schema_variants()
@@ -413,7 +408,9 @@ class TestFwfSchemaImporter:
         """Test getting variant by flag value with conditional schema."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        with patch.object(importer._conditional_manager, 'get_variant_by_flag_value') as mock_method:
+        with patch.object(
+            importer._conditional_manager, "get_variant_by_flag_value"
+        ) as mock_method:
             mock_method.return_value = {"flagValue": "A", "fields": []}
 
             variant = importer.get_variant_by_flag_value("A")
@@ -429,7 +426,7 @@ class TestFwfSchemaImporter:
 
         assert variant is None
 
-    @patch('forklift.schema.fwf.fields.FieldMapper.get_all_possible_fields')
+    @patch("forklift.schema.fwf.fields.FieldMapper.get_all_possible_fields")
     def test_get_all_possible_fields(self, mock_mapper, minimal_valid_schema):
         """Test getting all possible fields."""
         mock_mapper.return_value = {"field1": {"name": "field1"}}
@@ -441,18 +438,18 @@ class TestFwfSchemaImporter:
             importer.has_conditional_schemas,
             importer.fields,
             importer.get_flag_column_info(),
-            importer.get_schema_variants()
+            importer.get_schema_variants(),
         )
         assert all_fields == {"field1": {"name": "field1"}}
 
-    @patch('forklift.schema.fwf.fields.FieldMapper.get_unified_parquet_schema')
+    @patch("forklift.schema.fwf.fields.FieldMapper.get_unified_parquet_schema")
     def test_get_unified_parquet_schema(self, mock_mapper, minimal_valid_schema):
         """Test getting unified Parquet schema."""
         mock_mapper.return_value = {"field1": "string"}
 
         importer = FwfSchemaImporter(minimal_valid_schema, validate=False)
 
-        with patch.object(importer, 'get_all_possible_fields') as mock_get_fields:
+        with patch.object(importer, "get_all_possible_fields") as mock_get_fields:
             mock_get_fields.return_value = {"field1": {"name": "field1"}}
 
             schema = importer.get_unified_parquet_schema()
@@ -460,7 +457,7 @@ class TestFwfSchemaImporter:
             mock_mapper.assert_called_once_with(
                 {"field1": {"name": "field1"}},
                 importer.get_flag_column_info(),
-                importer.get_schema_variants()
+                importer.get_schema_variants(),
             )
             assert schema == {"field1": "string"}
 
@@ -468,7 +465,9 @@ class TestFwfSchemaImporter:
         """Test getting fields for flag value with conditional schema."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        with patch.object(importer._conditional_manager, 'get_fields_for_flag_value') as mock_method:
+        with patch.object(
+            importer._conditional_manager, "get_fields_for_flag_value"
+        ) as mock_method:
             mock_method.return_value = [{"name": "field1"}]
 
             fields = importer.get_fields_for_flag_value("A")
@@ -489,7 +488,9 @@ class TestFwfSchemaImporter:
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
         # Mock the missing method on VariantManager to test the intended behavior
-        with patch.object(importer._variant_manager, 'get_field_positions_for_flag_value', create=True) as mock_method:
+        with patch.object(
+            importer._variant_manager, "get_field_positions_for_flag_value", create=True
+        ) as mock_method:
             mock_method.return_value = [(0, 1), (1, 11)]
 
             positions = importer.get_field_positions_for_flag_value("A")
@@ -501,7 +502,7 @@ class TestFwfSchemaImporter:
         """Test getting field positions for flag value without variant manager."""
         importer = FwfSchemaImporter(minimal_valid_schema, validate=False)
 
-        with patch.object(importer, 'get_field_positions') as mock_method:
+        with patch.object(importer, "get_field_positions") as mock_method:
             mock_method.return_value = [(1, 5), (6, 25)]
 
             positions = importer.get_field_positions_for_flag_value("A")
@@ -514,19 +515,23 @@ class TestFwfSchemaImporter:
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
         # Mock the missing method on VariantManager to test the intended behavior
-        with patch.object(importer._variant_manager, 'get_column_names_for_flag_value', create=True) as mock_method:
+        with patch.object(
+            importer._variant_manager, "get_column_names_for_flag_value", create=True
+        ) as mock_method:
             mock_method.return_value = ["record_type", "data"]
 
             names = importer.get_column_names_for_flag_value("A")
 
-            mock_method.assert_called_once_with("A", importer.standardize_names, importer.dedupe_names)
+            mock_method.assert_called_once_with(
+                "A", importer.standardize_names, importer.dedupe_names
+            )
             assert names == ["record_type", "data"]
 
     def test_get_column_names_for_flag_value_without_variant_manager(self, minimal_valid_schema):
         """Test getting column names for flag value without variant manager."""
         importer = FwfSchemaImporter(minimal_valid_schema, validate=False)
 
-        with patch.object(importer, 'get_column_names') as mock_method:
+        with patch.object(importer, "get_column_names") as mock_method:
             mock_method.return_value = ["id", "name"]
 
             names = importer.get_column_names_for_flag_value("A")
@@ -540,7 +545,10 @@ class TestFwfSchemaImporter:
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
         # This tests the actual current behavior where the method doesn't exist
-        with pytest.raises(AttributeError, match="'VariantManager' object has no attribute 'get_field_positions_for_flag_value'"):
+        with pytest.raises(
+            AttributeError,
+            match="'VariantManager' object has no attribute 'get_field_positions_for_flag_value'",
+        ):
             importer.get_field_positions_for_flag_value("A")
 
     def test_get_column_names_for_flag_value_attribute_error(self, conditional_schema):
@@ -548,14 +556,19 @@ class TestFwfSchemaImporter:
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
         # This tests the actual current behavior where the method doesn't exist
-        with pytest.raises(AttributeError, match="'VariantManager' object has no attribute 'get_column_names_for_flag_value'"):
+        with pytest.raises(
+            AttributeError,
+            match="'VariantManager' object has no attribute 'get_column_names_for_flag_value'",
+        ):
             importer.get_column_names_for_flag_value("A")
 
     def test_get_all_possible_flag_values_with_conditional(self, conditional_schema):
         """Test getting all possible flag values with conditional schema."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        with patch.object(importer._conditional_manager, 'get_all_possible_flag_values') as mock_method:
+        with patch.object(
+            importer._conditional_manager, "get_all_possible_flag_values"
+        ) as mock_method:
             mock_method.return_value = ["A", "B"]
 
             flag_values = importer.get_all_possible_flag_values()
@@ -575,7 +588,7 @@ class TestFwfSchemaImporter:
         """Test validating flag value with conditional schema."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        with patch.object(importer._conditional_manager, 'validate_flag_value') as mock_method:
+        with patch.object(importer._conditional_manager, "validate_flag_value") as mock_method:
             mock_method.return_value = True
 
             is_valid = importer.validate_flag_value("A")
@@ -595,7 +608,9 @@ class TestFwfSchemaImporter:
         """Test getting record mapping for row with conditional schema."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        with patch.object(importer._conditional_manager, 'get_record_mapping_for_row') as mock_method:
+        with patch.object(
+            importer._conditional_manager, "get_record_mapping_for_row"
+        ) as mock_method:
             mock_method.return_value = {"flagValue": "A", "fields": []}
 
             mapping = importer.get_record_mapping_for_row("A123456789")

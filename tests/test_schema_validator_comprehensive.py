@@ -1,21 +1,17 @@
 """Comprehensive unit tests for schema_validator.py to achieve 100% code coverage."""
 
-import pytest
-from unittest.mock import Mock, patch
-from datetime import datetime
-import pyarrow as pa
 import re
+from datetime import datetime
+from unittest.mock import Mock, patch
 
-from forklift.processors.schema_validator import (
-    SchemaValidator,
-    SchemaValidationMode,
-    NullabilityMode,
-    ColumnSchema,
-    SchemaValidatorConfig,
-    create_schema_validator_from_json,
-    create_schema_from_batch
-)
+import pyarrow as pa
+import pytest
+
 from forklift.processors.base import ValidationResult
+from forklift.processors.schema_validator import (
+    ColumnSchema, NullabilityMode, SchemaValidationMode, SchemaValidator,
+    SchemaValidatorConfig, create_schema_from_batch,
+    create_schema_validator_from_json)
 from forklift.processors.schema_validator.type_converter import TypeConverter
 
 
@@ -27,7 +23,6 @@ class TestSchemaValidationMode:
         pytest.skip("Method _validate_batch no longer exists after ForkliftCore refactoring")
 
 
-
 class TestSchemaValidatorColumnPresence:
     """Test column presence validation."""
 
@@ -36,7 +31,7 @@ class TestSchemaValidatorColumnPresence:
         schema_dict = {
             "columns": [
                 {"name": "id", "type": "int64", "nullable": False},
-                {"name": "name", "type": "string", "nullable": True}
+                {"name": "name", "type": "string", "nullable": True},
             ]
         }
         validator = SchemaValidator(schema_dict)
@@ -54,26 +49,17 @@ class TestSchemaValidatorColumnPresence:
 
     def test_validate_column_presence_extra_columns_strict(self):
         """Test validation with extra columns in strict mode."""
-        schema_dict = {
-            "columns": [
-                {"name": "id", "type": "int64"}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "id", "type": "int64"}]}
         config = SchemaValidatorConfig(
-            validation_mode=SchemaValidationMode.STRICT,
-            extra_columns_allowed=False
+            validation_mode=SchemaValidationMode.STRICT, extra_columns_allowed=False
         )
         validator = SchemaValidator(schema_dict, config=config)
 
         # Create batch with extra column
-        schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("extra", pa.string())
-        ])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array([1, 2, 3]),
-            pa.array(["a", "b", "c"])
-        ], schema=schema)
+        schema = pa.schema([pa.field("id", pa.int64()), pa.field("extra", pa.string())])
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array([1, 2, 3]), pa.array(["a", "b", "c"])], schema=schema
+        )
 
         results = validator._validate_column_presence(batch)
 
@@ -84,23 +70,15 @@ class TestSchemaValidatorColumnPresence:
 
     def test_validate_column_presence_extra_columns_allowed(self):
         """Test validation with extra columns allowed."""
-        schema_dict = {
-            "columns": [
-                {"name": "id", "type": "int64"}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "id", "type": "int64"}]}
         config = SchemaValidatorConfig(extra_columns_allowed=True)
         validator = SchemaValidator(schema_dict, config=config)
 
         # Create batch with extra column
-        schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("extra", pa.string())
-        ])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array([1, 2, 3]),
-            pa.array(["a", "b", "c"])
-        ], schema=schema)
+        schema = pa.schema([pa.field("id", pa.int64()), pa.field("extra", pa.string())])
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array([1, 2, 3]), pa.array(["a", "b", "c"])], schema=schema
+        )
 
         results = validator._validate_column_presence(batch)
 
@@ -111,23 +89,16 @@ class TestSchemaValidatorColumnPresence:
     def test_validate_column_presence_column_order_mismatch(self):
         """Test validation with column order mismatch."""
         schema_dict = {
-            "columns": [
-                {"name": "id", "type": "int64"},
-                {"name": "name", "type": "string"}
-            ]
+            "columns": [{"name": "id", "type": "int64"}, {"name": "name", "type": "string"}]
         }
         config = SchemaValidatorConfig(check_column_order=True)
         validator = SchemaValidator(schema_dict, config=config)
 
         # Create batch with different column order
-        schema = pa.schema([
-            pa.field("name", pa.string()),
-            pa.field("id", pa.int64())
-        ])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array(["a", "b", "c"]),
-            pa.array([1, 2, 3])
-        ], schema=schema)
+        schema = pa.schema([pa.field("name", pa.string()), pa.field("id", pa.int64())])
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array(["a", "b", "c"]), pa.array([1, 2, 3])], schema=schema
+        )
 
         results = validator._validate_column_presence(batch)
 
@@ -141,32 +112,21 @@ class TestSchemaValidatorDataTypes:
     def test_validate_data_types_compatible(self):
         """Test validation with compatible data types."""
         schema_dict = {
-            "columns": [
-                {"name": "id", "type": "int64"},
-                {"name": "name", "type": "string"}
-            ]
+            "columns": [{"name": "id", "type": "int64"}, {"name": "name", "type": "string"}]
         }
         validator = SchemaValidator(schema_dict)
 
-        schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("name", pa.string())
-        ])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array([1, 2, 3]),
-            pa.array(["a", "b", "c"])
-        ], schema=schema)
+        schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array([1, 2, 3]), pa.array(["a", "b", "c"])], schema=schema
+        )
 
         results = validator._validate_data_types(batch)
         assert len(results) == 0
 
     def test_validate_data_types_incompatible(self):
         """Test validation with incompatible data types."""
-        schema_dict = {
-            "columns": [
-                {"name": "id", "type": "string"}  # Expect string
-            ]
-        }
+        schema_dict = {"columns": [{"name": "id", "type": "string"}]}  # Expect string
         validator = SchemaValidator(schema_dict)
 
         schema = pa.schema([pa.field("id", pa.int64())])  # But got int64
@@ -180,11 +140,7 @@ class TestSchemaValidatorDataTypes:
 
     def test_validate_data_types_with_coercion_possible(self):
         """Test validation with type coercion enabled and possible."""
-        schema_dict = {
-            "columns": [
-                {"name": "id", "type": "string"}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "id", "type": "string"}]}
         config = SchemaValidatorConfig(allow_type_coercion=True)
         validator = SchemaValidator(schema_dict, config=config)
 
@@ -197,11 +153,7 @@ class TestSchemaValidatorDataTypes:
 
     def test_validate_data_types_with_coercion_impossible(self):
         """Test validation with type coercion enabled but impossible."""
-        schema_dict = {
-            "columns": [
-                {"name": "data", "type": "int64"}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "data", "type": "int64"}]}
         config = SchemaValidatorConfig(allow_type_coercion=True)
         validator = SchemaValidator(schema_dict, config=config)
 
@@ -219,11 +171,7 @@ class TestSchemaValidatorNullability:
 
     def test_validate_nullability_ignore_mode(self):
         """Test nullability validation in ignore mode."""
-        schema_dict = {
-            "columns": [
-                {"name": "id", "type": "int64", "nullable": False}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "id", "type": "int64", "nullable": False}]}
         config = SchemaValidatorConfig(nullability_mode=NullabilityMode.IGNORE)
         validator = SchemaValidator(schema_dict, config=config)
 
@@ -235,11 +183,7 @@ class TestSchemaValidatorNullability:
 
     def test_validate_nullability_error_mode(self):
         """Test nullability validation in error mode."""
-        schema_dict = {
-            "columns": [
-                {"name": "id", "type": "int64", "nullable": False}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "id", "type": "int64", "nullable": False}]}
         config = SchemaValidatorConfig(nullability_mode=NullabilityMode.ERROR)
         validator = SchemaValidator(schema_dict, config=config)
 
@@ -255,11 +199,7 @@ class TestSchemaValidatorNullability:
 
     def test_validate_nullability_warning_mode(self):
         """Test nullability validation in warning mode."""
-        schema_dict = {
-            "columns": [
-                {"name": "id", "type": "int64", "nullable": False}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "id", "type": "int64", "nullable": False}]}
         config = SchemaValidatorConfig(nullability_mode=NullabilityMode.WARNING)
         validator = SchemaValidator(schema_dict, config=config)
 
@@ -274,11 +214,7 @@ class TestSchemaValidatorNullability:
 
     def test_validate_nullability_percentage_threshold(self):
         """Test nullability validation with percentage threshold."""
-        schema_dict = {
-            "columns": [
-                {"name": "data", "type": "string", "nullable": True}
-            ]
-        }
+        schema_dict = {"columns": [{"name": "data", "type": "string", "nullable": True}]}
         config = SchemaValidatorConfig(max_null_percentage=25.0)  # 25% max
         validator = SchemaValidator(schema_dict, config=config)
 
@@ -299,13 +235,7 @@ class TestSchemaValidatorConstraints:
     def test_validate_range_constraints_numeric(self):
         """Test range constraints on numeric columns."""
         schema_dict = {
-            "columns": [
-                {
-                    "name": "score",
-                    "type": "int64",
-                    "constraints": {"min": 0, "max": 100}
-                }
-            ]
+            "columns": [{"name": "score", "type": "int64", "constraints": {"min": 0, "max": 100}}]
         }
         validator = SchemaValidator(schema_dict)
 
@@ -329,7 +259,7 @@ class TestSchemaValidatorConstraints:
                 {
                     "name": "name",
                     "type": "string",
-                    "constraints": {"min": 0, "max": 100}  # Ignored for strings
+                    "constraints": {"min": 0, "max": 100},  # Ignored for strings
                 }
             ]
         }
@@ -348,14 +278,16 @@ class TestSchemaValidatorConstraints:
                 {
                     "name": "status",
                     "type": "string",
-                    "constraints": {"enum": ["active", "inactive", "pending"]}
+                    "constraints": {"enum": ["active", "inactive", "pending"]},
                 }
             ]
         }
         validator = SchemaValidator(schema_dict)
 
         schema = pa.schema([pa.field("status", pa.string())])
-        batch = pa.RecordBatch.from_arrays([pa.array(["active", "invalid", "pending"])], schema=schema)
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array(["active", "invalid", "pending"])], schema=schema
+        )
 
         results = validator._validate_constraints(batch)
 
@@ -370,16 +302,16 @@ class TestSchemaValidatorConstraints:
                 {
                     "name": "email",
                     "type": "string",
-                    "constraints": {"pattern": r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"}
+                    "constraints": {"pattern": r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"},
                 }
             ]
         }
         validator = SchemaValidator(schema_dict)
 
         schema = pa.schema([pa.field("email", pa.string())])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array(["test@example.com", "invalid-email", "user@domain.org"])
-        ], schema=schema)
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array(["test@example.com", "invalid-email", "user@domain.org"])], schema=schema
+        )
 
         results = validator._validate_constraints(batch)
 
@@ -394,7 +326,7 @@ class TestSchemaValidatorConstraints:
                 {
                     "name": "data",
                     "type": "string",
-                    "constraints": {"pattern": "[invalid(regex"}  # Invalid regex
+                    "constraints": {"pattern": "[invalid(regex"},  # Invalid regex
                 }
             ]
         }
@@ -415,7 +347,7 @@ class TestSchemaValidatorConstraints:
                 {
                     "name": "id",
                     "type": "int64",
-                    "constraints": {"pattern": r"\d+"}  # Ignored for non-strings
+                    "constraints": {"pattern": r"\d+"},  # Ignored for non-strings
                 }
             ]
         }
@@ -431,19 +363,15 @@ class TestSchemaValidatorConstraints:
         """Test string length constraints."""
         schema_dict = {
             "columns": [
-                {
-                    "name": "code",
-                    "type": "string",
-                    "constraints": {"minLength": 3, "maxLength": 5}
-                }
+                {"name": "code", "type": "string", "constraints": {"minLength": 3, "maxLength": 5}}
             ]
         }
         validator = SchemaValidator(schema_dict)
 
         schema = pa.schema([pa.field("code", pa.string())])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array(["AB", "ABC", "ABCDEF"])  # Too short, valid, too long
-        ], schema=schema)
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array(["AB", "ABC", "ABCDEF"])], schema=schema  # Too short, valid, too long
+        )
 
         results = validator._validate_constraints(batch)
 
@@ -462,7 +390,7 @@ class TestSchemaValidatorConstraints:
                 {
                     "name": "id",
                     "type": "int64",
-                    "constraints": {"minLength": 1}  # Ignored for non-strings
+                    "constraints": {"minLength": 1},  # Ignored for non-strings
                 }
             ]
         }
@@ -556,8 +484,8 @@ class TestSchemaValidatorTypeCompatibility:
         validator = SchemaValidator({})
 
         assert validator._is_type_compatible(pa.date32(), "date")
-        assert validator._is_type_compatible(pa.timestamp('us'), "datetime")
-        assert validator._is_type_compatible(pa.timestamp('ns'), "timestamp")
+        assert validator._is_type_compatible(pa.timestamp("us"), "datetime")
+        assert validator._is_type_compatible(pa.timestamp("ns"), "timestamp")
 
     def test_is_type_compatible_incompatible(self):
         """Test type compatibility with incompatible types."""
@@ -609,19 +537,20 @@ class TestSchemaValidatorProcessBatch:
         schema_dict = {
             "columns": [
                 {"name": "id", "type": "int64", "nullable": False},
-                {"name": "name", "type": "string", "nullable": True}
+                {"name": "name", "type": "string", "nullable": True},
             ]
         }
         validator = SchemaValidator(schema_dict)
 
-        schema = pa.schema([
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("name", pa.string(), nullable=True)
-        ])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array([1, 2, 3]),
-            pa.array(["Alice", "Bob", "Charlie"])
-        ], schema=schema)
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("name", pa.string(), nullable=True),
+            ]
+        )
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array([1, 2, 3]), pa.array(["Alice", "Bob", "Charlie"])], schema=schema
+        )
 
         result_batch, validation_results = validator.process_batch(batch)
 
@@ -633,7 +562,7 @@ class TestSchemaValidatorProcessBatch:
         schema_dict = {
             "columns": [
                 {"name": "id", "type": "int64", "nullable": False},
-                {"name": "required", "type": "string", "nullable": False}
+                {"name": "required", "type": "string", "nullable": False},
             ]
         }
         validator = SchemaValidator(schema_dict)
@@ -659,7 +588,7 @@ class TestSchemaValidatorUtilityMethods:
             "columns": [
                 {"name": "id", "type": "int64", "nullable": False, "constraints": {"min": 1}},
                 {"name": "name", "type": "string", "nullable": True},
-                {"name": "email", "type": "string", "nullable": False, "description": "User email"}
+                {"name": "email", "type": "string", "nullable": False, "description": "User email"},
             ]
         }
         validator = SchemaValidator(schema_dict)
@@ -721,10 +650,7 @@ class TestSchemaValidatorFactoryFunctions:
     def test_create_schema_validator_from_json(self):
         """Test create_schema_validator_from_json function."""
         schema_json = {
-            "columns": [
-                {"name": "id", "type": "int64"},
-                {"name": "name", "type": "string"}
-            ]
+            "columns": [{"name": "id", "type": "int64"}, {"name": "name", "type": "string"}]
         }
 
         validator = create_schema_validator_from_json(schema_json)
@@ -734,11 +660,7 @@ class TestSchemaValidatorFactoryFunctions:
 
     def test_create_schema_validator_from_json_with_config(self):
         """Test create_schema_validator_from_json with custom config."""
-        schema_json = {
-            "columns": [
-                {"name": "id", "type": "int64"}
-            ]
-        }
+        schema_json = {"columns": [{"name": "id", "type": "int64"}]}
         config = SchemaValidatorConfig(validation_mode=SchemaValidationMode.PERMISSIVE)
 
         validator = create_schema_validator_from_json(schema_json, config)
@@ -747,16 +669,21 @@ class TestSchemaValidatorFactoryFunctions:
 
     def test_create_schema_from_batch(self):
         """Test create_schema_from_batch function."""
-        schema = pa.schema([
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("name", pa.string(), nullable=True),
-            pa.field("score", pa.float64(), nullable=True)
-        ])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array([1, 2, 3]),
-            pa.array(["Alice", "Bob", "Charlie"]),
-            pa.array([85.5, 92.0, 78.5])
-        ], schema=schema)
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("name", pa.string(), nullable=True),
+                pa.field("score", pa.float64(), nullable=True),
+            ]
+        )
+        batch = pa.RecordBatch.from_arrays(
+            [
+                pa.array([1, 2, 3]),
+                pa.array(["Alice", "Bob", "Charlie"]),
+                pa.array([85.5, 92.0, 78.5]),
+            ],
+            schema=schema,
+        )
 
         schema_dict = create_schema_from_batch(batch)
 
@@ -772,14 +699,15 @@ class TestSchemaValidatorFactoryFunctions:
 
     def test_create_schema_from_batch_no_nullability(self):
         """Test create_schema_from_batch without nullability info."""
-        schema = pa.schema([
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("name", pa.string(), nullable=True)
-        ])
-        batch = pa.RecordBatch.from_arrays([
-            pa.array([1, 2, 3]),
-            pa.array(["Alice", "Bob", "Charlie"])
-        ], schema=schema)
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("name", pa.string(), nullable=True),
+            ]
+        )
+        batch = pa.RecordBatch.from_arrays(
+            [pa.array([1, 2, 3]), pa.array(["Alice", "Bob", "Charlie"])], schema=schema
+        )
 
         schema_dict = create_schema_from_batch(batch, include_nullability=False)
 
@@ -799,7 +727,7 @@ class TestSchemaValidatorEdgeCases:
                     "name": "score",
                     "type": "int64",
                     "constraints": {"min": 0, "max": 100},
-                    "nullable": True
+                    "nullable": True,
                 }
             ]
         }
@@ -820,7 +748,7 @@ class TestSchemaValidatorEdgeCases:
                     "name": "status",
                     "type": "string",
                     "constraints": {"enum": ["active", "inactive"]},
-                    "nullable": True
+                    "nullable": True,
                 }
             ]
         }
@@ -841,7 +769,7 @@ class TestSchemaValidatorEdgeCases:
                     "name": "email",
                     "type": "string",
                     "constraints": {"pattern": r"^.+@.+\..+$"},
-                    "nullable": True
+                    "nullable": True,
                 }
             ]
         }
@@ -862,7 +790,7 @@ class TestSchemaValidatorEdgeCases:
                     "name": "code",
                     "type": "string",
                     "constraints": {"minLength": 3, "maxLength": 5},
-                    "nullable": True
+                    "nullable": True,
                 }
             ]
         }
@@ -880,7 +808,7 @@ class TestSchemaValidatorEdgeCases:
         schema_dict = {
             "columns": [
                 {"name": "id", "type": "int64", "nullable": False},
-                {"name": "optional", "type": "string", "nullable": True}
+                {"name": "optional", "type": "string", "nullable": True},
             ]
         }
         config = SchemaValidatorConfig(validation_mode=SchemaValidationMode.PERMISSIVE)

@@ -1,6 +1,7 @@
 """JSON Schema validation functionality."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List
 
 
@@ -27,7 +28,9 @@ class JsonSchemaValidator:
 
         if not schema.get("$id"):
             errors.append("Missing required '$id' field")
-        elif not schema["$id"].startswith("https://github.com/cornyhorse/forklift/schema-standards/"):
+        elif not schema["$id"].startswith(
+            "https://github.com/cornyhorse/forklift/schema-standards/"
+        ):
             errors.append("Schema $id must follow the standard GitHub URL pattern")
 
         if not schema.get("title"):

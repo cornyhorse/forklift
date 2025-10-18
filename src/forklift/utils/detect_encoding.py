@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from typing import List, TextIO
+
 
 def open_text_auto(path: str, encodings: List[str] | None = None) -> TextIO:
     """Open a text file trying multiple encodings in order.

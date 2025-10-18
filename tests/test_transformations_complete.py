@@ -1,34 +1,30 @@
 """Comprehensive tests for transformations.py to achieve 100% code coverage."""
 
-import pytest
 import sys
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, List, Callable, Any
+from typing import Any, Callable, Dict, List
+from unittest.mock import MagicMock, Mock, patch
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pytest
 
 # Add src to Python path for imports
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 # Now we can import the transformations module and its dependencies
 from forklift.processors.base import BaseProcessor, ValidationResult
-
 # Import the transformations module directly
-from forklift.processors.transformations import (
-    ColumnTransformer,
-    SchemaBasedTransformer,
-    trim_whitespace,
-    uppercase,
-    lowercase,
-    apply_money_conversion,
-    apply_numeric_cleaning,
-    apply_regex_replace,
-    apply_string_replace,
-    apply_html_xml_cleaning,
-    apply_string_padding,
-    apply_string_trimming
-)
+from forklift.processors.transformations import (ColumnTransformer,
+                                                 SchemaBasedTransformer,
+                                                 apply_html_xml_cleaning,
+                                                 apply_money_conversion,
+                                                 apply_numeric_cleaning,
+                                                 apply_regex_replace,
+                                                 apply_string_padding,
+                                                 apply_string_replace,
+                                                 apply_string_trimming,
+                                                 lowercase, trim_whitespace,
+                                                 uppercase)
 
 
 class TestColumnTransformer:
@@ -43,23 +39,14 @@ class TestColumnTransformer:
     def test_process_batch_successful_transformation(self):
         """Test successful batch processing with transformations."""
         # Create test data
-        schema = pa.schema([
-            pa.field("col1", pa.string()),
-            pa.field("col2", pa.string())
-        ])
+        schema = pa.schema([pa.field("col1", pa.string()), pa.field("col2", pa.string())])
 
-        data = {
-            "col1": ["  hello  ", "  world  "],
-            "col2": ["foo", "bar"]
-        }
+        data = {"col1": ["  hello  ", "  world  "], "col2": ["foo", "bar"]}
 
         batch = pa.record_batch(data, schema)
 
         # Setup transformations
-        transformations = {
-            "col1": [trim_whitespace],
-            "col2": [uppercase]
-        }
+        transformations = {"col1": [trim_whitespace], "col2": [uppercase]}
 
         transformer = ColumnTransformer(transformations)
 
@@ -104,7 +91,10 @@ class TestColumnTransformer:
         # Should capture the error
         assert len(validation_results) == 1
         assert not validation_results[0].is_valid
-        assert "Transformation failed for column 'col1': Test error" in validation_results[0].error_message
+        assert (
+            "Transformation failed for column 'col1': Test error"
+            in validation_results[0].error_message
+        )
         assert validation_results[0].error_code == "TRANSFORMATION_ERROR"
         assert validation_results[0].column_name == "col1"
 
@@ -147,13 +137,7 @@ class TestSchemaBasedTransformer:
         schema = {
             "x-transformations": {
                 "column_transformations": {
-                    "col1": {
-                        "string_replace": {
-                            "enabled": True,
-                            "old": "old",
-                            "new": "new"
-                        }
-                    }
+                    "col1": {"string_replace": {"enabled": True, "old": "old", "new": "new"}}
                 }
             }
         }
@@ -161,8 +145,8 @@ class TestSchemaBasedTransformer:
         transformer = SchemaBasedTransformer(schema)
 
         assert transformer.schema == schema
-        assert hasattr(transformer, 'transformer')
-        assert hasattr(transformer, 'column_transformations')
+        assert hasattr(transformer, "transformer")
+        assert hasattr(transformer, "column_transformations")
         assert "col1" in transformer.column_transformations
 
     def test_init_empty_schema(self):
@@ -179,11 +163,7 @@ class TestSchemaBasedTransformer:
             "x-transformations": {
                 "column_transformations": {
                     "col1": {
-                        "regex_replace": {
-                            "enabled": True,
-                            "pattern": "\\s+",
-                            "replacement": " "
-                        }
+                        "regex_replace": {"enabled": True, "pattern": "\\s+", "replacement": " "}
                     }
                 }
             }
@@ -200,11 +180,7 @@ class TestSchemaBasedTransformer:
             "x-transformations": {
                 "column_transformations": {
                     "col1": {
-                        "regex_replace": {
-                            "enabled": False,
-                            "pattern": "\\s+",
-                            "replacement": " "
-                        }
+                        "regex_replace": {"enabled": False, "pattern": "\\s+", "replacement": " "}
                     }
                 }
             }
@@ -218,17 +194,11 @@ class TestSchemaBasedTransformer:
         """Test handling of invalid transformation configuration."""
         schema = {
             "x-transformations": {
-                "column_transformations": {
-                    "col1": {
-                        "invalid_transform": {
-                            "enabled": True
-                        }
-                    }
-                }
+                "column_transformations": {"col1": {"invalid_transform": {"enabled": True}}}
             }
         }
 
-        with patch('builtins.print') as mock_print:
+        with patch("builtins.print") as mock_print:
             transformer = SchemaBasedTransformer(schema)
 
             assert transformer.column_transformations == {}
@@ -238,11 +208,7 @@ class TestSchemaBasedTransformer:
         """Test handling of non-dictionary transformation config."""
         schema = {
             "x-transformations": {
-                "column_transformations": {
-                    "col1": {
-                        "some_transform": "not_a_dict"
-                    }
-                }
+                "column_transformations": {"col1": {"some_transform": "not_a_dict"}}
             }
         }
 
@@ -255,13 +221,7 @@ class TestSchemaBasedTransformer:
         schema_dict = {
             "x-transformations": {
                 "column_transformations": {
-                    "col1": {
-                        "string_replace": {
-                            "enabled": True,
-                            "old": "old",
-                            "new": "new"
-                        }
-                    }
+                    "col1": {"string_replace": {"enabled": True, "old": "old", "new": "new"}}
                 }
             }
         }
@@ -282,13 +242,7 @@ class TestSchemaBasedTransformer:
         schema_dict = {
             "x-transformations": {
                 "column_transformations": {
-                    "missing_col": {
-                        "string_replace": {
-                            "enabled": True,
-                            "old": "old",
-                            "new": "new"
-                        }
-                    }
+                    "missing_col": {"string_replace": {"enabled": True, "old": "old", "new": "new"}}
                 }
             }
         }
@@ -308,13 +262,7 @@ class TestSchemaBasedTransformer:
         schema_dict = {
             "x-transformations": {
                 "column_transformations": {
-                    "col1": {
-                        "string_replace": {
-                            "enabled": True,
-                            "old": "old",
-                            "new": "new"
-                        }
-                    }
+                    "col1": {"string_replace": {"enabled": True, "old": "old", "new": "new"}}
                 }
             }
         }
@@ -327,16 +275,23 @@ class TestSchemaBasedTransformer:
         def failing_mock_create(transform_type, config):
             def failing_transform(column):
                 raise RuntimeError("Transformation failed")
+
             return failing_transform
 
         # Patch the function in the schema_transformer module where it's actually imported and used
-        with patch('forklift.processors.transformations.schema_transformer.create_transformation_from_config', failing_mock_create):
+        with patch(
+            "forklift.processors.transformations.schema_transformer.create_transformation_from_config",
+            failing_mock_create,
+        ):
             transformer = SchemaBasedTransformer(schema_dict)
             result_batch, validation_results = transformer.process_batch(batch)
 
             assert len(validation_results) == 1
             assert not validation_results[0].is_valid
-            assert "Schema-based transformation failed for column 'col1'" in validation_results[0].error_message
+            assert (
+                "Schema-based transformation failed for column 'col1'"
+                in validation_results[0].error_message
+            )
             assert validation_results[0].error_code == "SCHEMA_TRANSFORMATION_ERROR"
             assert validation_results[0].column_name == "col1"
 
@@ -391,7 +346,7 @@ class TestTransformationFunctions:
             currency_symbols=["€", "$"],
             thousands_separator=".",
             decimal_separator=",",
-            parentheses_negative=False
+            parentheses_negative=False,
         )
         assert callable(transform_func)
 
@@ -403,10 +358,7 @@ class TestTransformationFunctions:
     def test_apply_numeric_cleaning_custom_params(self):
         """Test numeric cleaning with custom parameters."""
         transform_func = apply_numeric_cleaning(
-            thousands_separator=".",
-            decimal_separator=",",
-            allow_nan=False,
-            target_type="int64"
+            thousands_separator=".", decimal_separator=",", allow_nan=False, target_type="int64"
         )
         assert callable(transform_func)
 
@@ -418,6 +370,7 @@ class TestTransformationFunctions:
     def test_apply_regex_replace_with_flags(self):
         """Test regex replace with flags."""
         import re
+
         transform_func = apply_regex_replace("hello", "hi", re.IGNORECASE)
         assert callable(transform_func)
 
@@ -439,9 +392,7 @@ class TestTransformationFunctions:
     def test_apply_html_xml_cleaning_custom_params(self):
         """Test HTML/XML cleaning with custom parameters."""
         transform_func = apply_html_xml_cleaning(
-            strip_tags=False,
-            decode_entities=False,
-            preserve_whitespace=True
+            strip_tags=False, decode_entities=False, preserve_whitespace=True
         )
         assert callable(transform_func)
 
@@ -452,11 +403,7 @@ class TestTransformationFunctions:
 
     def test_apply_string_padding_custom_params(self):
         """Test string padding with custom parameters."""
-        transform_func = apply_string_padding(
-            width=15,
-            fillchar="*",
-            side="right"
-        )
+        transform_func = apply_string_padding(width=15, fillchar="*", side="right")
         assert callable(transform_func)
 
     def test_apply_string_trimming_callable(self):
@@ -466,10 +413,7 @@ class TestTransformationFunctions:
 
     def test_apply_string_trimming_custom_params(self):
         """Test string trimming with custom parameters."""
-        transform_func = apply_string_trimming(
-            side="left",
-            chars="*"
-        )
+        transform_func = apply_string_trimming(side="left", chars="*")
         assert callable(transform_func)
 
 
@@ -479,23 +423,14 @@ class TestIntegration:
     def test_column_transformer_with_basic_functions(self):
         """Test using basic transformation functions with ColumnTransformer."""
         # Create test data
-        schema = pa.schema([
-            pa.field("text_col", pa.string()),
-            pa.field("case_col", pa.string())
-        ])
+        schema = pa.schema([pa.field("text_col", pa.string()), pa.field("case_col", pa.string())])
 
-        data = {
-            "text_col": ["  HELLO  ", "  WORLD  "],
-            "case_col": ["foo", "bar"]
-        }
+        data = {"text_col": ["  HELLO  ", "  WORLD  "], "case_col": ["foo", "bar"]}
 
         batch = pa.record_batch(data, schema)
 
         # Setup transformations using the basic functions
-        transformations = {
-            "text_col": [trim_whitespace, lowercase],
-            "case_col": [uppercase]
-        }
+        transformations = {"text_col": [trim_whitespace, lowercase], "case_col": [uppercase]}
 
         transformer = ColumnTransformer(transformations)
         result_batch, validation_results = transformer.process_batch(batch)
@@ -511,40 +446,22 @@ class TestIntegration:
             "x-transformations": {
                 "column_transformations": {
                     "col1": {
-                        "string_replace": {
-                            "enabled": True,
-                            "old": "old",
-                            "new": "new"
-                        },
-                        "regex_replace": {
-                            "enabled": True,
-                            "pattern": "\\s+",
-                            "replacement": " "
-                        }
+                        "string_replace": {"enabled": True, "old": "old", "new": "new"},
+                        "regex_replace": {"enabled": True, "pattern": "\\s+", "replacement": " "},
                     },
-                    "col2": {
-                        "money_conversion": {
-                            "enabled": True,
-                            "currency_symbols": ["$"]
-                        }
-                    }
+                    "col2": {"money_conversion": {"enabled": True, "currency_symbols": ["$"]}},
                 }
             }
         }
 
-        pa_schema = pa.schema([
-            pa.field("col1", pa.string()),
-            pa.field("col2", pa.string())
-        ])
+        pa_schema = pa.schema([pa.field("col1", pa.string()), pa.field("col2", pa.string())])
 
-        data = {
-            "col1": ["old  text", "old   value"],
-            "col2": ["$100", "$200"]
-        }
+        data = {"col1": ["old  text", "old   value"], "col2": ["$100", "$200"]}
 
         batch = pa.record_batch(data, pa_schema)
 
         transform_count = 0
+
         def mock_create_transform(transform_type, config):
             nonlocal transform_count
             transform_count += 1
@@ -558,7 +475,10 @@ class TestIntegration:
             else:
                 return lambda col: col
 
-        with patch('forklift.processors.transformations.schema_transformer.create_transformation_from_config', mock_create_transform):
+        with patch(
+            "forklift.processors.transformations.schema_transformer.create_transformation_from_config",
+            mock_create_transform,
+        ):
             transformer = SchemaBasedTransformer(schema_dict)
             result_batch, validation_results = transformer.process_batch(batch)
 
@@ -579,11 +499,7 @@ class TestEdgeCases:
 
     def test_missing_column_transformations_key(self):
         """Test schema missing column_transformations key."""
-        schema = {
-            "x-transformations": {
-                "global_settings": {"some": "setting"}
-            }
-        }
+        schema = {"x-transformations": {"global_settings": {"some": "setting"}}}
         transformer = SchemaBasedTransformer(schema)
         assert transformer.column_transformations == {}
 
@@ -611,13 +527,7 @@ class TestEdgeCases:
         schema = {
             "x-transformations": {
                 "column_transformations": {
-                    "col1": {
-                        "string_replace": {
-                            "enabled": False,
-                            "old": "old",
-                            "new": "new"
-                        }
-                    }
+                    "col1": {"string_replace": {"enabled": False, "old": "old", "new": "new"}}
                 }
             }
         }

@@ -15,6 +15,7 @@ Environment variables (optional):
 This mirrors tests/integration behavior for the large CSV sample used in performance / chunking tests.
 """
 from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -35,13 +36,15 @@ SCHEMA_PATH = BASE_DIR / "parquet_types.json"
 DATA_PATH = BASE_DIR / "parquet_types.csv"
 DEFAULT_DEST = BASE_DIR / "dev_output"
 
+
 def load_schema() -> dict:
     with SCHEMA_PATH.open("r", encoding="utf-8") as fp:
         return json.load(fp)
 
+
 def derive_input_opts(schema: dict) -> dict:
     """Extract csv-input related options from the schema's x-csv section if present."""
-    xcsv = (schema.get("x-csv") or {})
+    xcsv = schema.get("x-csv") or {}
     opts: dict = {}
     if "delimiter" in xcsv:
         opts["delimiter"] = xcsv["delimiter"]
@@ -49,6 +52,7 @@ def derive_input_opts(schema: dict) -> dict:
         opts["encoding"] = xcsv["encoding"]
     # Add more surfaced options here as needed.
     return opts
+
 
 def run(clean: bool, dest: Path) -> None:
     if not SCHEMA_PATH.exists() or not DATA_PATH.exists():
@@ -95,14 +99,19 @@ def run(clean: bool, dest: Path) -> None:
     else:
         print("No quarantine file (all rows accepted).")
 
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Run forklift Engine on large parquet_types CSV sample")
-    parser.add_argument("--clean", action="store_true", help="Remove existing output directory before running")
+    parser = argparse.ArgumentParser(
+        description="Run forklift Engine on large parquet_types CSV sample"
+    )
+    parser.add_argument(
+        "--clean", action="store_true", help="Remove existing output directory before running"
+    )
     parser.add_argument("--dest", type=str, help="Override destination output directory")
     args = parser.parse_args(argv)
     dest_override = Path(os.environ.get("DEST", args.dest or DEFAULT_DEST))
     run(clean=args.clean, dest=dest_override)
 
+
 if __name__ == "__main__":  # pragma: no cover (dev script)
     main()
-

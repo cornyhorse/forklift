@@ -1,16 +1,18 @@
 """Performance tests for S3 streaming functionality."""
 
-import pytest
-import time
-import tempfile
-from pathlib import Path
 import csv
 import io
 import os
+import tempfile
+import time
+from pathlib import Path
 
+import pytest
+
+from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
+                                           ImportConfig)
 from forklift.io.s3_streaming import S3StreamingClient
 from forklift.io.unified_io import UnifiedIOHandler
-from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
 
 
 @pytest.mark.integration
@@ -22,13 +24,13 @@ class TestS3StreamingPerformance:
     def s3_config(self):
         """Get S3 configuration from environment variables."""
         config = {
-            'aws_access_key_id': os.getenv('AWS_ACCESS_KEY_ID'),
-            'aws_secret_access_key': os.getenv('AWS_SECRET_ACCESS_KEY'),
-            'region_name': os.getenv('AWS_DEFAULT_REGION', 'us-east-1'),
-            'test_bucket': os.getenv('S3_TEST_BUCKET', 'forklift-test-bucket')
+            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+            "region_name": os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+            "test_bucket": os.getenv("S3_TEST_BUCKET", "forklift-test-bucket"),
         }
 
-        if not config['aws_access_key_id'] or not config['aws_secret_access_key']:
+        if not config["aws_access_key_id"] or not config["aws_secret_access_key"]:
             pytest.skip("AWS credentials not configured")
 
         return config
@@ -37,14 +39,15 @@ class TestS3StreamingPerformance:
     def s3_client(self, s3_config):
         """Create S3 client for performance tests."""
         return S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
         )
 
     @pytest.fixture
     def large_csv_data(self):
         """Generate large CSV dataset for performance testing."""
+
         def generate_data(num_rows=100000):
             header = "id,name,email,age,salary,department,hire_date,status\n"
 
@@ -53,16 +56,18 @@ class TestS3StreamingPerformance:
 
             writer = csv.writer(output)
             for i in range(num_rows):
-                writer.writerow([
-                    i,
-                    f"Employee_{i:06d}",
-                    f"emp{i}@company.com",
-                    25 + (i % 40),  # Age between 25-64
-                    50000 + (i % 50000),  # Salary variation
-                    f"Dept_{i % 10}",  # 10 departments
-                    f"2020-{1 + (i % 12):02d}-{1 + (i % 28):02d}",  # Random dates
-                    "active" if i % 10 != 0 else "inactive"
-                ])
+                writer.writerow(
+                    [
+                        i,
+                        f"Employee_{i:06d}",
+                        f"emp{i}@company.com",
+                        25 + (i % 40),  # Age between 25-64
+                        50000 + (i % 50000),  # Salary variation
+                        f"Dept_{i % 10}",  # 10 departments
+                        f"2020-{1 + (i % 12):02d}-{1 + (i % 28):02d}",  # Random dates
+                        "active" if i % 10 != 0 else "inactive",
+                    ]
+                )
 
             return output.getvalue()
 
@@ -85,30 +90,30 @@ class TestS3StreamingPerformance:
     def cleanup_before_test(self, s3_config):
         """Clean up any existing performance test files before running tests."""
         client = S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
         )
 
         # Clean up any existing performance test files
         try:
             response = client._s3_client.list_objects_v2(
-                Bucket=s3_config['test_bucket'],
-                Prefix="forklift/performance-test/"
+                Bucket=s3_config["test_bucket"], Prefix="forklift/performance-test/"
             )
 
-            if 'Contents' in response:
-                objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+            if "Contents" in response:
+                objects_to_delete = [{"Key": obj["Key"]} for obj in response["Contents"]]
                 if objects_to_delete:
                     client._s3_client.delete_objects(
-                        Bucket=s3_config['test_bucket'],
-                        Delete={'Objects': objects_to_delete}
+                        Bucket=s3_config["test_bucket"], Delete={"Objects": objects_to_delete}
                     )
                     print(f"Cleaned up {len(objects_to_delete)} existing performance test objects")
         except Exception as e:
             print(f"Warning: Could not clean up performance test objects: {e}")
 
-    def test_large_file_upload_performance(self, s3_client, s3_config, large_csv_data, cleanup_s3_objects):
+    def test_large_file_upload_performance(
+        self, s3_client, s3_config, large_csv_data, cleanup_s3_objects
+    ):
         """Test performance of uploading large files to S3."""
         test_key = f"forklift/performance-test/large-upload-test.csv"
         s3_path = f"s3://{s3_config['test_bucket']}/{test_key}"
@@ -116,13 +121,13 @@ class TestS3StreamingPerformance:
 
         # Generate 100K rows (~10MB file)
         data = large_csv_data(100000)
-        data_size_mb = len(data.encode('utf-8')) / (1024 * 1024)
+        data_size_mb = len(data.encode("utf-8")) / (1024 * 1024)
 
         print(f"\nUploading {data_size_mb:.2f}MB file to S3...")
 
         start_time = time.time()
 
-        with s3_client.open_for_write(s3_path, encoding='utf-8') as writer:
+        with s3_client.open_for_write(s3_path, encoding="utf-8") as writer:
             writer.write(data)
 
         upload_time = time.time() - start_time
@@ -136,10 +141,7 @@ class TestS3StreamingPerformance:
 
         # Cleanup
         try:
-            s3_client._s3_client.delete_object(
-                Bucket=s3_config['test_bucket'],
-                Key=test_key
-            )
+            s3_client._s3_client.delete_object(Bucket=s3_config["test_bucket"], Key=test_key)
         except Exception:
             pass
 
@@ -156,7 +158,7 @@ class TestS3StreamingPerformance:
         # Upload test data
         data = large_csv_data(50000)  # 50K rows for read test
 
-        with s3_client.open_for_write(s3_path, encoding='utf-8') as writer:
+        with s3_client.open_for_write(s3_path, encoding="utf-8") as writer:
             writer.write(data)
 
         # Test streaming read performance
@@ -166,7 +168,7 @@ class TestS3StreamingPerformance:
         row_count = 0
 
         io_handler = UnifiedIOHandler()
-        for row in io_handler.csv_reader(s3_path, encoding='utf-8'):
+        for row in io_handler.csv_reader(s3_path, encoding="utf-8"):
             row_count += 1
 
         read_time = time.time() - start_time
@@ -177,10 +179,7 @@ class TestS3StreamingPerformance:
 
         # Cleanup
         try:
-            s3_client._s3_client.delete_object(
-                Bucket=s3_config['test_bucket'],
-                Key=test_key
-            )
+            s3_client._s3_client.delete_object(Bucket=s3_config["test_bucket"], Key=test_key)
         except Exception:
             pass
 
@@ -200,12 +199,12 @@ class TestS3StreamingPerformance:
 
         # Upload test data
         data = large_csv_data(25000)  # 25K rows for end-to-end test
-        data_size_mb = len(data.encode('utf-8')) / (1024 * 1024)
+        data_size_mb = len(data.encode("utf-8")) / (1024 * 1024)
 
         io_handler = UnifiedIOHandler()
 
         print(f"\nUploading {data_size_mb:.2f}MB test data...")
-        with io_handler.open_for_write(input_s3_path, encoding='utf-8') as writer:
+        with io_handler.open_for_write(input_s3_path, encoding="utf-8") as writer:
             writer.write(data)
 
         # Process with ForkliftCore
@@ -215,7 +214,7 @@ class TestS3StreamingPerformance:
             header_mode=HeaderMode.PRESENT,
             batch_size=5000,  # Larger batch size for performance
             create_manifest=True,
-            create_metadata=True
+            create_metadata=True,
         )
 
         print("Starting end-to-end processing...")
@@ -240,31 +239,29 @@ class TestS3StreamingPerformance:
         # Cleanup
         cleanup_keys = [input_key]
         for output_file in results.output_files:
-            if output_file.startswith('s3://'):
+            if output_file.startswith("s3://"):
                 from forklift.io.s3_streaming import S3Path
+
                 s3_obj = S3Path(output_file)
                 cleanup_keys.append(s3_obj.key)
 
-        if results.manifest_file and results.manifest_file.startswith('s3://'):
+        if results.manifest_file and results.manifest_file.startswith("s3://"):
             s3_obj = S3Path(results.manifest_file)
             cleanup_keys.append(s3_obj.key)
 
-        if results.metadata_file and results.metadata_file.startswith('s3://'):
+        if results.metadata_file and results.metadata_file.startswith("s3://"):
             s3_obj = S3Path(results.metadata_file)
             cleanup_keys.append(s3_obj.key)
 
         client = S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
         )
 
         for key in cleanup_keys:
             try:
-                client._s3_client.delete_object(
-                    Bucket=s3_config['test_bucket'],
-                    Key=key
-                )
+                client._s3_client.delete_object(Bucket=s3_config["test_bucket"], Key=key)
             except Exception:
                 pass
 
@@ -295,7 +292,7 @@ class TestS3StreamingPerformance:
         data = large_csv_data(200000)
 
         io_handler = UnifiedIOHandler()
-        with io_handler.open_for_write(input_s3_path, encoding='utf-8') as writer:
+        with io_handler.open_for_write(input_s3_path, encoding="utf-8") as writer:
             writer.write(data)
 
         # Process with small batch size to test streaming
@@ -321,23 +318,21 @@ class TestS3StreamingPerformance:
         # Cleanup
         cleanup_keys = [input_key]
         for output_file in results.output_files:
-            if output_file.startswith('s3://'):
+            if output_file.startswith("s3://"):
                 from forklift.io.s3_streaming import S3Path
+
                 s3_obj = S3Path(output_file)
                 cleanup_keys.append(s3_obj.key)
 
         client = S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
         )
 
         for key in cleanup_keys:
             try:
-                client._s3_client.delete_object(
-                    Bucket=s3_config['test_bucket'],
-                    Key=key
-                )
+                client._s3_client.delete_object(Bucket=s3_config["test_bucket"], Key=key)
             except Exception:
                 pass
 

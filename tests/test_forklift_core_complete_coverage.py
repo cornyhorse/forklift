@@ -1,29 +1,23 @@
 """Complete coverage tests for forklift_core.py to achieve 100% coverage."""
 
-import pytest
-import tempfile
+import csv
+import io
 import json
 import os
-import io
-import csv
+import tempfile
+from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open, Mock
+from unittest.mock import MagicMock, Mock, mock_open, patch
+
 import pyarrow as pa
 import pyarrow.parquet as pq
-from dataclasses import dataclass
+import pytest
 
-from forklift.engine.forklift_core import (
-    ForkliftCore,
-    ImportConfig,
-    HeaderMode,
-    ExcessColumnMode,
-    ProcessingResults,
-    ProcessingError,
-    import_csv,
-    import_fwf,
-    import_excel,
-    import_sql
-)
+from forklift.engine.forklift_core import (ExcessColumnMode, ForkliftCore,
+                                           HeaderMode, ImportConfig,
+                                           ProcessingError, ProcessingResults,
+                                           import_csv, import_excel,
+                                           import_fwf, import_sql)
 from forklift.engine.importers.excel_importer import ExcelImporter
 
 

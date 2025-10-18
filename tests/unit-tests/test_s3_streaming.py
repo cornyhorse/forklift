@@ -1,48 +1,45 @@
 """Comprehensive unit tests for S3 streaming functionality with 100% coverage."""
 
-import pytest
-import tempfile
-import json
 import csv
 import io
+import json
+import tempfile
 import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open, Mock
-from typing import Dict, Any
+from typing import Any, Dict
+from unittest.mock import MagicMock, Mock, mock_open, patch
+
+import pyarrow as pa
+import pytest
 from botocore.exceptions import ClientError, NoCredentialsError
 
-from forklift.io.s3_streaming import (
-    S3StreamingClient,
-    S3Path,
-    S3StreamingWriter,
-    is_s3_path,
-    get_s3_client
-)
-import pyarrow as pa
+from forklift.io.s3_streaming import (S3Path, S3StreamingClient,
+                                      S3StreamingWriter, get_s3_client,
+                                      is_s3_path)
 
 
 @pytest.fixture
 def aws_credentials():
     """Mock AWS credentials fixture."""
     return {
-        'aws_access_key_id': 'test_key_id',
-        'aws_secret_access_key': 'test_secret_key',
-        'region_name': 'us-east-1',
-        'endpoint_url': None
+        "aws_access_key_id": "test_key_id",
+        "aws_secret_access_key": "test_secret_key",
+        "region_name": "us-east-1",
+        "endpoint_url": None,
     }
 
 
 @pytest.fixture
 def use_s3_mock(request):
     """Determine whether to use S3 mocking based on --no-s3-mock flag."""
-    return not hasattr(request.config.option, 'no_s3_mock') or not request.config.option.no_s3_mock
+    return not hasattr(request.config.option, "no_s3_mock") or not request.config.option.no_s3_mock
 
 
 @pytest.fixture
 def s3_mock_conditional(use_s3_mock):
     """Conditionally create S3 mocks."""
     if use_s3_mock:
-        with patch('boto3.Session') as mock_session_class:
+        with patch("boto3.Session") as mock_session_class:
             mock_session = MagicMock()
             mock_client = MagicMock()
             mock_session_class.return_value = mock_session
@@ -126,10 +123,10 @@ class TestS3StreamingClient:
         if use_s3_mock:
             # Using mocking
             client = S3StreamingClient(
-                aws_access_key_id=aws_credentials['aws_access_key_id'],
-                aws_secret_access_key=aws_credentials['aws_secret_access_key'],
-                region_name=aws_credentials['region_name'],
-                endpoint_url=aws_credentials['endpoint_url']
+                aws_access_key_id=aws_credentials["aws_access_key_id"],
+                aws_secret_access_key=aws_credentials["aws_secret_access_key"],
+                region_name=aws_credentials["region_name"],
+                endpoint_url=aws_credentials["endpoint_url"],
             )
             client._s3_client = mock_client
             yield client, mock_client
@@ -144,9 +141,9 @@ class TestS3StreamingClient:
     def test_s3_client_initialization(self, aws_credentials):
         """Test S3 client initialization."""
         client = S3StreamingClient(
-            aws_access_key_id=aws_credentials['aws_access_key_id'],
-            aws_secret_access_key=aws_credentials['aws_secret_access_key'],
-            region_name=aws_credentials['region_name']
+            aws_access_key_id=aws_credentials["aws_access_key_id"],
+            aws_secret_access_key=aws_credentials["aws_secret_access_key"],
+            region_name=aws_credentials["region_name"],
         )
         assert client._session is not None
         assert client._s3_client is not None
@@ -154,40 +151,40 @@ class TestS3StreamingClient:
     def test_s3_client_initialization_with_endpoint_url(self, aws_credentials):
         """Test S3 client initialization with custom endpoint URL."""
         endpoint_url = "https://s3.custom-endpoint.com"
-        with patch('boto3.Session') as mock_session_class:
+        with patch("boto3.Session") as mock_session_class:
             mock_session = MagicMock()
             mock_session_class.return_value = mock_session
 
             client = S3StreamingClient(
-                aws_access_key_id=aws_credentials['aws_access_key_id'],
-                aws_secret_access_key=aws_credentials['aws_secret_access_key'],
-                region_name=aws_credentials['region_name'],
-                endpoint_url=endpoint_url
+                aws_access_key_id=aws_credentials["aws_access_key_id"],
+                aws_secret_access_key=aws_credentials["aws_secret_access_key"],
+                region_name=aws_credentials["region_name"],
+                endpoint_url=endpoint_url,
             )
 
             # Verify endpoint_url was passed to client creation
-            mock_session.client.assert_called_once_with('s3', endpoint_url=endpoint_url)
+            mock_session.client.assert_called_once_with("s3", endpoint_url=endpoint_url)
 
     def test_s3_client_initialization_with_session_token(self, aws_credentials):
         """Test S3 client initialization with session token."""
         session_token = "test_session_token"
-        with patch('boto3.Session') as mock_session_class:
+        with patch("boto3.Session") as mock_session_class:
             mock_session = MagicMock()
             mock_session_class.return_value = mock_session
 
             client = S3StreamingClient(
-                aws_access_key_id=aws_credentials['aws_access_key_id'],
-                aws_secret_access_key=aws_credentials['aws_secret_access_key'],
+                aws_access_key_id=aws_credentials["aws_access_key_id"],
+                aws_secret_access_key=aws_credentials["aws_secret_access_key"],
                 aws_session_token=session_token,
-                region_name=aws_credentials['region_name']
+                region_name=aws_credentials["region_name"],
             )
 
             # Verify session token was passed
             mock_session_class.assert_called_once_with(
-                aws_access_key_id=aws_credentials['aws_access_key_id'],
-                aws_secret_access_key=aws_credentials['aws_secret_access_key'],
+                aws_access_key_id=aws_credentials["aws_access_key_id"],
+                aws_secret_access_key=aws_credentials["aws_secret_access_key"],
                 aws_session_token=session_token,
-                region_name=aws_credentials['region_name']
+                region_name=aws_credentials["region_name"],
             )
 
     def test_exists_object_found(self, s3_client_with_mock, use_s3_mock):
@@ -196,14 +193,14 @@ class TestS3StreamingClient:
         s3_path = "s3://test-bucket/test-key"
 
         if use_s3_mock:
-            mock_client.head_object.return_value = {'ContentLength': 100}
+            mock_client.head_object.return_value = {"ContentLength": 100}
 
         # This will either use mock or real S3
         result = client.exists(s3_path)
 
         if use_s3_mock:
             assert result is True
-            mock_client.head_object.assert_called_once_with(Bucket='test-bucket', Key='test-key')
+            mock_client.head_object.assert_called_once_with(Bucket="test-bucket", Key="test-key")
 
     def test_exists_object_not_found(self, s3_client_with_mock, use_s3_mock):
         """Test exists method when object is not found."""
@@ -211,8 +208,8 @@ class TestS3StreamingClient:
         s3_path = "s3://test-bucket/non-existent-key"
 
         if use_s3_mock:
-            error_response = {'Error': {'Code': '404'}}
-            mock_client.head_object.side_effect = ClientError(error_response, 'HeadObject')
+            error_response = {"Error": {"Code": "404"}}
+            mock_client.head_object.side_effect = ClientError(error_response, "HeadObject")
 
         result = client.exists(s3_path)
 
@@ -225,8 +222,8 @@ class TestS3StreamingClient:
         s3_path = "s3://test-bucket/test-key"
 
         if use_s3_mock:
-            error_response = {'Error': {'Code': '403'}}
-            mock_client.head_object.side_effect = ClientError(error_response, 'HeadObject')
+            error_response = {"Error": {"Code": "403"}}
+            mock_client.head_object.side_effect = ClientError(error_response, "HeadObject")
 
             with pytest.raises(ClientError):
                 client.exists(s3_path)
@@ -237,7 +234,7 @@ class TestS3StreamingClient:
         s3_path = "s3://test-bucket/test-key"
 
         if use_s3_mock:
-            mock_client.head_object.return_value = {'ContentLength': 1024}
+            mock_client.head_object.return_value = {"ContentLength": 1024}
 
         result = client.get_size(s3_path)
 
@@ -251,11 +248,11 @@ class TestS3StreamingClient:
 
         if use_s3_mock:
             mock_body = MagicMock()
-            mock_client.get_object.return_value = {'Body': mock_body}
+            mock_client.get_object.return_value = {"Body": mock_body}
 
-            with patch('io.TextIOWrapper') as mock_text_wrapper:
-                client.open_for_read(s3_path, encoding='utf-8', mode='r')
-                mock_text_wrapper.assert_called_once_with(mock_body, encoding='utf-8')
+            with patch("io.TextIOWrapper") as mock_text_wrapper:
+                client.open_for_read(s3_path, encoding="utf-8", mode="r")
+                mock_text_wrapper.assert_called_once_with(mock_body, encoding="utf-8")
 
     def test_open_for_read_binary_mode(self, s3_client_with_mock, use_s3_mock):
         """Test open_for_read in binary mode - covers line 199-212."""
@@ -264,9 +261,9 @@ class TestS3StreamingClient:
 
         if use_s3_mock:
             mock_body = MagicMock()
-            mock_client.get_object.return_value = {'Body': mock_body}
+            mock_client.get_object.return_value = {"Body": mock_body}
 
-            result = client.open_for_read(s3_path, mode='rb')
+            result = client.open_for_read(s3_path, mode="rb")
             assert result == mock_body
 
     def test_open_for_write(self, s3_client_with_mock, use_s3_mock):
@@ -287,16 +284,16 @@ class TestS3StreamingClient:
             mock_client.get_paginator.return_value = mock_paginator
             mock_paginator.paginate.return_value = [
                 {
-                    'Contents': [
-                        {'Key': 'prefix/file1.csv', 'Size': 100},
-                        {'Key': 'prefix/file2.csv', 'Size': 200}
+                    "Contents": [
+                        {"Key": "prefix/file1.csv", "Size": 100},
+                        {"Key": "prefix/file2.csv", "Size": 200},
                     ]
                 }
             ]
 
             objects = list(client.list_objects(s3_prefix))
             assert len(objects) == 2
-            assert objects[0]['Key'] == 'prefix/file1.csv'
+            assert objects[0]["Key"] == "prefix/file1.csv"
 
     def test_list_objects_with_max_keys(self, s3_client_with_mock, use_s3_mock):
         """Test list_objects method with max_keys parameter."""
@@ -310,9 +307,7 @@ class TestS3StreamingClient:
 
             list(client.list_objects(s3_prefix, max_keys=10))
             mock_paginator.paginate.assert_called_once_with(
-                Bucket='test-bucket',
-                Prefix='prefix/',
-                MaxKeys=10
+                Bucket="test-bucket", Prefix="prefix/", MaxKeys=10
             )
 
 
@@ -323,7 +318,7 @@ class TestS3StreamingWriter:
     def mock_s3_client(self):
         """Create mock S3 client for writer tests."""
         mock_client = MagicMock()
-        mock_client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
+        mock_client.create_multipart_upload.return_value = {"UploadId": "test-upload-id"}
         return mock_client
 
     @pytest.fixture
@@ -337,18 +332,18 @@ class TestS3StreamingWriter:
 
         assert writer._s3_client == mock_s3_client
         assert writer._s3_path == s3_path
-        assert writer._encoding == 'utf-8'
+        assert writer._encoding == "utf-8"
         assert writer._part_size >= 5 * 1024 * 1024  # Minimum 5MB
-        assert writer._mode == 'w'
+        assert writer._mode == "w"
         assert not writer._is_binary
         assert writer._part_number == 1
         assert writer._closed is False
 
     def test_writer_initialization_binary_mode(self, mock_s3_client, s3_path):
         """Test S3StreamingWriter initialization in binary mode."""
-        writer = S3StreamingWriter(mock_s3_client, s3_path, mode='wb')
+        writer = S3StreamingWriter(mock_s3_client, s3_path, mode="wb")
         assert writer._is_binary is True
-        assert writer._mode == 'wb'
+        assert writer._mode == "wb"
 
     def test_writer_initialization_small_part_size(self, mock_s3_client, s3_path):
         """Test S3StreamingWriter initialization with small part size gets adjusted to minimum."""
@@ -360,7 +355,7 @@ class TestS3StreamingWriter:
         writer = S3StreamingWriter(mock_s3_client, s3_path)
 
         assert writer.closed is False
-        assert writer.mode == 'w'
+        assert writer.mode == "w"
         assert writer.tell() == 0
         assert writer.seekable() is False
         assert writer.writable() is True
@@ -380,7 +375,7 @@ class TestS3StreamingWriter:
 
     def test_write_binary_data(self, mock_s3_client, s3_path):
         """Test writing binary data."""
-        writer = S3StreamingWriter(mock_s3_client, s3_path, mode='wb')
+        writer = S3StreamingWriter(mock_s3_client, s3_path, mode="wb")
         data = b"test binary data"
 
         bytes_written = writer.write(data)
@@ -388,7 +383,7 @@ class TestS3StreamingWriter:
 
     def test_write_string_in_binary_mode_error(self, mock_s3_client, s3_path):
         """Test writing string data in binary mode raises error - covers line 288."""
-        writer = S3StreamingWriter(mock_s3_client, s3_path, mode='wb')
+        writer = S3StreamingWriter(mock_s3_client, s3_path, mode="wb")
 
         with pytest.raises(ValueError, match="Cannot write string data in binary mode"):
             writer.write("string data")
@@ -403,8 +398,10 @@ class TestS3StreamingWriter:
     def test_write_large_data_triggers_upload(self, mock_s3_client, s3_path):
         """Test writing large data triggers part upload."""
         # Use a very small part size but larger than minimum 5MB gets enforced
-        writer = S3StreamingWriter(mock_s3_client, s3_path, part_size=5 * 1024 * 1024)  # 5MB minimum
-        mock_s3_client.upload_part.return_value = {'ETag': 'test-etag'}
+        writer = S3StreamingWriter(
+            mock_s3_client, s3_path, part_size=5 * 1024 * 1024
+        )  # 5MB minimum
+        mock_s3_client.upload_part.return_value = {"ETag": "test-etag"}
 
         # Write data larger than part size to trigger upload
         large_data = "x" * (6 * 1024 * 1024)  # 6MB of data
@@ -430,7 +427,7 @@ class TestS3StreamingWriter:
     def test_close_with_parts(self, mock_s3_client, s3_path):
         """Test close with uploaded parts completes multipart upload."""
         writer = S3StreamingWriter(mock_s3_client, s3_path, part_size=5 * 1024 * 1024)
-        mock_s3_client.upload_part.return_value = {'ETag': 'test-etag'}
+        mock_s3_client.upload_part.return_value = {"ETag": "test-etag"}
 
         # Write large data to trigger part upload
         writer.write("x" * (6 * 1024 * 1024))  # 6MB
@@ -442,7 +439,7 @@ class TestS3StreamingWriter:
     def test_close_without_parts_but_with_data(self, mock_s3_client, s3_path):
         """Test close without parts but with small data that gets uploaded as a part."""
         writer = S3StreamingWriter(mock_s3_client, s3_path)
-        mock_s3_client.upload_part.return_value = {'ETag': 'test-etag'}
+        mock_s3_client.upload_part.return_value = {"ETag": "test-etag"}
 
         writer.write("small data")
         writer.close()
@@ -464,23 +461,23 @@ class TestS3StreamingWriter:
 
         # Mock the buffer to have data when close is called
         writer._buffer.seek(0)  # Reset buffer position
-        writer._buffer.write(small_data.encode('utf-8'))  # Ensure buffer has data
+        writer._buffer.write(small_data.encode("utf-8"))  # Ensure buffer has data
         writer._buffer.seek(0)  # Reset for reading
 
         # Override the _upload_part method to not create parts
         original_upload_part = writer._upload_part
+
         def mock_upload_part():
             # Don't actually upload as part, keep buffer with data
             pass
+
         writer._upload_part = mock_upload_part
 
         writer.close()
 
         # Should call put_object for small data (line 359)
         mock_s3_client.put_object.assert_called_once_with(
-            Bucket='test-bucket',
-            Key='test-key',
-            Body=small_data.encode('utf-8')
+            Bucket="test-bucket", Key="test-key", Body=small_data.encode("utf-8")
         )
         mock_s3_client.abort_multipart_upload.assert_called()
 
@@ -498,7 +495,7 @@ class TestS3StreamingWriter:
     def test_close_with_exception_aborts_upload(self, mock_s3_client, s3_path):
         """Test close with exception aborts upload."""
         writer = S3StreamingWriter(mock_s3_client, s3_path, part_size=5 * 1024 * 1024)
-        mock_s3_client.upload_part.return_value = {'ETag': 'test-etag'}
+        mock_s3_client.upload_part.return_value = {"ETag": "test-etag"}
         mock_s3_client.complete_multipart_upload.side_effect = Exception("Upload failed")
 
         writer.write("x" * (6 * 1024 * 1024))  # 6MB to trigger part upload
@@ -560,13 +557,13 @@ class TestUtilityFunctions:
 
     def test_get_s3_client(self):
         """Test get_s3_client function."""
-        with patch('forklift.io.s3_streaming.S3StreamingClient') as mock_client_class:
+        with patch("forklift.io.s3_streaming.S3StreamingClient") as mock_client_class:
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
 
-            result = get_s3_client(region_name='us-west-2')
+            result = get_s3_client(region_name="us-west-2")
 
-            mock_client_class.assert_called_once_with(region_name='us-west-2')
+            mock_client_class.assert_called_once_with(region_name="us-west-2")
             assert result == mock_client
 
 
@@ -583,7 +580,7 @@ class TestS3ErrorHandling:
 
     def test_s3_client_connection_errors(self):
         """Test S3 client connection errors."""
-        with patch('boto3.Session') as mock_session_class:
+        with patch("boto3.Session") as mock_session_class:
             mock_session = MagicMock()
             mock_session_class.return_value = mock_session
             mock_session.client.side_effect = NoCredentialsError()
@@ -596,8 +593,8 @@ class TestS3ErrorHandling:
     def test_s3_writer_error_cleanup(self):
         """Test S3StreamingWriter error cleanup."""
         mock_client = MagicMock()
-        mock_client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
-        mock_client.upload_part.return_value = {'ETag': 'test-etag'}
+        mock_client.create_multipart_upload.return_value = {"UploadId": "test-upload-id"}
+        mock_client.upload_part.return_value = {"ETag": "test-etag"}
         s3_path = S3Path("s3://test-bucket/test-key")
 
         writer = S3StreamingWriter(mock_client, s3_path, part_size=5 * 1024 * 1024)
@@ -619,5 +616,5 @@ def pytest_addoption(parser):
         "--no-s3-mock",
         action="store_true",
         default=False,
-        help="Use real S3 connections instead of mocking"
+        help="Use real S3 connections instead of mocking",
     )

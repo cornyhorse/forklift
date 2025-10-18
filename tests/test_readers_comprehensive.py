@@ -1,23 +1,17 @@
 """Comprehensive tests for forklift readers module to improve code coverage."""
 
-import pytest
-import tempfile
-import shutil
 import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock, call
+import shutil
 import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, call, patch
+
+import pytest
 
 # Import the module under test
-from forklift.readers import (
-    DataFrameReader,
-    read_csv,
-    read_excel,
-    read_fwf,
-    read_sql,
-    _cleanup_temp_dirs,
-    _temp_dirs
-)
+from forklift.readers import (DataFrameReader, _cleanup_temp_dirs, _temp_dirs,
+                              read_csv, read_excel, read_fwf, read_sql)
 
 
 class TestDataFrameReaderComprehensive:
@@ -32,7 +26,6 @@ class TestDataFrameReaderComprehensive:
         pytest.skip("Method import_sql no longer exists after ForkliftCore refactoring")
 
 
-
 class TestGlobalCleanup:
     """Test global cleanup functionality."""
 
@@ -42,7 +35,7 @@ class TestGlobalCleanup:
 
     def test_cleanup_temp_dirs_empty(self):
         """Test cleanup when no temp directories are registered."""
-        with patch('shutil.rmtree') as mock_rmtree:
+        with patch("shutil.rmtree") as mock_rmtree:
             _cleanup_temp_dirs()
             mock_rmtree.assert_not_called()
 
@@ -51,20 +44,20 @@ class TestGlobalCleanup:
         _temp_dirs.add("/tmp/dir1")
         _temp_dirs.add("/tmp/dir2")
 
-        with patch('shutil.rmtree') as mock_rmtree:
+        with patch("shutil.rmtree") as mock_rmtree:
             _cleanup_temp_dirs()
 
             assert mock_rmtree.call_count == 2
-            mock_rmtree.assert_has_calls([
-                call("/tmp/dir1", ignore_errors=True),
-                call("/tmp/dir2", ignore_errors=True)
-            ], any_order=True)
+            mock_rmtree.assert_has_calls(
+                [call("/tmp/dir1", ignore_errors=True), call("/tmp/dir2", ignore_errors=True)],
+                any_order=True,
+            )
 
     def test_cleanup_temp_dirs_ignore_errors(self):
         """Test that cleanup calls rmtree with ignore_errors=True."""
         _temp_dirs.add("/tmp/nonexistent")
 
-        with patch('shutil.rmtree') as mock_rmtree:
+        with patch("shutil.rmtree") as mock_rmtree:
             # Should not raise an exception because ignore_errors=True
             _cleanup_temp_dirs()
             mock_rmtree.assert_called_once_with("/tmp/nonexistent", ignore_errors=True)
@@ -78,8 +71,8 @@ class TestImportErrorHandling:
         files = ["/path/to/file.parquet"]
         reader = DataFrameReader(files)
 
-        with patch.dict('sys.modules', {'polars': None}):
-            with patch('builtins.__import__', side_effect=ImportError("No module named 'polars'")):
+        with patch.dict("sys.modules", {"polars": None}):
+            with patch("builtins.__import__", side_effect=ImportError("No module named 'polars'")):
                 with pytest.raises(ImportError) as exc_info:
                     reader.as_polars()
 
@@ -92,8 +85,8 @@ class TestImportErrorHandling:
         files = ["/path/to/file.parquet"]
         reader = DataFrameReader(files)
 
-        with patch.dict('sys.modules', {'pandas': None}):
-            with patch('builtins.__import__', side_effect=ImportError("No module named 'pandas'")):
+        with patch.dict("sys.modules", {"pandas": None}):
+            with patch("builtins.__import__", side_effect=ImportError("No module named 'pandas'")):
                 with pytest.raises(ImportError) as exc_info:
                     reader.as_pandas()
 
@@ -106,8 +99,8 @@ class TestImportErrorHandling:
         files = ["/path/to/file.parquet"]
         reader = DataFrameReader(files)
 
-        with patch.dict('sys.modules', {'pyarrow.parquet': None, 'pyarrow': None}):
-            with patch('builtins.__import__', side_effect=ImportError("No module named 'pyarrow'")):
+        with patch.dict("sys.modules", {"pyarrow.parquet": None, "pyarrow": None}):
+            with patch("builtins.__import__", side_effect=ImportError("No module named 'pyarrow'")):
                 with pytest.raises(ImportError) as exc_info:
                     reader.as_pyarrow()
 
@@ -124,7 +117,7 @@ class TestEdgeCases:
         reader = DataFrameReader([])
 
         # Should handle empty lists gracefully
-        with patch('polars.concat', return_value=MagicMock()) as mock_concat:
+        with patch("polars.concat", return_value=MagicMock()) as mock_concat:
             reader.as_polars()
             mock_concat.assert_called_once_with([])
 
@@ -133,7 +126,7 @@ class TestEdgeCases:
         files = ["/path/to/file.parquet"]
         temp_dir = "/tmp/test_cleanup"
 
-        with patch('shutil.rmtree') as mock_rmtree:
+        with patch("shutil.rmtree") as mock_rmtree:
             reader = DataFrameReader(files, temp_dir)
 
             # Call cleanup multiple times
@@ -150,12 +143,13 @@ class TestEdgeCases:
         mock_results = MagicMock()
         mock_results.output_files = ["/tmp/output.parquet"]
 
-        with patch('tempfile.mkdtemp', return_value="/tmp/test_dir"), \
-             patch('forklift.readers.import_csv', return_value=mock_results) as mock_import:
+        with patch("tempfile.mkdtemp", return_value="/tmp/test_dir"), patch(
+            "forklift.readers.import_csv", return_value=mock_results
+        ) as mock_import:
 
             reader = read_csv(input_path)
 
             # Should pass Path object through correctly
             mock_import.assert_called_once()
             args, kwargs = mock_import.call_args
-            assert kwargs['input_path'] == input_path
+            assert kwargs["input_path"] == input_path

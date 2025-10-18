@@ -1,7 +1,8 @@
 """Basic column transformation processor."""
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Callable
+
+from typing import Callable, Dict, List, Tuple
 
 import pyarrow as pa
 
@@ -57,12 +58,14 @@ class ColumnTransformer(BaseProcessor):
                     transformed_column = self._apply_transforms(column, transforms)
                     batch = batch.set_column(column_index, column_name, transformed_column)
                 except Exception as e:
-                    validation_results.append(ValidationResult(
-                        is_valid=False,
-                        error_message=f"Transformation failed for column '{column_name}': {str(e)}",
-                        error_code="TRANSFORMATION_ERROR",
-                        column_name=column_name
-                    ))
+                    validation_results.append(
+                        ValidationResult(
+                            is_valid=False,
+                            error_message=f"Transformation failed for column '{column_name}': {str(e)}",
+                            error_code="TRANSFORMATION_ERROR",
+                            column_name=column_name,
+                        )
+                    )
 
         return batch, validation_results
 

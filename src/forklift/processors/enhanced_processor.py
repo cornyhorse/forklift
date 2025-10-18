@@ -1,16 +1,18 @@
 """Enhanced data processor that combines schema validation, constraint checking, and bad rows handling."""
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Any, Optional, Union
-from pathlib import Path
+
 import logging
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pyarrow as pa
 
+from .bad_rows_handler import BadRowsConfig, BadRowsHandler
 from .base import BaseProcessor, ValidationResult
+from .constraint_validator import (ConstraintConfig, ConstraintValidator,
+                                   create_constraint_config_from_schema)
 from .schema_validator import SchemaValidator
-from .constraint_validator import ConstraintValidator, ConstraintConfig, create_constraint_config_from_schema
-from .bad_rows_handler import BadRowsHandler, BadRowsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +25,14 @@ class EnhancedDataProcessor(BaseProcessor):
     standards.
     """
 
-    def __init__(self,
-                 schema: pa.Schema,
-                 schema_dict: Optional[Dict[str, Any]] = None,
-                 constraint_config: Optional[ConstraintConfig] = None,
-                 bad_rows_config: Optional[BadRowsConfig] = None,
-                 strict_mode: bool = True):
+    def __init__(
+        self,
+        schema: pa.Schema,
+        schema_dict: Optional[Dict[str, Any]] = None,
+        constraint_config: Optional[ConstraintConfig] = None,
+        bad_rows_config: Optional[BadRowsConfig] = None,
+        strict_mode: bool = True,
+    ):
         """Initialize the enhanced data processor.
 
         Args:
@@ -80,7 +84,9 @@ class EnhancedDataProcessor(BaseProcessor):
         all_validation_results.extend(schema_validation_results)
 
         # Step 2: Constraint validation on schema-valid data
-        constraint_valid_batch, constraint_validation_results = self.constraint_validator.process_batch(schema_valid_batch)
+        constraint_valid_batch, constraint_validation_results = (
+            self.constraint_validator.process_batch(schema_valid_batch)
+        )
         all_validation_results.extend(constraint_validation_results)
 
         # Step 3: Handle bad rows
@@ -91,8 +97,12 @@ class EnhancedDataProcessor(BaseProcessor):
 
         return constraint_valid_batch, all_validation_results
 
-    def _handle_bad_rows(self, original_batch: pa.RecordBatch, valid_batch: pa.RecordBatch,
-                        validation_results: List[ValidationResult]):
+    def _handle_bad_rows(
+        self,
+        original_batch: pa.RecordBatch,
+        valid_batch: pa.RecordBatch,
+        validation_results: List[ValidationResult],
+    ):
         """Handle bad rows collection and processing."""
         # Determine which rows are invalid
         valid_row_indices = set()
@@ -112,12 +122,17 @@ class EnhancedDataProcessor(BaseProcessor):
         # Collect constraint violations by row
         constraint_violations_by_row = {}
         for violation in self.constraint_validator.get_all_violations():
-            if violation.row_index is not None and violation.row_index not in constraint_violations_by_row:
+            if (
+                violation.row_index is not None
+                and violation.row_index not in constraint_violations_by_row
+            ):
                 constraint_violations_by_row[violation.row_index] = []
                 constraint_violations_by_row[violation.row_index].append(violation)
 
         # Add bad rows to handler
-        invalid_row_indices = set(validation_by_row.keys()) | set(constraint_violations_by_row.keys())
+        invalid_row_indices = set(validation_by_row.keys()) | set(
+            constraint_violations_by_row.keys()
+        )
 
         for row_idx in invalid_row_indices:
             # Ensure row_idx is an integer - handle various types
@@ -150,7 +165,7 @@ class EnhancedDataProcessor(BaseProcessor):
                 row_data=row_data,
                 row_index=row_idx,
                 validation_results=validation_by_row.get(original_row_idx, []),
-                constraint_violations=constraint_violations_by_row.get(original_row_idx, [])
+                constraint_violations=constraint_violations_by_row.get(original_row_idx, []),
             )
 
     def _extract_error_handling_mode(self) -> str:
@@ -168,7 +183,7 @@ class EnhancedDataProcessor(BaseProcessor):
         results = {
             "processing_summary": self.bad_rows_handler.get_summary(),
             "constraint_violations": len(self.constraint_validator.get_all_violations()),
-            "has_bad_rows": self.bad_rows_handler.has_bad_rows()
+            "has_bad_rows": self.bad_rows_handler.has_bad_rows(),
         }
 
         # Finalize constraint validation (may raise exception in FAIL_COMPLETE mode)
@@ -199,7 +214,7 @@ class EnhancedDataProcessor(BaseProcessor):
             "total_violations": len(violations),
             "violation_types": {},
             "affected_constraints": set(),
-            "sample_violations": []
+            "sample_violations": [],
         }
 
         for violation in violations:
@@ -213,21 +228,25 @@ class EnhancedDataProcessor(BaseProcessor):
 
             # Sample violations (first 5 of each type)
             if len([v for v in summary["sample_violations"] if v["type"] == vtype]) < 5:
-                summary["sample_violations"].append({
-                    "type": vtype,
-                    "row_index": violation.row_index,
-                    "columns": violation.columns,
-                    "values": violation.values,
-                    "message": violation.error_message
-                })
+                summary["sample_violations"].append(
+                    {
+                        "type": vtype,
+                        "row_index": violation.row_index,
+                        "columns": violation.columns,
+                        "values": violation.values,
+                        "message": violation.error_message,
+                    }
+                )
 
         summary["affected_constraints"] = list(summary["affected_constraints"])
         return summary
 
 
-def create_enhanced_processor_from_schema_file(schema_file_path: Union[str, Path],
-                                              bad_rows_output_path: Optional[Union[str, Path]] = None,
-                                              error_mode: str = "bad_rows") -> EnhancedDataProcessor:
+def create_enhanced_processor_from_schema_file(
+    schema_file_path: Union[str, Path],
+    bad_rows_output_path: Optional[Union[str, Path]] = None,
+    error_mode: str = "bad_rows",
+) -> EnhancedDataProcessor:
     """Create an enhanced processor from a schema file.
 
     Args:
@@ -241,7 +260,7 @@ def create_enhanced_processor_from_schema_file(schema_file_path: Union[str, Path
     import json
 
     # Load schema
-    with open(schema_file_path, 'r') as f:
+    with open(schema_file_path, "r") as f:
         schema_dict = json.load(f)
 
     # Create PyArrow schema from JSON schema (simplified conversion)
@@ -263,7 +282,7 @@ def create_enhanced_processor_from_schema_file(schema_file_path: Union[str, Path
         output_format="parquet",
         include_original_data=True,
         include_error_details=True,
-        create_summary=True
+        create_summary=True,
     )
 
     # Override error mode if specified
@@ -272,9 +291,7 @@ def create_enhanced_processor_from_schema_file(schema_file_path: Union[str, Path
     schema_dict["x-constraintHandling"]["errorMode"] = error_mode
 
     return EnhancedDataProcessor(
-        schema=arrow_schema,
-        schema_dict=schema_dict,
-        bad_rows_config=bad_rows_config
+        schema=arrow_schema, schema_dict=schema_dict, bad_rows_config=bad_rows_config
     )
 
 
@@ -293,7 +310,7 @@ def _json_type_to_arrow_type(field_def: Dict[str, Any]) -> pa.DataType:
         if format_type == "date":
             return pa.date32()
         elif format_type == "date-time":
-            return pa.timestamp('us')
+            return pa.timestamp("us")
         else:
             return pa.string()
     elif field_type == "array":

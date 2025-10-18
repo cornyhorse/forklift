@@ -1,13 +1,15 @@
 """Configuration classes for data validation."""
 
 from __future__ import annotations
-from typing import List, Dict, Optional, Any, Union
+
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass
 class RangeValidation:
     """Range validation configuration for numeric and date fields."""
+
     min_value: Optional[Union[int, float, str]] = None
     max_value: Optional[Union[int, float, str]] = None
     inclusive: bool = True
@@ -16,6 +18,7 @@ class RangeValidation:
 @dataclass
 class StringValidation:
     """String validation configuration."""
+
     min_length: Optional[int] = None
     max_length: Optional[int] = None
     pattern: Optional[str] = None
@@ -25,6 +28,7 @@ class StringValidation:
 @dataclass
 class EnumValidation:
     """Enumeration validation configuration."""
+
     allowed_values: List[Any]
     case_sensitive: bool = True
 
@@ -32,6 +36,7 @@ class EnumValidation:
 @dataclass
 class DateValidation:
     """Date validation configuration."""
+
     min_date: Optional[str] = None
     max_date: Optional[str] = None
     formats: Optional[List[str]] = None
@@ -40,6 +45,7 @@ class DateValidation:
 @dataclass
 class FieldValidationRule:
     """Validation rule for a single field."""
+
     field_name: str
     required: bool = False
     unique: bool = False
@@ -57,6 +63,7 @@ class FieldValidationRule:
 @dataclass
 class BadRowsConfig:
     """Configuration for bad rows handling."""
+
     enabled: bool = True
     output_path: str = "bad_rows"
     file_format: str = "parquet"
@@ -69,9 +76,12 @@ class BadRowsConfig:
 @dataclass
 class ValidationConfig:
     """Configuration for data validation processor."""
+
     field_validations: List[FieldValidationRule]
     bad_rows_config: BadRowsConfig
-    uniqueness_strategy: str = "first_wins"  # first_wins, last_wins, fail_on_duplicate, mark_all_duplicates
+    uniqueness_strategy: str = (
+        "first_wins"  # first_wins, last_wins, fail_on_duplicate, mark_all_duplicates
+    )
 
     def __post_init__(self):
         valid_strategies = ["first_wins", "last_wins", "fail_on_duplicate", "mark_all_duplicates"]

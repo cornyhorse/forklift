@@ -14,17 +14,10 @@ class TestDataValidationCompatibility:
         """Test importing all classes and functions from the data validation compatibility module."""
         # Import from the backward-compatibility module
         from forklift.processors.data_validation import (
-            RangeValidation,
-            StringValidation,
-            EnumValidation,
-            DateValidation,
-            FieldValidationRule,
-            BadRowsConfig,
-            ValidationConfig,
-            ValidationRules,
-            BadRowsHandler,
-            DataValidationProcessor
-        )
+            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
+            DateValidation, EnumValidation, FieldValidationRule,
+            RangeValidation, StringValidation, ValidationConfig,
+            ValidationRules)
 
         # Verify all classes are imported and are callable
         assert callable(RangeValidation)
@@ -52,11 +45,11 @@ class TestDataValidationCompatibility:
             "ValidationConfig",
             "ValidationRules",
             "BadRowsHandler",
-            "DataValidationProcessor"
+            "DataValidationProcessor",
         ]
 
         # Verify __all__ attribute exists and contains expected exports
-        assert hasattr(validation_module, '__all__')
+        assert hasattr(validation_module, "__all__")
         assert validation_module.__all__ == expected_exports
 
         # Verify all items in __all__ are actually available in the module
@@ -69,34 +62,44 @@ class TestDataValidationCompatibility:
         """Test importing each class individually."""
         # Test validation config classes
         from forklift.processors.data_validation import RangeValidation
+
         assert callable(RangeValidation)
 
         from forklift.processors.data_validation import StringValidation
+
         assert callable(StringValidation)
 
         from forklift.processors.data_validation import EnumValidation
+
         assert callable(EnumValidation)
 
         from forklift.processors.data_validation import DateValidation
+
         assert callable(DateValidation)
 
         from forklift.processors.data_validation import FieldValidationRule
+
         assert callable(FieldValidationRule)
 
         from forklift.processors.data_validation import BadRowsConfig
+
         assert callable(BadRowsConfig)
 
         from forklift.processors.data_validation import ValidationConfig
+
         assert callable(ValidationConfig)
 
         # Test core classes
         from forklift.processors.data_validation import ValidationRules
+
         assert callable(ValidationRules)
 
         from forklift.processors.data_validation import BadRowsHandler
+
         assert callable(BadRowsHandler)
 
         from forklift.processors.data_validation import DataValidationProcessor
+
         assert callable(DataValidationProcessor)
 
     def test_module_docstring(self):
@@ -107,7 +110,7 @@ class TestDataValidationCompatibility:
             "Data validation package",
             "comprehensive data validation",
             "Field validation",
-            "Bad rows handling"
+            "Bad rows handling",
         ]
 
         assert validation_module.__doc__ is not None
@@ -117,10 +120,11 @@ class TestDataValidationCompatibility:
     def test_imports_are_same_as_source_modules(self):
         """Test that imports from compatibility module are the same as source modules."""
         # Import from compatibility module
-        from forklift.processors.data_validation import DataValidationProcessor as CompatProcessor
-
+        from forklift.processors.data_validation import \
+            DataValidationProcessor as CompatProcessor
         # Import from source module directly
-        from forklift.processors.data_validation.data_validation_processor import DataValidationProcessor as SourceProcessor
+        from forklift.processors.data_validation.data_validation_processor import \
+            DataValidationProcessor as SourceProcessor
 
         # They should be the same class
         assert CompatProcessor is SourceProcessor
@@ -130,7 +134,7 @@ class TestDataValidationCompatibility:
         import forklift.processors.data_validation as validation_module
 
         # Get all public names from the module
-        public_names = [name for name in dir(validation_module) if not name.startswith('_')]
+        public_names = [name for name in dir(validation_module) if not name.startswith("_")]
 
         # All items in __all__ should be in the public namespace
         for export_name in validation_module.__all__:
@@ -144,6 +148,13 @@ class TestDataValidationCompatibility:
     def test_classes_have_expected_attributes(self):
         """Test that imported classes have expected attributes without instantiating."""
         from forklift.processors.data_validation import (
+            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
+            DateValidation, EnumValidation, FieldValidationRule,
+            RangeValidation, StringValidation, ValidationConfig,
+            ValidationRules)
+
+        # Test that classes have expected methods/attributes (without instantiating)
+        validation_classes = [
             RangeValidation,
             StringValidation,
             EnumValidation,
@@ -153,25 +164,17 @@ class TestDataValidationCompatibility:
             ValidationConfig,
             ValidationRules,
             BadRowsHandler,
-            DataValidationProcessor
-        )
-
-        # Test that classes have expected methods/attributes (without instantiating)
-        validation_classes = [
-            RangeValidation, StringValidation, EnumValidation, DateValidation,
-            FieldValidationRule, BadRowsConfig, ValidationConfig,
-            ValidationRules, BadRowsHandler, DataValidationProcessor
+            DataValidationProcessor,
         ]
 
         for cls in validation_classes:
-            assert hasattr(cls, '__init__'), f"{cls.__name__} should have __init__ method"
+            assert hasattr(cls, "__init__"), f"{cls.__name__} should have __init__ method"
 
     def test_import_error_handling(self):
         """Test that the module handles import scenarios correctly."""
         # Test that the module can be imported without errors
-        import forklift.processors.data_validation
-
         # Test that re-importing works
+        import forklift.processors.data_validation
         import forklift.processors.data_validation as validation_alias
 
         # Both should reference the same module
@@ -194,7 +197,7 @@ class TestDataValidationCompatibility:
             "ValidationRules",
             "BadRowsHandler",
             "DataValidationProcessor",
-            "__all__"
+            "__all__",
         ]
 
         for attr in expected_attributes:
@@ -202,42 +205,37 @@ class TestDataValidationCompatibility:
 
         # Verify __all__ contains exactly what we expect
         assert len(validation_module.__all__) == 10
-        assert all(name in validation_module.__all__ for name in expected_attributes[:-1])  # exclude __all__ itself
+        assert all(
+            name in validation_module.__all__ for name in expected_attributes[:-1]
+        )  # exclude __all__ itself
 
     def test_comprehensive_compatibility_scenario(self):
         """Test a comprehensive scenario using the backward compatibility interface."""
         # Import all exports through the compatibility interface
         from forklift.processors.data_validation import (
-            RangeValidation,
-            StringValidation,
-            EnumValidation,
-            DateValidation,
-            FieldValidationRule,
-            BadRowsConfig,
-            ValidationConfig,
-            ValidationRules,
-            BadRowsHandler,
-            DataValidationProcessor
-        )
+            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
+            DateValidation, EnumValidation, FieldValidationRule,
+            RangeValidation, StringValidation, ValidationConfig,
+            ValidationRules)
 
         # Verify all exports are accessible and have expected properties
         exports_to_test = [
-            ('RangeValidation', RangeValidation),
-            ('StringValidation', StringValidation),
-            ('EnumValidation', EnumValidation),
-            ('DateValidation', DateValidation),
-            ('FieldValidationRule', FieldValidationRule),
-            ('BadRowsConfig', BadRowsConfig),
-            ('ValidationConfig', ValidationConfig),
-            ('ValidationRules', ValidationRules),
-            ('BadRowsHandler', BadRowsHandler),
-            ('DataValidationProcessor', DataValidationProcessor)
+            ("RangeValidation", RangeValidation),
+            ("StringValidation", StringValidation),
+            ("EnumValidation", EnumValidation),
+            ("DateValidation", DateValidation),
+            ("FieldValidationRule", FieldValidationRule),
+            ("BadRowsConfig", BadRowsConfig),
+            ("ValidationConfig", ValidationConfig),
+            ("ValidationRules", ValidationRules),
+            ("BadRowsHandler", BadRowsHandler),
+            ("DataValidationProcessor", DataValidationProcessor),
         ]
 
         for export_name, export_item in exports_to_test:
             assert export_item is not None, f"{export_name} should not be None"
             assert callable(export_item), f"{export_name} should be callable (class)"
-            assert hasattr(export_item, '__init__'), f"{export_name} should have __init__ method"
+            assert hasattr(export_item, "__init__"), f"{export_name} should have __init__ method"
 
     def test_module_level_imports_coverage(self):
         """Test that ensures all module-level import statements are executed."""
@@ -248,17 +246,17 @@ class TestDataValidationCompatibility:
         module = forklift.processors.data_validation
 
         # This test ensures that all import statements and __all__ definition are executed
-        assert hasattr(module, 'RangeValidation')
-        assert hasattr(module, 'StringValidation')
-        assert hasattr(module, 'EnumValidation')
-        assert hasattr(module, 'DateValidation')
-        assert hasattr(module, 'FieldValidationRule')
-        assert hasattr(module, 'BadRowsConfig')
-        assert hasattr(module, 'ValidationConfig')
-        assert hasattr(module, 'ValidationRules')
-        assert hasattr(module, 'BadRowsHandler')
-        assert hasattr(module, 'DataValidationProcessor')
-        assert hasattr(module, '__all__')
+        assert hasattr(module, "RangeValidation")
+        assert hasattr(module, "StringValidation")
+        assert hasattr(module, "EnumValidation")
+        assert hasattr(module, "DateValidation")
+        assert hasattr(module, "FieldValidationRule")
+        assert hasattr(module, "BadRowsConfig")
+        assert hasattr(module, "ValidationConfig")
+        assert hasattr(module, "ValidationRules")
+        assert hasattr(module, "BadRowsHandler")
+        assert hasattr(module, "DataValidationProcessor")
+        assert hasattr(module, "__all__")
 
         # Verify the __all__ list matches exactly what's expected
         expected_all = [
@@ -271,7 +269,7 @@ class TestDataValidationCompatibility:
             "ValidationConfig",
             "ValidationRules",
             "BadRowsHandler",
-            "DataValidationProcessor"
+            "DataValidationProcessor",
         ]
         assert module.__all__ == expected_all
 
@@ -281,13 +279,13 @@ class TestDataValidationCompatibility:
 
         # Verify that all validation config classes are available
         config_classes = [
-            'RangeValidation',
-            'StringValidation',
-            'EnumValidation',
-            'DateValidation',
-            'FieldValidationRule',
-            'BadRowsConfig',
-            'ValidationConfig'
+            "RangeValidation",
+            "StringValidation",
+            "EnumValidation",
+            "DateValidation",
+            "FieldValidationRule",
+            "BadRowsConfig",
+            "ValidationConfig",
         ]
 
         for class_name in config_classes:
@@ -301,11 +299,7 @@ class TestDataValidationCompatibility:
         import forklift.processors.data_validation as validation_module
 
         # Verify that all core classes are available
-        core_classes = [
-            'ValidationRules',
-            'BadRowsHandler',
-            'DataValidationProcessor'
-        ]
+        core_classes = ["ValidationRules", "BadRowsHandler", "DataValidationProcessor"]
 
         for class_name in core_classes:
             assert hasattr(validation_module, class_name)

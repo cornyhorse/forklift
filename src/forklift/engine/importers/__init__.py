@@ -3,7 +3,4 @@
 from .excel_importer import ExcelImporter
 from .sql_importer import SqlImporter
 
-__all__ = [
-    'ExcelImporter',
-    'SqlImporter'
-]
+__all__ = ["ExcelImporter", "SqlImporter"]

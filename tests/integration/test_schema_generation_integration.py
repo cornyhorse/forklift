@@ -7,15 +7,13 @@ and complete.
 
 import json
 import tempfile
-import pytest
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict
 
-from forklift.api import (
-    generate_schema_from_csv,
-    generate_schema_from_excel,
-    generate_and_save_schema
-)
+import pytest
+
+from forklift.api import (generate_and_save_schema, generate_schema_from_csv,
+                          generate_schema_from_excel)
 from forklift.engine.forklift_core import ForkliftCore, ImportConfig
 
 
@@ -37,7 +35,7 @@ class TestSchemaGenerationIntegration:
         schema = generate_schema_from_csv(
             input_path=str(csv_file),
             include_sample_data=False,  # Use new default (no sample data)
-            infer_primary_key=True
+            infer_primary_key=True,
         )
 
         # Validate schema structure
@@ -66,7 +64,7 @@ class TestSchemaGenerationIntegration:
 
         # Save schema to file
         schema_file = tmp_path / "generated_schema.json"
-        with open(schema_file, 'w') as f:
+        with open(schema_file, "w") as f:
             json.dump(schema, f, indent=2)
 
         # Now use the generated schema to process the original file
@@ -74,9 +72,7 @@ class TestSchemaGenerationIntegration:
         output_dir.mkdir()
 
         config = ImportConfig(
-            input_path=str(csv_file),
-            output_path=str(output_dir),
-            schema_file=str(schema_file)
+            input_path=str(csv_file), output_path=str(output_dir), schema_file=str(schema_file)
         )
 
         core = ForkliftCore(config)
@@ -106,7 +102,7 @@ class TestSchemaGenerationIntegration:
         schema = generate_schema_from_csv(
             input_path=str(csv_file),
             nrows=3,
-            include_sample_data=True  # Explicitly request sample data
+            include_sample_data=True,  # Explicitly request sample data
         )
 
         # Validate schema was generated from limited data
@@ -116,16 +112,14 @@ class TestSchemaGenerationIntegration:
 
         # Save schema and process full file
         schema_file = tmp_path / "limited_schema.json"
-        with open(schema_file, 'w') as f:
+        with open(schema_file, "w") as f:
             json.dump(schema, f, indent=2)
 
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
         config = ImportConfig(
-            input_path=str(csv_file),
-            output_path=str(output_dir),
-            schema_file=str(schema_file)
+            input_path=str(csv_file), output_path=str(output_dir), schema_file=str(schema_file)
         )
 
         core = ForkliftCore(config)
@@ -147,10 +141,7 @@ class TestSchemaGenerationIntegration:
         csv_file.write_text(csv_content)
 
         # Generate schema with pipe delimiter
-        schema = generate_schema_from_csv(
-            input_path=str(csv_file),
-            delimiter="|"
-        )
+        schema = generate_schema_from_csv(input_path=str(csv_file), delimiter="|")
 
         # Check that delimiter is captured in CSV extension
         assert schema["x-csv"]["delimiter"] == "|"
@@ -173,16 +164,13 @@ class TestSchemaGenerationIntegration:
 
         # Use API to generate and save schema
         generate_and_save_schema(
-            input_path=str(csv_file),
-            output_path=str(schema_file),
-            file_type="csv",
-            nrows=None
+            input_path=str(csv_file), output_path=str(schema_file), file_type="csv", nrows=None
         )
 
         # Verify schema file was created and is valid JSON
         assert schema_file.exists()
 
-        with open(schema_file, 'r') as f:
+        with open(schema_file, "r") as f:
             schema = json.load(f)
 
         assert schema["title"] == "Forklift CSV Schema - Generated"
@@ -209,16 +197,14 @@ class TestSchemaGenerationIntegration:
 
         # Verify the schema can be used for processing
         schema_file = tmp_path / "mixed_schema.json"
-        with open(schema_file, 'w') as f:
+        with open(schema_file, "w") as f:
             json.dump(schema, f, indent=2)
 
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
         config = ImportConfig(
-            input_path=str(csv_file),
-            output_path=str(output_dir),
-            schema_file=str(schema_file)
+            input_path=str(csv_file), output_path=str(output_dir), schema_file=str(schema_file)
         )
 
         core = ForkliftCore(config)
@@ -235,10 +221,10 @@ class TestSchemaGenerationIntegration:
 
         # Create test Excel file
         data = {
-            'id': [1, 2, 3],
-            'product_name': ['Widget A', 'Widget B', 'Widget C'],
-            'price': [19.99, 29.99, 39.99],
-            'in_stock': [True, False, True]
+            "id": [1, 2, 3],
+            "product_name": ["Widget A", "Widget B", "Widget C"],
+            "price": [19.99, 29.99, 39.99],
+            "in_stock": [True, False, True],
         }
 
         df = pd.DataFrame(data)
@@ -247,15 +233,15 @@ class TestSchemaGenerationIntegration:
 
         # Generate schema from Excel
         from forklift.api import generate_schema_from_excel
-        schema = generate_schema_from_excel(
-            input_path=str(excel_file),
-            include_sample_data=True
-        )
+
+        schema = generate_schema_from_excel(input_path=str(excel_file), include_sample_data=True)
 
         # Validate Excel schema
         assert schema["title"] == "Forklift EXCEL Schema - Generated"
         assert "x-excel" in schema
-        assert all(col in schema["properties"] for col in ['id', 'product_name', 'price', 'in_stock'])
+        assert all(
+            col in schema["properties"] for col in ["id", "product_name", "price", "in_stock"]
+        )
 
     def test_error_handling_invalid_file(self, tmp_path):
         """Test error handling for invalid files."""
@@ -291,12 +277,9 @@ class TestSchemaGenerationIntegration:
 3,李小明,中文描述"""
 
         csv_file = tmp_path / "utf8_data.csv"
-        csv_file.write_text(csv_content, encoding='utf-8')
+        csv_file.write_text(csv_content, encoding="utf-8")
 
-        schema = generate_schema_from_csv(
-            input_path=str(csv_file),
-            encoding='utf-8'
-        )
+        schema = generate_schema_from_csv(input_path=str(csv_file), encoding="utf-8")
 
         # Verify schema generation handled encoding correctly
         assert "name" in schema["properties"]

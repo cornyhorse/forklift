@@ -1,9 +1,10 @@
 """Line parsing and field extraction logic for FWF processing."""
 
 from __future__ import annotations
-from typing import Dict, Any, Optional, List
 
-from ..config import FwfInputConfig, FwfFieldSpec
+from typing import Any, Dict, List, Optional
+
+from ..config import FwfFieldSpec, FwfInputConfig
 from .converters import FwfTypeConverter, FwfValueProcessor
 from .detectors import FwfSchemaDetector
 
@@ -123,7 +124,9 @@ class FwfLineParser:
 
             # Convert to appropriate type
             if processed_value is not None:
-                converted_value = FwfTypeConverter.convert_value(processed_value, field.parquet_type)
+                converted_value = FwfTypeConverter.convert_value(
+                    processed_value, field.parquet_type
+                )
             else:
                 converted_value = None
 

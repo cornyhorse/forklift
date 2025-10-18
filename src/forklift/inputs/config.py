@@ -1,8 +1,9 @@
 """Configuration classes for input operations."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -20,6 +21,7 @@ class CsvInputConfig:
         comment_patterns: List of regex patterns for comment row detection
         footer_detection: Configuration for footer detection and stopping
     """
+
     delimiter: str = ","
     quote_char: str = '"'
     escape_char: Optional[str] = None
@@ -45,6 +47,7 @@ class FwfFieldSpec:
         required: Whether field is required
         trim: Whether to trim whitespace
     """
+
     name: str
     start: int
     length: int
@@ -64,6 +67,7 @@ class FwfConditionalSchema:
         description: Human-readable description
         fields: List of field specifications for this schema
     """
+
     flag_value: str
     description: str
     fields: List[FwfFieldSpec]
@@ -84,6 +88,7 @@ class FwfInputConfig:
         footer_detection: Configuration for footer detection and stopping
         null_values: Dictionary of null value representations
     """
+
     encoding: str = "utf-8"
     fields: Optional[List[FwfFieldSpec]] = None
     conditional_schemas: Optional[List[FwfConditionalSchema]] = None
@@ -108,6 +113,7 @@ class ExcelSheetConfig:
         skip_blank_rows: Whether to skip blank rows
         name_override: Override name for this sheet in output
     """
+
     select: Dict[str, Any]
     columns: Optional[List[Dict[str, Any]]] = None
     header: Optional[Dict[str, Any]] = None
@@ -132,6 +138,7 @@ class ExcelInputConfig:
         skip_blank_lines: Whether to skip completely blank lines
         engine: Excel engine to use ('openpyxl' for .xlsx, 'xlrd' for .xls)
     """
+
     encoding: str = "utf-8"
     sheets: List[ExcelSheetConfig] = None
     values_only: bool = True
@@ -161,6 +168,7 @@ class SqlInputConfig:
         enable_streaming: Whether to use streaming cursor for large result sets
         connection_params: Additional connection parameters as key-value pairs
     """
+
     connection_string: str
     batch_size: int = 10000
     query_timeout: int = 300

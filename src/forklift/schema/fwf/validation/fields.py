@@ -1,6 +1,7 @@
 """Field validation functionality."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List, Union
 
 from .parquet_types import ParquetTypeValidator
@@ -79,12 +80,18 @@ class FieldValidator:
                     errors.append(f"Schema variant {variant_index} field {j} must be a dictionary")
                     continue
 
-                errors.extend(FieldValidator._validate_single_field(field, f"variant {variant_index} field {j}", positions_used))
+                errors.extend(
+                    FieldValidator._validate_single_field(
+                        field, f"variant {variant_index} field {j}", positions_used
+                    )
+                )
 
         return errors
 
     @staticmethod
-    def _validate_single_field(field: Dict[str, Any], field_id: Union[int, str], positions_used: set) -> List[str]:
+    def _validate_single_field(
+        field: Dict[str, Any], field_id: Union[int, str], positions_used: set
+    ) -> List[str]:
         """Validate a single field configuration.
 
         Args:
@@ -137,7 +144,9 @@ class FieldValidator:
         # Validate alignment
         alignment = field.get("alignment")
         if alignment and alignment not in {"left", "right", "center"}:
-            errors.append(f"Field {field_id} invalid alignment '{alignment}', must be 'left', 'right', or 'center'")
+            errors.append(
+                f"Field {field_id} invalid alignment '{alignment}', must be 'left', 'right', or 'center'"
+            )
 
         # Validate padding character
         pad_char = field.get("padChar")

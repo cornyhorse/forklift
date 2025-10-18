@@ -1,6 +1,7 @@
 """Tests for FWF extension validation functionality."""
 
 import pytest
+
 from forklift.schema.fwf.validation.fwf_extension import FwfExtensionValidator
 
 
@@ -87,7 +88,7 @@ class TestFwfExtensionValidator:
             {},
             {"field1": True},
             {"field1": False, "field2": True},
-            {"name": True, "id": False, "description": True}
+            {"name": True, "id": False, "description": True},
         ]
 
         for trim_config in valid_configs:
@@ -122,7 +123,7 @@ class TestFwfExtensionValidator:
             {"field1": 1},
             {"field1": None},
             {"field1": []},
-            {"field1": True, "field2": "false"}
+            {"field1": True, "field2": "false"},
         ]
 
         for trim_config in invalid_configs:
@@ -139,7 +140,7 @@ class TestFwfExtensionValidator:
             {"global": ["", "NULL", "N/A"]},
             {"perColumn": {}},
             {"perColumn": {"field1": ["", "NULL"]}},
-            {"global": [""], "perColumn": {"field1": ["NULL"]}}
+            {"global": [""], "perColumn": {"field1": ["NULL"]}},
         ]
 
         for nulls_config in valid_configs:
@@ -154,7 +155,7 @@ class TestFwfExtensionValidator:
             {"global": 123},
             {"global": {}},
             {"global": None},
-            {"global": True}
+            {"global": True},
         ]
 
         for nulls_config in invalid_configs:
@@ -170,7 +171,7 @@ class TestFwfExtensionValidator:
             {"perColumn": 123},
             {"perColumn": []},
             {"perColumn": None},
-            {"perColumn": True}
+            {"perColumn": True},
         ]
 
         for nulls_config in invalid_configs:
@@ -189,7 +190,7 @@ class TestFwfExtensionValidator:
             {"dedupeNames": "suffix"},
             {"dedupeNames": "prefix"},
             {"dedupeNames": "error"},
-            {"standardizeNames": "postgres", "dedupeNames": "suffix"}
+            {"standardizeNames": "postgres", "dedupeNames": "suffix"},
         ]
 
         for case_config in valid_configs:
@@ -255,7 +256,7 @@ class TestFwfExtensionValidator:
             "footerRows": "invalid",
             "trim": "not-a-dict",
             "nulls": {"global": "not-a-list", "perColumn": "not-a-dict"},
-            "case": {"standardizeNames": "invalid", "dedupeNames": "invalid"}
+            "case": {"standardizeNames": "invalid", "dedupeNames": "invalid"},
         }
 
         errors = FwfExtensionValidator.validate(fwf_ext)
@@ -280,21 +281,12 @@ class TestFwfExtensionValidator:
             "encoding": "utf-8",
             "headerRows": 2,
             "footerRows": 1,
-            "trim": {
-                "name": True,
-                "id": False,
-                "description": True
-            },
+            "trim": {"name": True, "id": False, "description": True},
             "nulls": {
                 "global": ["", "NULL", "N/A"],
-                "perColumn": {
-                    "optional_field": ["", "NULL", "MISSING"]
-                }
+                "perColumn": {"optional_field": ["", "NULL", "MISSING"]},
             },
-            "case": {
-                "standardizeNames": "snake_case",
-                "dedupeNames": "suffix"
-            }
+            "case": {"standardizeNames": "snake_case", "dedupeNames": "suffix"},
         }
 
         errors = FwfExtensionValidator.validate(fwf_ext)
@@ -302,11 +294,7 @@ class TestFwfExtensionValidator:
 
     def test_validate_empty_nested_configs(self):
         """Test validation with empty nested configurations."""
-        fwf_ext = {
-            "trim": {},
-            "nulls": {},
-            "case": {}
-        }
+        fwf_ext = {"trim": {}, "nulls": {}, "case": {}}
 
         errors = FwfExtensionValidator.validate(fwf_ext)
         assert errors == [], "Empty nested configs should be valid"

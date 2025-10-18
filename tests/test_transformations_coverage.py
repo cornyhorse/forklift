@@ -1,22 +1,20 @@
 """Comprehensive tests for transformations.py to achieve 100% code coverage."""
 
-import pytest
 import sys
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, List, Callable, Any
+from typing import Any, Callable, Dict, List
+from unittest.mock import MagicMock, Mock, patch
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pytest
 
 # Add src to Python path for imports
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from forklift.processors.base import ValidationResult
-from forklift.processors.transformations import (
-    ColumnTransformer,
-    SchemaBasedTransformer,
-    trim_whitespace
-)
+from forklift.processors.transformations import (ColumnTransformer,
+                                                 SchemaBasedTransformer,
+                                                 trim_whitespace)
 
 
 class TestSchemaBasedTransformerSpecialTypes:
@@ -24,24 +22,14 @@ class TestSchemaBasedTransformerSpecialTypes:
 
     def test_ssn_special_type_transformation(self):
         """Test SSN special type transformation."""
-        schema = {
-            "properties": {
-                "ssn_field": {
-                    "type": "string",
-                    "x-special-type": "ssn"
-                }
-            }
-        }
+        schema = {"properties": {"ssn_field": {"type": "string", "x-special-type": "ssn"}}}
 
-        with patch('forklift.utils.transformations.SSNConfig') as mock_ssn_config:
+        with patch("forklift.utils.transformations.SSNConfig") as mock_ssn_config:
             transformer = SchemaBasedTransformer(schema)
 
             # Verify SSN config was created with correct parameters
             mock_ssn_config.assert_called_once_with(
-                format_with_dashes=True,
-                zero_pad=True,
-                validate=True,
-                allow_invalid=False
+                format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False
             )
 
             # Verify transformation was added
@@ -51,15 +39,10 @@ class TestSchemaBasedTransformerSpecialTypes:
     def test_zip_permissive_special_type_transformation(self):
         """Test ZIP permissive special type transformation."""
         schema = {
-            "properties": {
-                "zip_field": {
-                    "type": "string",
-                    "x-special-type": "zip-permissive"
-                }
-            }
+            "properties": {"zip_field": {"type": "string", "x-special-type": "zip-permissive"}}
         }
 
-        with patch('forklift.utils.transformations.ZipCodeConfig') as mock_zip_config:
+        with patch("forklift.utils.transformations.ZipCodeConfig") as mock_zip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_zip_config.assert_called_once_with(
@@ -67,7 +50,7 @@ class TestSchemaBasedTransformerSpecialTypes:
                 format_with_dash=True,
                 zero_pad=True,
                 validate=True,
-                allow_invalid=False
+                allow_invalid=False,
             )
 
             assert "zip_field" in transformer.column_transformations
@@ -75,16 +58,9 @@ class TestSchemaBasedTransformerSpecialTypes:
 
     def test_zip_5_special_type_transformation(self):
         """Test ZIP-5 special type transformation."""
-        schema = {
-            "properties": {
-                "zip5_field": {
-                    "type": "string",
-                    "x-special-type": "zip-5"
-                }
-            }
-        }
+        schema = {"properties": {"zip5_field": {"type": "string", "x-special-type": "zip-5"}}}
 
-        with patch('forklift.utils.transformations.ZipCodeConfig') as mock_zip_config:
+        with patch("forklift.utils.transformations.ZipCodeConfig") as mock_zip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_zip_config.assert_called_once_with(
@@ -92,21 +68,14 @@ class TestSchemaBasedTransformerSpecialTypes:
                 format_with_dash=True,
                 zero_pad=True,
                 validate=True,
-                allow_invalid=False
+                allow_invalid=False,
             )
 
     def test_zip_9_special_type_transformation(self):
         """Test ZIP-9 special type transformation."""
-        schema = {
-            "properties": {
-                "zip9_field": {
-                    "type": "string",
-                    "x-special-type": "zip-9"
-                }
-            }
-        }
+        schema = {"properties": {"zip9_field": {"type": "string", "x-special-type": "zip-9"}}}
 
-        with patch('forklift.utils.transformations.ZipCodeConfig') as mock_zip_config:
+        with patch("forklift.utils.transformations.ZipCodeConfig") as mock_zip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_zip_config.assert_called_once_with(
@@ -114,21 +83,14 @@ class TestSchemaBasedTransformerSpecialTypes:
                 format_with_dash=True,
                 zero_pad=True,
                 validate=True,
-                allow_invalid=False
+                allow_invalid=False,
             )
 
     def test_phone_special_type_transformation(self):
         """Test phone special type transformation."""
-        schema = {
-            "properties": {
-                "phone_field": {
-                    "type": "string",
-                    "x-special-type": "phone"
-                }
-            }
-        }
+        schema = {"properties": {"phone_field": {"type": "string", "x-special-type": "phone"}}}
 
-        with patch('forklift.utils.transformations.PhoneNumberConfig') as mock_phone_config:
+        with patch("forklift.utils.transformations.PhoneNumberConfig") as mock_phone_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_phone_config.assert_called_once_with(
@@ -136,7 +98,7 @@ class TestSchemaBasedTransformerSpecialTypes:
                 use_parentheses=True,
                 use_dashes=True,
                 validate=True,
-                allow_invalid=False
+                allow_invalid=False,
             )
 
             assert "phone_field" in transformer.column_transformations
@@ -144,16 +106,9 @@ class TestSchemaBasedTransformerSpecialTypes:
 
     def test_email_special_type_transformation(self):
         """Test email special type transformation."""
-        schema = {
-            "properties": {
-                "email_field": {
-                    "type": "string",
-                    "x-special-type": "email"
-                }
-            }
-        }
+        schema = {"properties": {"email_field": {"type": "string", "x-special-type": "email"}}}
 
-        with patch('forklift.utils.transformations.EmailConfig') as mock_email_config:
+        with patch("forklift.utils.transformations.EmailConfig") as mock_email_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_email_config.assert_called_once_with(
@@ -161,7 +116,7 @@ class TestSchemaBasedTransformerSpecialTypes:
                 validate_format=True,
                 allow_invalid=False,
                 strip_whitespace=True,
-                normalize_domain=True
+                normalize_domain=True,
             )
 
             assert "email_field" in transformer.column_transformations
@@ -169,16 +124,9 @@ class TestSchemaBasedTransformerSpecialTypes:
 
     def test_ipv4_special_type_transformation(self):
         """Test IPv4 special type transformation."""
-        schema = {
-            "properties": {
-                "ipv4_field": {
-                    "type": "string",
-                    "x-special-type": "ipv4"
-                }
-            }
-        }
+        schema = {"properties": {"ipv4_field": {"type": "string", "x-special-type": "ipv4"}}}
 
-        with patch('forklift.utils.transformations.IPAddressConfig') as mock_ip_config:
+        with patch("forklift.utils.transformations.IPAddressConfig") as mock_ip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_ip_config.assert_called_once_with(
@@ -186,7 +134,7 @@ class TestSchemaBasedTransformerSpecialTypes:
                 normalize_ipv6=True,
                 validate=True,
                 allow_invalid=False,
-                compress_ipv6=True
+                compress_ipv6=True,
             )
 
             assert "ipv4_field" in transformer.column_transformations
@@ -194,16 +142,9 @@ class TestSchemaBasedTransformerSpecialTypes:
 
     def test_ipv6_special_type_transformation(self):
         """Test IPv6 special type transformation."""
-        schema = {
-            "properties": {
-                "ipv6_field": {
-                    "type": "string",
-                    "x-special-type": "ipv6"
-                }
-            }
-        }
+        schema = {"properties": {"ipv6_field": {"type": "string", "x-special-type": "ipv6"}}}
 
-        with patch('forklift.utils.transformations.IPAddressConfig') as mock_ip_config:
+        with patch("forklift.utils.transformations.IPAddressConfig") as mock_ip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_ip_config.assert_called_once_with(
@@ -211,21 +152,14 @@ class TestSchemaBasedTransformerSpecialTypes:
                 normalize_ipv6=True,
                 validate=True,
                 allow_invalid=False,
-                compress_ipv6=True
+                compress_ipv6=True,
             )
 
     def test_ip_generic_special_type_transformation(self):
         """Test generic IP special type transformation."""
-        schema = {
-            "properties": {
-                "ip_field": {
-                    "type": "string",
-                    "x-special-type": "ip"
-                }
-            }
-        }
+        schema = {"properties": {"ip_field": {"type": "string", "x-special-type": "ip"}}}
 
-        with patch('forklift.utils.transformations.IPAddressConfig') as mock_ip_config:
+        with patch("forklift.utils.transformations.IPAddressConfig") as mock_ip_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_ip_config.assert_called_once_with(
@@ -233,21 +167,14 @@ class TestSchemaBasedTransformerSpecialTypes:
                 normalize_ipv6=True,
                 validate=True,
                 allow_invalid=False,
-                compress_ipv6=True
+                compress_ipv6=True,
             )
 
     def test_mac_address_special_type_transformation(self):
         """Test MAC address special type transformation."""
-        schema = {
-            "properties": {
-                "mac_field": {
-                    "type": "string",
-                    "x-special-type": "mac-address"
-                }
-            }
-        }
+        schema = {"properties": {"mac_field": {"type": "string", "x-special-type": "mac-address"}}}
 
-        with patch('forklift.utils.transformations.MACAddressConfig') as mock_mac_config:
+        with patch("forklift.utils.transformations.MACAddressConfig") as mock_mac_config:
             transformer = SchemaBasedTransformer(schema)
 
             mock_mac_config.assert_called_once_with(
@@ -255,7 +182,7 @@ class TestSchemaBasedTransformerSpecialTypes:
                 case_style="lower",
                 validate=True,
                 allow_invalid=False,
-                zero_pad=True
+                zero_pad=True,
             )
 
             assert "mac_field" in transformer.column_transformations
@@ -265,22 +192,14 @@ class TestSchemaBasedTransformerSpecialTypes:
         """Test schema with multiple special type fields."""
         schema = {
             "properties": {
-                "ssn_field": {
-                    "type": "string",
-                    "x-special-type": "ssn"
-                },
-                "email_field": {
-                    "type": "string",
-                    "x-special-type": "email"
-                },
-                "regular_field": {
-                    "type": "string"
-                }
+                "ssn_field": {"type": "string", "x-special-type": "ssn"},
+                "email_field": {"type": "string", "x-special-type": "email"},
+                "regular_field": {"type": "string"},
             }
         }
 
-        with patch('forklift.utils.transformations.SSNConfig'):
-            with patch('forklift.utils.transformations.EmailConfig'):
+        with patch("forklift.utils.transformations.SSNConfig"):
+            with patch("forklift.utils.transformations.EmailConfig"):
                 transformer = SchemaBasedTransformer(schema)
 
                 # Should have transformations for SSN and email, but not regular field
@@ -294,14 +213,11 @@ class TestSchemaBasedTransformerSpecialTypes:
         schema = {
             "properties": {
                 "string_field": "not_a_dict",
-                "normal_field": {
-                    "type": "string",
-                    "x-special-type": "email"
-                }
+                "normal_field": {"type": "string", "x-special-type": "email"},
             }
         }
 
-        with patch('forklift.utils.transformations.EmailConfig'):
+        with patch("forklift.utils.transformations.EmailConfig"):
             transformer = SchemaBasedTransformer(schema)
 
             # Should only process the dict property
@@ -311,16 +227,7 @@ class TestSchemaBasedTransformerSpecialTypes:
 
     def test_no_special_type_fields(self):
         """Test schema with no special type fields."""
-        schema = {
-            "properties": {
-                "field1": {
-                    "type": "string"
-                },
-                "field2": {
-                    "type": "integer"
-                }
-            }
-        }
+        schema = {"properties": {"field1": {"type": "string"}, "field2": {"type": "integer"}}}
 
         transformer = SchemaBasedTransformer(schema)
 
@@ -329,9 +236,7 @@ class TestSchemaBasedTransformerSpecialTypes:
 
     def test_empty_properties_section(self):
         """Test schema with empty properties section."""
-        schema = {
-            "properties": {}
-        }
+        schema = {"properties": {}}
 
         transformer = SchemaBasedTransformer(schema)
         assert len(transformer.column_transformations) == 0
@@ -347,26 +252,23 @@ class TestSchemaBasedTransformerSpecialTypes:
 class TestSchemaBasedTransformerIntegration:
     """Integration tests for SchemaBasedTransformer."""
 
-    @patch('forklift.utils.transformations.create_transformation_from_config')
+    @patch("forklift.utils.transformations.create_transformation_from_config")
     def test_parse_transformation_config_with_error(self, mock_create_transform):
         """Test parsing transformation config when creation fails."""
-        mock_create_transform.side_effect = ValueError("Unknown transformation type: invalid_transform")
+        mock_create_transform.side_effect = ValueError(
+            "Unknown transformation type: invalid_transform"
+        )
 
         schema = {
             "x-transformations": {
                 "column_transformations": {
-                    "col1": {
-                        "invalid_transform": {
-                            "enabled": True,
-                            "some_param": "value"
-                        }
-                    }
+                    "col1": {"invalid_transform": {"enabled": True, "some_param": "value"}}
                 }
             }
         }
 
         # Capture print output
-        with patch('builtins.print') as mock_print:
+        with patch("builtins.print") as mock_print:
             transformer = SchemaBasedTransformer(schema)
 
             # Should print warning and continue
@@ -380,27 +282,18 @@ class TestSchemaBasedTransformerIntegration:
     def test_schema_based_transformer_full_integration(self):
         """Test full SchemaBasedTransformer integration."""
         schema = {
-            "properties": {
-                "ssn_field": {
-                    "type": "string",
-                    "x-special-type": "ssn"
-                }
-            },
+            "properties": {"ssn_field": {"type": "string", "x-special-type": "ssn"}},
             "x-transformations": {
                 "column_transformations": {
-                    "text_field": {
-                        "string_replace": {
-                            "enabled": True,
-                            "old": "old",
-                            "new": "new"
-                        }
-                    }
+                    "text_field": {"string_replace": {"enabled": True, "old": "old", "new": "new"}}
                 }
-            }
+            },
         }
 
-        with patch('forklift.utils.transformations.SSNConfig'):
-            with patch('forklift.utils.transformations.create_transformation_from_config') as mock_create:
+        with patch("forklift.utils.transformations.SSNConfig"):
+            with patch(
+                "forklift.utils.transformations.create_transformation_from_config"
+            ) as mock_create:
                 mock_transform = Mock()
                 mock_create.return_value = mock_transform
 
@@ -415,13 +308,7 @@ class TestSchemaBasedTransformerIntegration:
         schema = {
             "x-transformations": {
                 "column_transformations": {
-                    "col1": {
-                        "string_replace": {
-                            "enabled": True,
-                            "old": "old",
-                            "new": "new"
-                        }
-                    }
+                    "col1": {"string_replace": {"enabled": True, "old": "old", "new": "new"}}
                 }
             }
         }
@@ -435,7 +322,9 @@ class TestSchemaBasedTransformerIntegration:
         def mock_transform(column):
             return pc.replace_substring_regex(column, "old", "new")
 
-        with patch('forklift.utils.transformations.create_transformation_from_config') as mock_create:
+        with patch(
+            "forklift.utils.transformations.create_transformation_from_config"
+        ) as mock_create:
             mock_create.return_value = mock_transform
 
             transformer = SchemaBasedTransformer(schema)
@@ -448,14 +337,7 @@ class TestSchemaBasedTransformerIntegration:
     def test_process_batch_transformation_error(self):
         """Test process_batch when transformation fails."""
         # First create a schema that will actually create transformations
-        schema = {
-            "properties": {
-                "col1": {
-                    "type": "string",
-                    "x-special-type": "ssn"
-                }
-            }
-        }
+        schema = {"properties": {"col1": {"type": "string", "x-special-type": "ssn"}}}
 
         # Create test batch
         pa_schema = pa.schema([pa.field("col1", pa.string())])
@@ -466,7 +348,7 @@ class TestSchemaBasedTransformerIntegration:
         def failing_transform(column):
             raise ValueError("Transform failed")
 
-        with patch('forklift.utils.transformations.SSNConfig'):
+        with patch("forklift.utils.transformations.SSNConfig"):
             transformer = SchemaBasedTransformer(schema)
 
             # Replace the transformation with one that fails
@@ -477,7 +359,10 @@ class TestSchemaBasedTransformerIntegration:
             # Should capture the error
             assert len(validation_results) == 1
             assert not validation_results[0].is_valid
-            assert "Schema-based transformation failed for column 'col1': Transform failed" in validation_results[0].error_message
+            assert (
+                "Schema-based transformation failed for column 'col1': Transform failed"
+                in validation_results[0].error_message
+            )
             assert validation_results[0].error_code == "SCHEMA_TRANSFORMATION_ERROR"
             assert validation_results[0].column_name == "col1"
 
@@ -490,7 +375,7 @@ class TestSchemaBasedTransformerIntegration:
                         "string_replace": {
                             "enabled": False,  # Disabled transformation
                             "old": "old",
-                            "new": "new"
+                            "new": "new",
                         }
                     }
                 }
@@ -512,7 +397,7 @@ class TestSchemaBasedTransformerIntegration:
                         "string_replace": {
                             # No enabled key - should be treated as disabled
                             "old": "old",
-                            "new": "new"
+                            "new": "new",
                         }
                     }
                 }
@@ -535,6 +420,7 @@ class TestSchemaBasedTransformerIntegration:
 
         transformer = SchemaBasedTransformer(schema)
         assert len(transformer.column_transformations) == 0
+
 
 class TestTrimWhitespaceFunction:
     """Test cases for trim_whitespace function."""
@@ -594,8 +480,8 @@ class TestUtilityTransformationFunctions:
         result = lowercase(column)
         assert result.equals(column)
 
-    @patch('forklift.processors.transformations.factories.MoneyTypeConfig')
-    @patch('forklift.processors.transformations.factories.DataTransformer')
+    @patch("forklift.processors.transformations.factories.MoneyTypeConfig")
+    @patch("forklift.processors.transformations.factories.DataTransformer")
     def test_apply_money_conversion(self, mock_transformer_class, mock_config_class):
         """Test apply_money_conversion function."""
         from forklift.processors.transformations import apply_money_conversion
@@ -610,7 +496,7 @@ class TestUtilityTransformationFunctions:
             currency_symbols=["$", "€"],
             thousands_separator=",",
             decimal_separator=".",
-            parentheses_negative=True
+            parentheses_negative=True,
         )
 
         # Verify config was created correctly
@@ -618,7 +504,7 @@ class TestUtilityTransformationFunctions:
             currency_symbols=["$", "€"],
             thousands_separator=",",
             decimal_separator=".",
-            parentheses_negative=True
+            parentheses_negative=True,
         )
 
         # Test applying the transformation
@@ -626,8 +512,8 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_money_conversion.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.factories.NumericCleaningConfig')
-    @patch('forklift.processors.transformations.factories.DataTransformer')
+    @patch("forklift.processors.transformations.factories.NumericCleaningConfig")
+    @patch("forklift.processors.transformations.factories.DataTransformer")
     def test_apply_numeric_cleaning(self, mock_transformer_class, mock_config_class):
         """Test apply_numeric_cleaning function."""
         from forklift.processors.transformations import apply_numeric_cleaning
@@ -639,26 +525,23 @@ class TestUtilityTransformationFunctions:
 
         # Test function creation
         transform_func = apply_numeric_cleaning(
-            thousands_separator=",",
-            decimal_separator=".",
-            allow_nan=True,
-            target_type="double"
+            thousands_separator=",", decimal_separator=".", allow_nan=True, target_type="double"
         )
 
         # Verify config was created correctly
         mock_config_class.assert_called_once_with(
-            thousands_separator=",",
-            decimal_separator=".",
-            allow_nan=True
+            thousands_separator=",", decimal_separator=".", allow_nan=True
         )
 
         # Test applying the transformation
         test_column = pa.array(["1,000.50", "2,500"])
         transform_func(test_column)
-        mock_transformer.apply_numeric_cleaning.assert_called_once_with(test_column, mock_config, "double")
+        mock_transformer.apply_numeric_cleaning.assert_called_once_with(
+            test_column, mock_config, "double"
+        )
 
-    @patch('forklift.processors.transformations.factories.RegexReplaceConfig')
-    @patch('forklift.processors.transformations.factories.DataTransformer')
+    @patch("forklift.processors.transformations.factories.RegexReplaceConfig")
+    @patch("forklift.processors.transformations.factories.DataTransformer")
     def test_apply_regex_replace(self, mock_transformer_class, mock_config_class):
         """Test apply_regex_replace function."""
         from forklift.processors.transformations import apply_regex_replace
@@ -669,26 +552,18 @@ class TestUtilityTransformationFunctions:
         mock_config_class.return_value = mock_config
 
         # Test function creation
-        transform_func = apply_regex_replace(
-            pattern=r"\d+",
-            replacement="NUMBER",
-            flags=0
-        )
+        transform_func = apply_regex_replace(pattern=r"\d+", replacement="NUMBER", flags=0)
 
         # Verify config was created correctly
-        mock_config_class.assert_called_once_with(
-            pattern=r"\d+",
-            replacement="NUMBER",
-            flags=0
-        )
+        mock_config_class.assert_called_once_with(pattern=r"\d+", replacement="NUMBER", flags=0)
 
         # Test applying the transformation
         test_column = pa.array(["test123", "abc456"])
         transform_func(test_column)
         mock_transformer.apply_regex_replace.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.factories.StringReplaceConfig')
-    @patch('forklift.processors.transformations.factories.DataTransformer')
+    @patch("forklift.processors.transformations.factories.StringReplaceConfig")
+    @patch("forklift.processors.transformations.factories.DataTransformer")
     def test_apply_string_replace(self, mock_transformer_class, mock_config_class):
         """Test apply_string_replace function."""
         from forklift.processors.transformations import apply_string_replace
@@ -699,26 +574,18 @@ class TestUtilityTransformationFunctions:
         mock_config_class.return_value = mock_config
 
         # Test function creation
-        transform_func = apply_string_replace(
-            old="old",
-            new="new",
-            count=-1
-        )
+        transform_func = apply_string_replace(old="old", new="new", count=-1)
 
         # Verify config was created correctly
-        mock_config_class.assert_called_once_with(
-            old="old",
-            new="new",
-            count=-1
-        )
+        mock_config_class.assert_called_once_with(old="old", new="new", count=-1)
 
         # Test applying the transformation
         test_column = pa.array(["old_value", "another_old"])
         transform_func(test_column)
         mock_transformer.apply_string_replace.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.factories.HTMLXMLConfig')
-    @patch('forklift.processors.transformations.factories.DataTransformer')
+    @patch("forklift.processors.transformations.factories.HTMLXMLConfig")
+    @patch("forklift.processors.transformations.factories.DataTransformer")
     def test_apply_html_xml_cleaning(self, mock_transformer_class, mock_config_class):
         """Test apply_html_xml_cleaning function."""
         from forklift.processors.transformations import apply_html_xml_cleaning
@@ -730,16 +597,12 @@ class TestUtilityTransformationFunctions:
 
         # Test function creation
         transform_func = apply_html_xml_cleaning(
-            strip_tags=True,
-            decode_entities=True,
-            preserve_whitespace=False
+            strip_tags=True, decode_entities=True, preserve_whitespace=False
         )
 
         # Verify config was created correctly
         mock_config_class.assert_called_once_with(
-            strip_tags=True,
-            decode_entities=True,
-            preserve_whitespace=False
+            strip_tags=True, decode_entities=True, preserve_whitespace=False
         )
 
         # Test applying the transformation
@@ -747,8 +610,8 @@ class TestUtilityTransformationFunctions:
         transform_func(test_column)
         mock_transformer.apply_html_xml_cleaning.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.factories.StringPaddingConfig')
-    @patch('forklift.processors.transformations.factories.DataTransformer')
+    @patch("forklift.processors.transformations.factories.StringPaddingConfig")
+    @patch("forklift.processors.transformations.factories.DataTransformer")
     def test_apply_string_padding(self, mock_transformer_class, mock_config_class):
         """Test apply_string_padding function."""
         from forklift.processors.transformations import apply_string_padding
@@ -759,25 +622,17 @@ class TestUtilityTransformationFunctions:
         mock_config_class.return_value = mock_config
 
         # Test function creation
-        transform_func = apply_string_padding(
-            width=10,
-            fillchar="0",
-            side="left"
-        )
+        transform_func = apply_string_padding(width=10, fillchar="0", side="left")
 
         # Verify config was created correctly
-        mock_config_class.assert_called_once_with(
-            width=10,
-            fillchar="0",
-            side="left"
-        )
+        mock_config_class.assert_called_once_with(width=10, fillchar="0", side="left")
 
         # Test applying the transformation
         test_column = pa.array(["123", "45"])
         transform_func(test_column)
         mock_transformer.apply_string_padding.assert_called_once_with(test_column, mock_config)
 
-    @patch('forklift.processors.transformations.factories.DataTransformer')
+    @patch("forklift.processors.transformations.factories.DataTransformer")
     def test_apply_string_trimming(self, mock_transformer_class):
         """Test apply_string_trimming function."""
         from forklift.processors.transformations import apply_string_trimming
@@ -786,10 +641,7 @@ class TestUtilityTransformationFunctions:
         mock_transformer_class.return_value = mock_transformer
 
         # Test function creation
-        transform_func = apply_string_trimming(
-            side="both",
-            chars=None
-        )
+        transform_func = apply_string_trimming(side="both", chars=None)
 
         # Test applying the transformation
         test_column = pa.array(["  hello  ", "  world  "])
@@ -817,11 +669,10 @@ class TestColumnTransformerEdgeCases:
 
     def test_column_transformer_with_multiple_transforms_per_column(self):
         """Test ColumnTransformer with multiple transformations per column."""
-        from forklift.processors.transformations import uppercase, trim_whitespace
+        from forklift.processors.transformations import (trim_whitespace,
+                                                         uppercase)
 
-        transformations = {
-            "col1": [trim_whitespace, uppercase]
-        }
+        transformations = {"col1": [trim_whitespace, uppercase]}
         transformer = ColumnTransformer(transformations)
 
         # Create test batch

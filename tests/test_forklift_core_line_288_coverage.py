@@ -1,11 +1,14 @@
 """Targeted test for forklift_core.py missing line 288 - empty row handling in _detect_header_row method."""
-import pytest
-import tempfile
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-from forklift.engine.forklift_core import ForkliftCore, ImportConfig, HeaderMode
+import os
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
+                                           ImportConfig)
 
 
 class TestForkliftCoreLine288Coverage:

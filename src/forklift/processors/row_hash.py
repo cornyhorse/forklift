@@ -1,9 +1,10 @@
 """Row hash processor for adding row-level hash columns and metadata."""
 
 from __future__ import annotations
+
 import hashlib
-from typing import List, Tuple, Dict, Optional, Any
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -33,6 +34,7 @@ class RowHashConfig:
         source_row_number_column_name: Name of source row number column (default: "_rownum_in_source_file")
         processing_row_number_column_name: Name of processing row number column (default: "_rownum")
     """
+
     enabled: bool = False
     column_name: str = "row_hash"
     algorithm: str = "sha256"
@@ -62,8 +64,10 @@ class RowHashConfig:
         # Validate algorithm
         supported_algorithms = ["md5", "sha1", "sha256", "sha384", "sha512"]
         if self.algorithm not in supported_algorithms:
-            raise ValueError(f"Unsupported hash algorithm: {self.algorithm}. "
-                           f"Supported algorithms: {supported_algorithms}")
+            raise ValueError(
+                f"Unsupported hash algorithm: {self.algorithm}. "
+                f"Supported algorithms: {supported_algorithms}"
+            )
 
 
 class RowHashProcessor(BaseProcessor):
@@ -96,9 +100,12 @@ class RowHashProcessor(BaseProcessor):
 
         if self.config.ingested_at_enabled:
             from datetime import datetime, timezone
+
             self.ingestion_timestamp = datetime.now(timezone.utc).isoformat()
 
-    def process_batch(self, batch: pa.RecordBatch, input_batch: Optional[pa.RecordBatch] = None) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch, input_batch: Optional[pa.RecordBatch] = None
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch by adding hash columns and metadata."""
         validation_results = []
         processed_batch = batch
@@ -109,42 +116,62 @@ class RowHashProcessor(BaseProcessor):
                 hash_columns = self._get_hash_columns(batch.schema)
                 if hash_columns:
                     hash_values = self._compute_row_hashes(batch, hash_columns)
-                    processed_batch = self._add_column(processed_batch, self.config.column_name, hash_values)
+                    processed_batch = self._add_column(
+                        processed_batch, self.config.column_name, hash_values
+                    )
 
             # Add input row hash if enabled and input batch provided
             if self.config.input_hash_enabled and input_batch is not None:
                 input_hash_columns = self._get_input_hash_columns(input_batch.schema)
                 if input_hash_columns:
                     input_hash_values = self._compute_row_hashes(input_batch, input_hash_columns)
-                    processed_batch = self._add_column(processed_batch, self.config.input_hash_column_name, input_hash_values)
+                    processed_batch = self._add_column(
+                        processed_batch, self.config.input_hash_column_name, input_hash_values
+                    )
 
             # Add source URI if enabled
             if self.config.source_uri_enabled and self.source_uri:
                 source_uri_values = pa.array([self.source_uri] * batch.num_rows, type=pa.string())
-                processed_batch = self._add_column(processed_batch, self.config.source_uri_column_name, source_uri_values)
+                processed_batch = self._add_column(
+                    processed_batch, self.config.source_uri_column_name, source_uri_values
+                )
 
             # Add ingestion timestamp if enabled
             if self.config.ingested_at_enabled and self.ingestion_timestamp:
-                timestamp_values = pa.array([self.ingestion_timestamp] * batch.num_rows, type=pa.string())
-                processed_batch = self._add_column(processed_batch, self.config.ingested_at_column_name, timestamp_values)
+                timestamp_values = pa.array(
+                    [self.ingestion_timestamp] * batch.num_rows, type=pa.string()
+                )
+                processed_batch = self._add_column(
+                    processed_batch, self.config.ingested_at_column_name, timestamp_values
+                )
 
             # Add row numbers if enabled
             if self.config.row_number_enabled:
                 # Source file row numbers
-                source_row_numbers = list(range(
-                    self.source_row_offset + self.processing_row_counter + 1,
-                    self.source_row_offset + self.processing_row_counter + batch.num_rows + 1
-                ))
+                source_row_numbers = list(
+                    range(
+                        self.source_row_offset + self.processing_row_counter + 1,
+                        self.source_row_offset + self.processing_row_counter + batch.num_rows + 1,
+                    )
+                )
                 source_row_array = pa.array(source_row_numbers, type=pa.int64())
-                processed_batch = self._add_column(processed_batch, self.config.source_row_number_column_name, source_row_array)
+                processed_batch = self._add_column(
+                    processed_batch, self.config.source_row_number_column_name, source_row_array
+                )
 
                 # Processing sequence row numbers
-                processing_row_numbers = list(range(
-                    self.processing_row_counter + 1,
-                    self.processing_row_counter + batch.num_rows + 1
-                ))
+                processing_row_numbers = list(
+                    range(
+                        self.processing_row_counter + 1,
+                        self.processing_row_counter + batch.num_rows + 1,
+                    )
+                )
                 processing_row_array = pa.array(processing_row_numbers, type=pa.int64())
-                processed_batch = self._add_column(processed_batch, self.config.processing_row_number_column_name, processing_row_array)
+                processed_batch = self._add_column(
+                    processed_batch,
+                    self.config.processing_row_number_column_name,
+                    processing_row_array,
+                )
 
                 # Update counter
                 self.processing_row_counter += batch.num_rows
@@ -152,11 +179,13 @@ class RowHashProcessor(BaseProcessor):
             return processed_batch, validation_results
 
         except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Row metadata processing failed: {str(e)}",
-                error_code="ROW_METADATA_ERROR"
-            ))
+            validation_results.append(
+                ValidationResult(
+                    is_valid=False,
+                    error_message=f"Row metadata processing failed: {str(e)}",
+                    error_code="ROW_METADATA_ERROR",
+                )
+            )
             return batch, validation_results
 
     def _get_hash_columns(self, schema: pa.Schema) -> List[str]:
@@ -175,7 +204,7 @@ class RowHashProcessor(BaseProcessor):
             self.config.source_uri_column_name,
             self.config.ingested_at_column_name,
             self.config.source_row_number_column_name,
-            self.config.processing_row_number_column_name
+            self.config.processing_row_number_column_name,
         ]
 
         hash_columns = [col for col in hash_columns if col not in metadata_columns]
@@ -200,7 +229,9 @@ class RowHashProcessor(BaseProcessor):
                     if pa.types.is_string(column.type) or pa.types.is_large_string(column.type):
                         row_parts.append(str(value.as_py()))
                     elif pa.types.is_binary(column.type):
-                        row_parts.append(value.as_py().hex() if value.as_py() else self.config.null_value)
+                        row_parts.append(
+                            value.as_py().hex() if value.as_py() else self.config.null_value
+                        )
                     else:
                         row_parts.append(str(value.as_py()))
                 else:
@@ -214,7 +245,7 @@ class RowHashProcessor(BaseProcessor):
 
     def _compute_hash(self, data: str) -> str:
         """Compute hash of the given string."""
-        data_bytes = data.encode('utf-8')
+        data_bytes = data.encode("utf-8")
 
         if self.config.algorithm == "md5":
             return hashlib.md5(data_bytes).hexdigest()
@@ -229,7 +260,9 @@ class RowHashProcessor(BaseProcessor):
         else:
             raise ValueError(f"Unsupported hash algorithm: {self.config.algorithm}")
 
-    def _add_column(self, batch: pa.RecordBatch, column_name: str, column_values: pa.Array) -> pa.RecordBatch:
+    def _add_column(
+        self, batch: pa.RecordBatch, column_name: str, column_values: pa.Array
+    ) -> pa.RecordBatch:
         """Add a column to the batch."""
         new_fields = list(batch.schema)
         new_fields.append(pa.field(column_name, column_values.type))

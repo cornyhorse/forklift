@@ -5,7 +5,10 @@ for string columns in the schema standard.
 """
 
 import pyarrow as pa
-from forklift.utils.transformations import DataTransformer, StringCleaningConfig
+
+from forklift.utils.transformations import (DataTransformer,
+                                            StringCleaningConfig)
+
 
 def test_case_transformations():
     """Test all case transformation features."""
@@ -24,7 +27,7 @@ def test_case_transformations():
         "mcdonald's restaurant",
         "state of texas",
         "florida",
-        "washington d.c."
+        "washington d.c.",
     ]
 
     column = pa.array(test_data)
@@ -37,9 +40,7 @@ def test_case_transformations():
     print("\n1️⃣ UPPERCASE TRANSFORMATION")
     print("-" * 40)
     config_upper = StringCleaningConfig(
-        case_transform='upper',
-        collapse_whitespace=True,
-        strip_whitespace=True
+        case_transform="upper", collapse_whitespace=True, strip_whitespace=True
     )
     result = transformer.apply_string_cleaning(column, config_upper)
     print("Result:")
@@ -50,9 +51,7 @@ def test_case_transformations():
     print("\n2️⃣ LOWERCASE TRANSFORMATION")
     print("-" * 40)
     config_lower = StringCleaningConfig(
-        case_transform='lower',
-        collapse_whitespace=True,
-        strip_whitespace=True
+        case_transform="lower", collapse_whitespace=True, strip_whitespace=True
     )
     result = transformer.apply_string_cleaning(column, config_lower)
     print("Result:")
@@ -63,9 +62,7 @@ def test_case_transformations():
     print("\n3️⃣ TITLE CASE TRANSFORMATION")
     print("-" * 40)
     config_title = StringCleaningConfig(
-        case_transform='title',
-        collapse_whitespace=True,
-        strip_whitespace=True
+        case_transform="title", collapse_whitespace=True, strip_whitespace=True
     )
     result = transformer.apply_string_cleaning(column, config_title)
     print("Result:")
@@ -76,9 +73,7 @@ def test_case_transformations():
     print("\n4️⃣ PROPER CASE TRANSFORMATION")
     print("-" * 40)
     config_proper = StringCleaningConfig(
-        case_transform='proper',
-        collapse_whitespace=True,
-        strip_whitespace=True
+        case_transform="proper", collapse_whitespace=True, strip_whitespace=True
     )
     result = transformer.apply_string_cleaning(column, config_proper)
     print("Result:")
@@ -88,18 +83,13 @@ def test_case_transformations():
     # Test 5: Custom case mapping - State codes (exact matching)
     print("\n5️⃣ CUSTOM CASE MAPPING - STATE CODES (EXACT)")
     print("-" * 50)
-    state_codes = {
-        "california": "CA",
-        "new york state": "NY",
-        "texas": "TX",
-        "florida": "FL"
-    }
+    state_codes = {"california": "CA", "new york state": "NY", "texas": "TX", "florida": "FL"}
     config_states = StringCleaningConfig(
-        case_transform='lower',  # First normalize to lowercase
+        case_transform="lower",  # First normalize to lowercase
         custom_case_mapping=state_codes,
-        case_mapping_mode='exact',
+        case_mapping_mode="exact",
         collapse_whitespace=True,
-        strip_whitespace=True
+        strip_whitespace=True,
     )
     result = transformer.apply_string_cleaning(column, config_states)
     print("State code mappings:")
@@ -112,16 +102,13 @@ def test_case_transformations():
     # Test 6: Custom case mapping - Contains mode
     print("\n6️⃣ CUSTOM CASE MAPPING - CONTAINS MODE")
     print("-" * 45)
-    restaurant_mapping = {
-        "mcdonald": "McDonald",
-        "restaurant": "Restaurant"
-    }
+    restaurant_mapping = {"mcdonald": "McDonald", "restaurant": "Restaurant"}
     config_contains = StringCleaningConfig(
-        case_transform='lower',  # First normalize
+        case_transform="lower",  # First normalize
         custom_case_mapping=restaurant_mapping,
-        case_mapping_mode='contains',
+        case_mapping_mode="contains",
         collapse_whitespace=True,
-        strip_whitespace=True
+        strip_whitespace=True,
     )
     result = transformer.apply_string_cleaning(column, config_contains)
     print("Contains mappings:")
@@ -138,14 +125,12 @@ def test_case_transformations():
         "NASA AND THE FBI",
         "THE QUICK BROWN FOX JUMPS OVER THE LAZY DOG",
         "WELCOME TO THE UNITED STATES OF AMERICA",
-        "CEO AND CTO MEETING"
+        "CEO AND CTO MEETING",
     ]
     caps_column = pa.array(all_caps_data)
 
     config_fix = StringCleaningConfig(
-        fix_case_issues=True,
-        collapse_whitespace=True,
-        strip_whitespace=True
+        fix_case_issues=True, collapse_whitespace=True, strip_whitespace=True
     )
     result = transformer.apply_string_cleaning(caps_column, config_fix)
     print("Input (ALL CAPS):")
@@ -163,7 +148,7 @@ def test_case_transformations():
         "new    york",
         "TEXAS STATE",
         "  florida   ",
-        "state of washington"
+        "state of washington",
     ]
     messy_column = pa.array(messy_states)
 
@@ -175,7 +160,7 @@ def test_case_transformations():
         "texas": "TX",
         "florida": "FL",
         "state of washington": "WA",
-        "washington": "WA"
+        "washington": "WA",
     }
 
     config_pipeline = StringCleaningConfig(
@@ -183,10 +168,10 @@ def test_case_transformations():
         collapse_whitespace=True,
         strip_whitespace=True,
         # Normalize case
-        case_transform='lower',
+        case_transform="lower",
         # Apply state code mapping
         custom_case_mapping=state_standard_mapping,
-        case_mapping_mode='exact'
+        case_mapping_mode="exact",
     )
 
     result = transformer.apply_string_cleaning(messy_column, config_pipeline)
@@ -218,7 +203,7 @@ def test_schema_configuration():
         "enabled": True,
         "case_transform": "upper",
         "strip_whitespace": True,
-        "collapse_whitespace": True
+        "collapse_whitespace": True,
     }
     print("Schema configuration:")
     for key, value in schema_config_upper.items():
@@ -235,11 +220,11 @@ def test_schema_configuration():
             "new york": "NY",
             "texas": "TX",
             "florida": "FL",
-            "washington": "WA"
+            "washington": "WA",
         },
         "case_mapping_mode": "exact",
         "strip_whitespace": True,
-        "collapse_whitespace": True
+        "collapse_whitespace": True,
     }
     print("Schema configuration:")
     for key, value in schema_config_states.items():
@@ -256,9 +241,29 @@ def test_schema_configuration():
         "type": "string_cleaning",
         "enabled": True,
         "case_transform": "title",
-        "title_case_exceptions": ["a", "an", "and", "as", "at", "but", "by", "for", "if", "in", "nor", "of", "on", "or", "so", "the", "to", "up", "yet"],
+        "title_case_exceptions": [
+            "a",
+            "an",
+            "and",
+            "as",
+            "at",
+            "but",
+            "by",
+            "for",
+            "if",
+            "in",
+            "nor",
+            "of",
+            "on",
+            "or",
+            "so",
+            "the",
+            "to",
+            "up",
+            "yet",
+        ],
         "strip_whitespace": True,
-        "collapse_whitespace": True
+        "collapse_whitespace": True,
     }
     print("Schema configuration:")
     for key, value in schema_config_title.items():

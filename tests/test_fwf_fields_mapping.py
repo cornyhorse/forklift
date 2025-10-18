@@ -1,6 +1,7 @@
 """Tests for FWF field mapping functionality."""
 
 import pytest
+
 from forklift.schema.fwf.fields.mapping import FieldMapper
 
 
@@ -12,14 +13,14 @@ class TestFieldMapper:
         traditional_fields = [
             {"name": "id", "start": 1, "length": 5, "parquetType": "int32"},
             {"name": "name", "start": 6, "length": 20, "parquetType": "string"},
-            {"name": "age", "start": 26, "length": 3, "parquetType": "int32"}
+            {"name": "age", "start": 26, "length": 3, "parquetType": "int32"},
         ]
 
         result = FieldMapper.get_all_possible_fields(
             has_conditional_schemas=False,
             traditional_fields=traditional_fields,
             flag_column=None,
-            schema_variants=[]
+            schema_variants=[],
         )
 
         assert len(result) == 3
@@ -36,7 +37,7 @@ class TestFieldMapper:
             has_conditional_schemas=False,
             traditional_fields=[],
             flag_column=None,
-            schema_variants=[]
+            schema_variants=[],
         )
 
         assert result == {}
@@ -46,14 +47,14 @@ class TestFieldMapper:
         traditional_fields = [
             {"start": 1, "length": 5, "parquetType": "int32"},  # No name
             {"name": "valid_field", "start": 6, "length": 10, "parquetType": "string"},
-            {"name": "", "start": 16, "length": 5, "parquetType": "int32"}  # Empty name
+            {"name": "", "start": 16, "length": 5, "parquetType": "int32"},  # Empty name
         ]
 
         result = FieldMapper.get_all_possible_fields(
             has_conditional_schemas=False,
             traditional_fields=traditional_fields,
             flag_column=None,
-            schema_variants=[]
+            schema_variants=[],
         )
 
         assert len(result) == 1
@@ -68,23 +69,23 @@ class TestFieldMapper:
                 "flagValue": "A",
                 "fields": [
                     {"name": "employee_id", "start": 2, "length": 6, "parquetType": "string"},
-                    {"name": "salary", "start": 8, "length": 8, "parquetType": "double"}
-                ]
+                    {"name": "salary", "start": 8, "length": 8, "parquetType": "double"},
+                ],
             },
             {
                 "flagValue": "B",
                 "fields": [
                     {"name": "customer_id", "start": 2, "length": 6, "parquetType": "string"},
-                    {"name": "credit_limit", "start": 8, "length": 8, "parquetType": "double"}
-                ]
-            }
+                    {"name": "credit_limit", "start": 8, "length": 8, "parquetType": "double"},
+                ],
+            },
         ]
 
         result = FieldMapper.get_all_possible_fields(
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=flag_column,
-            schema_variants=schema_variants
+            schema_variants=schema_variants,
         )
 
         assert len(result) == 5  # flag + 4 fields
@@ -108,8 +109,8 @@ class TestFieldMapper:
                 "flagValue": "X",
                 "fields": [
                     {"name": "field1", "start": 1, "length": 5, "parquetType": "int32"},
-                    {"name": "field2", "start": 6, "length": 10, "parquetType": "string"}
-                ]
+                    {"name": "field2", "start": 6, "length": 10, "parquetType": "string"},
+                ],
             }
         ]
 
@@ -117,7 +118,7 @@ class TestFieldMapper:
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=None,
-            schema_variants=schema_variants
+            schema_variants=schema_variants,
         )
 
         assert len(result) == 2
@@ -131,7 +132,9 @@ class TestFieldMapper:
         schema_variants = [
             {
                 "flagValue": "A",
-                "fields": [{"name": "test_field", "start": 2, "length": 5, "parquetType": "string"}]
+                "fields": [
+                    {"name": "test_field", "start": 2, "length": 5, "parquetType": "string"}
+                ],
             }
         ]
 
@@ -139,7 +142,7 @@ class TestFieldMapper:
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=flag_column,
-            schema_variants=schema_variants
+            schema_variants=schema_variants,
         )
 
         assert len(result) == 1
@@ -152,30 +155,30 @@ class TestFieldMapper:
                 "flagValue": "TYPE1",
                 "fields": [
                     {"name": "common_field", "start": 1, "length": 10, "parquetType": "string"},
-                    {"name": "type1_specific", "start": 11, "length": 5, "parquetType": "int32"}
-                ]
+                    {"name": "type1_specific", "start": 11, "length": 5, "parquetType": "int32"},
+                ],
             },
             {
                 "flagValue": "TYPE2",
                 "fields": [
                     {"name": "common_field", "start": 1, "length": 10, "parquetType": "string"},
-                    {"name": "type2_specific", "start": 11, "length": 5, "parquetType": "double"}
-                ]
+                    {"name": "type2_specific", "start": 11, "length": 5, "parquetType": "double"},
+                ],
             },
             {
                 "flagValue": "TYPE3",
                 "fields": [
                     {"name": "common_field", "start": 1, "length": 10, "parquetType": "string"},
-                    {"name": "type3_specific", "start": 11, "length": 5, "parquetType": "bool"}
-                ]
-            }
+                    {"name": "type3_specific", "start": 11, "length": 5, "parquetType": "bool"},
+                ],
+            },
         ]
 
         result = FieldMapper.get_all_possible_fields(
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=None,
-            schema_variants=schema_variants
+            schema_variants=schema_variants,
         )
 
         assert len(result) == 4
@@ -200,8 +203,8 @@ class TestFieldMapper:
                 "fields": [
                     {"start": 1, "length": 5, "parquetType": "int32"},  # No name
                     {"name": "valid_field", "start": 6, "length": 10, "parquetType": "string"},
-                    {"name": "", "start": 16, "length": 5, "parquetType": "int32"}  # Empty name
-                ]
+                    {"name": "", "start": 16, "length": 5, "parquetType": "int32"},  # Empty name
+                ],
             }
         ]
 
@@ -209,7 +212,7 @@ class TestFieldMapper:
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=None,
-            schema_variants=schema_variants
+            schema_variants=schema_variants,
         )
 
         assert len(result) == 1
@@ -221,7 +224,7 @@ class TestFieldMapper:
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=None,
-            schema_variants=[]
+            schema_variants=[],
         )
 
         assert result == {}
@@ -239,23 +242,21 @@ class TestFieldMapper:
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=None,
-            schema_variants=schema_variants
+            schema_variants=schema_variants,
         )
 
         assert result == {}
 
     def test_get_all_possible_fields_conditional_none_fields_error(self):
         """Test that None fields causes a TypeError as expected."""
-        schema_variants = [
-            {"flagValue": "C", "fields": None}  # None fields causes TypeError
-        ]
+        schema_variants = [{"flagValue": "C", "fields": None}]  # None fields causes TypeError
 
         with pytest.raises(TypeError, match="'NoneType' object is not iterable"):
             FieldMapper.get_all_possible_fields(
                 has_conditional_schemas=True,
                 traditional_fields=[],
                 flag_column=None,
-                schema_variants=schema_variants
+                schema_variants=schema_variants,
             )
 
     def test_get_unified_parquet_schema_with_flag_column(self):
@@ -263,24 +264,13 @@ class TestFieldMapper:
         flag_column = {"name": "type_flag", "parquetType": "string"}
         all_fields = {
             "type_flag": {"parquetType": "string"},
-            "common_field": {
-                "parquetType": "int32",
-                "_appears_in_variants": ["A", "B"]
-            },
-            "specific_field": {
-                "parquetType": "double",
-                "_appears_in_variants": ["A"]
-            }
+            "common_field": {"parquetType": "int32", "_appears_in_variants": ["A", "B"]},
+            "specific_field": {"parquetType": "double", "_appears_in_variants": ["A"]},
         }
-        schema_variants = [
-            {"flagValue": "A"},
-            {"flagValue": "B"}
-        ]
+        schema_variants = [{"flagValue": "A"}, {"flagValue": "B"}]
 
         result = FieldMapper.get_unified_parquet_schema(
-            all_fields=all_fields,
-            flag_column=flag_column,
-            schema_variants=schema_variants
+            all_fields=all_fields, flag_column=flag_column, schema_variants=schema_variants
         )
 
         assert len(result) == 3
@@ -291,25 +281,13 @@ class TestFieldMapper:
     def test_get_unified_parquet_schema_no_flag_column(self):
         """Test get_unified_parquet_schema without flag column."""
         all_fields = {
-            "field1": {
-                "parquetType": "string",
-                "_appears_in_variants": ["X", "Y", "Z"]
-            },
-            "field2": {
-                "parquetType": "int64",
-                "_appears_in_variants": ["X"]
-            }
+            "field1": {"parquetType": "string", "_appears_in_variants": ["X", "Y", "Z"]},
+            "field2": {"parquetType": "int64", "_appears_in_variants": ["X"]},
         }
-        schema_variants = [
-            {"flagValue": "X"},
-            {"flagValue": "Y"},
-            {"flagValue": "Z"}
-        ]
+        schema_variants = [{"flagValue": "X"}, {"flagValue": "Y"}, {"flagValue": "Z"}]
 
         result = FieldMapper.get_unified_parquet_schema(
-            all_fields=all_fields,
-            flag_column=None,
-            schema_variants=schema_variants
+            all_fields=all_fields, flag_column=None, schema_variants=schema_variants
         )
 
         assert len(result) == 2
@@ -321,14 +299,12 @@ class TestFieldMapper:
         all_fields = {
             "field_with_type": {"parquetType": "double"},
             "field_without_type": {"_appears_in_variants": ["A"]},
-            "field_empty_type": {"parquetType": "", "_appears_in_variants": ["A"]}
+            "field_empty_type": {"parquetType": "", "_appears_in_variants": ["A"]},
         }
         schema_variants = [{"flagValue": "A"}]
 
         result = FieldMapper.get_unified_parquet_schema(
-            all_fields=all_fields,
-            flag_column=None,
-            schema_variants=schema_variants
+            all_fields=all_fields, flag_column=None, schema_variants=schema_variants
         )
 
         assert result["field_with_type"] == "double"
@@ -340,14 +316,12 @@ class TestFieldMapper:
         """Test get_unified_parquet_schema with fields missing _appears_in_variants."""
         all_fields = {
             "field1": {"parquetType": "int32"},  # No _appears_in_variants
-            "field2": {"parquetType": "string", "_appears_in_variants": []}  # Empty list
+            "field2": {"parquetType": "string", "_appears_in_variants": []},  # Empty list
         }
         schema_variants = [{"flagValue": "A"}]
 
         result = FieldMapper.get_unified_parquet_schema(
-            all_fields=all_fields,
-            flag_column=None,
-            schema_variants=schema_variants
+            all_fields=all_fields, flag_column=None, schema_variants=schema_variants
         )
 
         assert result["field1"] == "int32"
@@ -356,9 +330,7 @@ class TestFieldMapper:
     def test_get_unified_parquet_schema_empty_inputs(self):
         """Test get_unified_parquet_schema with empty inputs."""
         result = FieldMapper.get_unified_parquet_schema(
-            all_fields={},
-            flag_column=None,
-            schema_variants=[]
+            all_fields={}, flag_column=None, schema_variants=[]
         )
 
         assert result == {}
@@ -366,14 +338,10 @@ class TestFieldMapper:
     def test_get_unified_parquet_schema_flag_column_default_type(self):
         """Test get_unified_parquet_schema with flag column missing parquetType."""
         flag_column = {"name": "flag_field"}  # No parquetType
-        all_fields = {
-            "flag_field": {}  # No parquetType
-        }
+        all_fields = {"flag_field": {}}  # No parquetType
 
         result = FieldMapper.get_unified_parquet_schema(
-            all_fields=all_fields,
-            flag_column=flag_column,
-            schema_variants=[]
+            all_fields=all_fields, flag_column=flag_column, schema_variants=[]
         )
 
         assert result["flag_field"] == "string"  # Default type
@@ -400,8 +368,8 @@ class TestFieldMapper:
                     {"name": "employee_id", "start": 2, "length": 8, "parquetType": "string"},
                     {"name": "name", "start": 10, "length": 30, "parquetType": "string"},
                     {"name": "salary", "start": 40, "length": 10, "parquetType": "double"},
-                    {"name": "department", "start": 50, "length": 10, "parquetType": "string"}
-                ]
+                    {"name": "department", "start": 50, "length": 10, "parquetType": "string"},
+                ],
             },
             {
                 "flagValue": "C",  # Customer record
@@ -409,9 +377,9 @@ class TestFieldMapper:
                     {"name": "customer_id", "start": 2, "length": 8, "parquetType": "string"},
                     {"name": "name", "start": 10, "length": 30, "parquetType": "string"},
                     {"name": "credit_limit", "start": 40, "length": 10, "parquetType": "double"},
-                    {"name": "region", "start": 50, "length": 10, "parquetType": "string"}
-                ]
-            }
+                    {"name": "region", "start": 50, "length": 10, "parquetType": "string"},
+                ],
+            },
         ]
 
         # Get all possible fields
@@ -419,7 +387,7 @@ class TestFieldMapper:
             has_conditional_schemas=True,
             traditional_fields=[],
             flag_column=flag_column,
-            schema_variants=schema_variants
+            schema_variants=schema_variants,
         )
 
         # Should have flag column + all unique fields
@@ -438,9 +406,7 @@ class TestFieldMapper:
 
         # Get unified schema
         unified_schema = FieldMapper.get_unified_parquet_schema(
-            all_fields=all_fields,
-            flag_column=flag_column,
-            schema_variants=schema_variants
+            all_fields=all_fields, flag_column=flag_column, schema_variants=schema_variants
         )
 
         assert len(unified_schema) == 8

@@ -1,6 +1,6 @@
 """Schema utilities package."""
 
-from .helpers import SchemaValidationError
 from .formatters import SchemaFormatter
+from .helpers import SchemaValidationError
 
-__all__ = ['SchemaValidationError', 'SchemaFormatter']
+__all__ = ["SchemaValidationError", "SchemaFormatter"]

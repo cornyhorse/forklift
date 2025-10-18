@@ -9,27 +9,20 @@ For new code, consider importing directly from the format package:
 - etc.
 """
 
+# Import individual formatters for direct use
+from .format import (BaseFormatter, EmailFormatter, IPAddressFormatter,
+                     MACAddressFormatter, PhoneNumberFormatter, SSNFormatter,
+                     ZipCodeFormatter)
 # Import the refactored FormatTransformer for backward compatibility
 from .format.transformer import FormatTransformer
 
-# Import individual formatters for direct use
-from .format import (
-    BaseFormatter,
-    SSNFormatter,
-    ZipCodeFormatter,
-    PhoneNumberFormatter,
-    EmailFormatter,
-    IPAddressFormatter,
-    MACAddressFormatter
-)
-
 __all__ = [
-    'FormatTransformer',  # Backward compatibility
-    'BaseFormatter',
-    'SSNFormatter',
-    'ZipCodeFormatter',
-    'PhoneNumberFormatter',
-    'EmailFormatter',
-    'IPAddressFormatter',
-    'MACAddressFormatter'
+    "FormatTransformer",  # Backward compatibility
+    "BaseFormatter",
+    "SSNFormatter",
+    "ZipCodeFormatter",
+    "PhoneNumberFormatter",
+    "EmailFormatter",
+    "IPAddressFormatter",
+    "MACAddressFormatter",
 ]

@@ -1,19 +1,16 @@
 """Comprehensive tests for forklift.api module to achieve 100% code coverage."""
 
-import pytest
-import tempfile
 import json
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any
+from typing import Any, Dict
+from unittest.mock import MagicMock, Mock, patch
 
-from forklift.api import (
-    generate_schema_from_csv,
-    generate_schema_from_excel,
-    generate_schema_from_parquet,
-    generate_and_save_schema,
-    generate_and_copy_schema
-)
+import pytest
+
+from forklift.api import (generate_and_copy_schema, generate_and_save_schema,
+                          generate_schema_from_csv, generate_schema_from_excel,
+                          generate_schema_from_parquet)
 
 
 class TestAPIValidationCoverage:
@@ -26,11 +23,8 @@ class TestAPIValidationCoverage:
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "Forklift Schema - Generated",
             "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"}
-            },
-            "required": ["id"]
+            "properties": {"id": {"type": "integer"}, "name": {"type": "string"}},
+            "required": ["id"],
         }
 
     # Test coverage for generate_schema_from_excel validation (lines 108, 110)
@@ -66,7 +60,7 @@ class TestAPIValidationCoverage:
             generate_schema_from_parquet("   ")
 
     # Additional tests to ensure we have complete coverage
-    @patch('forklift.api.SchemaGenerator')
+    @patch("forklift.api.SchemaGenerator")
     def test_generate_schema_from_excel_successful_execution(self, mock_schema_generator):
         """Test successful execution of generate_schema_from_excel to ensure normal path works."""
         # Setup mock
@@ -80,7 +74,7 @@ class TestAPIValidationCoverage:
         assert result == self.mock_schema
         mock_schema_generator.assert_called_once()
 
-    @patch('forklift.api.SchemaGenerator')
+    @patch("forklift.api.SchemaGenerator")
     def test_generate_schema_from_parquet_successful_execution(self, mock_schema_generator):
         """Test successful execution of generate_schema_from_parquet to ensure normal path works."""
         # Setup mock
@@ -94,7 +88,7 @@ class TestAPIValidationCoverage:
         assert result == self.mock_schema
         mock_schema_generator.assert_called_once()
 
-    @patch('forklift.api.SchemaGenerator')
+    @patch("forklift.api.SchemaGenerator")
     def test_generate_schema_from_csv_validation_already_covered(self, mock_schema_generator):
         """Verify CSV function validation is already tested (should already have coverage)."""
         # Setup mock
@@ -110,7 +104,7 @@ class TestAPIValidationCoverage:
             generate_schema_from_csv("")
 
     # Tests for generate_and_save_schema function (lines 204-215)
-    @patch('forklift.api.SchemaGenerator')
+    @patch("forklift.api.SchemaGenerator")
     def test_generate_and_save_schema_csv(self, mock_schema_generator):
         """Test generate_and_save_schema with CSV file type."""
         # Setup mock
@@ -121,10 +115,7 @@ class TestAPIValidationCoverage:
 
         # Test the function
         generate_and_save_schema(
-            input_path="test.csv",
-            output_path="schema.json",
-            file_type="csv",
-            nrows=500
+            input_path="test.csv", output_path="schema.json", file_type="csv", nrows=500
         )
 
         # Verify SchemaGenerator was called correctly
@@ -141,7 +132,7 @@ class TestAPIValidationCoverage:
         mock_generator_instance.generate_schema.assert_called_once()
         mock_generator_instance.output_schema.assert_called_once_with(self.mock_schema)
 
-    @patch('forklift.api.SchemaGenerator')
+    @patch("forklift.api.SchemaGenerator")
     def test_generate_and_save_schema_excel(self, mock_schema_generator):
         """Test generate_and_save_schema with Excel file type."""
         # Setup mock
@@ -155,7 +146,7 @@ class TestAPIValidationCoverage:
             input_path="test.xlsx",
             output_path="schema.json",
             file_type="excel",
-            sheet_name="Sheet1"
+            sheet_name="Sheet1",
         )
 
         # Verify SchemaGenerator was called correctly
@@ -172,7 +163,7 @@ class TestAPIValidationCoverage:
         mock_generator_instance.output_schema.assert_called_once_with(self.mock_schema)
 
     # Tests for generate_and_copy_schema function (lines 239-250)
-    @patch('forklift.api.SchemaGenerator')
+    @patch("forklift.api.SchemaGenerator")
     def test_generate_and_copy_schema_csv(self, mock_schema_generator):
         """Test generate_and_copy_schema with CSV file type."""
         # Setup mock
@@ -182,11 +173,7 @@ class TestAPIValidationCoverage:
         mock_schema_generator.return_value = mock_generator_instance
 
         # Test the function
-        result = generate_and_copy_schema(
-            input_path="test.csv",
-            file_type="csv",
-            nrows=1000
-        )
+        result = generate_and_copy_schema(input_path="test.csv", file_type="csv", nrows=1000)
 
         # Verify return value
         assert result == self.mock_schema
@@ -204,7 +191,7 @@ class TestAPIValidationCoverage:
         mock_generator_instance.generate_schema.assert_called_once()
         mock_generator_instance.output_schema.assert_called_once_with(self.mock_schema)
 
-    @patch('forklift.api.SchemaGenerator')
+    @patch("forklift.api.SchemaGenerator")
     def test_generate_and_copy_schema_parquet(self, mock_schema_generator):
         """Test generate_and_copy_schema with Parquet file type."""
         # Setup mock
@@ -215,9 +202,7 @@ class TestAPIValidationCoverage:
 
         # Test the function
         result = generate_and_copy_schema(
-            input_path="test.parquet",
-            file_type="parquet",
-            include_sample_data=True
+            input_path="test.parquet", file_type="parquet", include_sample_data=True
         )
 
         # Verify return value

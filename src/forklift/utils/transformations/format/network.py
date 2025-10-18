@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
-from .base import BaseFormatter, ValidationMixin
+
 from ..configs import IPAddressConfig, MACAddressConfig
+from .base import BaseFormatter, ValidationMixin
 
 
 class IPAddressFormatter(BaseFormatter):
@@ -23,7 +24,9 @@ class IPAddressFormatter(BaseFormatter):
         # Normalize IPv6 if requested
         if self.config.ip_version in {"ipv6", "both"}:
             try:
-                normalized_ipv6 = self._normalize_ipv6_address(original_value, self.config.compress_ipv6)
+                normalized_ipv6 = self._normalize_ipv6_address(
+                    original_value, self.config.compress_ipv6
+                )
                 if normalized_ipv6:
                     original_value = normalized_ipv6
             except Exception:
@@ -36,7 +39,9 @@ class IPAddressFormatter(BaseFormatter):
                 raise ValueError("Invalid IPv4 address")
             elif self.config.ip_version == "ipv6" and not self._is_valid_ipv6(original_value):
                 raise ValueError("Invalid IPv6 address")
-            elif self.config.ip_version == "both" and not (self._is_valid_ipv4(original_value) or self._is_valid_ipv6(original_value)):
+            elif self.config.ip_version == "both" and not (
+                self._is_valid_ipv4(original_value) or self._is_valid_ipv6(original_value)
+            ):
                 raise ValueError("Invalid IP address")
 
         return original_value
@@ -92,13 +97,15 @@ class MACAddressFormatter(BaseFormatter, ValidationMixin):
             raise ValueError("Empty MAC address value")
 
         # Remove all non-hexadecimal characters
-        hex_only = re.sub(r'[^0-9A-Fa-f]', '', original_value)
+        hex_only = re.sub(r"[^0-9A-Fa-f]", "", original_value)
 
         if not hex_only:
             raise ValueError("No hexadecimal digits found in MAC address")
 
         if len(hex_only) < 6:
-            raise ValueError(f"MAC address must have at least 6 hexadecimal digits, got {len(hex_only)}")
+            raise ValueError(
+                f"MAC address must have at least 6 hexadecimal digits, got {len(hex_only)}"
+            )
 
         # Handle zero padding
         if self.config.zero_pad and len(hex_only) < 12:
@@ -106,14 +113,16 @@ class MACAddressFormatter(BaseFormatter, ValidationMixin):
 
         # Validate MAC address length
         if self.config.validate and len(hex_only) != 12:
-            raise ValueError(f"MAC address must have exactly 12 hexadecimal digits, got {len(hex_only)}")
+            raise ValueError(
+                f"MAC address must have exactly 12 hexadecimal digits, got {len(hex_only)}"
+            )
 
         # Truncate to 12 characters if needed
         if len(hex_only) > 12:
             hex_only = hex_only[:12]
 
         # Split into octets
-        octets = [hex_only[i:i+2] for i in range(0, 12, 2)]
+        octets = [hex_only[i : i + 2] for i in range(0, 12, 2)]
 
         # Format according to style
         formatted_mac = self._apply_format_style(octets)
@@ -129,10 +138,10 @@ class MACAddressFormatter(BaseFormatter, ValidationMixin):
     def _apply_format_style(self, octets: list[str]) -> str:
         """Apply the specified MAC address format style."""
         if self.config.format_style == "colon":
-            return ':'.join(octets)
+            return ":".join(octets)
         elif self.config.format_style == "dash":
-            return '-'.join(octets)
+            return "-".join(octets)
         elif self.config.format_style == "dot":
-            return '.'.join([''.join(octets[i:i+2]) for i in range(0, 6, 2)])
+            return ".".join(["".join(octets[i : i + 2]) for i in range(0, 6, 2)])
         else:  # none
-            return ''.join(octets)
+            return "".join(octets)

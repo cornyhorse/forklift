@@ -1,6 +1,7 @@
 """Field parsing utilities for FWF schemas."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List, Optional
 
 from ..utils.column_names import ColumnNameProcessor
@@ -10,9 +11,11 @@ class FieldParser:
     """Handles parsing and processing of FWF field configurations."""
 
     @staticmethod
-    def get_column_names(fields: List[Dict[str, Any]],
-                        standardize_names: Optional[str] = None,
-                        dedupe_names: Optional[str] = None) -> List[str]:
+    def get_column_names(
+        fields: List[Dict[str, Any]],
+        standardize_names: Optional[str] = None,
+        dedupe_names: Optional[str] = None,
+    ) -> List[str]:
         """Get column names from field configurations.
 
         Args:
@@ -40,7 +43,7 @@ class FieldParser:
         flag_column: Optional[Dict[str, Any]],
         variant_fields: List[Dict[str, Any]],
         standardize_names: Optional[str] = None,
-        dedupe_names: Optional[str] = None
+        dedupe_names: Optional[str] = None,
     ) -> List[str]:
         """Get column names for a specific flag value including flag column.
 

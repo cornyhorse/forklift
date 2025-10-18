@@ -1,10 +1,10 @@
 """Pytest configuration for forklift tests."""
 
-import sys
-import pytest
 import os
+import sys
 from pathlib import Path
 
+import pytest
 
 # Add the src directory to the Python path for imports
 src_path = Path(__file__).parent.parent / "src"
@@ -32,19 +32,19 @@ def pytest_addoption(parser):
         "--integration",
         action="store_true",
         default=False,
-        help="run integration tests that require real AWS/S3 access"
+        help="run integration tests that require real AWS/S3 access",
     )
     parser.addoption(
         "--s3-bucket",
         action="store",
         default=None,
-        help="S3 bucket to use for integration tests (overrides .env config)"
+        help="S3 bucket to use for integration tests (overrides .env config)",
     )
     parser.addoption(
         "--no-s3-mock",
         action="store_true",
         default=False,
-        help="disable S3 mocking in unit tests (use real S3 operations)"
+        help="disable S3 mocking in unit tests (use real S3 operations)",
     )
 
 
@@ -79,29 +79,29 @@ def _load_credentials_from_env():
         if credentials_file.exists():
             load_dotenv(credentials_file)
             return {
-                'aws_access_key_id': os.getenv('AWS_ACCESS_KEY_ID', ''),
-                'aws_secret_access_key': os.getenv('AWS_SECRET_ACCESS_KEY', ''),
-                'aws_session_token': os.getenv('AWS_SESSION_TOKEN'),
-                'region_name': os.getenv('AWS_DEFAULT_REGION', 'us-east-1'),
-                'endpoint_url': os.getenv('AWS_ENDPOINT_URL'),
+                "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID", ""),
+                "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+                "aws_session_token": os.getenv("AWS_SESSION_TOKEN"),
+                "region_name": os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+                "endpoint_url": os.getenv("AWS_ENDPOINT_URL"),
             }
         else:
             # Fallback to system environment variables
             return {
-                'aws_access_key_id': os.getenv('AWS_ACCESS_KEY_ID', ''),
-                'aws_secret_access_key': os.getenv('AWS_SECRET_ACCESS_KEY', ''),
-                'aws_session_token': os.getenv('AWS_SESSION_TOKEN'),
-                'region_name': os.getenv('AWS_DEFAULT_REGION', 'us-east-1'),
-                'endpoint_url': os.getenv('AWS_ENDPOINT_URL'),
+                "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID", ""),
+                "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+                "aws_session_token": os.getenv("AWS_SESSION_TOKEN"),
+                "region_name": os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+                "endpoint_url": os.getenv("AWS_ENDPOINT_URL"),
             }
     except ImportError:
         # If python-dotenv is not available, use system environment variables
         return {
-            'aws_access_key_id': os.getenv('AWS_ACCESS_KEY_ID', ''),
-            'aws_secret_access_key': os.getenv('AWS_SECRET_ACCESS_KEY', ''),
-            'aws_session_token': os.getenv('AWS_SESSION_TOKEN'),
-            'region_name': os.getenv('AWS_DEFAULT_REGION', 'us-east-1'),
-            'endpoint_url': os.getenv('AWS_ENDPOINT_URL'),
+            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID", ""),
+            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            "aws_session_token": os.getenv("AWS_SESSION_TOKEN"),
+            "region_name": os.getenv("AWS_DEFAULT_REGION", "us-east-1"),
+            "endpoint_url": os.getenv("AWS_ENDPOINT_URL"),
         }
 
 
@@ -114,7 +114,7 @@ def s3_test_bucket(request):
 
     # Load from .env file or environment
     _load_credentials_from_env()  # This loads the .env file
-    return os.getenv('S3_TEST_BUCKET', 'cornyhorse-data')
+    return os.getenv("S3_TEST_BUCKET", "cornyhorse-data")
 
 
 @pytest.fixture(scope="session")
@@ -123,7 +123,7 @@ def aws_credentials():
     credentials = _load_credentials_from_env()
 
     # Check if we have valid credentials
-    if not credentials.get('aws_access_key_id') or not credentials.get('aws_secret_access_key'):
+    if not credentials.get("aws_access_key_id") or not credentials.get("aws_secret_access_key"):
         pytest.skip("AWS credentials not available in ~/.credentials/.env or environment variables")
 
     return credentials
@@ -149,20 +149,21 @@ def s3_mock_conditional(request, use_s3_mock):
     """Conditionally provide S3 mocking based on configuration."""
     if use_s3_mock:
         # Use mocking
-        from unittest.mock import patch, MagicMock
-        with patch('boto3.Session') as mock_session:
+        from unittest.mock import MagicMock, patch
+
+        with patch("boto3.Session") as mock_session:
             mock_client = MagicMock()
             mock_session.return_value.client.return_value = mock_client
 
             # Mock the S3StreamingClient creation instead of the property
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_s3_client:
+            with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_s3_client:
                 mock_s3_streaming_client = MagicMock()
                 mock_get_s3_client.return_value = mock_s3_streaming_client
                 yield mock_session, mock_s3_streaming_client
     else:
         # Use real S3 - load credentials only when needed
         credentials = _load_credentials_from_env()
-        if not credentials.get('aws_access_key_id') or not credentials.get('aws_secret_access_key'):
+        if not credentials.get("aws_access_key_id") or not credentials.get("aws_secret_access_key"):
             pytest.skip("Real S3 testing requested but AWS credentials not available")
 
         # Return None to indicate no mocking

@@ -1,31 +1,27 @@
 """Comprehensive tests for calculated_columns.py to achieve 100% code coverage."""
 
-import pytest
-import sys
 import math
-from datetime import datetime, date
-from unittest.mock import Mock, patch, MagicMock
+import sys
+from datetime import date, datetime
+from unittest.mock import MagicMock, Mock, patch
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pytest
 
 # Add src to Python path for imports
-sys.path.insert(0, 'src')
-
-# Import the base classes first
-from forklift.processors.base import BaseProcessor, ValidationResult
+sys.path.insert(0, "src")
 
 # Import the calculated_columns module directly to ensure coverage tracking
 import forklift.processors.calculated_columns
-
+# Import the base classes first
+from forklift.processors.base import BaseProcessor, ValidationResult
 # Now import the specific classes
-from forklift.processors.calculated_columns import (
-    CalculatedColumn,
-    CalculatedColumnsConfig,
-    CalculatedColumnsProcessor,
-    ConstantColumn,
-    ExpressionColumn
-)
+from forklift.processors.calculated_columns import (CalculatedColumn,
+                                                    CalculatedColumnsConfig,
+                                                    CalculatedColumnsProcessor,
+                                                    ConstantColumn,
+                                                    ExpressionColumn)
 
 
 class TestCalculatedColumn:
@@ -47,7 +43,7 @@ class TestCalculatedColumn:
             expression="x + y",
             data_type=pa.int64(),
             description="Test column",
-            dependencies=["x", "y"]
+            dependencies=["x", "y"],
         )
         assert col.name == "test_col"
         assert col.expression == "x + y"
@@ -82,10 +78,7 @@ class TestCalculatedColumnsConfig:
         """Test CalculatedColumnsConfig initialization with explicit values."""
         columns = [CalculatedColumn(name="test", expression="x")]
         config = CalculatedColumnsConfig(
-            columns=columns,
-            fail_on_error=False,
-            add_metadata=True,
-            validate_dependencies=False
+            columns=columns, fail_on_error=False, add_metadata=True, validate_dependencies=False
         )
         assert config.columns == columns
         assert config.fail_on_error is False
@@ -98,18 +91,20 @@ class TestCalculatedColumnsProcessor:
 
     def create_sample_batch(self):
         """Create a sample PyArrow RecordBatch for testing."""
-        schema = pa.schema([
-            pa.field("x", pa.int64()),
-            pa.field("y", pa.int64()),
-            pa.field("name", pa.string()),
-            pa.field("date_col", pa.date32())
-        ])
+        schema = pa.schema(
+            [
+                pa.field("x", pa.int64()),
+                pa.field("y", pa.int64()),
+                pa.field("name", pa.string()),
+                pa.field("date_col", pa.date32()),
+            ]
+        )
 
         data = {
             "x": [1, 2, 3, None],
             "y": [10, 20, 30, 40],
             "name": ["Alice", "Bob", "Charlie", "David"],
-            "date_col": [date(2023, 1, 1), date(2023, 2, 1), date(2023, 3, 1), date(2023, 4, 1)]
+            "date_col": [date(2023, 1, 1), date(2023, 2, 1), date(2023, 3, 1), date(2023, 4, 1)],
         }
 
         arrays = []
@@ -126,7 +121,7 @@ class TestCalculatedColumnsProcessor:
 
         assert processor.config == config
         assert len(processor._available_functions) > 0
-        assert 'add' in processor._available_functions
+        assert "add" in processor._available_functions
 
     def test_processor_init_with_validation_disabled(self):
         """Test processor initialization with dependency validation disabled."""
@@ -144,16 +139,16 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test arithmetic functions
-        assert funcs['add'](5, 3) == 8
-        assert funcs['subtract'](5, 3) == 2
-        assert funcs['multiply'](5, 3) == 15
-        assert funcs['divide'](6, 3) == 2
-        assert funcs['power'](2, 3) == 8
-        assert funcs['mod'](7, 3) == 1
+        assert funcs["add"](5, 3) == 8
+        assert funcs["subtract"](5, 3) == 2
+        assert funcs["multiply"](5, 3) == 15
+        assert funcs["divide"](6, 3) == 2
+        assert funcs["power"](2, 3) == 8
+        assert funcs["mod"](7, 3) == 1
 
         # Test null handling
-        assert funcs['add'](None, 3) is None
-        assert funcs['divide'](5, 0) is None
+        assert funcs["add"](None, 3) is None
+        assert funcs["divide"](5, 0) is None
 
     def test_init_functions_mathematical(self):
         """Test mathematical functions initialization."""
@@ -163,19 +158,19 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test mathematical functions
-        assert funcs['abs'](-5) == 5
-        assert funcs['round'](3.14159, 2) == 3.14
-        assert funcs['floor'](3.7) == 3
-        assert funcs['ceil'](3.2) == 4
-        assert funcs['sqrt'](9) == 3
-        assert abs(funcs['log'](math.e) - 1) < 0.001
-        assert funcs['log10'](100) == 2
+        assert funcs["abs"](-5) == 5
+        assert funcs["round"](3.14159, 2) == 3.14
+        assert funcs["floor"](3.7) == 3
+        assert funcs["ceil"](3.2) == 4
+        assert funcs["sqrt"](9) == 3
+        assert abs(funcs["log"](math.e) - 1) < 0.001
+        assert funcs["log10"](100) == 2
 
         # Test null and invalid input handling
-        assert funcs['sqrt'](None) is None
-        assert funcs['sqrt'](-1) is None
-        assert funcs['log'](0) is None
-        assert funcs['log'](-1) is None
+        assert funcs["sqrt"](None) is None
+        assert funcs["sqrt"](-1) is None
+        assert funcs["log"](0) is None
+        assert funcs["log"](-1) is None
 
     def test_init_functions_string(self):
         """Test string functions initialization."""
@@ -185,19 +180,19 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test string functions
-        assert funcs['concat']("Hello", " ", "World") == "Hello World"
-        assert funcs['upper']("hello") == "HELLO"
-        assert funcs['lower']("HELLO") == "hello"
-        assert funcs['trim']("  hello  ") == "hello"
-        assert funcs['length']("hello") == 5
-        assert funcs['substring']("hello", 1, 3) == "ell"
-        assert funcs['replace']("hello", "l", "x") == "hexxo"
-        assert funcs['left']("hello", 3) == "hel"
-        assert funcs['right']("hello", 3) == "llo"
+        assert funcs["concat"]("Hello", " ", "World") == "Hello World"
+        assert funcs["upper"]("hello") == "HELLO"
+        assert funcs["lower"]("HELLO") == "hello"
+        assert funcs["trim"]("  hello  ") == "hello"
+        assert funcs["length"]("hello") == 5
+        assert funcs["substring"]("hello", 1, 3) == "ell"
+        assert funcs["replace"]("hello", "l", "x") == "hexxo"
+        assert funcs["left"]("hello", 3) == "hel"
+        assert funcs["right"]("hello", 3) == "llo"
 
         # Test null handling
-        assert funcs['upper'](None) is None
-        assert funcs['length'](None) is None
+        assert funcs["upper"](None) is None
+        assert funcs["length"](None) is None
 
     def test_init_functions_conditional(self):
         """Test conditional functions initialization."""
@@ -207,15 +202,15 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test conditional functions
-        assert funcs['if_then_else'](True, "yes", "no") == "yes"
-        assert funcs['if_then_else'](False, "yes", "no") == "no"
-        assert funcs['coalesce'](None, None, "default") == "default"
-        assert funcs['nullif'](5, 5) is None
-        assert funcs['nullif'](5, 3) == 5
-        assert funcs['isnull'](None) is True
-        assert funcs['isnull'](5) is False
-        assert funcs['isnotnull'](5) is True
-        assert funcs['isnotnull'](None) is False
+        assert funcs["if_then_else"](True, "yes", "no") == "yes"
+        assert funcs["if_then_else"](False, "yes", "no") == "no"
+        assert funcs["coalesce"](None, None, "default") == "default"
+        assert funcs["nullif"](5, 5) is None
+        assert funcs["nullif"](5, 3) == 5
+        assert funcs["isnull"](None) is True
+        assert funcs["isnull"](5) is False
+        assert funcs["isnotnull"](5) is True
+        assert funcs["isnotnull"](None) is False
 
     def test_init_functions_type_conversion(self):
         """Test type conversion functions initialization."""
@@ -225,15 +220,15 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test type conversion functions
-        assert funcs['to_string'](123) == "123"
-        assert funcs['to_int']("123") == 123
-        assert funcs['to_float']("123.45") == 123.45
-        assert funcs['to_bool'](1) is True
-        assert funcs['to_bool'](0) is False
+        assert funcs["to_string"](123) == "123"
+        assert funcs["to_int"]("123") == 123
+        assert funcs["to_float"]("123.45") == 123.45
+        assert funcs["to_bool"](1) is True
+        assert funcs["to_bool"](0) is False
 
         # Test null handling
-        assert funcs['to_string'](None) is None
-        assert funcs['to_int'](None) is None
+        assert funcs["to_string"](None) is None
+        assert funcs["to_int"](None) is None
 
     def test_init_functions_datetime(self):
         """Test date/time functions initialization."""
@@ -246,18 +241,18 @@ class TestCalculatedColumnsProcessor:
         test_date = date(2023, 5, 15)
         test_datetime = datetime(2023, 5, 15, 10, 30, 45)
 
-        assert funcs['year'](test_date) == 2023
-        assert funcs['month'](test_date) == 5
-        assert funcs['day'](test_date) == 15
-        assert funcs['weekday'](test_date) == 0  # Monday
+        assert funcs["year"](test_date) == 2023
+        assert funcs["month"](test_date) == 5
+        assert funcs["day"](test_date) == 15
+        assert funcs["weekday"](test_date) == 0  # Monday
 
-        assert funcs['year'](test_datetime) == 2023
-        assert funcs['month'](test_datetime) == 5
-        assert funcs['day'](test_datetime) == 15
+        assert funcs["year"](test_datetime) == 2023
+        assert funcs["month"](test_datetime) == 5
+        assert funcs["day"](test_datetime) == 15
 
         # Test null handling
-        assert funcs['year'](None) is None
-        assert funcs['year']("not_a_date") is None
+        assert funcs["year"](None) is None
+        assert funcs["year"]("not_a_date") is None
 
     def test_init_functions_comparison(self):
         """Test comparison functions initialization."""
@@ -267,17 +262,17 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test comparison functions
-        assert funcs['equals'](5, 5) is True
-        assert funcs['equals'](5, 3) is False
-        assert funcs['not_equals'](5, 3) is True
-        assert funcs['greater_than'](5, 3) is True
-        assert funcs['less_than'](3, 5) is True
-        assert funcs['greater_equal'](5, 5) is True
-        assert funcs['less_equal'](3, 5) is True
+        assert funcs["equals"](5, 5) is True
+        assert funcs["equals"](5, 3) is False
+        assert funcs["not_equals"](5, 3) is True
+        assert funcs["greater_than"](5, 3) is True
+        assert funcs["less_than"](3, 5) is True
+        assert funcs["greater_equal"](5, 5) is True
+        assert funcs["less_equal"](3, 5) is True
 
         # Test null handling
-        assert funcs['greater_than'](None, 5) is False
-        assert funcs['less_than'](5, None) is False
+        assert funcs["greater_than"](None, 5) is False
+        assert funcs["less_than"](5, None) is False
 
     def test_init_functions_logical(self):
         """Test logical functions initialization."""
@@ -287,12 +282,12 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test logical functions
-        assert funcs['and'](True, True) is True
-        assert funcs['and'](True, False) is False
-        assert funcs['or'](True, False) is True
-        assert funcs['or'](False, False) is False
-        assert funcs['not'](True) is False
-        assert funcs['not'](False) is True
+        assert funcs["and"](True, True) is True
+        assert funcs["and"](True, False) is False
+        assert funcs["or"](True, False) is True
+        assert funcs["or"](False, False) is False
+        assert funcs["not"](True) is False
+        assert funcs["not"](False) is True
 
     def test_init_functions_utility(self):
         """Test utility functions initialization."""
@@ -302,27 +297,27 @@ class TestCalculatedColumnsProcessor:
         funcs = processor._available_functions
 
         # Test utility functions
-        assert funcs['min'](1, 2, 3) == 1
-        assert funcs['max'](1, 2, 3) == 3
-        assert funcs['sum'](1, 2, 3) == 6
-        assert funcs['avg'](2, 4, 6) == 4
+        assert funcs["min"](1, 2, 3) == 1
+        assert funcs["max"](1, 2, 3) == 3
+        assert funcs["sum"](1, 2, 3) == 6
+        assert funcs["avg"](2, 4, 6) == 4
 
         # Test with null values
-        assert funcs['min'](None, 2, 3) == 2
-        assert funcs['max'](1, None, 3) == 3
-        assert funcs['sum'](1, None, 3) == 4
-        assert funcs['avg'](2, None, 6) == 4
+        assert funcs["min"](None, 2, 3) == 2
+        assert funcs["max"](1, None, 3) == 3
+        assert funcs["sum"](1, None, 3) == 4
+        assert funcs["avg"](2, None, 6) == 4
 
         # Test all null values
-        assert funcs['min'](None, None) is None
-        assert funcs['avg'](None, None) is None
+        assert funcs["min"](None, None) is None
+        assert funcs["avg"](None, None) is None
 
     def test_validate_dependencies_no_circular(self):
         """Test dependency validation with no circular dependencies."""
         columns = [
             CalculatedColumn(name="a", expression="x + 1"),
             CalculatedColumn(name="b", expression="a + 2", dependencies=["a"]),
-            CalculatedColumn(name="c", expression="b + 3", dependencies=["b"])
+            CalculatedColumn(name="c", expression="b + 3", dependencies=["b"]),
         ]
         config = CalculatedColumnsConfig(columns=columns)
 
@@ -334,7 +329,7 @@ class TestCalculatedColumnsProcessor:
         """Test dependency validation with circular dependencies."""
         columns = [
             CalculatedColumn(name="a", expression="b + 1", dependencies=["b"]),
-            CalculatedColumn(name="b", expression="a + 2", dependencies=["a"])
+            CalculatedColumn(name="b", expression="a + 2", dependencies=["a"]),
         ]
         config = CalculatedColumnsConfig(columns=columns)
 
@@ -345,7 +340,7 @@ class TestCalculatedColumnsProcessor:
         """Test circular dependency detection for simple case."""
         columns = [
             CalculatedColumn(name="a", expression="b + 1", dependencies=["b"]),
-            CalculatedColumn(name="b", expression="a + 2", dependencies=["a"])
+            CalculatedColumn(name="b", expression="a + 2", dependencies=["a"]),
         ]
         config = CalculatedColumnsConfig(columns=columns, validate_dependencies=False)
         processor = CalculatedColumnsProcessor(config)
@@ -355,9 +350,7 @@ class TestCalculatedColumnsProcessor:
 
     def test_has_circular_dependency_self_reference(self):
         """Test circular dependency detection for self-reference."""
-        columns = [
-            CalculatedColumn(name="a", expression="a + 1", dependencies=["a"])
-        ]
+        columns = [CalculatedColumn(name="a", expression="a + 1", dependencies=["a"])]
         config = CalculatedColumnsConfig(columns=columns, validate_dependencies=False)
         processor = CalculatedColumnsProcessor(config)
 
@@ -368,7 +361,7 @@ class TestCalculatedColumnsProcessor:
         """Test circular dependency detection with no circular dependencies."""
         columns = [
             CalculatedColumn(name="a", expression="x + 1"),
-            CalculatedColumn(name="b", expression="a + 2", dependencies=["a"])
+            CalculatedColumn(name="b", expression="a + 2", dependencies=["a"]),
         ]
         config = CalculatedColumnsConfig(columns=columns, validate_dependencies=False)
         processor = CalculatedColumnsProcessor(config)
@@ -380,9 +373,7 @@ class TestCalculatedColumnsProcessor:
         """Test processing batch with simple arithmetic calculation."""
         batch = self.create_sample_batch()
 
-        columns = [
-            CalculatedColumn(name="sum_col", expression="x + y", data_type=pa.int64())
-        ]
+        columns = [CalculatedColumn(name="sum_col", expression="x + y", data_type=pa.int64())]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
 
@@ -403,7 +394,7 @@ class TestCalculatedColumnsProcessor:
 
         columns = [
             CalculatedColumn(name="upper_name", expression="upper(name)"),
-            CalculatedColumn(name="name_length", expression="length(name)", data_type=pa.int64())
+            CalculatedColumn(name="name_length", expression="length(name)", data_type=pa.int64()),
         ]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
@@ -420,9 +411,7 @@ class TestCalculatedColumnsProcessor:
         """Test processing batch with metadata enabled."""
         batch = self.create_sample_batch()
 
-        columns = [
-            CalculatedColumn(name="sum_col", expression="x + y", data_type=pa.int64())
-        ]
+        columns = [CalculatedColumn(name="sum_col", expression="x + y", data_type=pa.int64())]
         config = CalculatedColumnsConfig(columns=columns, add_metadata=True)
         processor = CalculatedColumnsProcessor(config)
 
@@ -436,9 +425,7 @@ class TestCalculatedColumnsProcessor:
         """Test processing batch with calculation error and fail_on_error=True."""
         batch = self.create_sample_batch()
 
-        columns = [
-            CalculatedColumn(name="error_col", expression="nonexistent_function(x)")
-        ]
+        columns = [CalculatedColumn(name="error_col", expression="nonexistent_function(x)")]
         config = CalculatedColumnsConfig(columns=columns, fail_on_error=True)
         processor = CalculatedColumnsProcessor(config)
 
@@ -453,9 +440,7 @@ class TestCalculatedColumnsProcessor:
         """Test processing batch with calculation error and fail_on_error=False."""
         batch = self.create_sample_batch()
 
-        columns = [
-            CalculatedColumn(name="error_col", expression="nonexistent_function(x)")
-        ]
+        columns = [CalculatedColumn(name="error_col", expression="nonexistent_function(x)")]
         config = CalculatedColumnsConfig(columns=columns, fail_on_error=False)
         processor = CalculatedColumnsProcessor(config)
 
@@ -475,14 +460,14 @@ class TestCalculatedColumnsProcessor:
         """Test processing batch with processor-level exception."""
         batch = self.create_sample_batch()
 
-        columns = [
-            CalculatedColumn(name="test_col", expression="x + y")
-        ]
+        columns = [CalculatedColumn(name="test_col", expression="x + y")]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
 
         # Mock _sort_columns_by_dependencies to raise an exception
-        with patch.object(processor, '_sort_columns_by_dependencies', side_effect=Exception("Test error")):
+        with patch.object(
+            processor, "_sort_columns_by_dependencies", side_effect=Exception("Test error")
+        ):
             result_batch, validation_results = processor.process_batch(batch)
 
         assert result_batch == batch
@@ -495,7 +480,7 @@ class TestCalculatedColumnsProcessor:
         columns = [
             CalculatedColumn(name="c", expression="b + 1", dependencies=["b"]),
             CalculatedColumn(name="a", expression="x + 1"),
-            CalculatedColumn(name="b", expression="a + 1", dependencies=["a"])
+            CalculatedColumn(name="b", expression="a + 1", dependencies=["a"]),
         ]
         config = CalculatedColumnsConfig(columns=columns, validate_dependencies=False)
         processor = CalculatedColumnsProcessor(config)
@@ -504,15 +489,15 @@ class TestCalculatedColumnsProcessor:
         sorted_names = [col.name for col in sorted_columns]
 
         # 'a' should come before 'b', and 'b' should come before 'c'
-        assert sorted_names.index('a') < sorted_names.index('b')
-        assert sorted_names.index('b') < sorted_names.index('c')
+        assert sorted_names.index("a") < sorted_names.index("b")
+        assert sorted_names.index("b") < sorted_names.index("c")
 
     def test_sort_columns_by_dependencies_no_dependencies(self):
         """Test sorting columns with no dependencies."""
         columns = [
             CalculatedColumn(name="a", expression="x + 1"),
             CalculatedColumn(name="b", expression="y + 1"),
-            CalculatedColumn(name="c", expression="x + y")
+            CalculatedColumn(name="c", expression="x + y"),
         ]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
@@ -524,7 +509,7 @@ class TestCalculatedColumnsProcessor:
         """Test sorting with circular dependencies fallback."""
         columns = [
             CalculatedColumn(name="a", expression="b + 1", dependencies=["b"]),
-            CalculatedColumn(name="b", expression="a + 1", dependencies=["a"])
+            CalculatedColumn(name="b", expression="a + 1", dependencies=["a"]),
         ]
         config = CalculatedColumnsConfig(columns=columns, validate_dependencies=False)
         processor = CalculatedColumnsProcessor(config)
@@ -642,37 +627,37 @@ class TestCalculatedColumnsProcessor:
         """Test getting calculated columns information."""
         columns = [
             CalculatedColumn(name="a", expression="x + y"),
-            CalculatedColumn(name="b", expression="a * 2", dependencies=["a"])
+            CalculatedColumn(name="b", expression="a * 2", dependencies=["a"]),
         ]
         config = CalculatedColumnsConfig(columns=columns, fail_on_error=False, add_metadata=True)
         processor = CalculatedColumnsProcessor(config)
 
         info = processor.get_calculated_columns_info()
 
-        assert info['total_columns'] == 2
-        assert info['column_names'] == ["a", "b"]
-        assert info['has_dependencies'] is True
-        assert info['fail_on_error'] is False
-        assert info['add_metadata'] is True
-        assert 'add' in info['available_functions']
+        assert info["total_columns"] == 2
+        assert info["column_names"] == ["a", "b"]
+        assert info["has_dependencies"] is True
+        assert info["fail_on_error"] is False
+        assert info["add_metadata"] is True
+        assert "add" in info["available_functions"]
 
     def test_get_calculated_columns_info_no_dependencies(self):
         """Test getting calculated columns info with no dependencies."""
         columns = [
             CalculatedColumn(name="a", expression="x + y"),
-            CalculatedColumn(name="b", expression="x * 2")
+            CalculatedColumn(name="b", expression="x * 2"),
         ]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
 
         info = processor.get_calculated_columns_info()
-        assert info['has_dependencies'] is False
+        assert info["has_dependencies"] is False
 
     def test_validate_expressions_valid(self):
         """Test validating valid expressions."""
         columns = [
             CalculatedColumn(name="sum_col", expression="x + y"),
-            CalculatedColumn(name="name_upper", expression="upper(name)")
+            CalculatedColumn(name="name_upper", expression="upper(name)"),
         ]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
@@ -686,9 +671,7 @@ class TestCalculatedColumnsProcessor:
 
     def test_validate_expressions_invalid(self):
         """Test validating invalid expressions."""
-        columns = [
-            CalculatedColumn(name="error_col", expression="undefined_function(x)")
-        ]
+        columns = [CalculatedColumn(name="error_col", expression="undefined_function(x)")]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
 
@@ -707,7 +690,7 @@ class TestCalculatedColumnsProcessor:
             CalculatedColumn(
                 name="complex_calc",
                 expression="if_then_else(greater_than(x, 2), multiply(x, y), add(x, y))",
-                data_type=pa.int64()
+                data_type=pa.int64(),
             )
         ]
         config = CalculatedColumnsConfig(columns=columns)
@@ -720,21 +703,17 @@ class TestCalculatedColumnsProcessor:
         assert "complex_calc" in result_batch.schema.names
 
         complex_column = result_batch.column("complex_calc")
-        assert complex_column[0].as_py() == 11   # 1 + 10 (1 <= 2)
-        assert complex_column[1].as_py() == 22   # 2 + 20 (2 <= 2)
-        assert complex_column[2].as_py() == 90   # 3 * 30 (3 > 2)
-        assert complex_column[3].as_py() is None # None case
+        assert complex_column[0].as_py() == 11  # 1 + 10 (1 <= 2)
+        assert complex_column[1].as_py() == 22  # 2 + 20 (2 <= 2)
+        assert complex_column[2].as_py() == 90  # 3 * 30 (3 > 2)
+        assert complex_column[3].as_py() is None  # None case
 
     def test_date_operations(self):
         """Test date-related operations."""
         batch = self.create_sample_batch()
 
         columns = [
-            CalculatedColumn(
-                name="year_col",
-                expression="year(date_col)",
-                data_type=pa.int64()
-            )
+            CalculatedColumn(name="year_col", expression="year(date_col)", data_type=pa.int64())
         ]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
@@ -750,9 +729,7 @@ class TestCalculatedColumnsProcessor:
 
         columns = [
             CalculatedColumn(
-                name="coalesce_col",
-                expression="coalesce(x, 999)",
-                data_type=pa.int64()
+                name="coalesce_col", expression="coalesce(x, 999)", data_type=pa.int64()
             )
         ]
         config = CalculatedColumnsConfig(columns=columns)
@@ -761,7 +738,7 @@ class TestCalculatedColumnsProcessor:
         result_batch, validation_results = processor.process_batch(batch)
 
         coalesce_column = result_batch.column("coalesce_col")
-        assert coalesce_column[0].as_py() == 1    # x is not null
+        assert coalesce_column[0].as_py() == 1  # x is not null
         assert coalesce_column[3].as_py() == 999  # x is null, use default
 
     def test_mathematical_functions(self):
@@ -772,16 +749,8 @@ class TestCalculatedColumnsProcessor:
         batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
         columns = [
-            CalculatedColumn(
-                name="sqrt_col",
-                expression="sqrt(value)",
-                data_type=pa.float64()
-            ),
-            CalculatedColumn(
-                name="abs_col",
-                expression="abs(value)",
-                data_type=pa.float64()
-            )
+            CalculatedColumn(name="sqrt_col", expression="sqrt(value)", data_type=pa.float64()),
+            CalculatedColumn(name="abs_col", expression="abs(value)", data_type=pa.float64()),
         ]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
@@ -803,23 +772,13 @@ class TestCalculatedColumnsProcessor:
         batch = self.create_sample_batch()
 
         columns = [
+            CalculatedColumn(name="step1", expression="x + 1", data_type=pa.int64()),
             CalculatedColumn(
-                name="step1",
-                expression="x + 1",
-                data_type=pa.int64()
+                name="step2", expression="step1 + y", dependencies=["step1"], data_type=pa.int64()
             ),
             CalculatedColumn(
-                name="step2",
-                expression="step1 + y",
-                dependencies=["step1"],
-                data_type=pa.int64()
+                name="step3", expression="step2 * 2", dependencies=["step2"], data_type=pa.int64()
             ),
-            CalculatedColumn(
-                name="step3",
-                expression="step2 * 2",
-                dependencies=["step2"],
-                data_type=pa.int64()
-            )
         ]
         config = CalculatedColumnsConfig(columns=columns)
         processor = CalculatedColumnsProcessor(config)
@@ -845,10 +804,7 @@ class TestConstantColumn:
     def test_constant_column_init_with_values(self):
         """Test ConstantColumn initialization with explicit values."""
         col = ConstantColumn(
-            name="const_col",
-            value=42,
-            data_type=pa.int64(),
-            description="Test constant"
+            name="const_col", value=42, data_type=pa.int64(), description="Test constant"
         )
         assert col.name == "const_col"
         assert col.value == 42
@@ -911,7 +867,7 @@ class TestExpressionColumn:
             expression="x + y",
             data_type=pa.int64(),
             description="Test expression",
-            dependencies=["x", "y"]
+            dependencies=["x", "y"],
         )
         assert col.name == "expr_col"
         assert col.expression == "x + y"
@@ -936,7 +892,7 @@ class TestExpressionColumn:
             expression="add(x, y)",
             data_type=pa.int64(),
             description="Test expression",
-            dependencies=["x", "y"]
+            dependencies=["x", "y"],
         )
         calc_col = expr_col.to_calculated_column()
 

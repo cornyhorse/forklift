@@ -1,14 +1,16 @@
 """Tests for datetime transformation utilities."""
 
 import datetime
-import pytest
-import pyarrow as pa
+from unittest.mock import MagicMock, Mock, patch
+
 import pandas as pd
-from unittest.mock import Mock, MagicMock, patch
+import pyarrow as pa
+import pytest
 import pytz
 
-from forklift.utils.transformations.datetime_transformations import DateTimeTransformer
 from forklift.utils.transformations.configs import DateTimeTransformConfig
+from forklift.utils.transformations.datetime_transformations import \
+    DateTimeTransformer
 
 
 class TestDateTimeTransformer:
@@ -31,13 +33,13 @@ class TestDateTimeTransformer:
         # Create test data with string (not mock object)
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            timezone="America/New_York"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", timezone="America/New_York")
 
         # Mock the coerce_datetime to return our mock object
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         # Verify mock's astimezone was called
@@ -53,12 +55,12 @@ class TestDateTimeTransformer:
 
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            timezone="America/New_York"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", timezone="America/New_York")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         # Should handle gracefully without calling astimezone
@@ -70,12 +72,12 @@ class TestDateTimeTransformer:
         dt = datetime.datetime(2023, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
         test_data = pa.array([dt.isoformat()])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            timezone="America/New_York"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", timezone="America/New_York")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result is not None
@@ -85,12 +87,12 @@ class TestDateTimeTransformer:
         dt = datetime.datetime(2023, 1, 1, 12, 0, 0)
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="date"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="date")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.date32()
@@ -101,12 +103,12 @@ class TestDateTimeTransformer:
         mock_date = Mock()
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="date"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="date")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_date):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_date,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.date32()
@@ -116,12 +118,12 @@ class TestDateTimeTransformer:
         dt = datetime.datetime(2023, 1, 1, 12, 0, 0)
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="timestamp"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="timestamp")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.float64()
@@ -131,12 +133,12 @@ class TestDateTimeTransformer:
         mock_timestamp = 1672574400.0  # Mock timestamp value
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="timestamp"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="timestamp")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_timestamp):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_timestamp,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.float64()
@@ -147,12 +149,13 @@ class TestDateTimeTransformer:
         test_data = pa.array(["2023-01-01"])
 
         config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string",
-            output_format="%Y-%m-%d %H:%M:%S"
+            mode="common_formats", target_type="string", output_format="%Y-%m-%d %H:%M:%S"
         )
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.string()
@@ -166,12 +169,13 @@ class TestDateTimeTransformer:
         test_data = pa.array(["2023-01-01"])
 
         config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string",
-            output_format="%Y-%m-%d"
+            mode="common_formats", target_type="string", output_format="%Y-%m-%d"
         )
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.string()
@@ -182,12 +186,13 @@ class TestDateTimeTransformer:
         test_data = pa.array(["test"])
 
         config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string",
-            output_format="%Y-%m-%d"
+            mode="common_formats", target_type="string", output_format="%Y-%m-%d"
         )
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_obj):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_obj,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.string()
@@ -207,13 +212,13 @@ class TestDateTimeTransformer:
 
         test_data = pa.array(["2023-01-01"])  # Use string instead of mock
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="datetime"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="datetime")
 
         # Mock coerce_datetime to return problematic mock objects
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_obj1):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_obj1,
+        ):
             # Mock pa.array to raise ArrowTypeError on first call, succeed on second
             original_array = pa.array
             call_count = 0
@@ -223,9 +228,9 @@ class TestDateTimeTransformer:
                 call_count += 1
                 if call_count == 1:
                     raise pa.ArrowTypeError("Mock conversion error")
-                return original_array([None], type=kwargs.get('type', pa.timestamp('us', tz='UTC')))
+                return original_array([None], type=kwargs.get("type", pa.timestamp("us", tz="UTC")))
 
-            with patch('pyarrow.array', side_effect=mock_array):
+            with patch("pyarrow.array", side_effect=mock_array):
                 result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result is not None
@@ -237,12 +242,12 @@ class TestDateTimeTransformer:
 
         test_data = pa.array(["2023-01-01"])  # Use string instead of mock
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="datetime"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="datetime")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_obj):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_obj,
+        ):
             original_array = pa.array
             call_count = 0
 
@@ -251,9 +256,9 @@ class TestDateTimeTransformer:
                 call_count += 1
                 if call_count == 1:
                     raise TypeError("Type conversion error")
-                return original_array([None], type=kwargs.get('type', pa.timestamp('us', tz='UTC')))
+                return original_array([None], type=kwargs.get("type", pa.timestamp("us", tz="UTC")))
 
-            with patch('pyarrow.array', side_effect=mock_array):
+            with patch("pyarrow.array", side_effect=mock_array):
                 result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result is not None
@@ -272,12 +277,12 @@ class TestDateTimeTransformer:
 
         test_data = pa.array(["2023-01-01"])  # Use string instead of mock
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="datetime"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="datetime")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock1):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock1,
+        ):
             original_array = pa.array
             call_count = 0
 
@@ -289,9 +294,9 @@ class TestDateTimeTransformer:
                 # Check that Mock objects were filtered to None
                 values = args[0]
                 assert all(v is None for v in values), f"Expected all None values, got {values}"
-                return original_array(values, type=kwargs.get('type', pa.timestamp('us', tz='UTC')))
+                return original_array(values, type=kwargs.get("type", pa.timestamp("us", tz="UTC")))
 
-            with patch('pyarrow.array', side_effect=mock_array):
+            with patch("pyarrow.array", side_effect=mock_array):
                 result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result is not None
@@ -300,13 +305,13 @@ class TestDateTimeTransformer:
         """Test conversion to epoch with milliseconds unit."""
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            to_epoch="milliseconds"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", to_epoch="milliseconds")
 
         epoch_value = 1672531200000  # milliseconds since epoch
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=epoch_value):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=epoch_value,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.int64()
@@ -315,13 +320,13 @@ class TestDateTimeTransformer:
         """Test conversion to epoch with microseconds unit."""
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            to_epoch="microseconds"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", to_epoch="microseconds")
 
         epoch_value = 1672531200000000  # microseconds since epoch
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=epoch_value):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=epoch_value,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.int64()
@@ -330,13 +335,13 @@ class TestDateTimeTransformer:
         """Test conversion to epoch with nanoseconds unit."""
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            to_epoch="nanoseconds"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", to_epoch="nanoseconds")
 
         epoch_value = 1672531200000000000  # nanoseconds since epoch
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=epoch_value):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=epoch_value,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.int64()
@@ -345,13 +350,13 @@ class TestDateTimeTransformer:
         """Test conversion to epoch with seconds unit (should use float64)."""
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            to_epoch="seconds"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", to_epoch="seconds")
 
         epoch_value = 1672531200.0  # seconds since epoch
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=epoch_value):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=epoch_value,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.float64()
@@ -361,12 +366,12 @@ class TestDateTimeTransformer:
         dt = datetime.datetime(2023, 1, 1, 12, 0, 0)
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="string")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.string()
@@ -376,12 +381,12 @@ class TestDateTimeTransformer:
         dt = datetime.date(2023, 1, 1)
         test_data = pa.array(["2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="string")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=dt):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=dt,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.string()
@@ -391,12 +396,12 @@ class TestDateTimeTransformer:
         mock_obj = Mock()
         test_data = pa.array(["test"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="string")
 
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', return_value=mock_obj):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            return_value=mock_obj,
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
         assert result.type == pa.string()
@@ -405,10 +410,7 @@ class TestDateTimeTransformer:
         """Test handling of null and empty values."""
         test_data = pa.array([None, "", "  ", "2023-01-01"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="string")
 
         result = self.transformer.apply_datetime_transformation(test_data, config)
         result_list = result.to_pylist()
@@ -423,13 +425,13 @@ class TestDateTimeTransformer:
         """Test exception handling during parsing."""
         test_data = pa.array(["invalid_date"])
 
-        config = DateTimeTransformConfig(
-            mode="common_formats",
-            target_type="string"
-        )
+        config = DateTimeTransformConfig(mode="common_formats", target_type="string")
 
         # Mock coerce_datetime to raise an exception
-        with patch('forklift.utils.transformations.datetime_transformations.coerce_datetime', side_effect=ValueError("Parse error")):
+        with patch(
+            "forklift.utils.transformations.datetime_transformations.coerce_datetime",
+            side_effect=ValueError("Parse error"),
+        ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
             result_list = result.to_pylist()
 

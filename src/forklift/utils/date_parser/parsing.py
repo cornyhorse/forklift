@@ -3,17 +3,16 @@
 import datetime
 import re
 from typing import Any, List, Optional, Union
+
 from dateutil import parser as dateutil_parser
 
 from .constants import COMMON_DATE_FORMATS, COMMON_DATETIME_FORMATS
-from .epoch import is_epoch_timestamp, parse_epoch_timestamp, datetime_to_epoch
-from .format_utils import normalize_format, matches_format_exact, try_strptime
+from .epoch import datetime_to_epoch, is_epoch_timestamp, parse_epoch_timestamp
+from .format_utils import matches_format_exact, normalize_format, try_strptime
 
 
 def parse_date_value(
-    value: Any,
-    fmt: Optional[str] = None,
-    formats: Optional[List[str]] = None
+    value: Any, fmt: Optional[str] = None, formats: Optional[List[str]] = None
 ) -> bool:
     """Check if a value can be parsed as a date.
 
@@ -84,9 +83,7 @@ def parse_date_value(
 
 
 def coerce_date_value(
-    value: Any,
-    fmt: Optional[str] = None,
-    formats: Optional[List[str]] = None
+    value: Any, fmt: Optional[str] = None, formats: Optional[List[str]] = None
 ) -> str:
     """Coerce a value to ISO date format (YYYY-MM-DD).
 
@@ -124,11 +121,11 @@ def coerce_date_value(
 
         # For schema token formats with single character tokens (M, D, H, S),
         # also try variations that account for both zero-padded and non-zero-padded values
-        if '%' not in fmt:  # Original was schema tokens, not strptime
+        if "%" not in fmt:  # Original was schema tokens, not strptime
             # Check if format contains single character tokens that need flexible parsing
             has_single_chars = any(
-                token in fmt and token*2 not in fmt
-                for token in ['M', 'D', 'H', 'S', 'm', 'd', 'h', 's']
+                token in fmt and token * 2 not in fmt
+                for token in ["M", "D", "H", "S", "m", "d", "h", "s"]
             )
 
             if has_single_chars:
@@ -136,7 +133,7 @@ def coerce_date_value(
                 # Replace single digit patterns with flexible alternatives
                 flexible_fmt = normalized_fmt
                 # For single digit months/days/hours/seconds, try both padded and unpadded
-                flexible_fmt = re.sub(r'(?<!%)(%[mdhs])(?![a-zA-Z])', r'(?:\1|%\1)', flexible_fmt)
+                flexible_fmt = re.sub(r"(?<!%)(%[mdhs])(?![a-zA-Z])", r"(?:\1|%\1)", flexible_fmt)
                 # This doesn't work with strptime, so we'll handle it differently
 
                 # Instead, we'll just be more lenient with exact matching for single char formats
@@ -151,7 +148,7 @@ def coerce_date_value(
             try:
                 parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
                 # For strict format enforcement when fmt is specified, check exact match
-                if fmt and '%' in fmt:
+                if fmt and "%" in fmt:
                     # Original format was strptime - always check exact match
                     if not matches_format_exact(value, candidate_fmt):
                         continue
@@ -161,8 +158,8 @@ def coerce_date_value(
                     # For formats like "YYYY-M-DD", the M allows flexible padding
 
                     has_single_tokens = any(
-                        token in fmt and token*2 not in fmt
-                        for token in ['M', 'D', 'H', 'S', 'm', 'd', 'h', 's']
+                        token in fmt and token * 2 not in fmt
+                        for token in ["M", "D", "H", "S", "m", "d", "h", "s"]
                     )
 
                     if has_single_tokens:
@@ -203,7 +200,7 @@ def coerce_datetime_value(
     from_epoch: bool = False,
     to_epoch: Optional[str] = None,
     fuzzy: bool = False,
-    allow_fuzzy: Optional[bool] = None
+    allow_fuzzy: Optional[bool] = None,
 ) -> Union[datetime.datetime, int]:
     """Coerce a value to datetime object or epoch timestamp.
 
@@ -252,10 +249,10 @@ def coerce_datetime_value(
             # Check if the string appears to be timezone-aware
             # If so, use dateutil parser to preserve timezone info
             is_timezone_aware = (
-                value.endswith('Z') or  # UTC indicator
-                '+' in value[-6:] or    # Timezone offset like +05:00
-                '-' in value[-6:] or    # Timezone offset like -05:00
-                value.endswith(('UTC', 'GMT'))  # Named timezones
+                value.endswith("Z")  # UTC indicator
+                or "+" in value[-6:]  # Timezone offset like +05:00
+                or "-" in value[-6:]  # Timezone offset like -05:00
+                or value.endswith(("UTC", "GMT"))  # Named timezones
             )
 
             if is_timezone_aware and not fmt and not formats:
@@ -282,13 +279,17 @@ def coerce_datetime_value(
                         try:
                             parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
                             # For strict format enforcement with schema tokens (no %), always check exact match
-                            if fmt and '%' not in fmt:
+                            if fmt and "%" not in fmt:
                                 # This is a schema token format like "YYYY-MM-DD", enforce exact match
                                 if not matches_format_exact(value, candidate_fmt):
                                     parsed_dt = None
                                     continue
                             # For strptime formats with %, also check exact match if it was the original format
-                            elif fmt and '%' in fmt and not matches_format_exact(value, candidate_fmt):
+                            elif (
+                                fmt
+                                and "%" in fmt
+                                and not matches_format_exact(value, candidate_fmt)
+                            ):
                                 parsed_dt = None
                                 continue
                             break
@@ -298,9 +299,13 @@ def coerce_datetime_value(
                     # If specific formats were provided but none matched, raise error
                     if not parsed_dt and (fmt or formats):
                         if fmt:
-                            raise ValueError(f"Value '{value}' does not match required format '{fmt}'")
+                            raise ValueError(
+                                f"Value '{value}' does not match required format '{fmt}'"
+                            )
                         else:
-                            raise ValueError(f"Value '{value}' does not match any of the specified formats")
+                            raise ValueError(
+                                f"Value '{value}' does not match any of the specified formats"
+                            )
 
                 # If no specific format was provided, try common formats
                 if not parsed_dt and not fmt and not formats:

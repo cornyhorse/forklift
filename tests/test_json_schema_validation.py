@@ -1,6 +1,7 @@
 """Tests for JSON Schema validation functionality."""
 
 import pytest
+
 from forklift.schema.fwf.validation.json_schema import JsonSchemaValidator
 
 
@@ -24,7 +25,7 @@ class TestJsonSchemaValidator:
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test-schema.json",
             "title": "Test Schema",
             "type": "object",
-            "properties": {}
+            "properties": {},
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -35,7 +36,7 @@ class TestJsonSchemaValidator:
         schema = {
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "Test",
-            "type": "object"
+            "type": "object",
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -48,7 +49,7 @@ class TestJsonSchemaValidator:
             "$schema": "https://json-schema.org/draft-07/schema",
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "Test",
-            "type": "object"
+            "type": "object",
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -60,7 +61,7 @@ class TestJsonSchemaValidator:
         schema = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "Test",
-            "type": "object"
+            "type": "object",
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -74,7 +75,7 @@ class TestJsonSchemaValidator:
             "https://github.com/other/repo/schema.json",
             "http://github.com/cornyhorse/forklift/schema-standards/test.json",
             "github.com/cornyhorse/forklift/schema-standards/test.json",
-            "https://github.com/cornyhorse/forklift/other-path/test.json"
+            "https://github.com/cornyhorse/forklift/other-path/test.json",
         ]
 
         for invalid_id in invalid_ids:
@@ -82,7 +83,7 @@ class TestJsonSchemaValidator:
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "$id": invalid_id,
                 "title": "Test",
-                "type": "object"
+                "type": "object",
             }
 
             errors = JsonSchemaValidator.validate(schema)
@@ -94,7 +95,7 @@ class TestJsonSchemaValidator:
         valid_ids = [
             "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "https://github.com/cornyhorse/forklift/schema-standards/fwf/employee.json",
-            "https://github.com/cornyhorse/forklift/schema-standards/subdir/complex-schema.json"
+            "https://github.com/cornyhorse/forklift/schema-standards/subdir/complex-schema.json",
         ]
 
         for valid_id in valid_ids:
@@ -103,7 +104,7 @@ class TestJsonSchemaValidator:
                 "$id": valid_id,
                 "title": "Test",
                 "type": "object",
-                "properties": {}
+                "properties": {},
             }
 
             errors = JsonSchemaValidator.validate(schema)
@@ -114,7 +115,7 @@ class TestJsonSchemaValidator:
         schema = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "type": "object"
+            "type": "object",
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -127,7 +128,7 @@ class TestJsonSchemaValidator:
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "",
-            "type": "object"
+            "type": "object",
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -143,7 +144,7 @@ class TestJsonSchemaValidator:
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
                 "title": "Test",
-                "type": invalid_type
+                "type": invalid_type,
             }
 
             errors = JsonSchemaValidator.validate(schema)
@@ -155,7 +156,7 @@ class TestJsonSchemaValidator:
         schema = {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "title": "Test"
+            "title": "Test",
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -172,7 +173,7 @@ class TestJsonSchemaValidator:
                 "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
                 "title": "Test",
                 "type": "object",
-                "properties": invalid_prop
+                "properties": invalid_prop,
             }
 
             errors = JsonSchemaValidator.validate(schema)
@@ -189,8 +190,8 @@ class TestJsonSchemaValidator:
             "properties": {
                 "name": {"type": "string"},
                 "age": {"type": "integer"},
-                "active": {"type": "boolean"}
-            }
+                "active": {"type": "boolean"},
+            },
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -202,7 +203,7 @@ class TestJsonSchemaValidator:
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "Test",
-            "type": "object"
+            "type": "object",
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -214,7 +215,7 @@ class TestJsonSchemaValidator:
             "$schema": "https://json-schema.org/draft-07/schema",  # Wrong version
             "$id": "https://example.com/invalid.json",  # Wrong pattern
             "type": "array",  # Wrong type
-            "properties": "invalid"  # Not a dict
+            "properties": "invalid",  # Not a dict
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -236,32 +237,15 @@ class TestJsonSchemaValidator:
             "description": "Schema for employee record data",
             "type": "object",
             "properties": {
-                "employee_id": {
-                    "type": "string",
-                    "pattern": "^EMP[0-9]{6}$"
-                },
-                "full_name": {
-                    "type": "string",
-                    "minLength": 1
-                },
-                "department": {
-                    "type": "string",
-                    "enum": ["HR", "IT", "Finance", "Operations"]
-                },
-                "salary": {
-                    "type": "number",
-                    "minimum": 0
-                },
-                "hire_date": {
-                    "type": "string",
-                    "format": "date"
-                },
-                "is_active": {
-                    "type": "boolean"
-                }
+                "employee_id": {"type": "string", "pattern": "^EMP[0-9]{6}$"},
+                "full_name": {"type": "string", "minLength": 1},
+                "department": {"type": "string", "enum": ["HR", "IT", "Finance", "Operations"]},
+                "salary": {"type": "number", "minimum": 0},
+                "hire_date": {"type": "string", "format": "date"},
+                "is_active": {"type": "boolean"},
             },
             "required": ["employee_id", "full_name", "department"],
-            "additionalProperties": False
+            "additionalProperties": False,
         }
 
         errors = JsonSchemaValidator.validate(schema)
@@ -278,7 +262,7 @@ class TestJsonSchemaValidator:
             "properties": {},
             "description": "Extra field",
             "version": "1.0",
-            "custom_field": {"any": "value"}
+            "custom_field": {"any": "value"},
         }
 
         errors = JsonSchemaValidator.validate(schema_with_extras)

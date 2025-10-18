@@ -1,6 +1,7 @@
 """Tests for Parquet type validation functionality."""
 
 import pytest
+
 from forklift.schema.fwf.validation.parquet_types import ParquetTypeValidator
 
 
@@ -10,13 +11,33 @@ class TestParquetTypeValidator:
     def test_supported_parquet_types_attribute(self):
         """Test that SUPPORTED_PARQUET_TYPES contains expected types."""
         expected_types = {
-            "int8", "int16", "int32", "int64",
-            "uint8", "uint16", "uint32", "uint64",
-            "float32", "double", "bool", "string", "binary",
-            "date32", "date64", "timestamp[s]", "timestamp[ms]",
-            "timestamp[us]", "timestamp[ns]", "duration[s]", "duration[ms]",
-            "duration[us]", "duration[ns]", "decimal128(10,2)",
-            "list<string>", "struct", "dictionary<values=string, indices=int32>"
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "double",
+            "bool",
+            "string",
+            "binary",
+            "date32",
+            "date64",
+            "timestamp[s]",
+            "timestamp[ms]",
+            "timestamp[us]",
+            "timestamp[ns]",
+            "duration[s]",
+            "duration[ms]",
+            "duration[us]",
+            "duration[ns]",
+            "decimal128(10,2)",
+            "list<string>",
+            "struct",
+            "dictionary<values=string, indices=int32>",
         }
 
         assert ParquetTypeValidator.SUPPORTED_PARQUET_TYPES == expected_types
@@ -24,9 +45,19 @@ class TestParquetTypeValidator:
     def test_is_valid_parquet_type_basic_types(self):
         """Test validation of basic Parquet types."""
         basic_types = [
-            "int8", "int16", "int32", "int64",
-            "uint8", "uint16", "uint32", "uint64",
-            "float32", "double", "bool", "string", "binary"
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "double",
+            "bool",
+            "string",
+            "binary",
         ]
 
         for parquet_type in basic_types:
@@ -35,8 +66,12 @@ class TestParquetTypeValidator:
     def test_is_valid_parquet_type_temporal_types(self):
         """Test validation of temporal Parquet types."""
         temporal_types = [
-            "date32", "date64",
-            "timestamp[s]", "timestamp[ms]", "timestamp[us]", "timestamp[ns]"
+            "date32",
+            "date64",
+            "timestamp[s]",
+            "timestamp[ms]",
+            "timestamp[us]",
+            "timestamp[ns]",
         ]
 
         for parquet_type in temporal_types:
@@ -44,9 +79,7 @@ class TestParquetTypeValidator:
 
     def test_is_valid_parquet_type_duration_types(self):
         """Test validation of duration Parquet types."""
-        duration_types = [
-            "duration[s]", "duration[ms]", "duration[us]", "duration[ns]"
-        ]
+        duration_types = ["duration[s]", "duration[ms]", "duration[us]", "duration[ns]"]
 
         for parquet_type in duration_types:
             assert ParquetTypeValidator.is_valid_parquet_type(parquet_type)
@@ -54,8 +87,10 @@ class TestParquetTypeValidator:
     def test_is_valid_parquet_type_complex_types(self):
         """Test validation of complex Parquet types."""
         complex_types = [
-            "decimal128(10,2)", "list<string>", "struct",
-            "dictionary<values=string, indices=int32>"
+            "decimal128(10,2)",
+            "list<string>",
+            "struct",
+            "dictionary<values=string, indices=int32>",
         ]
 
         for parquet_type in complex_types:
@@ -64,9 +99,20 @@ class TestParquetTypeValidator:
     def test_is_valid_parquet_type_invalid_types(self):
         """Test validation of invalid Parquet types."""
         invalid_types = [
-            "int128", "uint128", "float64", "varchar", "char",
-            "text", "blob", "json", "xml", "unknown",
-            "", "null", "void", "any"
+            "int128",
+            "uint128",
+            "float64",
+            "varchar",
+            "char",
+            "text",
+            "blob",
+            "json",
+            "xml",
+            "unknown",
+            "",
+            "null",
+            "void",
+            "any",
         ]
 
         for parquet_type in invalid_types:
@@ -75,8 +121,11 @@ class TestParquetTypeValidator:
     def test_is_valid_parquet_type_parameterized_decimal(self):
         """Test validation of parameterized decimal types."""
         valid_decimals = [
-            "decimal128(5,2)", "decimal128(10,0)", "decimal128(38,18)",
-            "decimal128(1,1)", "decimal128(20,5)"
+            "decimal128(5,2)",
+            "decimal128(10,0)",
+            "decimal128(38,18)",
+            "decimal128(1,1)",
+            "decimal128(20,5)",
         ]
 
         for decimal_type in valid_decimals:
@@ -88,7 +137,7 @@ class TestParquetTypeValidator:
             "decimal128",  # Missing parentheses
             "decimal64(10,2)",  # Wrong decimal type
             "decimal(10,2)",  # Wrong decimal type
-            "decimal128[10,2]"  # Wrong brackets
+            "decimal128[10,2]",  # Wrong brackets
         ]
 
         for decimal_type in invalid_decimals:
@@ -101,8 +150,12 @@ class TestParquetTypeValidator:
     def test_is_valid_parquet_type_timestamp_with_timezone(self):
         """Test validation of timestamp types with timezone."""
         valid_timestamps = [
-            "timestamp[s]", "timestamp[ms]", "timestamp[us]", "timestamp[ns]",
-            "timestamp[s, tz=UTC]", "timestamp[ms, tz=America/New_York]"
+            "timestamp[s]",
+            "timestamp[ms]",
+            "timestamp[us]",
+            "timestamp[ns]",
+            "timestamp[s, tz=UTC]",
+            "timestamp[ms, tz=America/New_York]",
         ]
 
         for timestamp_type in valid_timestamps:
@@ -110,18 +163,14 @@ class TestParquetTypeValidator:
 
     def test_is_valid_parquet_type_custom_duration(self):
         """Test validation of custom duration types."""
-        valid_durations = [
-            "duration[s]", "duration[ms]", "duration[us]", "duration[ns]"
-        ]
+        valid_durations = ["duration[s]", "duration[ms]", "duration[us]", "duration[ns]"]
 
         for duration_type in valid_durations:
             assert ParquetTypeValidator.is_valid_parquet_type(duration_type)
 
     def test_is_valid_parquet_type_list_types(self):
         """Test validation of list types."""
-        valid_lists = [
-            "list<string>", "list<int32>", "list<double>", "list<bool>"
-        ]
+        valid_lists = ["list<string>", "list<int32>", "list<double>", "list<bool>"]
 
         for list_type in valid_lists:
             assert ParquetTypeValidator.is_valid_parquet_type(list_type)
@@ -131,7 +180,7 @@ class TestParquetTypeValidator:
         valid_dictionaries = [
             "dictionary<values=string, indices=int32>",
             "dictionary<values=int64, indices=int16>",
-            "dictionary<values=double, indices=uint32>"
+            "dictionary<values=double, indices=uint32>",
         ]
 
         for dict_type in valid_dictionaries:
@@ -143,7 +192,7 @@ class TestParquetTypeValidator:
             ["string"],
             ["int32", "int32"],
             ["double", "double", "double"],
-            ["bool", "bool", "bool", "bool"]
+            ["bool", "bool", "bool", "bool"],
         ]
 
         for types in identical_cases:
@@ -157,7 +206,7 @@ class TestParquetTypeValidator:
             ["uint8", "uint16", "uint32"],
             ["float32", "double"],
             ["int8", "int16", "int32", "int64", "float32", "double"],
-            ["uint8", "uint16", "uint32", "uint64"]
+            ["uint8", "uint16", "uint32", "uint64"],
         ]
 
         for types in numeric_combinations:
@@ -169,7 +218,7 @@ class TestParquetTypeValidator:
             ["date32", "date64"],
             ["timestamp[s]", "timestamp[ms]"],
             ["timestamp[us]", "timestamp[ns]"],
-            ["date32", "date64", "timestamp[s]", "timestamp[ms]"]
+            ["date32", "date64", "timestamp[s]", "timestamp[ms]"],
         ]
 
         for types in temporal_combinations:
@@ -180,7 +229,7 @@ class TestParquetTypeValidator:
         duration_combinations = [
             ["duration[s]", "duration[ms]"],
             ["duration[us]", "duration[ns]"],
-            ["duration[s]", "duration[ms]", "duration[us]", "duration[ns]"]
+            ["duration[s]", "duration[ms]", "duration[us]", "duration[ns]"],
         ]
 
         for types in duration_combinations:
@@ -188,10 +237,7 @@ class TestParquetTypeValidator:
 
     def test_are_types_compatible_string_types(self):
         """Test compatibility of string types."""
-        string_combinations = [
-            ["string", "binary"],
-            ["binary", "string"]
-        ]
+        string_combinations = [["string", "binary"], ["binary", "string"]]
 
         for types in string_combinations:
             assert ParquetTypeValidator.are_types_compatible(types)
@@ -200,7 +246,7 @@ class TestParquetTypeValidator:
         """Test compatibility of decimal types."""
         decimal_combinations = [
             ["decimal128(10,2)", "decimal128(5,1)"],
-            ["decimal128(10,0)", "decimal128(20,5)", "decimal128(38,18)"]
+            ["decimal128(10,0)", "decimal128(20,5)", "decimal128(38,18)"],
         ]
 
         for types in decimal_combinations:
@@ -218,7 +264,7 @@ class TestParquetTypeValidator:
             ["struct", "int32"],
             ["bool", "string", "int32"],
             ["float32", "date32"],
-            ["binary", "int64"]
+            ["binary", "int64"],
         ]
 
         for types in incompatible_combinations:
@@ -230,7 +276,7 @@ class TestParquetTypeValidator:
             ["int32", "date32"],
             ["double", "timestamp[s]"],
             ["float32", "duration[ms]"],
-            ["uint64", "date64", "timestamp[ns]"]
+            ["uint64", "date64", "timestamp[ns]"],
         ]
 
         for types in mixed_combinations:
@@ -253,7 +299,7 @@ class TestParquetTypeValidator:
             ["struct", "bool"],
             ["dictionary<values=string, indices=int32>", "string"],
             ["list<int32>", "int32"],
-            ["struct", "list<string>"]
+            ["struct", "list<string>"],
         ]
 
         for types in complex_incompatible:
@@ -281,7 +327,7 @@ class TestParquetTypeValidator:
             ("list<string>", True),
             ("invalid_type", False),
             ("int128", False),
-            ("decimal(10,2)", False)
+            ("decimal(10,2)", False),
         ]
 
         for parquet_type, expected in test_cases:

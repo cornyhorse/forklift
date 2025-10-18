@@ -11,20 +11,20 @@ The package is organized into several modules:
 - parsers: Line parsing and field extraction
 """
 
-from .handlers import FwfInputHandler
-from .validators import FwfConfigValidator
 from .converters import FwfTypeConverter, FwfValueProcessor
 from .detectors import FwfEncodingDetector, FwfSchemaDetector
+from .handlers import FwfInputHandler
 from .parsers import FwfFieldExtractor, FwfLineParser
+from .validators import FwfConfigValidator
 
 # Maintain backward compatibility by exposing the main handler
 __all__ = [
-    'FwfInputHandler',
-    'FwfConfigValidator',
-    'FwfTypeConverter',
-    'FwfValueProcessor',
-    'FwfEncodingDetector',
-    'FwfSchemaDetector',
-    'FwfFieldExtractor',
-    'FwfLineParser',
+    "FwfInputHandler",
+    "FwfConfigValidator",
+    "FwfTypeConverter",
+    "FwfValueProcessor",
+    "FwfEncodingDetector",
+    "FwfSchemaDetector",
+    "FwfFieldExtractor",
+    "FwfLineParser",
 ]

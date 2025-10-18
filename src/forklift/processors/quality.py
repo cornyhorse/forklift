@@ -1,8 +1,9 @@
 """Data quality processor for performing quality checks and validation."""
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Any
+
 import re
+from typing import Any, Dict, List, Tuple
 
 import pyarrow as pa
 
@@ -60,8 +61,13 @@ class DataQualityProcessor(BaseProcessor):
         # In a more sophisticated implementation, you might filter out rows that fail quality checks
         return batch, validation_results
 
-    def _apply_column_rules(self, column: pa.Array, rules: Dict[str, Any],
-                           column_name: str, validation_results: List[ValidationResult]):
+    def _apply_column_rules(
+        self,
+        column: pa.Array,
+        rules: Dict[str, Any],
+        column_name: str,
+        validation_results: List[ValidationResult],
+    ):
         """Apply rules to a specific column.
 
         Evaluates all configured rules for a single column, adding validation
@@ -85,8 +91,13 @@ class DataQualityProcessor(BaseProcessor):
         if "min_value" in rules or "max_value" in rules:
             self._validate_numeric_range(column, rules, column_name, validation_results)
 
-    def _validate_string_length(self, column: pa.Array, rules: Dict[str, Any],
-                               column_name: str, validation_results: List[ValidationResult]):
+    def _validate_string_length(
+        self,
+        column: pa.Array,
+        rules: Dict[str, Any],
+        column_name: str,
+        validation_results: List[ValidationResult],
+    ):
         """Validate string length constraints.
 
         Checks minimum and maximum length constraints for string columns.
@@ -110,25 +121,34 @@ class DataQualityProcessor(BaseProcessor):
                     length = len(value)
 
                     if min_len is not None and length < min_len:
-                        validation_results.append(ValidationResult(
-                            is_valid=False,
-                            error_message=f"Value length {length} below minimum {min_len}",
-                            error_code="MIN_LENGTH_VIOLATION",
-                            row_index=i,
-                            column_name=column_name
-                        ))
+                        validation_results.append(
+                            ValidationResult(
+                                is_valid=False,
+                                error_message=f"Value length {length} below minimum {min_len}",
+                                error_code="MIN_LENGTH_VIOLATION",
+                                row_index=i,
+                                column_name=column_name,
+                            )
+                        )
 
                     if max_len is not None and length > max_len:
-                        validation_results.append(ValidationResult(
-                            is_valid=False,
-                            error_message=f"Value length {length} exceeds maximum {max_len}",
-                            error_code="MAX_LENGTH_VIOLATION",
-                            row_index=i,
-                            column_name=column_name
-                        ))
+                        validation_results.append(
+                            ValidationResult(
+                                is_valid=False,
+                                error_message=f"Value length {length} exceeds maximum {max_len}",
+                                error_code="MAX_LENGTH_VIOLATION",
+                                row_index=i,
+                                column_name=column_name,
+                            )
+                        )
 
-    def _validate_pattern(self, column: pa.Array, pattern: str,
-                         column_name: str, validation_results: List[ValidationResult]):
+    def _validate_pattern(
+        self,
+        column: pa.Array,
+        pattern: str,
+        column_name: str,
+        validation_results: List[ValidationResult],
+    ):
         """Validate string pattern constraints.
 
         Checks that string values match a specified regular expression pattern.
@@ -148,16 +168,23 @@ class DataQualityProcessor(BaseProcessor):
             if column[i].is_valid:
                 value = column[i].as_py()
                 if value is not None and not compiled_pattern.match(value):
-                    validation_results.append(ValidationResult(
-                        is_valid=False,
-                        error_message=f"Value '{value}' does not match pattern '{pattern}'",
-                        error_code="PATTERN_VIOLATION",
-                        row_index=i,
-                        column_name=column_name
-                    ))
+                    validation_results.append(
+                        ValidationResult(
+                            is_valid=False,
+                            error_message=f"Value '{value}' does not match pattern '{pattern}'",
+                            error_code="PATTERN_VIOLATION",
+                            row_index=i,
+                            column_name=column_name,
+                        )
+                    )
 
-    def _validate_numeric_range(self, column: pa.Array, rules: Dict[str, Any],
-                               column_name: str, validation_results: List[ValidationResult]):
+    def _validate_numeric_range(
+        self,
+        column: pa.Array,
+        rules: Dict[str, Any],
+        column_name: str,
+        validation_results: List[ValidationResult],
+    ):
         """Validate numeric range constraints.
 
         Checks minimum and maximum value constraints for numeric columns.
@@ -180,19 +207,23 @@ class DataQualityProcessor(BaseProcessor):
                 value = column[i].as_py()
                 if value is not None:
                     if min_val is not None and value < min_val:
-                        validation_results.append(ValidationResult(
-                            is_valid=False,
-                            error_message=f"Value {value} below minimum {min_val}",
-                            error_code="MIN_VALUE_VIOLATION",
-                            row_index=i,
-                            column_name=column_name
-                        ))
+                        validation_results.append(
+                            ValidationResult(
+                                is_valid=False,
+                                error_message=f"Value {value} below minimum {min_val}",
+                                error_code="MIN_VALUE_VIOLATION",
+                                row_index=i,
+                                column_name=column_name,
+                            )
+                        )
 
                     if max_val is not None and value > max_val:
-                        validation_results.append(ValidationResult(
-                            is_valid=False,
-                            error_message=f"Value {value} exceeds maximum {max_val}",
-                            error_code="MAX_VALUE_VIOLATION",
-                            row_index=i,
-                            column_name=column_name
-                        ))
+                        validation_results.append(
+                            ValidationResult(
+                                is_valid=False,
+                                error_message=f"Value {value} exceeds maximum {max_val}",
+                                error_code="MAX_VALUE_VIOLATION",
+                                row_index=i,
+                                column_name=column_name,
+                            )
+                        )

@@ -33,7 +33,9 @@ def test_multi_schema_fwf():
     if config.conditional_schemas:
         print(f"   - Number of schemas: {len(config.conditional_schemas)}")
         for i, schema in enumerate(config.conditional_schemas):
-            print(f"     Schema {i+1}: flag='{schema.flag_value}', description='{schema.description}'")
+            print(
+                f"     Schema {i+1}: flag='{schema.flag_value}', description='{schema.description}'"
+            )
 
     # Create handler
     print("\n2. Creating FWF handler...")
@@ -48,7 +50,7 @@ def test_multi_schema_fwf():
     print("\n4. Analyzing record types...")
     record_types = {}
     for record in records:
-        record_type = record.get('record_type', 'unknown')
+        record_type = record.get("record_type", "unknown")
         if record_type not in record_types:
             record_types[record_type] = []
         record_types[record_type].append(record)
@@ -57,7 +59,7 @@ def test_multi_schema_fwf():
         print(f"   - Type '{record_type}': {len(type_records)} records")
         if type_records:
             sample = type_records[0]
-            fields = [k for k in sample.keys() if not k.startswith('__')]
+            fields = [k for k in sample.keys() if not k.startswith("__")]
             print(f"     Fields: {', '.join(fields)}")
 
     # Show sample records
@@ -67,7 +69,7 @@ def test_multi_schema_fwf():
             print(f"\n   Sample {record_type} record:")
             sample = type_records[0]
             for key, value in sample.items():
-                if not key.startswith('__'):
+                if not key.startswith("__"):
                     print(f"     {key}: {value}")
 
     print("\n✅ Multi-schema FWF test completed successfully!")

@@ -6,9 +6,10 @@ This module provides money conversion, numeric cleaning, and related operations.
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-import pyarrow as pa
-import pandas as pd
 from typing import Optional
+
+import pandas as pd
+import pyarrow as pa
 
 from .configs import MoneyTypeConfig, NumericCleaningConfig
 
@@ -50,19 +51,19 @@ class NumericTransformer:
 
         # Check for parentheses indicating negative
         is_negative = False
-        if config.parentheses_negative and value.startswith('(') and value.endswith(')'):
+        if config.parentheses_negative and value.startswith("(") and value.endswith(")"):
             is_negative = True
             value = value[1:-1].strip()
 
         # Remove currency symbols
         for symbol in config.currency_symbols:
-            value = value.replace(symbol, '')
+            value = value.replace(symbol, "")
 
         # Handle thousands and decimal separators
         if config.thousands_separator and config.decimal_separator:
-            value = value.replace(config.thousands_separator, '')
-            if config.decimal_separator != '.':
-                value = value.replace(config.decimal_separator, '.')
+            value = value.replace(config.thousands_separator, "")
+            if config.decimal_separator != ".":
+                value = value.replace(config.decimal_separator, ".")
 
         value = value.strip()
 
@@ -74,7 +75,9 @@ class NumericTransformer:
         except (ValueError, InvalidOperation):
             return None
 
-    def apply_numeric_cleaning(self, column: pa.Array, config: NumericCleaningConfig, target_type: str = "double") -> pa.Array:
+    def apply_numeric_cleaning(
+        self, column: pa.Array, config: NumericCleaningConfig, target_type: str = "double"
+    ) -> pa.Array:
         """Clean numeric fields with configurable separators and NaN handling."""
         pandas_series = column.to_pandas()
         converted_values = []
@@ -131,11 +134,11 @@ class NumericTransformer:
 
         # Remove thousands separators
         if config.thousands_separator:
-            value = value.replace(config.thousands_separator, '')
+            value = value.replace(config.thousands_separator, "")
 
         # Normalize decimal separator to period
-        if config.decimal_separator and config.decimal_separator != '.':
-            value = value.replace(config.decimal_separator, '.')
+        if config.decimal_separator and config.decimal_separator != ".":
+            value = value.replace(config.decimal_separator, ".")
 
         value = value.strip()
         return value if value else None

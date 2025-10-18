@@ -5,6 +5,7 @@
 # Options:
 #   --html    Generate HTML coverage report
 #   --module  Specify specific module to test (e.g. --module date_parser)
+#   --black   Run Black code formatting check
 #   --help    Show this help message
 
 set -e  # Exit on any error
@@ -19,6 +20,9 @@ NC='\033[0m' # No Color
 # Default values
 HTML_REPORT=false
 SPECIFIC_MODULE=""
+RUN_BLACK=true  # Default to running Black linting
+BLACK_ONLY=false  # New option for Black-only mode
+APPLY_BLACK=false  # New option to apply Black formatting instead of just checking
 PROJECT_ROOT="/Users/matt/PycharmProjects/forklift"
 
 # Function to show help
@@ -30,13 +34,20 @@ show_help() {
     echo "Options:"
     echo "  --html              Generate HTML coverage report"
     echo "  --module MODULE     Test specific module (e.g. date_parser, batch_processor)"
+    echo "  --black             Run Black code formatting check (default: enabled)"
+    echo "  --black-only        Run only Black code formatting check (skip tests/coverage)"
+    echo "  --no-black          Skip Black code formatting check"
+    echo "  --apply-black       Apply Black code formatting automatically"
     echo "  --help              Show this help message"
     echo ""
     echo "Examples:"
-    echo "  ./run_coverage.sh                           # Run all tests with terminal report"
-    echo "  ./run_coverage.sh --html                    # Run all tests with HTML report"
-    echo "  ./run_coverage.sh --module date_parser      # Test only date_parser module"
-    echo "  ./run_coverage.sh --module batch_processor --html  # Test batch_processor with HTML"
+    echo "  ./run_coverage.sh                           # Run all tests with terminal report + Black"
+    echo "  ./run_coverage.sh --html                    # Run all tests with HTML report + Black"
+    echo "  ./run_coverage.sh --module date_parser      # Test only date_parser module + Black"
+    echo "  ./run_coverage.sh --no-black               # Run tests without Black formatting check"
+    echo "  ./run_coverage.sh --black-only             # Run only Black formatting check"
+    echo "  ./run_coverage.sh --apply-black            # Apply Black formatting automatically"
+    echo "  ./run_coverage.sh --module batch_processor --html  # Test batch_processor with HTML + Black"
 }
 
 # Parse command line arguments
@@ -50,6 +61,24 @@ while [[ $# -gt 0 ]]; do
             SPECIFIC_MODULE="$2"
             shift 2
             ;;
+        --black)
+            RUN_BLACK=true
+            shift
+            ;;
+        --black-only)
+            BLACK_ONLY=true
+            RUN_BLACK=true
+            shift
+            ;;
+        --no-black)
+            RUN_BLACK=false
+            shift
+            ;;
+        --apply-black)
+            APPLY_BLACK=true
+            RUN_BLACK=true
+            shift
+            ;;
         --help)
             show_help
             exit 0
@@ -62,14 +91,115 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Function to run Black formatting check
+run_black_check() {
+    echo -e "${BLUE}Running Black Code Formatting Check${NC}"
+    echo -e "${BLUE}====================================${NC}"
+    echo ""
+
+    # Check if Black is installed
+    if ! command -v black &> /dev/null; then
+        echo -e "${YELLOW}Black is not installed. Installing Black...${NC}"
+        pip install black
+    fi
+
+    echo -e "${YELLOW}Checking code formatting with Black...${NC}"
+
+    # Run Black in check mode (don't modify files, just report issues)
+    # Only check directories and files that exist
+    if black --check --diff --color src/ tests/ examples/; then
+        echo -e "${GREEN}✓ All Python files are properly formatted with Black!${NC}"
+        return 0
+    else
+        echo -e "${RED}✗ Code formatting issues found!${NC}"
+        echo -e "${YELLOW}To fix formatting issues, run: black src/ tests/ examples/${NC}"
+        return 1
+    fi
+}
+
+# Function to apply Black formatting
+apply_black_formatting() {
+    echo -e "${BLUE}Applying Black Code Formatting${NC}"
+    echo -e "${BLUE}=============================${NC}"
+    echo ""
+
+    # Check if Black is installed
+    if ! command -v black &> /dev/null; then
+        echo -e "${YELLOW}Black is not installed. Installing Black...${NC}"
+        pip install black
+    fi
+
+    echo -e "${YELLOW>Formatting code with Black...${NC}"
+
+    # Run Black to format the code
+    if black src/ tests/ examples/; then
+        echo -e "${GREEN}✓ Code formatting applied successfully!${NC}"
+    else
+        echo -e "${RED}✗ Failed to apply code formatting.${NC}"
+        exit 1
+    fi
+}
+
 # Change to project root
 cd "$PROJECT_ROOT"
 
-echo -e "${BLUE}Forklift Coverage Analysis${NC}"
-echo -e "${BLUE}=========================${NC}"
+# Update title based on mode
+if [[ "$BLACK_ONLY" == true ]]; then
+    echo -e "${BLUE}Forklift Black Code Formatting Check${NC}"
+    echo -e "${BLUE}====================================${NC}"
+elif [[ "$APPLY_BLACK" == true ]]; then
+    echo -e "${BLUE}Forklift Apply Black Formatting${NC}"
+    echo -e "${BLUE}==============================${NC}"
+else
+    echo -e "${BLUE}Forklift Coverage Analysis${NC}"
+    echo -e "${BLUE}=========================${NC}"
+fi
 echo ""
 
-# Clean up previous coverage data
+# Run Black formatting check first if enabled
+BLACK_PASSED=true
+if [[ "$RUN_BLACK" == true ]]; then
+    if ! run_black_check; then
+        BLACK_PASSED=false
+        if [[ "$BLACK_ONLY" == true ]]; then
+            echo -e "${RED}Black formatting check failed.${NC}"
+        else
+            echo -e "${RED}Black formatting check failed. Continuing with tests...${NC}"
+        fi
+        echo ""
+    else
+        echo ""
+    fi
+fi
+
+# If BLACK_ONLY mode, skip tests and coverage
+if [[ "$BLACK_ONLY" == true ]]; then
+    echo -e "${BLUE}Black-only mode: Skipping tests and coverage analysis${NC}"
+
+    # Final summary for Black-only mode
+    echo ""
+    echo -e "${BLUE}Final Summary:${NC}"
+    echo -e "${BLUE}==============${NC}"
+    if [[ "$BLACK_PASSED" == true ]]; then
+        echo -e "${GREEN}✓ Black formatting check: PASSED${NC}"
+        echo -e "${GREEN}All Python files are properly formatted!${NC}"
+        exit 0
+    else
+        echo -e "${RED}✗ Black formatting check: FAILED${NC}"
+        echo -e "${YELLOW}  Run 'black src/ tests/ examples/' to fix formatting${NC}"
+        exit 1
+    fi
+fi
+
+# If APPLY_BLACK mode, apply formatting and exit
+if [[ "$APPLY_BLACK" == true ]]; then
+    apply_black_formatting
+    echo ""
+    echo -e "${GREEN}✓ Code formatting applied successfully!${NC}"
+    exit 0
+fi
+
+# Continue with normal test/coverage flow if not BLACK_ONLY or APPLY_BLACK
 echo -e "${YELLOW}Cleaning up previous coverage data...${NC}"
 rm -f .coverage
 rm -rf htmlcov/
@@ -133,3 +263,24 @@ python -m coverage report --show-missing --sort=cover | tail -n 10 | head -n 5
 
 echo ""
 echo -e "${GREEN}Coverage analysis complete!${NC}"
+
+# Final summary including Black results
+echo ""
+echo -e "${BLUE}Final Summary:${NC}"
+echo -e "${BLUE}==============${NC}"
+if [[ "$RUN_BLACK" == true ]]; then
+    if [[ "$BLACK_PASSED" == true ]]; then
+        echo -e "${GREEN}✓ Black formatting check: PASSED${NC}"
+    else
+        echo -e "${RED}✗ Black formatting check: FAILED${NC}"
+        echo -e "${YELLOW}  Run 'black src/ tests/ examples/' to fix formatting${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚬ Black formatting check: SKIPPED${NC}"
+fi
+
+# Exit with appropriate code
+if [[ "$RUN_BLACK" == true && "$BLACK_PASSED" == false ]]; then
+    echo -e "${RED}Script completed with formatting issues. Please fix Black formatting errors.${NC}"
+    exit 1
+fi

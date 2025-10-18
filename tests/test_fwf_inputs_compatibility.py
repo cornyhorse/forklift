@@ -89,11 +89,16 @@ class TestFwfInputsCompatibility:
     def test_import_all_classes(self):
         """Test importing all classes from the compatibility module."""
         # Import from the backward-compatibility module
-        from forklift.inputs.fwf import (FwfConfigValidator,
-                                         FwfEncodingDetector,
-                                         FwfFieldExtractor, FwfInputHandler,
-                                         FwfLineParser, FwfSchemaDetector,
-                                         FwfTypeConverter, FwfValueProcessor)
+        from forklift.inputs.fwf import (
+            FwfConfigValidator,
+            FwfEncodingDetector,
+            FwfFieldExtractor,
+            FwfInputHandler,
+            FwfLineParser,
+            FwfSchemaDetector,
+            FwfTypeConverter,
+            FwfValueProcessor,
+        )
 
         # Verify all classes are imported and are callable
         assert callable(FwfInputHandler)
@@ -191,20 +196,25 @@ class TestFwfInputsCompatibility:
         """Test that classes imported from compatibility module are the same as package imports."""
         # Import from compatibility module
         from forklift.inputs.fwf import FwfInputHandler as CompatHandler
+
         # Import from package directly
-        from forklift.inputs.fwf.handlers import \
-            FwfInputHandler as PackageHandler
+        from forklift.inputs.fwf.handlers import FwfInputHandler as PackageHandler
 
         # They should be the same class
         assert CompatHandler is PackageHandler
 
     def test_all_classes_functionality_accessible(self):
         """Test that all classes can be instantiated or have expected attributes."""
-        from forklift.inputs.fwf import (FwfConfigValidator,
-                                         FwfEncodingDetector,
-                                         FwfFieldExtractor, FwfInputHandler,
-                                         FwfLineParser, FwfSchemaDetector,
-                                         FwfTypeConverter, FwfValueProcessor)
+        from forklift.inputs.fwf import (
+            FwfConfigValidator,
+            FwfEncodingDetector,
+            FwfFieldExtractor,
+            FwfInputHandler,
+            FwfLineParser,
+            FwfSchemaDetector,
+            FwfTypeConverter,
+            FwfValueProcessor,
+        )
 
         # Test that classes have expected methods/attributes (without instantiating)
         # This ensures the imports are working correctly

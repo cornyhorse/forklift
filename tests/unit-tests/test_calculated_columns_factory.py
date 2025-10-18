@@ -5,15 +5,19 @@ from unittest.mock import Mock, patch
 import pyarrow as pa
 import pytest
 
-from forklift.processors.calculated_columns import (CalculatedColumn,
-                                                    CalculatedColumnsConfig,
-                                                    CalculatedColumnsProcessor,
-                                                    ConstantColumn,
-                                                    ExpressionColumn)
+from forklift.processors.calculated_columns import (
+    CalculatedColumn,
+    CalculatedColumnsConfig,
+    CalculatedColumnsProcessor,
+    ConstantColumn,
+    ExpressionColumn,
+)
 from forklift.processors.calculated_columns_factory import (
-    _parse_data_type, create_calculated_columns_processor_from_metadata,
+    _parse_data_type,
+    create_calculated_columns_processor_from_metadata,
     create_calculated_columns_processor_from_schema,
-    validate_calculated_columns_schema)
+    validate_calculated_columns_schema,
+)
 
 
 class TestParseDataType:
@@ -291,10 +295,16 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
         config = {
             "constants": [{"name": "TEST", "value": "test"}],  # No dataType or description
             "expressions": [
-                {"name": "expr", "expression": "x + 1"}  # No dataType, description, or dependencies
+                {
+                    "name": "expr",
+                    "expression": "x + 1",
+                }  # No dataType, description, or dependencies
             ],
             "calculated": [
-                {"name": "calc", "expression": "y * 2"}  # No dataType, description, or dependencies
+                {
+                    "name": "calc",
+                    "expression": "y * 2",
+                }  # No dataType, description, or dependencies
             ],
         }
 
@@ -468,7 +478,10 @@ class TestValidateCalculatedColumnsSchema:
         """Test validation with a mix of valid and invalid configurations."""
         schema = {
             "constants": [{"name": "VALID", "value": 1}, {"name": "INVALID"}],  # Missing value
-            "expressions": [{"name": "valid_expr", "expression": "x + 1"}, "invalid"],  # Not a dict
+            "expressions": [
+                {"name": "valid_expr", "expression": "x + 1"},
+                "invalid",
+            ],  # Not a dict
             "calculated": [
                 {"name": "valid_calc", "expression": "y * 2"},
                 {"name": "invalid_calc"},  # Missing expression/function

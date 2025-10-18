@@ -7,8 +7,7 @@ from unittest.mock import patch
 import pyarrow as pa
 import pytest
 
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
 
 
@@ -129,7 +128,9 @@ class TestFwfUltimateCoverage:
 
     def test_create_arrow_table_float_type_conversion(self):
         """Test float type conversion in create_arrow_table."""
-        config = FwfInputConfig(fields=[FwfFieldSpec("float_field", 1, 10, parquet_type="float64")])
+        config = FwfInputConfig(
+            fields=[FwfFieldSpec("float_field", 1, 10, parquet_type="float64")]
+        )
         handler = FwfInputHandler(config)
 
         # Create test data with float value

@@ -9,8 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from forklift.engine.forklift_core import (ForkliftCore, HeaderMode,
-                                           ImportConfig)
+from forklift.engine.forklift_core import ForkliftCore, HeaderMode, ImportConfig
 from forklift.io.s3_streaming import S3StreamingClient
 from forklift.io.unified_io import UnifiedIOHandler
 

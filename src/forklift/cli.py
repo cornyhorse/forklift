@@ -4,8 +4,12 @@ import argparse
 
 from .engine.forklift_core import ForkliftCore, HeaderMode, ImportConfig
 from .io import is_s3_path
-from .schema.schema_generator import (FileType, OutputTarget,
-                                      SchemaGenerationConfig, SchemaGenerator)
+from .schema.schema_generator import (
+    FileType,
+    OutputTarget,
+    SchemaGenerationConfig,
+    SchemaGenerator,
+)
 
 
 def main() -> None:
@@ -15,13 +19,17 @@ def main() -> None:
     ingest = sub.add_parser("ingest", help="Clean & write to Parquet")
     ingest.add_argument("source", help="Input path (local file or S3 URI: s3://bucket/key)")
     ingest.add_argument(
-        "--dest", required=True, help="Output path (local directory or S3 URI: s3://bucket/prefix/)"
+        "--dest",
+        required=True,
+        help="Output path (local directory or S3 URI: s3://bucket/prefix/)",
     )
     ingest.add_argument("--input-kind", choices=["csv", "fwf", "excel"], required=True)
     ingest.add_argument("--schema", help="Path to JSON Schema file (local or S3)")
     ingest.add_argument("--pre", nargs="*", default=[], help="Preprocessors by name")
     # common input args
-    ingest.add_argument("--encoding-priority", nargs="*", default=["utf-8-sig", "utf-8", "latin-1"])
+    ingest.add_argument(
+        "--encoding-priority", nargs="*", default=["utf-8-sig", "utf-8", "latin-1"]
+    )
     ingest.add_argument("--delimiter")
     ingest.add_argument("--sheet")  # excel
     ingest.add_argument("--fwf-spec")  # path to JSON with x-fwf fields (or part of schema)
@@ -36,7 +44,10 @@ def main() -> None:
     schema_gen = sub.add_parser("generate-schema", help="Generate schema from data file")
     schema_gen.add_argument("source", help="Input path (local file or S3 URI: s3://bucket/key)")
     schema_gen.add_argument(
-        "--file-type", choices=["csv", "excel", "parquet"], required=True, help="Type of input file"
+        "--file-type",
+        choices=["csv", "excel", "parquet"],
+        required=True,
+        help="Type of input file",
     )
     schema_gen.add_argument("--nrows", type=int, help="Number of rows to analyze (default: 1000)")
     schema_gen.add_argument(

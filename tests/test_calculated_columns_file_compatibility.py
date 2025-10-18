@@ -69,8 +69,12 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
     def test_import_from_file_works(self):
         """Test that importing from the file works correctly."""
         from forklift.processors.calculated_columns import (
-            CalculatedColumn, CalculatedColumnsConfig,
-            CalculatedColumnsProcessor, ConstantColumn, ExpressionColumn)
+            CalculatedColumn,
+            CalculatedColumnsConfig,
+            CalculatedColumnsProcessor,
+            ConstantColumn,
+            ExpressionColumn,
+        )
 
         # Verify all classes are imported and are callable
         assert callable(CalculatedColumn)
@@ -82,11 +86,14 @@ class TestCalculatedColumnsBackwardCompatibilityFile:
     def test_backward_compatibility_maintained(self):
         """Test that backward compatibility is maintained."""
         # Import from the compatibility file
-        from forklift.processors.calculated_columns import \
-            CalculatedColumnsProcessor as FileProcessor
+        from forklift.processors.calculated_columns import (
+            CalculatedColumnsProcessor as FileProcessor,
+        )
+
         # Import from the package directly
-        from forklift.processors.calculated_columns.processor import \
-            CalculatedColumnsProcessor as PackageProcessor
+        from forklift.processors.calculated_columns.processor import (
+            CalculatedColumnsProcessor as PackageProcessor,
+        )
 
         # They should be the same class
         assert FileProcessor is PackageProcessor

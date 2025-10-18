@@ -10,8 +10,11 @@ import pyarrow as pa
 
 from .bad_rows_handler import BadRowsConfig, BadRowsHandler
 from .base import BaseProcessor, ValidationResult
-from .constraint_validator import (ConstraintConfig, ConstraintValidator,
-                                   create_constraint_config_from_schema)
+from .constraint_validator import (
+    ConstraintConfig,
+    ConstraintValidator,
+    create_constraint_config_from_schema,
+)
 from .schema_validator import SchemaValidator
 
 logger = logging.getLogger(__name__)
@@ -65,7 +68,9 @@ class EnhancedDataProcessor(BaseProcessor):
         # Extract error handling mode from schema
         self.error_mode = self._extract_error_handling_mode()
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process batch with comprehensive validation.
 
         Args:

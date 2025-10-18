@@ -295,7 +295,9 @@ def hydrate_mssql(sql_root: Path) -> None:
     except Exception as e:
         msg = str(e)
         if "pyodbc" in msg or "libodbc" in msg or "ODBC" in msg:
-            print("[mssql] pyodbc/ODBC path not available. Falling back to Docker sqlcmd runner...")
+            print(
+                "[mssql] pyodbc/ODBC path not available. Falling back to Docker sqlcmd runner..."
+            )
             _hydrate_mssql_via_docker(sql_file, sa_pwd, db_name="testdb")
         else:
             raise
@@ -396,7 +398,9 @@ def hydrate_oracle(sql_root: Path) -> None:
 
     # 1) Wait for TCP listener
     if not _wait_for_tcp(host, port, timeout=240):
-        print(f"[oracle] Listener on {host}:{port} not accepting connections after wait; skipping.")
+        print(
+            f"[oracle] Listener on {host}:{port} not accepting connections after wait; skipping."
+        )
         return
 
     # 2) Wait for the PDB service to be open and registered

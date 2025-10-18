@@ -8,9 +8,13 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from forklift.api import (generate_and_copy_schema, generate_and_save_schema,
-                          generate_schema_from_csv, generate_schema_from_excel,
-                          generate_schema_from_parquet)
+from forklift.api import (
+    generate_and_copy_schema,
+    generate_and_save_schema,
+    generate_schema_from_csv,
+    generate_schema_from_excel,
+    generate_schema_from_parquet,
+)
 
 
 class TestAPIFunctions:

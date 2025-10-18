@@ -36,7 +36,9 @@ class BaseProcessor(ABC):
     """
 
     @abstractmethod
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch of data.
 
         Args:

@@ -14,14 +14,29 @@ class TestTransformationsCompatibility:
         """Test importing all classes and functions from the transformations compatibility module."""
         # Import from the backward-compatibility module
         from forklift.processors.transformations import (
-            ColumnTransformer, DataTransformer, DateTimeTransformConfig,
-            HTMLXMLConfig, MoneyTypeConfig, NumericCleaningConfig,
-            RegexReplaceConfig, SchemaBasedTransformer, StringCleaningConfig,
-            StringPaddingConfig, StringReplaceConfig, apply_html_xml_cleaning,
-            apply_money_conversion, apply_numeric_cleaning,
-            apply_regex_replace, apply_string_padding, apply_string_replace,
-            apply_string_trimming, create_transformation_from_config,
-            lowercase, trim_whitespace, uppercase)
+            ColumnTransformer,
+            DataTransformer,
+            DateTimeTransformConfig,
+            HTMLXMLConfig,
+            MoneyTypeConfig,
+            NumericCleaningConfig,
+            RegexReplaceConfig,
+            SchemaBasedTransformer,
+            StringCleaningConfig,
+            StringPaddingConfig,
+            StringReplaceConfig,
+            apply_html_xml_cleaning,
+            apply_money_conversion,
+            apply_numeric_cleaning,
+            apply_regex_replace,
+            apply_string_padding,
+            apply_string_replace,
+            apply_string_trimming,
+            create_transformation_from_config,
+            lowercase,
+            trim_whitespace,
+            uppercase,
+        )
 
         # Verify all classes and functions are imported and are callable
         assert callable(ColumnTransformer)
@@ -144,8 +159,7 @@ class TestTransformationsCompatibility:
 
         assert callable(DataTransformer)
 
-        from forklift.processors.transformations import \
-            create_transformation_from_config
+        from forklift.processors.transformations import create_transformation_from_config
 
         assert callable(create_transformation_from_config)
 
@@ -172,11 +186,12 @@ class TestTransformationsCompatibility:
     def test_imports_are_same_as_source_modules(self):
         """Test that imports from compatibility module are the same as source modules."""
         # Import from compatibility module
-        from forklift.processors.transformations import \
-            ColumnTransformer as CompatTransformer
+        from forklift.processors.transformations import ColumnTransformer as CompatTransformer
+
         # Import from source module directly
-        from forklift.processors.transformations.column_transformer import \
-            ColumnTransformer as SourceTransformer
+        from forklift.processors.transformations.column_transformer import (
+            ColumnTransformer as SourceTransformer,
+        )
 
         # They should be the same class
         assert CompatTransformer is SourceTransformer
@@ -200,8 +215,14 @@ class TestTransformationsCompatibility:
     def test_classes_and_functions_have_expected_attributes(self):
         """Test that imported classes and functions have expected attributes."""
         from forklift.processors.transformations import (
-            ColumnTransformer, DataTransformer, MoneyTypeConfig,
-            SchemaBasedTransformer, lowercase, trim_whitespace, uppercase)
+            ColumnTransformer,
+            DataTransformer,
+            MoneyTypeConfig,
+            SchemaBasedTransformer,
+            lowercase,
+            trim_whitespace,
+            uppercase,
+        )
 
         # Test classes have __init__ method
         classes = [ColumnTransformer, SchemaBasedTransformer, DataTransformer, MoneyTypeConfig]
@@ -268,8 +289,12 @@ class TestTransformationsCompatibility:
         """Test a comprehensive scenario using the backward compatibility interface."""
         # Import core exports through the compatibility interface
         from forklift.processors.transformations import (
-            ColumnTransformer, DataTransformer, MoneyTypeConfig,
-            SchemaBasedTransformer, trim_whitespace)
+            ColumnTransformer,
+            DataTransformer,
+            MoneyTypeConfig,
+            SchemaBasedTransformer,
+            trim_whitespace,
+        )
 
         # Verify exports are accessible and have expected properties
         class_exports = [

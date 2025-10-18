@@ -5,8 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from forklift.schema.sql_schema_importer import (SchemaValidationError,
-                                                 SqlSchemaImporter)
+from forklift.schema.sql_schema_importer import SchemaValidationError, SqlSchemaImporter
 
 
 class TestSqlSchemaImporter:
@@ -27,7 +26,10 @@ class TestSqlSchemaImporter:
             },
             "x-sql": {
                 "tables": [
-                    {"select": {"schema": "sales", "name": "customers"}, "outputName": "customers"},
+                    {
+                        "select": {"schema": "sales", "name": "customers"},
+                        "outputName": "customers",
+                    },
                     {
                         "select": {"schema": "inventory", "name": "products"},
                         "outputName": "products",
@@ -693,7 +695,9 @@ class TestSqlSchemaImporterComprehensiveCoverage:
     def test_get_required_columns_functionality(self):
         """Test get_required_columns method functionality."""
         schema = {**self.base_schema}
-        schema["x-sql"]["tables"] = [{"select": {"name": "test_table"}, "required": ["id", "name"]}]
+        schema["x-sql"]["tables"] = [
+            {"select": {"name": "test_table"}, "required": ["id", "name"]}
+        ]
 
         importer = SqlSchemaImporter(schema)
 
@@ -785,7 +789,10 @@ class TestSqlSchemaImporterComprehensiveCoverage:
     def test_get_tables_functionality(self):
         """Test get_tables method functionality."""
         schema = {**self.base_schema}
-        schema["x-sql"]["tables"] = [{"select": {"name": "table1"}}, {"select": {"name": "table2"}}]
+        schema["x-sql"]["tables"] = [
+            {"select": {"name": "table1"}},
+            {"select": {"name": "table2"}},
+        ]
 
         importer = SqlSchemaImporter(schema, validate=False)
 

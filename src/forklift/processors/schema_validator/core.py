@@ -8,8 +8,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from .base_local import BaseProcessor, ValidationResult
-from .config import (NullabilityMode, SchemaValidationMode,
-                     SchemaValidatorConfig)
+from .config import NullabilityMode, SchemaValidationMode, SchemaValidatorConfig
 from .constraints import ConstraintValidator
 from .schema import ColumnSchema
 from .type_converter import TypeConverter
@@ -61,7 +60,9 @@ class SchemaValidator(BaseProcessor):
             config.extra_columns_allowed = not strict_mode
 
         self.config = config
-        self.strict_mode = config.validation_mode == SchemaValidationMode.STRICT  # Legacy attribute
+        self.strict_mode = (
+            config.validation_mode == SchemaValidationMode.STRICT
+        )  # Legacy attribute
         self.expected_columns = self._parse_schema_definition()
         self._validation_cache: Dict[str, bool] = {}
 
@@ -88,7 +89,9 @@ class SchemaValidator(BaseProcessor):
 
         return columns
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch and validate against schema.
 
         Args:

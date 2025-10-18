@@ -39,9 +39,14 @@ class TestSchemaValidatorModule:
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
         from forklift.processors.schema_validator import (
-            ColumnSchema, NullabilityMode, SchemaValidationMode,
-            SchemaValidator, SchemaValidatorConfig, create_schema_from_batch,
-            create_schema_validator_from_json)
+            ColumnSchema,
+            NullabilityMode,
+            SchemaValidationMode,
+            SchemaValidator,
+            SchemaValidatorConfig,
+            create_schema_from_batch,
+            create_schema_validator_from_json,
+        )
 
         # Verify they are the same as the module attributes
         assert SchemaValidator is schema_validator.SchemaValidator

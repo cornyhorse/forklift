@@ -9,10 +9,15 @@ from unittest.mock import MagicMock, mock_open, patch
 import pyarrow as pa
 import pytest
 
-from forklift.engine.forklift_core import (ExcessColumnMode, ForkliftCore,
-                                           HeaderMode, ImportConfig,
-                                           import_csv, import_excel,
-                                           import_fwf)
+from forklift.engine.forklift_core import (
+    ExcessColumnMode,
+    ForkliftCore,
+    HeaderMode,
+    ImportConfig,
+    import_csv,
+    import_excel,
+    import_fwf,
+)
 
 
 class TestForkliftCoreMissingCoverage:

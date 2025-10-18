@@ -4,13 +4,12 @@ This module maintains backward compatibility by re-exporting the main classes
 and functions from the new modular structure.
 """
 
-from .schema_validator.config import (NullabilityMode, SchemaValidationMode,
-                                      SchemaValidatorConfig)
+from .schema_validator.config import NullabilityMode, SchemaValidationMode, SchemaValidatorConfig
+
 # Import from the new modular structure
 from .schema_validator.core import SchemaValidator
 from .schema_validator.schema import ColumnSchema
-from .schema_validator.utils import (create_schema_from_batch,
-                                     create_schema_validator_from_json)
+from .schema_validator.utils import create_schema_from_batch, create_schema_validator_from_json
 
 # Maintain backward compatibility
 __all__ = [

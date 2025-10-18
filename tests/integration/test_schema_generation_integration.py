@@ -12,8 +12,11 @@ from typing import Any, Dict
 
 import pytest
 
-from forklift.api import (generate_and_save_schema, generate_schema_from_csv,
-                          generate_schema_from_excel)
+from forklift.api import (
+    generate_and_save_schema,
+    generate_schema_from_csv,
+    generate_schema_from_excel,
+)
 from forklift.engine.forklift_core import ForkliftCore, ImportConfig
 
 

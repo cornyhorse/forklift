@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from ....utils.column_name_utilities import (dedupe_column_names,
-                                             standardize_postgres_column_name)
+from ....utils.column_name_utilities import dedupe_column_names, standardize_postgres_column_name
 
 
 class ColumnNameProcessor:

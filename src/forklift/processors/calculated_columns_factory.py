@@ -6,9 +6,13 @@ from typing import Any, Dict, List, Optional
 
 import pyarrow as pa
 
-from .calculated_columns import (CalculatedColumn, CalculatedColumnsConfig,
-                                 CalculatedColumnsProcessor, ConstantColumn,
-                                 ExpressionColumn)
+from .calculated_columns import (
+    CalculatedColumn,
+    CalculatedColumnsConfig,
+    CalculatedColumnsProcessor,
+    ConstantColumn,
+    ExpressionColumn,
+)
 
 
 def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:

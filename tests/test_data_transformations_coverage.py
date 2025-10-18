@@ -15,11 +15,23 @@ import pytest
 sys.path.insert(0, "src")
 
 from forklift.utils.transformations import (  # Configuration classes; Main transformer class; Factory function
-    DataTransformer, DateTimeTransformConfig, EmailConfig, HTMLXMLConfig,
-    IPAddressConfig, MACAddressConfig, MoneyTypeConfig, NumericCleaningConfig,
-    PhoneNumberConfig, RegexReplaceConfig, SSNConfig, StringCleaningConfig,
-    StringPaddingConfig, StringReplaceConfig, ZipCodeConfig,
-    create_transformation_from_config)
+    DataTransformer,
+    DateTimeTransformConfig,
+    EmailConfig,
+    HTMLXMLConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    PhoneNumberConfig,
+    RegexReplaceConfig,
+    SSNConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+    ZipCodeConfig,
+    create_transformation_from_config,
+)
 
 
 class TestConfigurationClasses:

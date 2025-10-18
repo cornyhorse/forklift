@@ -11,8 +11,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
 from forklift.inputs.fwf_utils import create_fwf_config_from_schema
 from forklift.io.s3_streaming import S3Path, S3StreamingClient

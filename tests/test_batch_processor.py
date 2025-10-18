@@ -203,7 +203,9 @@ class TestBatchProcessor:
         finally:
             problem_file.unlink(missing_ok=True)
 
-    def test_create_s3_batch_reader_local_file(self, mock_config, mock_io_handler, sample_csv_file):
+    def test_create_s3_batch_reader_local_file(
+        self, mock_config, mock_io_handler, sample_csv_file
+    ):
         """Test S3 batch reader with local file."""
         processor = BatchProcessor(mock_config, mock_io_handler)
 

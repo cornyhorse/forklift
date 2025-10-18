@@ -42,9 +42,14 @@ class TestSqlInputsModule:
     def test_backward_compatibility_imports(self):
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
-        from forklift.inputs.sql import (SqlConnectionManager, SqlDataReader,
-                                         SqlInputHandler, SqlSchemaManager,
-                                         SqlTypeConverter, logger)
+        from forklift.inputs.sql import (
+            SqlConnectionManager,
+            SqlDataReader,
+            SqlInputHandler,
+            SqlSchemaManager,
+            SqlTypeConverter,
+            logger,
+        )
 
         # Verify they are the same as the module attributes
         assert SqlInputHandler is sql.SqlInputHandler

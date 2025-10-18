@@ -15,8 +15,8 @@ The package is organized into several modules:
 """
 
 # Import constants for backward compatibility with tests
-from .constants import (COMMON_DATE_FORMATS, COMMON_DATETIME_FORMATS,
-                        SCHEMA_TOKEN_MAP)
+from .constants import COMMON_DATE_FORMATS, COMMON_DATETIME_FORMATS, SCHEMA_TOKEN_MAP
+
 # Import the main public API functions
 from .core import coerce_date, coerce_datetime, parse_date
 

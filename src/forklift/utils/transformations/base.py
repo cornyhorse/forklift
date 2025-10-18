@@ -12,11 +12,22 @@ from typing import Optional
 import pandas as pd
 import pyarrow as pa
 
-from .configs import (DateTimeTransformConfig, EmailConfig, HTMLXMLConfig,
-                      IPAddressConfig, MACAddressConfig, MoneyTypeConfig,
-                      NumericCleaningConfig, PhoneNumberConfig,
-                      RegexReplaceConfig, SSNConfig, StringCleaningConfig,
-                      StringPaddingConfig, StringReplaceConfig, ZipCodeConfig)
+from .configs import (
+    DateTimeTransformConfig,
+    EmailConfig,
+    HTMLXMLConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    PhoneNumberConfig,
+    RegexReplaceConfig,
+    SSNConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+    ZipCodeConfig,
+)
 from .datetime_transformations import DateTimeTransformer
 from .format.transformer import FormatTransformer
 from .html_xml_transformations import HTMLXMLTransformer
@@ -140,7 +151,9 @@ class DataTransformer:
         self, text: str, preserve_newlines: bool = True, preserve_tabs: bool = False
     ) -> str:
         """Remove control characters."""
-        return self.string_transformer._remove_control_chars(text, preserve_newlines, preserve_tabs)
+        return self.string_transformer._remove_control_chars(
+            text, preserve_newlines, preserve_tabs
+        )
 
     def _remove_accents(self, text: str) -> str:
         """Remove diacritical marks."""

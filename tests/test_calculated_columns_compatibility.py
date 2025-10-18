@@ -14,9 +14,15 @@ class TestCalculatedColumnsCompatibility:
         """Test importing all classes from the calculated columns compatibility module."""
         # Import from the backward-compatibility module
         from forklift.processors.calculated_columns import (
-            CalculatedColumn, CalculatedColumnsConfig,
-            CalculatedColumnsProcessor, ConstantColumn, ExpressionColumn,
-            ExpressionEvaluator, get_available_functions, get_constants)
+            CalculatedColumn,
+            CalculatedColumnsConfig,
+            CalculatedColumnsProcessor,
+            ConstantColumn,
+            ExpressionColumn,
+            ExpressionEvaluator,
+            get_available_functions,
+            get_constants,
+        )
 
         # Verify all classes are imported and are callable
         assert callable(CalculatedColumn)
@@ -71,14 +77,12 @@ class TestCalculatedColumnsCompatibility:
         assert callable(ExpressionColumn)
 
         # Test CalculatedColumnsConfig
-        from forklift.processors.calculated_columns import \
-            CalculatedColumnsConfig
+        from forklift.processors.calculated_columns import CalculatedColumnsConfig
 
         assert callable(CalculatedColumnsConfig)
 
         # Test CalculatedColumnsProcessor
-        from forklift.processors.calculated_columns import \
-            CalculatedColumnsProcessor
+        from forklift.processors.calculated_columns import CalculatedColumnsProcessor
 
         assert callable(CalculatedColumnsProcessor)
 
@@ -88,8 +92,7 @@ class TestCalculatedColumnsCompatibility:
         assert callable(ExpressionEvaluator)
 
         # Test get_available_functions
-        from forklift.processors.calculated_columns import \
-            get_available_functions
+        from forklift.processors.calculated_columns import get_available_functions
 
         assert callable(get_available_functions)
 
@@ -115,11 +118,14 @@ class TestCalculatedColumnsCompatibility:
     def test_imports_are_same_as_source_modules(self):
         """Test that imports from compatibility module are the same as source modules."""
         # Import from compatibility module
-        from forklift.processors.calculated_columns import \
-            CalculatedColumnsProcessor as CompatProcessor
+        from forklift.processors.calculated_columns import (
+            CalculatedColumnsProcessor as CompatProcessor,
+        )
+
         # Import from source module directly
-        from forklift.processors.calculated_columns.processor import \
-            CalculatedColumnsProcessor as SourceProcessor
+        from forklift.processors.calculated_columns.processor import (
+            CalculatedColumnsProcessor as SourceProcessor,
+        )
 
         # They should be the same class
         assert CompatProcessor is SourceProcessor
@@ -143,9 +149,13 @@ class TestCalculatedColumnsCompatibility:
     def test_classes_have_expected_attributes(self):
         """Test that imported classes have expected attributes without instantiating."""
         from forklift.processors.calculated_columns import (
-            CalculatedColumn, CalculatedColumnsConfig,
-            CalculatedColumnsProcessor, ConstantColumn, ExpressionColumn,
-            ExpressionEvaluator)
+            CalculatedColumn,
+            CalculatedColumnsConfig,
+            CalculatedColumnsProcessor,
+            ConstantColumn,
+            ExpressionColumn,
+            ExpressionEvaluator,
+        )
 
         # Test that classes have expected methods/attributes (without instantiating)
         # This ensures the imports are working correctly
@@ -208,9 +218,15 @@ class TestCalculatedColumnsCompatibility:
         """Test a comprehensive scenario using the backward compatibility interface."""
         # Import all exports through the compatibility interface
         from forklift.processors.calculated_columns import (
-            CalculatedColumn, CalculatedColumnsConfig,
-            CalculatedColumnsProcessor, ConstantColumn, ExpressionColumn,
-            ExpressionEvaluator, get_available_functions, get_constants)
+            CalculatedColumn,
+            CalculatedColumnsConfig,
+            CalculatedColumnsProcessor,
+            ConstantColumn,
+            ExpressionColumn,
+            ExpressionEvaluator,
+            get_available_functions,
+            get_constants,
+        )
 
         # Verify all exports are accessible and have expected properties
         class_exports = [

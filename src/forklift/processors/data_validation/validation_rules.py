@@ -4,8 +4,7 @@ import re
 from datetime import date, datetime
 from typing import Any, Optional
 
-from .validation_config import (DateValidation, EnumValidation,
-                                RangeValidation, StringValidation)
+from .validation_config import DateValidation, EnumValidation, RangeValidation, StringValidation
 
 
 class ValidationRules:
@@ -67,16 +66,16 @@ class ValidationRules:
             return f"Field '{field_name}' range validation error: {str(e)}"
 
     @staticmethod
-    def validate_string(field_name: str, value: Any, string_val: StringValidation) -> Optional[str]:
+    def validate_string(
+        field_name: str, value: Any, string_val: StringValidation
+    ) -> Optional[str]:
         """Validate string constraints."""
         if not isinstance(value, str):
             value = str(value)
 
         # Check minimum length
         if string_val.min_length is not None and len(value) < string_val.min_length:
-            return (
-                f"Field '{field_name}' length {len(value)} is below minimum {string_val.min_length}"
-            )
+            return f"Field '{field_name}' length {len(value)} is below minimum {string_val.min_length}"
 
         # Check maximum length
         if string_val.max_length is not None and len(value) > string_val.max_length:

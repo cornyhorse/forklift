@@ -11,12 +11,14 @@ from pathlib import Path
 from typing import Optional, Union
 
 # Import extracted configuration classes
-from .config import (ExcessColumnMode, HeaderMode, ImportConfig,
-                     ProcessingResults)
+from .config import ExcessColumnMode, HeaderMode, ImportConfig, ProcessingResults
+
 # Import exceptions
 from .exceptions import ProcessingError
+
 # Import format-specific importers
 from .importers import ExcelImporter, SqlImporter
+
 # Import extracted processing components
 from .processors import CSVProcessor
 

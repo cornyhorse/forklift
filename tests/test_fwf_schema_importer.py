@@ -25,8 +25,7 @@ class TestFwfSchemaImporterModule:
     def test_backward_compatibility_imports(self):
         """Test that imports work for backward compatibility."""
         # These should not raise ImportError
-        from forklift.schema.fwf_schema_importer import (FwfSchemaImporter,
-                                                         SchemaValidationError)
+        from forklift.schema.fwf_schema_importer import FwfSchemaImporter, SchemaValidationError
 
         # Verify they are the same as the module attributes
         assert FwfSchemaImporter is fwf_schema_importer.FwfSchemaImporter

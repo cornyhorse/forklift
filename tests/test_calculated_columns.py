@@ -14,14 +14,18 @@ sys.path.insert(0, "src")
 
 # Import the calculated_columns module directly to ensure coverage tracking
 import forklift.processors.calculated_columns
+
 # Import the base classes first
 from forklift.processors.base import BaseProcessor, ValidationResult
+
 # Now import the specific classes
-from forklift.processors.calculated_columns import (CalculatedColumn,
-                                                    CalculatedColumnsConfig,
-                                                    CalculatedColumnsProcessor,
-                                                    ConstantColumn,
-                                                    ExpressionColumn)
+from forklift.processors.calculated_columns import (
+    CalculatedColumn,
+    CalculatedColumnsConfig,
+    CalculatedColumnsProcessor,
+    ConstantColumn,
+    ExpressionColumn,
+)
 
 
 class TestCalculatedColumn:

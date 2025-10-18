@@ -5,12 +5,13 @@ from unittest.mock import Mock, patch
 import pyarrow as pa
 import pytest
 
-from forklift.processors.constraint_validator import (ConstraintValidator,
-                                                      ErrorMode)
+from forklift.processors.constraint_validator import ConstraintValidator, ErrorMode
 from forklift.processors.schema_validator import SchemaValidator
-from forklift.processors.validation_factory import (ValidationFactory,
-                                                    ValidationFactoryConfig,
-                                                    ValidatorType)
+from forklift.processors.validation_factory import (
+    ValidationFactory,
+    ValidationFactoryConfig,
+    ValidatorType,
+)
 
 
 class TestValidatorType:
@@ -471,7 +472,9 @@ class TestValidationFactoryEdgeCases:
 
     @patch("forklift.processors.validation_factory.DataValidationProcessor")
     @patch("forklift.processors.validation_factory.BadRowsConfig")
-    def test_data_validator_custom_bad_rows_config(self, mock_bad_rows_config, mock_data_validator):
+    def test_data_validator_custom_bad_rows_config(
+        self, mock_bad_rows_config, mock_data_validator
+    ):
         """Test data validator with custom bad rows config."""
         config = {
             "bad_rows_config": {

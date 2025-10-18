@@ -46,7 +46,9 @@ class WriteTimeValidator(BaseProcessor):
         self.config = config
         self._seen_primary_keys: Set[Tuple[Any, ...]] = set()
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch and return validation results."""
         all_results = []
 

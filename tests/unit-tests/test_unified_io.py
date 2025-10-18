@@ -11,9 +11,13 @@ import pyarrow as pa
 import pytest
 
 from forklift.io.s3_streaming import S3Path, S3StreamingClient
-from forklift.io.unified_io import (S3ParquetWriter, UnifiedCSVWriter,
-                                    UnifiedIOHandler, create_parquet_writer,
-                                    get_s3_client)
+from forklift.io.unified_io import (
+    S3ParquetWriter,
+    UnifiedCSVWriter,
+    UnifiedIOHandler,
+    create_parquet_writer,
+    get_s3_client,
+)
 
 
 class TestUnifiedIOHandler:

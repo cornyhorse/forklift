@@ -9,8 +9,7 @@ import pyarrow.parquet as pq
 
 # Import the row hash processor
 from forklift.processors.row_hash import RowHashConfig, RowHashProcessor
-from forklift.processors.row_hash_factory import \
-    create_row_hash_processor_from_schema
+from forklift.processors.row_hash_factory import create_row_hash_processor_from_schema
 
 
 def test_row_hash_basic():

@@ -14,8 +14,7 @@ from typing import BinaryIO, Iterator, List, Optional, TextIO, Tuple, Union
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .s3_streaming import (S3Path, S3StreamingClient, S3StreamingWriter,
-                           is_s3_path)
+from .s3_streaming import S3Path, S3StreamingClient, S3StreamingWriter, is_s3_path
 
 
 class UnifiedIOHandler:
@@ -349,7 +348,9 @@ def create_parquet_writer(
         ParquetWriter instance appropriate for the path type
     """
     if is_s3_path(path):
-        return S3ParquetWriter(path, schema, s3_client=s3_client, compression=compression, **kwargs)
+        return S3ParquetWriter(
+            path, schema, s3_client=s3_client, compression=compression, **kwargs
+        )
     else:
         # Ensure parent directory exists for local files
         Path(path).parent.mkdir(parents=True, exist_ok=True)

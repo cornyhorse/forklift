@@ -10,8 +10,12 @@ from .conditional import ConditionalSchemaManager, VariantManager
 from .exceptions import SchemaValidationError
 from .fields import FieldMapper, FieldParser, PositionCalculator
 from .utils import ParquetMappingUtils
-from .validation import (CompatibilityValidator, FieldValidator,
-                         FwfExtensionValidator, JsonSchemaValidator)
+from .validation import (
+    CompatibilityValidator,
+    FieldValidator,
+    FwfExtensionValidator,
+    JsonSchemaValidator,
+)
 
 
 class FwfSchemaImporter:

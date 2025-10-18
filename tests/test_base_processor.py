@@ -31,7 +31,9 @@ class TestBaseProcessor:
         class IncompleteProcessor(BaseProcessor):
             pass
 
-        with pytest.raises(TypeError, match="Can't instantiate abstract class IncompleteProcessor"):
+        with pytest.raises(
+            TypeError, match="Can't instantiate abstract class IncompleteProcessor"
+        ):
             IncompleteProcessor()
 
     def test_concrete_implementation_with_process_method(self):
@@ -291,8 +293,7 @@ class TestBaseProcessor:
 
     def test_base_processor_module_attributes(self):
         """Test module-level attributes and imports."""
-        from forklift.engine.processors.base import \
-            BaseProcessor as ImportedBaseProcessor
+        from forklift.engine.processors.base import BaseProcessor as ImportedBaseProcessor
 
         assert ImportedBaseProcessor is BaseProcessor
         assert hasattr(BaseProcessor, "__module__")

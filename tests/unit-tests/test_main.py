@@ -146,6 +146,7 @@ class TestMain:
         """Test that the import structure is correct."""
         # Test that we can import the module without errors
         import forklift.__main__
+
         # Test that the cli module is importable
         from forklift import cli
 

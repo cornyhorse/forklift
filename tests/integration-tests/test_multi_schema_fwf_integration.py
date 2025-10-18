@@ -9,8 +9,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from forklift.inputs.config import (FwfConditionalSchema, FwfFieldSpec,
-                                    FwfInputConfig)
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
 from forklift.inputs.fwf_utils import create_fwf_config_from_schema
 from forklift.io.s3_streaming import S3Path, S3StreamingClient
@@ -195,7 +194,9 @@ class TestMultiSchemaFwfS3Integration:
                 "Customer Record",
                 [
                     FwfFieldSpec("record_type", 1, 1, parquet_type="string"),
-                    FwfFieldSpec("customer_id", 2, 8, align="right", pad="0", parquet_type="int64"),
+                    FwfFieldSpec(
+                        "customer_id", 2, 8, align="right", pad="0", parquet_type="int64"
+                    ),
                     FwfFieldSpec("customer_name", 10, 30, align="left", parquet_type="string"),
                     FwfFieldSpec("registration_date", 40, 8, parquet_type="string"),
                     FwfFieldSpec("status", 48, 8, align="left", parquet_type="string"),
@@ -271,7 +272,9 @@ class TestMultiSchemaFwfS3Integration:
             df = table.to_pandas()
             record_types = df["record_type"].unique()
             expected_types = {"C", "O", "P"}
-            assert set(record_types) == expected_types, f"Should have record types {expected_types}"
+            assert (
+                set(record_types) == expected_types
+            ), f"Should have record types {expected_types}"
 
             # Verify each record type has expected fields
             customers = df[df["record_type"] == "C"]
@@ -437,7 +440,9 @@ class TestMultiSchemaFwfS3Integration:
             df = table.to_pandas()
             record_types = df["record_type"].unique()
             expected_types = {"I", "L", "T"}
-            assert set(record_types) == expected_types, f"Should have record types {expected_types}"
+            assert (
+                set(record_types) == expected_types
+            ), f"Should have record types {expected_types}"
 
             # Verify hierarchical relationships
             invoices = df[df["record_type"] == "I"]

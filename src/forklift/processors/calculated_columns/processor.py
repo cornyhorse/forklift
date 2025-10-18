@@ -44,7 +44,9 @@ class CalculatedColumnsProcessor(BaseProcessor):
         """Backward compatibility method for initializing functions."""
         return self.evaluator._available_functions
 
-    def _calculate_column(self, batch: pa.RecordBatch, column_config: CalculatedColumn) -> pa.Array:
+    def _calculate_column(
+        self, batch: pa.RecordBatch, column_config: CalculatedColumn
+    ) -> pa.Array:
         """Backward compatibility method for calculating column values."""
         return self.evaluator.calculate_column_values(batch, column_config)
 
@@ -81,7 +83,9 @@ class CalculatedColumnsProcessor(BaseProcessor):
 
         return False
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process batch and add calculated columns.
 
         Args:

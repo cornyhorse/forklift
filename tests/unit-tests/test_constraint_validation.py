@@ -6,8 +6,12 @@ import pyarrow as pa
 import pytest
 
 from forklift.processors.constraint_validator import (
-    ConstraintConfig, ConstraintValidator, ConstraintViolation, ErrorMode,
-    create_constraint_config_from_schema)
+    ConstraintConfig,
+    ConstraintValidator,
+    ConstraintViolation,
+    ErrorMode,
+    create_constraint_config_from_schema,
+)
 
 
 class TestErrorMode:

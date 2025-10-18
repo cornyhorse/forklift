@@ -14,10 +14,17 @@ class TestDataValidationCompatibility:
         """Test importing all classes and functions from the data validation compatibility module."""
         # Import from the backward-compatibility module
         from forklift.processors.data_validation import (
-            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
-            DateValidation, EnumValidation, FieldValidationRule,
-            RangeValidation, StringValidation, ValidationConfig,
-            ValidationRules)
+            BadRowsConfig,
+            BadRowsHandler,
+            DataValidationProcessor,
+            DateValidation,
+            EnumValidation,
+            FieldValidationRule,
+            RangeValidation,
+            StringValidation,
+            ValidationConfig,
+            ValidationRules,
+        )
 
         # Verify all classes are imported and are callable
         assert callable(RangeValidation)
@@ -120,11 +127,12 @@ class TestDataValidationCompatibility:
     def test_imports_are_same_as_source_modules(self):
         """Test that imports from compatibility module are the same as source modules."""
         # Import from compatibility module
-        from forklift.processors.data_validation import \
-            DataValidationProcessor as CompatProcessor
+        from forklift.processors.data_validation import DataValidationProcessor as CompatProcessor
+
         # Import from source module directly
-        from forklift.processors.data_validation.data_validation_processor import \
-            DataValidationProcessor as SourceProcessor
+        from forklift.processors.data_validation.data_validation_processor import (
+            DataValidationProcessor as SourceProcessor,
+        )
 
         # They should be the same class
         assert CompatProcessor is SourceProcessor
@@ -148,10 +156,17 @@ class TestDataValidationCompatibility:
     def test_classes_have_expected_attributes(self):
         """Test that imported classes have expected attributes without instantiating."""
         from forklift.processors.data_validation import (
-            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
-            DateValidation, EnumValidation, FieldValidationRule,
-            RangeValidation, StringValidation, ValidationConfig,
-            ValidationRules)
+            BadRowsConfig,
+            BadRowsHandler,
+            DataValidationProcessor,
+            DateValidation,
+            EnumValidation,
+            FieldValidationRule,
+            RangeValidation,
+            StringValidation,
+            ValidationConfig,
+            ValidationRules,
+        )
 
         # Test that classes have expected methods/attributes (without instantiating)
         validation_classes = [
@@ -213,10 +228,17 @@ class TestDataValidationCompatibility:
         """Test a comprehensive scenario using the backward compatibility interface."""
         # Import all exports through the compatibility interface
         from forklift.processors.data_validation import (
-            BadRowsConfig, BadRowsHandler, DataValidationProcessor,
-            DateValidation, EnumValidation, FieldValidationRule,
-            RangeValidation, StringValidation, ValidationConfig,
-            ValidationRules)
+            BadRowsConfig,
+            BadRowsHandler,
+            DataValidationProcessor,
+            DateValidation,
+            EnumValidation,
+            FieldValidationRule,
+            RangeValidation,
+            StringValidation,
+            ValidationConfig,
+            ValidationRules,
+        )
 
         # Verify all exports are accessible and have expected properties
         exports_to_test = [

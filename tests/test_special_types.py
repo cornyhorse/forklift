@@ -87,7 +87,9 @@ class TestSpecialTypeDetector:
     def test_detect_special_type_ssn_from_content(self):
         """Test SSN detection from content patterns."""
         # Test SSN with dashes
-        result = SpecialTypeDetector.detect_special_type("test_col", ["123-45-6789", "987-65-4321"])
+        result = SpecialTypeDetector.detect_special_type(
+            "test_col", ["123-45-6789", "987-65-4321"]
+        )
         assert result == "ssn"
 
         # Test SSN without dashes

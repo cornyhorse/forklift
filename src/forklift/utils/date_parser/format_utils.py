@@ -56,7 +56,8 @@ def normalize_format(fmt: str) -> str:
                 # Check if the part after separator contains time-like tokens
                 time_part = sep.join(parts[1:])
                 if any(
-                    token in time_part for token in ["HH", "hh", "H:", "h:", "SS", "ss", "S:", "s:"]
+                    token in time_part
+                    for token in ["HH", "hh", "H:", "h:", "SS", "ss", "S:", "s:"]
                 ):
                     time_part_start = result.find(sep + time_part)
                     break

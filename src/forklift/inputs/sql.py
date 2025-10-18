@@ -8,6 +8,7 @@ import logging  # pragma: no cover
 
 # Also make the individual components available for advanced usage
 from .sql.connection import SqlConnectionManager  # pragma: no cover
+
 # Import the main handler for backward compatibility
 from .sql.handler import SqlInputHandler  # pragma: no cover
 from .sql.reader import SqlDataReader  # pragma: no cover

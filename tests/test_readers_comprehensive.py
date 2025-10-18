@@ -10,8 +10,15 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 # Import the module under test
-from forklift.readers import (DataFrameReader, _cleanup_temp_dirs, _temp_dirs,
-                              read_csv, read_excel, read_fwf, read_sql)
+from forklift.readers import (
+    DataFrameReader,
+    _cleanup_temp_dirs,
+    _temp_dirs,
+    read_csv,
+    read_excel,
+    read_fwf,
+    read_sql,
+)
 
 
 class TestDataFrameReaderComprehensive:
@@ -100,7 +107,9 @@ class TestImportErrorHandling:
         reader = DataFrameReader(files)
 
         with patch.dict("sys.modules", {"pyarrow.parquet": None, "pyarrow": None}):
-            with patch("builtins.__import__", side_effect=ImportError("No module named 'pyarrow'")):
+            with patch(
+                "builtins.__import__", side_effect=ImportError("No module named 'pyarrow'")
+            ):
                 with pytest.raises(ImportError) as exc_info:
                     reader.as_pyarrow()
 

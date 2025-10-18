@@ -16,8 +16,7 @@ class TestColumnMapper:
     def test_column_mapper_basic_functionality(self):
         """Test basic column mapping functionality."""
         try:
-            from forklift.processors.column_mapper import (ColumnMapper,
-                                                           ColumnMappingConfig)
+            from forklift.processors.column_mapper import ColumnMapper, ColumnMappingConfig
 
             # Test basic mapping configuration
             mapping_config = ColumnMappingConfig(
@@ -50,8 +49,7 @@ class TestColumnMapper:
     def test_column_mapper_drop_unmapped(self):
         """Test column mapping with drop_unmapped=True."""
         try:
-            from forklift.processors.column_mapper import (ColumnMapper,
-                                                           ColumnMappingConfig)
+            from forklift.processors.column_mapper import ColumnMapper, ColumnMappingConfig
 
             mapping_config = ColumnMappingConfig(
                 explicit_mappings={"keep_me": "renamed_column"},
@@ -78,8 +76,7 @@ class TestColumnMapper:
     def test_column_mapper_no_mappings(self):
         """Test column mapper with no mappings."""
         try:
-            from forklift.processors.column_mapper import (ColumnMapper,
-                                                           ColumnMappingConfig)
+            from forklift.processors.column_mapper import ColumnMapper, ColumnMappingConfig
 
             mapping_config = ColumnMappingConfig(explicit_mappings={}, allow_unmapped=True)
             mapper = ColumnMapper(mapping_config)
@@ -98,8 +95,7 @@ class TestColumnMapper:
     def test_column_mapper_naming_conventions(self):
         """Test column mapper with naming conventions."""
         try:
-            from forklift.processors.column_mapper import (ColumnMapper,
-                                                           ColumnMappingConfig)
+            from forklift.processors.column_mapper import ColumnMapper, ColumnMappingConfig
 
             # Test snake_case convention
             mapping_config = ColumnMappingConfig(naming_convention="snake_case")
@@ -121,8 +117,7 @@ class TestColumnMapper:
     def test_column_mapper_case_sensitivity(self):
         """Test column mapper case sensitivity."""
         try:
-            from forklift.processors.column_mapper import (ColumnMapper,
-                                                           ColumnMappingConfig)
+            from forklift.processors.column_mapper import ColumnMapper, ColumnMappingConfig
 
             # Test case insensitive mapping
             mapping_config = ColumnMappingConfig(
@@ -148,7 +143,9 @@ class TestWriteTimeValidator:
         """Test basic write time validation."""
         try:
             from forklift.processors.write_time_validator import (
-                WriteTimeConfig, WriteTimeValidator)
+                WriteTimeConfig,
+                WriteTimeValidator,
+            )
 
             # Use parameters that actually exist in WriteTimeConfig
             config = WriteTimeConfig(
@@ -160,7 +157,11 @@ class TestWriteTimeValidator:
             # Create test data with valid timestamps
             data = {
                 "id": [1, 2, 3],
-                "write_time": ["2023-01-01 12:00:00", "2023-01-02 13:00:00", "2023-01-03 14:00:00"],
+                "write_time": [
+                    "2023-01-01 12:00:00",
+                    "2023-01-02 13:00:00",
+                    "2023-01-03 14:00:00",
+                ],
             }
             batch = pa.RecordBatch.from_pydict(data)
 
@@ -176,7 +177,9 @@ class TestWriteTimeValidator:
         """Test write time validation with schema mismatch."""
         try:
             from forklift.processors.write_time_validator import (
-                WriteTimeConfig, WriteTimeValidator)
+                WriteTimeConfig,
+                WriteTimeValidator,
+            )
 
             # Test schema validation instead of date format validation
             expected_schema = pa.schema(
@@ -206,7 +209,9 @@ class TestWriteTimeValidator:
         """Test write time validator with minimal validation."""
         try:
             from forklift.processors.write_time_validator import (
-                WriteTimeConfig, WriteTimeValidator)
+                WriteTimeConfig,
+                WriteTimeValidator,
+            )
 
             # Use minimal configuration (essentially "disabled" validation)
             config = WriteTimeConfig(
@@ -235,8 +240,7 @@ class TestBadRowsHandler:
     def test_bad_rows_handler_basic(self):
         """Test basic bad rows handling."""
         try:
-            from forklift.processors.bad_rows_handler import (BadRowsConfig,
-                                                              BadRowsHandler)
+            from forklift.processors.bad_rows_handler import BadRowsConfig, BadRowsHandler
 
             config = BadRowsConfig(max_bad_rows=5, output_format="json")
 
@@ -261,8 +265,7 @@ class TestBadRowsHandler:
     def test_bad_rows_handler_threshold_exceeded(self):
         """Test bad rows handler when max_bad_rows limit is exceeded."""
         try:
-            from forklift.processors.bad_rows_handler import (BadRowsConfig,
-                                                              BadRowsHandler)
+            from forklift.processors.bad_rows_handler import BadRowsConfig, BadRowsHandler
 
             config = BadRowsConfig(max_bad_rows=2, output_format="json")
 
@@ -283,8 +286,7 @@ class TestBadRowsHandler:
     def test_bad_rows_handler_disabled(self):
         """Test bad rows handler with minimal configuration."""
         try:
-            from forklift.processors.bad_rows_handler import (BadRowsConfig,
-                                                              BadRowsHandler)
+            from forklift.processors.bad_rows_handler import BadRowsConfig, BadRowsHandler
 
             # Test with configuration that doesn't include original data or error details
             config = BadRowsConfig(
@@ -313,7 +315,9 @@ class TestEnhancedProcessor:
         """Test basic enhanced processor functionality."""
         try:
             from forklift.processors.enhanced_processor import (
-                EnhancedProcessor, EnhancedProcessorConfig)
+                EnhancedProcessor,
+                EnhancedProcessorConfig,
+            )
 
             config = EnhancedProcessorConfig(enabled=True, features=["feature1", "feature2"])
 
@@ -334,7 +338,9 @@ class TestEnhancedProcessor:
         """Test enhanced processor when disabled."""
         try:
             from forklift.processors.enhanced_processor import (
-                EnhancedProcessor, EnhancedProcessorConfig)
+                EnhancedProcessor,
+                EnhancedProcessorConfig,
+            )
 
             config = EnhancedProcessorConfig(enabled=False)
             processor = EnhancedProcessor(config)
@@ -354,7 +360,9 @@ class TestEnhancedProcessor:
         """Test enhanced processor error handling."""
         try:
             from forklift.processors.enhanced_processor import (
-                EnhancedProcessor, EnhancedProcessorConfig)
+                EnhancedProcessor,
+                EnhancedProcessorConfig,
+            )
 
             config = EnhancedProcessorConfig(enabled=True)
             processor = EnhancedProcessor(config)

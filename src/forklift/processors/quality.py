@@ -33,7 +33,9 @@ class DataQualityProcessor(BaseProcessor):
         """
         self.rules = rules
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Apply data quality rules to batch.
 
         Evaluates all configured quality rules against the batch data,

@@ -254,7 +254,11 @@ class TestConfigurationParser:
                         "distinct_count": 5,
                     },
                     "name": {"null_percentage": 0.0, "uniqueness_ratio": 1.0, "distinct_count": 5},
-                    "email": {"null_percentage": 0.0, "uniqueness_ratio": 1.0, "distinct_count": 5},
+                    "email": {
+                        "null_percentage": 0.0,
+                        "uniqueness_ratio": 1.0,
+                        "distinct_count": 5,
+                    },
                     "status": {
                         "null_percentage": 0.0,
                         "uniqueness_ratio": 0.4,

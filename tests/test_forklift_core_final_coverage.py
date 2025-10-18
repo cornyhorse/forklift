@@ -11,11 +11,17 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from forklift.engine.forklift_core import (ExcessColumnMode, ForkliftCore,
-                                           HeaderMode, ImportConfig,
-                                           ProcessingResults, import_csv,
-                                           import_excel, import_fwf,
-                                           import_sql)
+from forklift.engine.forklift_core import (
+    ExcessColumnMode,
+    ForkliftCore,
+    HeaderMode,
+    ImportConfig,
+    ProcessingResults,
+    import_csv,
+    import_excel,
+    import_fwf,
+    import_sql,
+)
 
 
 class TestFinalMissingLines:
@@ -81,7 +87,9 @@ class TestFinalMissingLines:
 
             # Mock schema for testing
             mock_schema = MagicMock()
-            mock_schema.get_sheet_configs.return_value = [{"sheet_name": "Sheet1", "header_row": 0}]
+            mock_schema.get_sheet_configs.return_value = [
+                {"sheet_name": "Sheet1", "header_row": 0}
+            ]
 
             config = ExcelImporter._create_excel_config_from_schema(mock_schema)
             assert config is not None

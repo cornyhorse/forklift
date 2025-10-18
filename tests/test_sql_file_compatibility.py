@@ -100,9 +100,13 @@ class TestSqlBackwardCompatibilityFile:
         # Even though the single file isn't imported, the package provides
         # the same backward compatibility functionality
 
-        from forklift.inputs.sql import (SqlConnectionManager, SqlDataReader,
-                                         SqlInputHandler, SqlSchemaManager,
-                                         SqlTypeConverter)
+        from forklift.inputs.sql import (
+            SqlConnectionManager,
+            SqlDataReader,
+            SqlInputHandler,
+            SqlSchemaManager,
+            SqlTypeConverter,
+        )
 
         # Verify all classes are available and callable
         classes = [
@@ -191,9 +195,14 @@ class TestSqlBackwardCompatibilityFile:
     def test_sql_imports_work_correctly(self):
         """Test that importing from the SQL module works correctly."""
         # Test individual imports
-        from forklift.inputs.sql import (SqlConnectionManager, SqlDataReader,
-                                         SqlInputHandler, SqlSchemaManager,
-                                         SqlTypeConverter, logger)
+        from forklift.inputs.sql import (
+            SqlConnectionManager,
+            SqlDataReader,
+            SqlInputHandler,
+            SqlSchemaManager,
+            SqlTypeConverter,
+            logger,
+        )
 
         # Verify all imports are valid
         assert callable(SqlInputHandler)

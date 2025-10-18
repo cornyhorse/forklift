@@ -32,7 +32,9 @@ class ColumnTransformer(BaseProcessor):
         """
         self.transformations = transformations
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Apply transformations to batch columns.
 
         Applies all configured transformations to their respective columns,

@@ -13,9 +13,13 @@ import pyarrow as pa
 import pytest
 from botocore.exceptions import ClientError, NoCredentialsError
 
-from forklift.io.s3_streaming import (S3Path, S3StreamingClient,
-                                      S3StreamingWriter, get_s3_client,
-                                      is_s3_path)
+from forklift.io.s3_streaming import (
+    S3Path,
+    S3StreamingClient,
+    S3StreamingWriter,
+    get_s3_client,
+    is_s3_path,
+)
 
 
 @pytest.fixture

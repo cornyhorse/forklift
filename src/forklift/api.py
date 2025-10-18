@@ -9,8 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .schema.schema_generator import (FileType, OutputTarget,
-                                      SchemaGenerationConfig, SchemaGenerator)
+from .schema.schema_generator import (
+    FileType,
+    OutputTarget,
+    SchemaGenerationConfig,
+    SchemaGenerator,
+)
 
 
 def generate_schema_from_csv(

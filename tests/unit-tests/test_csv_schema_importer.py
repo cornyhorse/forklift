@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from forklift.schema.csv_schema_importer import (CsvSchemaImporter,
-                                                 SchemaValidationError)
+from forklift.schema.csv_schema_importer import CsvSchemaImporter, SchemaValidationError
 
 
 class TestCsvSchemaImporter:

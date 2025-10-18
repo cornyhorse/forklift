@@ -1,9 +1,8 @@
 """Transformation type definitions and analysis."""
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
-import pandas as pd
 import pyarrow as pa
 
 

@@ -1,6 +1,6 @@
 """Configuration parsing and validation."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import pyarrow as pa
 

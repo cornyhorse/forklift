@@ -15,8 +15,10 @@ This package provides comprehensive data transformation capabilities split into 
 from ..date_parser import coerce_datetime
 from .base import DataTransformer
 
-# Import all transformation configs and utilities for backward compatibility
+# Import all configuration classes
 from .configs import *
+
+# Import all transformation configs and utilities for backward compatibility
 from .datetime_transformations import DateTimeTransformer
 from .factory import create_transformation_from_config
 from .format.transformer import FormatTransformer  # Updated import path

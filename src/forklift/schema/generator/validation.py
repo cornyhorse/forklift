@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Tuple
 
 import pyarrow as pa
 
-from ..utils.helpers import SchemaValidationError
 
 
 class SchemaValidator:

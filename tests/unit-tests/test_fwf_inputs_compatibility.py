@@ -36,10 +36,10 @@ class TestFwfInputsCompatibility:
 
         # Patch the import system to handle the relative import
         with patch.dict("sys.modules", {"forklift.inputs.fwf.fwf": mock_fwf_module}):
-            # Load the fwf.py file
+            # Load the fwf.py file - fix path to go to actual src directory
             spec = importlib.util.spec_from_file_location(
                 "forklift.inputs.fwf_compat",
-                Path(__file__).parent.parent / "src" / "forklift" / "inputs" / "fwf.py",
+                Path(__file__).parent.parent.parent / "src" / "forklift" / "inputs" / "fwf.py",
             )
             fwf_compat = importlib.util.module_from_spec(spec)
 
@@ -73,7 +73,9 @@ class TestFwfInputsCompatibility:
     def test_fwf_py_module_docstring(self):
         """Test the docstring of the fwf.py module."""
         # Read the file directly to get the docstring without executing imports
-        fwf_py_path = Path(__file__).parent.parent / "src" / "forklift" / "inputs" / "fwf.py"
+        fwf_py_path = (
+            Path(__file__).parent.parent.parent / "src" / "forklift" / "inputs" / "fwf.py"
+        )
         content = fwf_py_path.read_text()
 
         # Check docstring content in the file

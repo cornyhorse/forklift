@@ -260,7 +260,7 @@ class TestSchemaValidatorCompatibility:
             # Load the schema_validator.py file
             spec = importlib.util.spec_from_file_location(
                 "forklift.processors.schema_validator_compat",
-                Path(__file__).parent.parent
+                Path(__file__).parent.parent.parent
                 / "src"
                 / "forklift"
                 / "processors"
@@ -299,7 +299,7 @@ class TestSchemaValidatorCompatibility:
         """Test the docstring of the schema_validator.py module."""
         # Read the file directly to get the docstring without executing imports
         schema_validator_py_path = (
-            Path(__file__).parent.parent
+            Path(__file__).parent.parent.parent
             / "src"
             / "forklift"
             / "processors"

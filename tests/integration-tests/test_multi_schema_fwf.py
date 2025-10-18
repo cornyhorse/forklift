@@ -12,8 +12,8 @@ from forklift.inputs.fwf_utils import create_fwf_config_from_schema
 def test_multi_schema_fwf_processing():
     """Test processing of FWF file with multiple record types (H, D, T)."""
 
-    # Path to our test files
-    test_dir = Path(__file__).parent / "test-files" / "goodfwf"
+    # Path to our test files - go up one level from integration-tests to reach test-files
+    test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
     schema_path = test_dir / "multi_schema_example.json"
     data_path = test_dir / "multi_schema_example.txt"
 
@@ -96,7 +96,7 @@ def test_multi_schema_fwf_processing():
 def test_multi_schema_arrow_schema_generation():
     """Test PyArrow schema generation for multi-schema FWF."""
 
-    test_dir = Path(__file__).parent / "test-files" / "goodfwf"
+    test_dir = Path(__file__).parent.parent / "test-files" / "goodfwf"
     schema_path = test_dir / "multi_schema_example.json"
 
     config = create_fwf_config_from_schema(schema_path)

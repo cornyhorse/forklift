@@ -37,13 +37,15 @@ class TestSqlBackwardCompatibilityFile:
     def test_sql_file_exists_but_not_imported(self):
         """Test that the sql.py file exists but is not imported due to package precedence."""
         # Check that the sql.py file exists
-        sql_file_path = os.path.join(os.path.dirname(__file__), "../src/forklift/inputs/sql.py")
+        sql_file_path = os.path.join(os.path.dirname(__file__), "../../src/forklift/inputs/sql.py")
         sql_file_path = os.path.abspath(sql_file_path)
 
         assert os.path.exists(sql_file_path), "The sql.py file should exist"
 
         # Check that the sql package directory also exists
-        sql_package_path = os.path.join(os.path.dirname(__file__), "../src/forklift/inputs/sql/")
+        sql_package_path = os.path.join(
+            os.path.dirname(__file__), "../../src/forklift/inputs/sql/"
+        )
         sql_package_path = os.path.abspath(sql_package_path)
 
         assert os.path.exists(sql_package_path), "The sql/ package directory should exist"
@@ -51,7 +53,7 @@ class TestSqlBackwardCompatibilityFile:
 
     def test_sql_file_content_verification(self):
         """Test that the sql.py file has the expected content structure."""
-        sql_file_path = os.path.join(os.path.dirname(__file__), "../src/forklift/inputs/sql.py")
+        sql_file_path = os.path.join(os.path.dirname(__file__), "../../src/forklift/inputs/sql.py")
         sql_file_path = os.path.abspath(sql_file_path)
 
         # Read the file content directly
@@ -144,7 +146,7 @@ class TestSqlBackwardCompatibilityFile:
     def test_sql_file_would_provide_same_functionality(self):
         """Test that verifies the single file would provide the same functionality if imported."""
         # Read the sql.py file to verify it would provide the same exports
-        sql_file_path = os.path.join(os.path.dirname(__file__), "../src/forklift/inputs/sql.py")
+        sql_file_path = os.path.join(os.path.dirname(__file__), "../../src/forklift/inputs/sql.py")
         sql_file_path = os.path.abspath(sql_file_path)
 
         with open(sql_file_path, "r") as f:
@@ -169,8 +171,8 @@ class TestSqlBackwardCompatibilityFile:
         # This test documents the technical reason for 0% coverage
 
         # 1. Both sql.py and sql/ exist in the same directory
-        sql_file_path = os.path.join(os.path.dirname(__file__), "../src/forklift/inputs/sql.py")
-        sql_dir_path = os.path.join(os.path.dirname(__file__), "../src/forklift/inputs/sql/")
+        sql_file_path = os.path.join(os.path.dirname(__file__), "../../src/forklift/inputs/sql.py")
+        sql_dir_path = os.path.join(os.path.dirname(__file__), "../../src/forklift/inputs/sql/")
 
         assert os.path.exists(os.path.abspath(sql_file_path))
         assert os.path.exists(os.path.abspath(sql_dir_path))

@@ -330,6 +330,9 @@ class TestReaderFunctions:
 
     def test_cleanup_temp_dirs(self):
         """Test global cleanup function."""
+        # Clear any existing temp dirs to start with a clean state
+        _temp_dirs.clear()
+
         # Add some test directories
         test_dirs = {"/tmp/test1", "/tmp/test2"}
         _temp_dirs.update(test_dirs)

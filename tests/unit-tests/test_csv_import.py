@@ -44,8 +44,8 @@ class TestCSVImportBasics:
             - All rows valid (no validation errors)
             - Output files created successfully
         """
-        csv_file = Path(__file__).parent / "test-files/goodcsv/good_csv1.txt"
-        schema_file = Path(__file__).parent / "test-files/goodcsv/good_csv1.json"
+        csv_file = Path(__file__).parent.parent / "test-files/goodcsv/good_csv1.txt"
+        schema_file = Path(__file__).parent.parent / "test-files/goodcsv/good_csv1.json"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -71,7 +71,7 @@ class TestCSVImportBasics:
             - Rows processed successfully without header
             - Output files created with generated column names
         """
-        csv_file = Path(__file__).parent / "test-files/goodcsv/good_csv2.txt"
+        csv_file = Path(__file__).parent.parent / "test-files/goodcsv/good_csv2.txt"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -92,7 +92,7 @@ class TestCSVImportBasics:
             - Header row correctly identified
             - Same results as explicit header mode
         """
-        csv_file = Path(__file__).parent / "test-files/goodcsv/good_csv1.txt"
+        csv_file = Path(__file__).parent.parent / "test-files/goodcsv/good_csv1.txt"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -121,8 +121,8 @@ class TestCSVDelimitersAndQuoting:
             - Fields properly separated
             - Rows processed with new column handling behavior
         """
-        tsv_file = Path(__file__).parent / "test-files/badtsv/badtsv1.txt"
-        schema_file = Path(__file__).parent / "test-files/badtsv/badtsv1.json"
+        tsv_file = Path(__file__).parent.parent / "test-files/badtsv/badtsv1.txt"
+        schema_file = Path(__file__).parent.parent / "test-files/badtsv/badtsv1.json"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -389,8 +389,8 @@ class TestCSVValidationAndErrors:
             - Output files created
             - New row handling behavior applied
         """
-        csv_file = Path(__file__).parent / "test-files/badcsv/badcsv1.txt"
-        schema_file = Path(__file__).parent / "test-files/badcsv/badcsv1.json"
+        csv_file = Path(__file__).parent.parent / "test-files/badcsv/badcsv1.txt"
+        schema_file = Path(__file__).parent.parent / "test-files/badcsv/badcsv1.json"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -415,8 +415,8 @@ class TestCSVValidationAndErrors:
             - Duplicate detection logic applied
             - Appropriate handling based on configuration
         """
-        csv_file = Path(__file__).parent / "test-files/dupecsv/dupe_csv1.txt"
-        schema_file = Path(__file__).parent / "test-files/dupecsv/dupe_csv1.json"
+        csv_file = Path(__file__).parent.parent / "test-files/dupecsv/dupe_csv1.txt"
+        schema_file = Path(__file__).parent.parent / "test-files/dupecsv/dupe_csv1.json"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -484,7 +484,7 @@ class TestCSVManifestAndMetadata:
             - File metadata included accurately
             - JSON format valid and complete
         """
-        csv_file = Path(__file__).parent / "test-files/goodcsv/good_csv1.txt"
+        csv_file = Path(__file__).parent.parent / "test-files/goodcsv/good_csv1.txt"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -517,7 +517,7 @@ class TestCSVManifestAndMetadata:
             - Input configuration captured
             - Statistics match actual processing results
         """
-        csv_file = Path(__file__).parent / "test-files/goodcsv/good_csv1.txt"
+        csv_file = Path(__file__).parent.parent / "test-files/goodcsv/good_csv1.txt"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -564,7 +564,7 @@ class TestCSVErrorHandling:
             - FileNotFoundError raised for missing schema
             - Processing fails gracefully
         """
-        csv_file = Path(__file__).parent / "test-files/goodcsv/good_csv1.txt"
+        csv_file = Path(__file__).parent.parent / "test-files/goodcsv/good_csv1.txt"
 
         with pytest.raises(FileNotFoundError):
             with tempfile.TemporaryDirectory() as output_dir:
@@ -624,7 +624,7 @@ class TestCSVEncodingVariations:
             - No encoding-related errors
             - International characters preserved
         """
-        csv_file = Path(__file__).parent / "test-files/encodingcsv/latin1_encoded.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/encodingcsv/latin1_encoded.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -649,7 +649,7 @@ class TestCSVEncodingVariations:
             - Special characters (smart quotes, currency) preserved
             - No character corruption
         """
-        csv_file = Path(__file__).parent / "test-files/encodingcsv/cp1252_encoded.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/encodingcsv/cp1252_encoded.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -674,7 +674,7 @@ class TestCSVEncodingVariations:
             - UTF-8 content processed without issues
             - No extra characters from BOM
         """
-        csv_file = Path(__file__).parent / "test-files/encodingcsv/utf8_with_bom.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/encodingcsv/utf8_with_bom.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -707,7 +707,7 @@ class TestCSVFooterDetection:
             - Footer content not included in results
             - Correct number of data rows processed
         """
-        csv_file = Path(__file__).parent / "test-files/footercsv/footer_blank_line.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/footercsv/footer_blank_line.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -732,7 +732,7 @@ class TestCSVFooterDetection:
             - Processing stops before footer content
             - Pattern matching works as configured
         """
-        csv_file = Path(__file__).parent / "test-files/footercsv/footer_pattern.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/footercsv/footer_pattern.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -757,7 +757,7 @@ class TestCSVFooterDetection:
             - Processing stops at section boundary
             - Data integrity maintained
         """
-        csv_file = Path(__file__).parent / "test-files/footercsv/footer_summary.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/footercsv/footer_summary.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -790,7 +790,7 @@ class TestCSVAdvancedQuoting:
             - Quote style conflicts resolved
             - Data integrity maintained
         """
-        csv_file = Path(__file__).parent / "test-files/quotescsv/quotes_mixed_styles.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/quotescsv/quotes_mixed_styles.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             # This might need special handling - for now test with double quotes
@@ -815,7 +815,7 @@ class TestCSVAdvancedQuoting:
             - Quote escaping handled correctly
             - Complex quoted content preserved
         """
-        csv_file = Path(__file__).parent / "test-files/quotescsv/quotes_nested.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/quotescsv/quotes_nested.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -839,7 +839,7 @@ class TestCSVAdvancedQuoting:
             - Line breaks within fields preserved
             - Field boundaries properly identified
         """
-        csv_file = Path(__file__).parent / "test-files/quotescsv/quotes_multiline.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/quotescsv/quotes_multiline.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -872,7 +872,7 @@ class TestCSVEdgeCases:
             - No processing errors
             - Appropriate zero-row results
         """
-        csv_file = Path(__file__).parent / "test-files/edgecsv/empty_file.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/edgecsv/empty_file.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -894,7 +894,7 @@ class TestCSVEdgeCases:
             - Zero data rows reported
             - No processing errors
         """
-        csv_file = Path(__file__).parent / "test-files/edgecsv/header_only.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/edgecsv/header_only.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(
@@ -916,7 +916,7 @@ class TestCSVEdgeCases:
             - Processing completes successfully
             - Data integrity maintained where possible
         """
-        csv_file = Path(__file__).parent / "test-files/edgecsv/varying_columns.csv"
+        csv_file = Path(__file__).parent.parent / "test-files/edgecsv/varying_columns.csv"
 
         with tempfile.TemporaryDirectory() as output_dir:
             results = import_csv(

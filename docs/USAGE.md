@@ -546,247 +546,100 @@ config = ImportConfig(
 )
 ```
 
-### Constraint Validation
+### Excess Column Handling
+
+Forklift provides two strategies for handling rows that contain more columns than expected:
+
+#### TRUNCATE Mode (Default)
+When using `TRUNCATE` mode, extra columns are removed and the row is kept. This performs **positional truncation**, not selective column filtering by name.
 
 ```python
 import forklift
-from forklift.processors.constraint_validator import ConstraintConfig
+from forklift.engine.config import ImportConfig, ExcessColumnMode
 
-# Configure constraint validation
-constraint_config = ConstraintConfig(
-    enforce_primary_key=True,
-    enforce_unique_constraints=True,
-    enforce_not_null=True
-)
-
-results = forklift.import_csv(
-    source="users.csv",
-    destination="./output/",
-    schema_path="users_schema.json",
-    constraint_config=constraint_config
-)
-```
-
-## Working with Different File Formats
-
-### CSV Files
-
-```python
-import forklift
-
-# Basic CSV processing
-df = forklift.read_csv("data.csv")
-
-# CSV with custom options
-df = forklift.read_csv(
-    "custom_data.csv",
-    delimiter=";",
-    encoding="utf-8-sig",
-    header_mode="present"
-)
-
-# Import CSV with preprocessing
-results = forklift.import_csv(
-    source="raw_data.csv",
-    destination="./cleaned/",
-    preprocessors=["string_cleaning", "date_parsing"]
-)
-```
-
-### Excel Files
-
-```python
-import forklift
-
-# Read multiple sheets
-sheets = ["Sales", "Marketing", "Finance"]
-dataframes = {}
-for sheet in sheets:
-    dataframes[sheet] = forklift.read_excel("quarterly_data.xlsx", sheet_name=sheet)
-
-# Import Excel with sheet specification
-results = forklift.import_excel(
-    source="financial_data.xlsx",
-    destination="./output/",
-    sheet_name="Transactions",
-    schema_path="transaction_schema.json"
-)
-```
-
-### Fixed-Width Files
-
-```python
-import forklift
-
-# FWF with multi-schema support (different record types)
-results = forklift.import_fwf(
-    source="complex_fwf.txt",
-    destination="./output/",
-    schema_path="multi_schema.json"  # Contains multiple record type definitions
-)
-
-# FWF with flag-based record identification
-df = forklift.read_fwf(
-    "variable_fwf.txt",
-    schema_path="flag_based_schema.json"
-)
-```
-
-## S3 Integration
-
-### Reading from S3
-
-```python
-import forklift
-
-# Read CSV from S3
-df = forklift.read_csv("s3://my-bucket/data/sales.csv")
-
-# Import from S3 to local
-results = forklift.import_csv(
-    source="s3://source-bucket/raw/data.csv",
-    destination="./local_output/"
-)
-
-# Import from S3 to S3
-results = forklift.import_csv(
-    source="s3://source-bucket/raw/data.csv",
-    destination="s3://dest-bucket/processed/"
-)
-```
-
-### Schema Generation from S3
-
-```python
-import forklift
-
-# Generate schema from S3 file
-schema = forklift.generate_schema_from_csv("s3://my-bucket/sample/data.csv")
-
-# Save schema to S3
-forklift.generate_and_save_schema(
-    input_path="s3://my-bucket/data/customers.csv",
-    output_path="s3://my-bucket/schemas/customers_schema.json",
-    file_type="csv"
-)
-```
-
-## Advanced Features
-
-### Custom Processors
-
-```python
-import forklift
-from forklift.processors import BaseProcessor
-
-# Use built-in processors
-results = forklift.import_csv(
-    source="messy_data.csv",
-    destination="./clean/",
-    preprocessors=[
-        "string_cleaning",      # Clean whitespace, normalize text
-        "date_standardization", # Standardize date formats
-        "calculated_columns"    # Add computed fields
-    ]
-)
-```
-
-### Metadata Generation
-
-```python
-import forklift
-
-# Generate schema with rich metadata
-schema = forklift.generate_schema_from_csv(
-    "customer_data.csv",
-    include_metadata=True,
-    enum_threshold=0.1,        # Suggest enums for low-cardinality fields
-    uniqueness_threshold=0.95, # Flag highly unique fields
-    top_n_values=10           # Include top/bottom values
-)
-
-# Access metadata
-metadata = schema.get("x-metadata", {})
-for field, field_metadata in metadata.items():
-    print(f"{field}: {field_metadata.get('distinct_count')} unique values")
-```
-
-### Batch Processing
-
-```python
-import forklift
-from pathlib import Path
-
-# Process multiple files
-data_dir = Path("./raw_data/")
-output_dir = Path("./processed/")
-
-for csv_file in data_dir.glob("*.csv"):
-    print(f"Processing {csv_file.name}...")
-    
-    results = forklift.import_csv(
-        source=str(csv_file),
-        destination=str(output_dir),
-        schema_path="common_schema.json"
-    )
-    
-    print(f"Completed: {results.valid_rows} rows processed")
-```
-
-### Performance Optimization
-
-```python
-import forklift
-from forklift.engine.forklift_core import ImportConfig
-
-# Configure for large files
+# Configure truncate mode for excess columns
 config = ImportConfig(
-    batch_size=50000,         # Process in larger batches
-    memory_limit_mb=2048,     # Increase memory limit
-    use_streaming=True        # Enable streaming for very large files
+    excess_column_mode=ExcessColumnMode.TRUNCATE
 )
 
 results = forklift.import_csv(
-    source="very_large_file.csv",
+    source="data_with_extra_columns.csv",
     destination="./output/",
+    schema_path="partial_schema.json",
     config=config
 )
 ```
 
-## CLI Workflows
+**Important Behavior with Partial Schemas**: When your schema defines only a subset of columns in the file, `TRUNCATE` mode will only keep the first N columns (where N is the number of columns in your schema) and discard all additional columns.
 
-### Basic CLI Usage
+**Example**:
+- CSV file has columns: `Name,Age,City,Country,Phone`
+- Schema defines only: `Name,Age,City` (3 columns)
+- Result: Only `Name,Age,City` are kept; `Country` and `Phone` are completely discarded
 
-```bash
-# Generate schema
-forklift generate-schema data.csv --file-type csv --output file --output-path schema.json
-
-# Import with validation
-forklift ingest data.csv --dest ./output/ --input-kind csv --schema schema.json
-
-# Import from S3
-forklift ingest s3://bucket/data.csv --dest s3://bucket/processed/ --input-kind csv
+```python
+# Example with partial schema
+results = forklift.import_csv(
+    source="full_customer_data.csv",  # 20 columns in file
+    destination="./output/",
+    schema_path="basic_schema.json",  # Only defines 5 columns
+    config=ImportConfig(excess_column_mode=ExcessColumnMode.TRUNCATE)
+)
+# Output will contain only the first 5 columns from the CSV
 ```
 
-### Advanced CLI Options
+#### REJECT Mode
+When using `REJECT` mode, entire rows with excess columns are discarded.
 
-```bash
-# Schema generation with options
-forklift generate-schema large_file.csv \
-  --file-type csv \
-  --nrows 10000 \
-  --infer-primary-key \
-  --include-sample \
-  --output file \
-  --output-path detailed_schema.json
+```python
+# Configure reject mode - discard rows with extra columns
+config = ImportConfig(
+    excess_column_mode=ExcessColumnMode.REJECT
+)
 
-# Import with preprocessing
-forklift ingest messy_data.csv \
-  --dest ./clean/ \
-  --input-kind csv \
-  --pre string_cleaning date_standardization \
-  --header-mode present \
-  --encoding-priority utf-8 latin-1
+results = forklift.import_csv(
+    source="strict_format.csv",
+    destination="./output/",
+    schema_path="exact_schema.json",
+    config=config
+)
 ```
 
-This usage guide provides comprehensive examples for most common Forklift workflows. For specific API details, see the [API Reference](API_REFERENCE.md).
+#### PASSTHROUGH Mode
+When using `PASSTHROUGH` mode, all columns from the input file are preserved in the output, including those not defined in your schema. Extra columns are automatically assigned default names.
+
+```python
+# Configure passthrough mode - keep all columns
+config = ImportConfig(
+    excess_column_mode=ExcessColumnMode.PASSTHROUGH
+)
+
+results = forklift.import_csv(
+    source="variable_width_data.csv",
+    destination="./output/",
+    schema_path="partial_schema.json",  # Only defines some columns
+    config=config
+)
+```
+
+**PASSTHROUGH Behavior**: This mode is particularly useful for:
+- Files with variable numbers of columns
+- When you want to preserve all data while applying validation to known columns
+- ETL processes where you need to capture unexpected columns
+
+**Example with PASSTHROUGH**:
+- Input CSV has columns: `Name,Age,City,Country,Phone,Email`
+- Schema defines only: `Name,Age,City` (3 columns)
+- Output will have: `Name,Age,City,col_4,col_5,col_6` (all columns preserved)
+
+```python
+# Real-world example: processing survey data with variable responses
+results = forklift.import_csv(
+    source="survey_responses.csv",  # May have 10-50 columns depending on responses
+    destination="./output/",
+    schema_path="core_survey_schema.json",  # Only defines required fields
+    config=ImportConfig(excess_column_mode=ExcessColumnMode.PASSTHROUGH)
+)
+# All survey responses are preserved, even unexpected ones
+```
+

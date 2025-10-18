@@ -32,7 +32,10 @@ class ValidationRules:
                     else:
                         value = int(value)
                 except ValueError:
-                    return f"Field '{field_name}' value '{value}' cannot be converted to numeric for range validation"
+                    return (
+                        f"Field '{field_name}' value '{value}' "
+                        f"cannot be converted to numeric for range validation"
+                    )
 
             # Check minimum
             if range_val.min_value is not None:

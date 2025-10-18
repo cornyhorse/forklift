@@ -16,6 +16,7 @@ import pyarrow as pa
 from src.forklift.utils.transformations import DataTransformer, DateTimeTransformConfig
 from src.forklift.processors.transformations import SchemaBasedTransformer
 
+
 def main():
     print("🚀 Enhanced Datetime Transformations Example")
     print("=" * 60)
@@ -27,9 +28,7 @@ def main():
     print("-" * 50)
 
     config_enforce = DateTimeTransformConfig(
-        mode="enforce",
-        format="YYYY-MM-DD",  # Only this exact format allowed
-        target_type="string"
+        mode="enforce", format="YYYY-MM-DD", target_type="string"  # Only this exact format allowed
     )
 
     test_data = ["2025-08-27", "2025-8-27", "08/27/2025"]  # Only first will pass
@@ -47,7 +46,7 @@ def main():
     config_specify = DateTimeTransformConfig(
         mode="specify_formats",
         formats=["YYYY-MM-DD", "MM/DD/YYYY", "DD-MMM-YYYY"],
-        target_type="string"
+        target_type="string",
     )
 
     test_data = ["2025-08-27", "08/27/2025", "27-Aug-2025", "Aug 27, 2025"]
@@ -63,10 +62,7 @@ def main():
     print("\n3️⃣ COMMON FORMATS MODE - Predefined Formats")
     print("-" * 50)
 
-    config_common = DateTimeTransformConfig(
-        mode="common_formats",
-        target_type="string"
-    )
+    config_common = DateTimeTransformConfig(mode="common_formats", target_type="string")
 
     test_data = ["2025-08-27", "08/27/2025", "27-Aug-2025", "Aug 27, 2025", "20250827"]
     column = pa.array(test_data)
@@ -81,9 +77,7 @@ def main():
     print("-" * 50)
 
     config_fuzzy = DateTimeTransformConfig(
-        mode="common_formats",
-        allow_fuzzy=True,
-        target_type="string"
+        mode="common_formats", allow_fuzzy=True, target_type="string"
     )
 
     test_data = ["Tuesday, August 27th 2025", "27 Aug 2025 at 2:30 PM", "Aug 27, 2025"]
@@ -99,16 +93,13 @@ def main():
     print("-" * 50)
 
     # Parsing epoch timestamps
-    config_epoch = DateTimeTransformConfig(
-        mode="common_formats",
-        target_type="string"
-    )
+    config_epoch = DateTimeTransformConfig(mode="common_formats", target_type="string")
 
     epoch_data = [
-        "1724766600",      # Seconds
-        "1724766600000",   # Milliseconds
-        "1724766600000000", # Microseconds
-        "2025-08-27"       # Regular date
+        "1724766600",  # Seconds
+        "1724766600000",  # Milliseconds
+        "1724766600000000",  # Microseconds
+        "2025-08-27",  # Regular date
     ]
     column = pa.array(epoch_data)
     result = transformer.apply_datetime_transformation(column, config_epoch)
@@ -118,10 +109,7 @@ def main():
     print("✓ Various epoch timestamp formats auto-detected")
 
     # Converting to epoch
-    config_to_epoch = DateTimeTransformConfig(
-        mode="common_formats",
-        to_epoch="seconds"
-    )
+    config_to_epoch = DateTimeTransformConfig(mode="common_formats", to_epoch="seconds")
 
     regular_dates = ["2025-08-27 14:30:00", "2025-12-25 00:00:00"]
     column = pa.array(regular_dates)
@@ -137,9 +125,7 @@ def main():
     print("-" * 50)
 
     config_tz = DateTimeTransformConfig(
-        mode="common_formats",
-        timezone="America/New_York",
-        target_type="string"
+        mode="common_formats", timezone="America/New_York", target_type="string"
     )
 
     utc_dates = ["2025-08-27 14:30:00", "2025-12-25 12:00:00"]
@@ -167,9 +153,7 @@ def main():
 
     # Custom string format
     config_custom = DateTimeTransformConfig(
-        mode="common_formats",
-        target_type="string",
-        output_format="%B %d, %Y at %I:%M %p"
+        mode="common_formats", target_type="string", output_format="%B %d, %Y at %I:%M %p"
     )
     result_custom = transformer.apply_datetime_transformation(column, config_custom)
 
@@ -192,29 +176,24 @@ def main():
                         "mode": "specify_formats",
                         "formats": ["MM/DD/YYYY", "YYYY-MM-DD"],
                         "target_type": "string",
-                        "output_format": "%Y-%m-%d"
+                        "output_format": "%Y-%m-%d",
                     }
                 },
                 "timestamp_col": {
-                    "datetime": {
-                        "enabled": True,
-                        "mode": "common_formats",
-                        "to_epoch": "seconds"
-                    }
-                }
+                    "datetime": {"enabled": True, "mode": "common_formats", "to_epoch": "seconds"}
+                },
             }
         }
     }
 
     # Create test data
-    pa_schema = pa.schema([
-        pa.field("order_date", pa.string()),
-        pa.field("timestamp_col", pa.string())
-    ])
+    pa_schema = pa.schema(
+        [pa.field("order_date", pa.string()), pa.field("timestamp_col", pa.string())]
+    )
 
     data = {
         "order_date": ["08/27/2025", "2025-12-25", "invalid"],
-        "timestamp_col": ["2025-08-27 14:30:00", "2025-12-25 00:00:00", "1724766600"]
+        "timestamp_col": ["2025-08-27 14:30:00", "2025-12-25 00:00:00", "1724766600"],
     }
     batch = pa.record_batch(data, pa_schema)
 
@@ -238,6 +217,7 @@ def main():
     print("• 🌍 Timezone Conversion: Global timezone support")
     print("• 📊 Multiple Output Types: datetime, date, timestamp, string")
     print("• ⚙️ Schema Integration: Works with existing transformation system")
+
 
 if __name__ == "__main__":
     main()

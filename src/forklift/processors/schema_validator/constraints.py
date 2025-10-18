@@ -49,7 +49,8 @@ class ConstraintValidator:
                     results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Column '{col_name}' value {column[i].as_py()} exceeds maximum {max_val}",
+                            error_message=f"Column '{col_name}' value"
+                            f" {column[i].as_py()} exceeds maximum {max_val}",
                             error_code="MAX_VALUE_VIOLATION",
                             column_name=col_name,
                             row_index=i,
@@ -115,7 +116,8 @@ class ConstraintValidator:
                     results.append(
                         ValidationResult(
                             is_valid=False,
-                            error_message=f"Column '{col_name}' value '{value}' does not match pattern '{pattern}'",
+                            error_message=f"Column '{col_name}' "
+                            f"value '{value}' does not match pattern '{pattern}'",
                             error_code="PATTERN_VIOLATION",
                             column_name=col_name,
                             row_index=i,

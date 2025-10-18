@@ -8,6 +8,7 @@ from pathlib import Path
 # Add src to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+
 def create_demo_files():
     """Create demonstration files for multi-schema FWF processing."""
 
@@ -39,48 +40,147 @@ T000002000012500USD20241202End of file           """
                     "name": "record_type",
                     "start": 1,
                     "length": 1,
-                    "parquetType": "string"
+                    "parquetType": "string",
                 },
                 "schemas": [
                     {
                         "flagValue": "H",
                         "description": "Header records - batch information",
                         "fields": [
-                            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
-                            {"name": "batch_date", "start": 2, "length": 8, "parquetType": "string"},
-                            {"name": "batch_id", "start": 10, "length": 10, "parquetType": "string", "trim": True},
-                            {"name": "description", "start": 20, "length": 33, "parquetType": "string", "trim": True}
-                        ]
+                            {
+                                "name": "record_type",
+                                "start": 1,
+                                "length": 1,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "batch_date",
+                                "start": 2,
+                                "length": 8,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "batch_id",
+                                "start": 10,
+                                "length": 10,
+                                "parquetType": "string",
+                                "trim": True,
+                            },
+                            {
+                                "name": "description",
+                                "start": 20,
+                                "length": 33,
+                                "parquetType": "string",
+                                "trim": True,
+                            },
+                        ],
                     },
                     {
                         "flagValue": "D",
                         "description": "Detail records - transaction data",
                         "fields": [
-                            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
-                            {"name": "transaction_id", "start": 2, "length": 6, "align": "right", "pad": "0", "parquetType": "int64"},
-                            {"name": "product_code", "start": 8, "length": 12, "parquetType": "string", "trim": True},
-                            {"name": "amount_cents", "start": 20, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
-                            {"name": "currency", "start": 29, "length": 3, "parquetType": "string"},
-                            {"name": "transaction_date", "start": 32, "length": 8, "parquetType": "string"},
-                            {"name": "quantity", "start": 40, "length": 2, "align": "right", "pad": "0", "parquetType": "int32"}
-                        ]
+                            {
+                                "name": "record_type",
+                                "start": 1,
+                                "length": 1,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "transaction_id",
+                                "start": 2,
+                                "length": 6,
+                                "align": "right",
+                                "pad": "0",
+                                "parquetType": "int64",
+                            },
+                            {
+                                "name": "product_code",
+                                "start": 8,
+                                "length": 12,
+                                "parquetType": "string",
+                                "trim": True,
+                            },
+                            {
+                                "name": "amount_cents",
+                                "start": 20,
+                                "length": 9,
+                                "align": "right",
+                                "pad": "0",
+                                "parquetType": "int64",
+                            },
+                            {
+                                "name": "currency",
+                                "start": 29,
+                                "length": 3,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "transaction_date",
+                                "start": 32,
+                                "length": 8,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "quantity",
+                                "start": 40,
+                                "length": 2,
+                                "align": "right",
+                                "pad": "0",
+                                "parquetType": "int32",
+                            },
+                        ],
                     },
                     {
                         "flagValue": "T",
                         "description": "Trailer records - summary information",
                         "fields": [
-                            {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
-                            {"name": "record_count", "start": 2, "length": 6, "align": "right", "pad": "0", "parquetType": "int64"},
-                            {"name": "total_amount_cents", "start": 8, "length": 9, "align": "right", "pad": "0", "parquetType": "int64"},
-                            {"name": "currency", "start": 17, "length": 3, "parquetType": "string"},
-                            {"name": "summary_date", "start": 20, "length": 8, "parquetType": "string"},
-                            {"name": "notes", "start": 28, "length": 25, "parquetType": "string", "trim": True}
-                        ]
-                    }
-                ]
+                            {
+                                "name": "record_type",
+                                "start": 1,
+                                "length": 1,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "record_count",
+                                "start": 2,
+                                "length": 6,
+                                "align": "right",
+                                "pad": "0",
+                                "parquetType": "int64",
+                            },
+                            {
+                                "name": "total_amount_cents",
+                                "start": 8,
+                                "length": 9,
+                                "align": "right",
+                                "pad": "0",
+                                "parquetType": "int64",
+                            },
+                            {
+                                "name": "currency",
+                                "start": 17,
+                                "length": 3,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "summary_date",
+                                "start": 20,
+                                "length": 8,
+                                "parquetType": "string",
+                            },
+                            {
+                                "name": "notes",
+                                "start": 28,
+                                "length": 25,
+                                "parquetType": "string",
+                                "trim": True,
+                            },
+                        ],
+                    },
+                ],
             },
-            "nulls": {"global": ["", "NULL", "N/A"]}
-        }
+            "nulls": {"global": ["", "NULL", "N/A"]},
+        },
     }
 
     with open("demo_multi_schema.json", "w") as f:
@@ -108,7 +208,9 @@ def demonstrate_multi_schema_fwf():
         config = create_fwf_config_from_schema(Path("demo_multi_schema.json"))
 
         print(f"   ✓ Encoding: {config.encoding}")
-        print(f"   ✓ Flag column: {config.flag_column.name} (pos {config.flag_column.start}, length {config.flag_column.length})")
+        print(
+            f"   ✓ Flag column: {config.flag_column.name} (pos {config.flag_column.start}, length {config.flag_column.length})"
+        )
         print(f"   ✓ Number of conditional schemas: {len(config.conditional_schemas)}")
 
         for i, schema in enumerate(config.conditional_schemas):
@@ -126,7 +228,7 @@ def demonstrate_multi_schema_fwf():
         print("\n3. Record type analysis:")
         by_type = {}
         for record in records:
-            rtype = record['record_type']
+            rtype = record["record_type"]
             if rtype not in by_type:
                 by_type[rtype] = []
             by_type[rtype].append(record)
@@ -137,15 +239,15 @@ def demonstrate_multi_schema_fwf():
         # Show sample records
         print("\n4. Sample records from each schema:")
 
-        if 'H' in by_type:
-            header = by_type['H'][0]
+        if "H" in by_type:
+            header = by_type["H"][0]
             print(f"\n   Header Record (Type H):")
             print(f"     - Batch Date: {header['batch_date']}")
             print(f"     - Batch ID: {header['batch_id']}")
             print(f"     - Description: {header['description']}")
 
-        if 'D' in by_type:
-            detail = by_type['D'][0]
+        if "D" in by_type:
+            detail = by_type["D"][0]
             print(f"\n   Detail Record (Type D):")
             print(f"     - Transaction ID: {detail['transaction_id']}")
             print(f"     - Product Code: {detail['product_code']}")
@@ -153,8 +255,8 @@ def demonstrate_multi_schema_fwf():
             print(f"     - Currency: {detail['currency']}")
             print(f"     - Quantity: {detail['quantity']}")
 
-        if 'T' in by_type:
-            trailer = by_type['T'][0]
+        if "T" in by_type:
+            trailer = by_type["T"][0]
             print(f"\n   Trailer Record (Type T):")
             print(f"     - Record Count: {trailer['record_count']}")
             print(f"     - Total Amount (cents): {trailer['total_amount_cents']}")
@@ -167,11 +269,18 @@ def demonstrate_multi_schema_fwf():
         print(f"   ✓ Generated schema with {len(arrow_schema)} fields:")
 
         field_groups = {
-            'Common': ['record_type'],
-            'Header': ['batch_date', 'batch_id', 'description'],
-            'Detail': ['transaction_id', 'product_code', 'amount_cents', 'currency', 'transaction_date', 'quantity'],
-            'Trailer': ['record_count', 'total_amount_cents', 'summary_date', 'notes'],
-            'Metadata': ['__line_number__', '__source_file__']
+            "Common": ["record_type"],
+            "Header": ["batch_date", "batch_id", "description"],
+            "Detail": [
+                "transaction_id",
+                "product_code",
+                "amount_cents",
+                "currency",
+                "transaction_date",
+                "quantity",
+            ],
+            "Trailer": ["record_count", "total_amount_cents", "summary_date", "notes"],
+            "Metadata": ["__line_number__", "__source_file__"],
         }
 
         for group, expected_fields in field_groups.items():
@@ -197,6 +306,7 @@ def demonstrate_multi_schema_fwf():
     except Exception as e:
         print(f"❌ Error during demonstration: {e}")
         import traceback
+
         traceback.print_exc()
         return False
     finally:

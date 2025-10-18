@@ -99,7 +99,8 @@ class DataValidationProcessor(BaseProcessor):
                 validation_results.append(
                     ValidationResult(
                         is_valid=False,
-                        error_message=f"Bad rows ({bad_rows_percent:.1f}%) exceed threshold ({self.config.bad_rows_config.max_bad_rows_percent}%)",
+                        error_message=f"Bad rows ({bad_rows_percent:.1f}%) exceed "
+                        f"threshold ({self.config.bad_rows_config.max_bad_rows_percent}%)",
                         error_code="BAD_ROWS_THRESHOLD_EXCEEDED",
                     )
                 )
@@ -149,7 +150,8 @@ class DataValidationProcessor(BaseProcessor):
                 if value in self.unique_value_tracker[rule.field_name]:
                     if self.config.uniqueness_strategy == "first_wins":
                         errors.append(
-                            f"Field '{rule.field_name}' value '{value}' is not unique (duplicate found)"
+                            f"Field '{rule.field_name}' value '{value}' "
+                            f"is not unique (duplicate found)"
                         )
                     elif self.config.uniqueness_strategy == "fail_on_duplicate":
                         errors.append(

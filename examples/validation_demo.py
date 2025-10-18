@@ -13,12 +13,12 @@ from src.forklift.processors.data_validation import (
     RangeValidation,
     StringValidation,
     EnumValidation,
-    DateValidation
+    DateValidation,
 )
 from src.forklift.processors.validation_factory import (
     create_validation_processor_from_schema,
     get_validation_config_from_schema_file,
-    create_default_validation_rules
+    create_default_validation_rules,
 )
 from src.forklift.schema.csv_schema_importer import CsvSchemaImporter
 
@@ -31,13 +31,27 @@ def demo_required_field_validation():
     # Create test data with some missing required fields
     test_data = {
         "id": [1, 2, None, 4, 5],  # Missing required ID for row 3
-        "name": ["John Doe", "", "Bob Wilson", "Alice Johnson", "Charlie Brown"],  # Empty name for row 2
-        "email": ["john@company.com", "jane@company.com", "bob@company.com", None, "charlie@company.com"],  # Missing email for row 4
-        "age": [25, 30, 35, 28, 42]
+        "name": [
+            "John Doe",
+            "",
+            "Bob Wilson",
+            "Alice Johnson",
+            "Charlie Brown",
+        ],  # Empty name for row 2
+        "email": [
+            "john@company.com",
+            "jane@company.com",
+            "bob@company.com",
+            None,
+            "charlie@company.com",
+        ],  # Missing email for row 4
+        "age": [25, 30, 35, 28, 42],
     }
 
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     print(f"Original data: {len(batch)} rows")
@@ -52,12 +66,12 @@ def demo_required_field_validation():
             field_name="id",
             required=True,
             unique=True,
-            range_validation=RangeValidation(min_value=1, max_value=999999)
+            range_validation=RangeValidation(min_value=1, max_value=999999),
         ),
         FieldValidationRule(
             field_name="name",
             required=True,
-            string_validation=StringValidation(min_length=1, allow_empty=False)
+            string_validation=StringValidation(min_length=1, allow_empty=False),
         ),
         FieldValidationRule(
             field_name="email",
@@ -65,17 +79,14 @@ def demo_required_field_validation():
             unique=True,
             string_validation=StringValidation(
                 pattern=r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-            )
-        )
+            ),
+        ),
     ]
 
     config = ValidationConfig(
         field_validations=validation_rules,
-        bad_rows_config=BadRowsConfig(
-            enabled=True,
-            include_validation_errors=True
-        ),
-        uniqueness_strategy="first_wins"
+        bad_rows_config=BadRowsConfig(enabled=True, include_validation_errors=True),
+        uniqueness_strategy="first_wins",
     )
 
     processor = DataValidationProcessor(config)
@@ -106,13 +117,21 @@ def demo_uniqueness_validation():
     # Create test data with duplicate values
     test_data = {
         "id": [1, 2, 1, 4, 2],  # Duplicates: ID 1 and 2 appear twice
-        "email": ["john@company.com", "jane@company.com", "different@company.com", "alice@company.com", "john@company.com"],  # Duplicate email
+        "email": [
+            "john@company.com",
+            "jane@company.com",
+            "different@company.com",
+            "alice@company.com",
+            "john@company.com",
+        ],  # Duplicate email
         "name": ["John Doe", "Jane Smith", "John Different", "Alice Johnson", "John Duplicate"],
-        "department": ["IT", "HR", "IT", "Finance", "IT"]  # Non-unique field (allowed)
+        "department": ["IT", "HR", "IT", "Finance", "IT"],  # Non-unique field (allowed)
     }
 
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     print(f"Original data: {len(batch)} rows")
@@ -123,27 +142,17 @@ def demo_uniqueness_validation():
 
     # Configure uniqueness validation
     validation_rules = [
+        FieldValidationRule(field_name="id", required=True, unique=True),
+        FieldValidationRule(field_name="email", required=True, unique=True),
         FieldValidationRule(
-            field_name="id",
-            required=True,
-            unique=True
+            field_name="department", required=False, unique=False  # Allowed to have duplicates
         ),
-        FieldValidationRule(
-            field_name="email",
-            required=True,
-            unique=True
-        ),
-        FieldValidationRule(
-            field_name="department",
-            required=False,
-            unique=False  # Allowed to have duplicates
-        )
     ]
 
     config = ValidationConfig(
         field_validations=validation_rules,
         bad_rows_config=BadRowsConfig(enabled=True, include_validation_errors=True),
-        uniqueness_strategy="first_wins"  # First occurrence wins, later duplicates go to bad rows
+        uniqueness_strategy="first_wins",  # First occurrence wins, later duplicates go to bad rows
     )
 
     processor = DataValidationProcessor(config)
@@ -174,13 +183,27 @@ def demo_range_validation():
     test_data = {
         "id": [1, 2, 3, 4, 5],
         "age": [-5, 25, 200, 30, 35],  # Invalid: -5 (negative), 200 (too high)
-        "salary": [50000, -10000, 75000, 15000000, 60000],  # Invalid: -10000 (negative), 15000000 (too high)
+        "salary": [
+            50000,
+            -10000,
+            75000,
+            15000000,
+            60000,
+        ],  # Invalid: -10000 (negative), 15000000 (too high)
         "score": [85.5, 105.2, 67.8, -15.0, 92.1],  # Invalid: 105.2 (>100), -15.0 (negative)
-        "birth_date": ["1990-01-01", "1850-12-25", "2020-06-15", "2150-03-10", "1985-07-22"]  # Invalid: 1850 (too old), 2150 (future)
+        "birth_date": [
+            "1990-01-01",
+            "1850-12-25",
+            "2020-06-15",
+            "2150-03-10",
+            "1985-07-22",
+        ],  # Invalid: 1850 (too old), 2150 (future)
     }
 
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     print(f"Original data: {len(batch)} rows")
@@ -194,36 +217,33 @@ def demo_range_validation():
         FieldValidationRule(
             field_name="id",
             required=True,
-            range_validation=RangeValidation(min_value=1, max_value=999999)
+            range_validation=RangeValidation(min_value=1, max_value=999999),
         ),
         FieldValidationRule(
             field_name="age",
             required=False,
-            range_validation=RangeValidation(min_value=0, max_value=150, inclusive=True)
+            range_validation=RangeValidation(min_value=0, max_value=150, inclusive=True),
         ),
         FieldValidationRule(
             field_name="salary",
             required=False,
-            range_validation=RangeValidation(min_value=0, max_value=10000000, inclusive=True)
+            range_validation=RangeValidation(min_value=0, max_value=10000000, inclusive=True),
         ),
         FieldValidationRule(
             field_name="score",
             required=False,
-            range_validation=RangeValidation(min_value=0.0, max_value=100.0, inclusive=True)
+            range_validation=RangeValidation(min_value=0.0, max_value=100.0, inclusive=True),
         ),
         FieldValidationRule(
             field_name="birth_date",
             required=False,
-            date_validation=DateValidation(
-                min_date="1900-01-01",
-                max_date="2100-12-31"
-            )
-        )
+            date_validation=DateValidation(min_date="1900-01-01", max_date="2100-12-31"),
+        ),
     ]
 
     config = ValidationConfig(
         field_validations=validation_rules,
-        bad_rows_config=BadRowsConfig(enabled=True, include_validation_errors=True)
+        bad_rows_config=BadRowsConfig(enabled=True, include_validation_errors=True),
     )
 
     processor = DataValidationProcessor(config)
@@ -254,15 +274,23 @@ def demo_comprehensive_validation():
     test_data = {
         "employee_id": [1, 2, None, 4, 1],  # Missing required, duplicate
         "name": ["John Doe", "", "Bob Wilson", "Alice Johnson", "Charlie Brown"],  # Empty required
-        "email": ["john@company.com", "invalid-email", "bob@company.com", "alice@company.com", "john@company.com"],  # Invalid format, duplicate
+        "email": [
+            "john@company.com",
+            "invalid-email",
+            "bob@company.com",
+            "alice@company.com",
+            "john@company.com",
+        ],  # Invalid format, duplicate
         "age": [25, 200, 35, -5, 42],  # Out of range
         "salary": [50000, 75000, -10000, 60000, 15000000],  # Out of range
         "department": ["IT", "HR", "INVALID", "Finance", "IT"],  # Invalid enum value
-        "status": ["active", "active", "inactive", "active", "pending"]  # Some valid enum
+        "status": ["active", "active", "inactive", "active", "pending"],  # Some valid enum
     }
 
     arrays = [pa.array(values) for values in test_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     print(f"Original data: {len(batch)} rows")
@@ -277,48 +305,46 @@ def demo_comprehensive_validation():
             field_name="employee_id",
             required=True,
             unique=True,
-            range_validation=RangeValidation(min_value=1, max_value=999999)
+            range_validation=RangeValidation(min_value=1, max_value=999999),
         ),
         FieldValidationRule(
             field_name="name",
             required=True,
-            string_validation=StringValidation(min_length=1, allow_empty=False)
+            string_validation=StringValidation(min_length=1, allow_empty=False),
         ),
         FieldValidationRule(
             field_name="email",
             required=True,
             unique=True,
             string_validation=StringValidation(
-                pattern=r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$",
-                max_length=254
-            )
+                pattern=r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", max_length=254
+            ),
         ),
         FieldValidationRule(
             field_name="age",
             required=False,
-            range_validation=RangeValidation(min_value=0, max_value=150)
+            range_validation=RangeValidation(min_value=0, max_value=150),
         ),
         FieldValidationRule(
             field_name="salary",
             required=False,
-            range_validation=RangeValidation(min_value=0, max_value=10000000)
+            range_validation=RangeValidation(min_value=0, max_value=10000000),
         ),
         FieldValidationRule(
             field_name="department",
             required=True,
             enum_validation=EnumValidation(
                 allowed_values=["IT", "HR", "Finance", "Marketing", "Operations"],
-                case_sensitive=True
-            )
+                case_sensitive=True,
+            ),
         ),
         FieldValidationRule(
             field_name="status",
             required=True,
             enum_validation=EnumValidation(
-                allowed_values=["active", "inactive", "pending"],
-                case_sensitive=True
-            )
-        )
+                allowed_values=["active", "inactive", "pending"], case_sensitive=True
+            ),
+        ),
     ]
 
     config = ValidationConfig(
@@ -326,9 +352,9 @@ def demo_comprehensive_validation():
         bad_rows_config=BadRowsConfig(
             enabled=True,
             include_validation_errors=True,
-            max_bad_rows_percent=80.0  # Allow high percentage for demo
+            max_bad_rows_percent=80.0,  # Allow high percentage for demo
         ),
-        uniqueness_strategy="first_wins"
+        uniqueness_strategy="first_wins",
     )
 
     processor = DataValidationProcessor(config)
@@ -356,7 +382,9 @@ def demo_comprehensive_validation():
     print("\nBad rows with detailed errors:")
     for i, bad_row in enumerate(processor.bad_rows):
         print(f"  Bad Row {i+1}:")
-        print(f"    Data: {{{', '.join(f'{k}: {v}' for k, v in bad_row.items() if not k.startswith('_'))}}}")
+        print(
+            f"    Data: {{{', '.join(f'{k}: {v}' for k, v in bad_row.items() if not k.startswith('_'))}}}"
+        )
         print(f"    Errors: {bad_row.get('_validation_errors', 'No errors recorded')}")
         print(f"    Error Count: {bad_row.get('_error_count', 0)}")
 
@@ -375,9 +403,15 @@ def demo_schema_driven_validation():
         validation_config = get_validation_config_from_schema_file(schema_path)
         if validation_config:
             print("✅ Loaded validation configuration from schema:")
-            print(f"  Bad rows handling enabled: {validation_config.get('badRowsHandling', {}).get('enabled', False)}")
-            print(f"  Field validations defined: {len(validation_config.get('fieldValidations', {}))}")
-            print(f"  Uniqueness strategy: {validation_config.get('uniquenessHandling', {}).get('strategy', 'not specified')}")
+            print(
+                f"  Bad rows handling enabled: {validation_config.get('badRowsHandling', {}).get('enabled', False)}"
+            )
+            print(
+                f"  Field validations defined: {len(validation_config.get('fieldValidations', {}))}"
+            )
+            print(
+                f"  Uniqueness strategy: {validation_config.get('uniquenessHandling', {}).get('strategy', 'not specified')}"
+            )
 
             # Create processor from schema
             processor = create_validation_processor_from_schema(validation_config)
@@ -391,12 +425,19 @@ def demo_schema_driven_validation():
                     "name": ["John Doe", "", "Bob Wilson", "Alice Johnson"],  # Empty name
                     "age": [25, 200, 35, 28],  # Age out of range
                     "salary": [50000, 75000, -10000, 60000],  # Negative salary
-                    "email": ["john@company.com", "invalid", "bob@company.com", "alice@company.com"],  # Invalid email format
-                    "category": ["A", "B", "INVALID", "C"]  # Invalid enum
+                    "email": [
+                        "john@company.com",
+                        "invalid",
+                        "bob@company.com",
+                        "alice@company.com",
+                    ],  # Invalid email format
+                    "category": ["A", "B", "INVALID", "C"],  # Invalid enum
                 }
 
                 arrays = [pa.array(values) for values in test_data.values()]
-                schema = pa.schema([pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)])
+                schema = pa.schema(
+                    [pa.field(name, array.type) for name, array in zip(test_data.keys(), arrays)]
+                )
                 batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
                 clean_batch, validation_results = processor.process_batch(batch)
@@ -450,6 +491,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Demo failed: {e}")
         import traceback
+
         traceback.print_exc()
 
 

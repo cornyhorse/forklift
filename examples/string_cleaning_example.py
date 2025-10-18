@@ -18,6 +18,7 @@ import pyarrow as pa
 from src.forklift.utils.transformations import DataTransformer, StringCleaningConfig
 from src.forklift.processors.transformations import SchemaBasedTransformer
 
+
 def main():
     print("🧹 Comprehensive String Cleaning Features")
     print("=" * 60)
@@ -33,16 +34,16 @@ def main():
         normalize_dashes=True,
         normalize_spaces=True,
         collapse_whitespace=False,
-        strip_whitespace=False
+        strip_whitespace=False,
     )
 
     # Using Unicode escape sequences to avoid encoding issues
     test_data = [
-        "\u201CHello\u201D",  # Smart double quotes
+        "\u201cHello\u201d",  # Smart double quotes
         "\u2018It\u2019s working\u2019",  # Smart single quotes
-        "Hello\u2014world",   # Em dash
-        "Hello\u2013world",   # En dash
-        "Hello\u00A0world",   # Non-breaking space
+        "Hello\u2014world",  # Em dash
+        "Hello\u2013world",  # En dash
+        "Hello\u00a0world",  # Non-breaking space
     ]
     column = pa.array(test_data)
     result = transformer.apply_string_cleaning(column, config_quotes)
@@ -63,14 +64,14 @@ def main():
         collapse_whitespace=True,
         strip_whitespace=True,
         remove_tabs=False,
-        tab_replacement="    "  # Convert tabs to 4 spaces
+        tab_replacement="    ",  # Convert tabs to 4 spaces
     )
 
     test_data = [
-        "  Hello    world  ",     # Multiple spaces with leading/trailing
-        "Hello\t\tworld",         # Tabs
-        "Hello\n\n\nworld",       # Multiple newlines
-        "   Too   many   spaces   "
+        "  Hello    world  ",  # Multiple spaces with leading/trailing
+        "Hello\t\tworld",  # Tabs
+        "Hello\n\n\nworld",  # Multiple newlines
+        "   Too   many   spaces   ",
     ]
     column = pa.array(test_data)
     result = transformer.apply_string_cleaning(column, config_whitespace)
@@ -91,15 +92,15 @@ def main():
         remove_zero_width=True,
         remove_control_chars=True,
         preserve_newlines=True,
-        preserve_tabs=False
+        preserve_tabs=False,
     )
 
     test_data = [
-        "Hello\u200Bworld",       # Zero-width space
-        "Hello\u200Cworld",       # Zero-width non-joiner
-        "\uFEFFHello world",      # BOM at start
-        "Hello\x01\x02world",     # Control characters
-        "Hello\nworld",           # Newline (should be preserved)
+        "Hello\u200bworld",  # Zero-width space
+        "Hello\u200cworld",  # Zero-width non-joiner
+        "\ufeffHello world",  # BOM at start
+        "Hello\x01\x02world",  # Control characters
+        "Hello\nworld",  # Newline (should be preserved)
     ]
     column = pa.array(test_data)
     result = transformer.apply_string_cleaning(column, config_invisible)
@@ -117,18 +118,10 @@ def main():
     print("-" * 50)
 
     config_unicode = StringCleaningConfig(
-        unicode_normalize="NFKC",
-        remove_accents=True,
-        ascii_only=False
+        unicode_normalize="NFKC", remove_accents=True, ascii_only=False
     )
 
-    test_data = [
-        "café",                   # Accented characters
-        "naïve",
-        "résumé",
-        "piñata",
-        "Zürich"
-    ]
+    test_data = ["café", "naïve", "résumé", "piñata", "Zürich"]  # Accented characters
     column = pa.array(test_data)
     result = transformer.apply_string_cleaning(column, config_unicode)
 
@@ -145,16 +138,14 @@ def main():
     print("-" * 50)
 
     config_case = StringCleaningConfig(
-        fix_case_issues=True,
-        collapse_whitespace=True,
-        strip_whitespace=True
+        fix_case_issues=True, collapse_whitespace=True, strip_whitespace=True
     )
 
     test_data = [
         "HELLO WORLD",
         "THE QUICK BROWN FOX",
         "NASA AND THE FBI",
-        "WELCOME TO THE UNITED STATES OF AMERICA"
+        "WELCOME TO THE UNITED STATES OF AMERICA",
     ]
     column = pa.array(test_data)
     result = transformer.apply_string_cleaning(column, config_case)
@@ -171,16 +162,13 @@ def main():
     print("\n6️⃣ ASCII-ONLY CONVERSION")
     print("-" * 50)
 
-    config_ascii = StringCleaningConfig(
-        ascii_only=True,
-        strip_whitespace=True
-    )
+    config_ascii = StringCleaningConfig(ascii_only=True, strip_whitespace=True)
 
     test_data = [
         "café",
         "Hello 世界",  # Chinese characters
-        "Москва",      # Cyrillic
-        "Mix of ASCII and 中文"
+        "Москва",  # Cyrillic
+        "Mix of ASCII and 中文",
     ]
     column = pa.array(test_data)
     result = transformer.apply_string_cleaning(column, config_ascii)
@@ -207,13 +195,11 @@ def main():
         remove_control_chars=True,
         preserve_newlines=True,
         unicode_normalize="NFKC",
-        fix_encoding_errors=True
+        fix_encoding_errors=True,
     )
 
     # Messy text with multiple issues
-    messy_text = (
-        "  \u201CHello\u201D   \u2013   this\u200Bis\u00A0messy   "
-    )
+    messy_text = "  \u201cHello\u201d   \u2013   this\u200bis\u00a0messy   "
     test_data = [messy_text]
     column = pa.array(test_data)
     result = transformer.apply_string_cleaning(column, config_comprehensive)
@@ -237,7 +223,7 @@ def main():
                         "collapse_whitespace": True,
                         "strip_whitespace": True,
                         "fix_case_issues": True,
-                        "remove_zero_width": True
+                        "remove_zero_width": True,
                     }
                 },
                 "description": {
@@ -247,28 +233,24 @@ def main():
                         "collapse_whitespace": True,
                         "strip_whitespace": True,
                         "remove_control_chars": True,
-                        "preserve_newlines": True
+                        "preserve_newlines": True,
                     }
-                }
+                },
             }
         }
     }
 
     # Create test data
-    pa_schema = pa.schema([
-        pa.field("customer_name", pa.string()),
-        pa.field("description", pa.string())
-    ])
+    pa_schema = pa.schema(
+        [pa.field("customer_name", pa.string()), pa.field("description", pa.string())]
+    )
 
     data = {
-        "customer_name": [
-            "  \u201CJOHN   SMITH\u201D  ",
-            "MARY\u2014JANE  WATSON"
-        ],
+        "customer_name": ["  \u201cJOHN   SMITH\u201d  ", "MARY\u2014JANE  WATSON"],
         "description": [
-            "\u201CHigh quality\u201D product\x01\x02",
-            "Great\u00A0service\n\nHighly recommend"
-        ]
+            "\u201cHigh quality\u201d product\x01\x02",
+            "Great\u00a0service\n\nHighly recommend",
+        ],
     }
     batch = pa.record_batch(data, pa_schema)
 
@@ -278,10 +260,10 @@ def main():
 
     print("Schema configuration applied:")
     print("customer_name column:")
-    for i, name in enumerate(result_batch.column('customer_name').to_pylist()):
+    for i, name in enumerate(result_batch.column("customer_name").to_pylist()):
         print(f"  {i+1}. {repr(name)}")
     print("description column:")
-    for i, desc in enumerate(result_batch.column('description').to_pylist()):
+    for i, desc in enumerate(result_batch.column("description").to_pylist()):
         print(f"  {i+1}. {repr(desc)}")
     print(f"Validation results: {len(validation_results)} errors")
     print("✓ Schema-based transformations work seamlessly")
@@ -300,6 +282,7 @@ def main():
     print("• 🔤 ASCII-only: Remove non-ASCII characters")
     print("• 🛠️ Encoding Fixes: Fix mojibake errors")
     print("• ⚙️ Schema Integration: Declarative configuration")
+
 
 if __name__ == "__main__":
     main()

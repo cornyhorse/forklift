@@ -9,12 +9,9 @@ from src.forklift.processors.calculated_columns import (
     CalculatedColumnsConfig,
     ConstantColumn,
     ExpressionColumn,
-    CalculatedColumn
+    CalculatedColumn,
 )
-from src.forklift.processors.column_mapper import (
-    ColumnMapper,
-    ColumnMappingConfig
-)
+from src.forklift.processors.column_mapper import ColumnMapper, ColumnMappingConfig
 from src.forklift.schema.csv_schema_importer import CsvSchemaImporter
 
 
@@ -37,23 +34,32 @@ def demo_comprehensive_data_processing():
         "EmpID": [1, 2, 3, 4],
         "FirstName": ["  JOHN  ", "jane", "BOB", "alice"],
         "LastName": ["DOE", "smith", "WILSON", "johnson"],
-        "Email": ["JOHN.DOE@COMPANY.COM", "Jane@Company.com", "bob@COMPANY.COM", "alice@company.com"],
+        "Email": [
+            "JOHN.DOE@COMPANY.COM",
+            "Jane@Company.com",
+            "bob@COMPANY.COM",
+            "alice@company.com",
+        ],
         "Salary": ["$55,000.00", "75000", "$100,000", "45000.50"],
         "HireDate": ["2020-01-15", "01/15/2021", "2022-03-20", "2019-12-01"],
         "PhoneNumber": ["(555) 123-4567", "555.234.5678", "555-345-6789", "5554567890"],
         "Department": ["engineering", "SALES", "Marketing", "HR"],
-        "Status": ["active", "ACTIVE", "inactive", "Active"]
+        "Status": ["active", "ACTIVE", "inactive", "Active"],
     }
 
     arrays = [pa.array(values) for values in messy_data.values()]
-    schema = pa.schema([pa.field(name, array.type) for name, array in zip(messy_data.keys(), arrays)])
+    schema = pa.schema(
+        [pa.field(name, array.type) for name, array in zip(messy_data.keys(), arrays)]
+    )
     batch = pa.RecordBatch.from_arrays(arrays, schema=schema)
 
     print(f"\n📥 Original messy data ({len(batch)} rows, {len(batch.schema.names)} columns):")
     print(f"Columns: {batch.schema.names}")
     print("\nSample values:")
     for i in range(min(2, len(batch))):
-        print(f"  Row {i+1}: {dict(zip(batch.schema.names, [batch.column(j)[i].as_py() for j in range(len(batch.schema.names))]))}")
+        print(
+            f"  Row {i+1}: {dict(zip(batch.schema.names, [batch.column(j)[i].as_py() for j in range(len(batch.schema.names))]))}"
+        )
 
     # Step 1: Column Mapping and Standardization
     print("\n🗂️  STEP 1: Column Mapping & Name Standardization")
@@ -69,10 +75,10 @@ def demo_comprehensive_data_processing():
             "HireDate": "hire_date",
             "PhoneNumber": "phone_number",
             "Department": "department_name",
-            "Status": "employment_status"
+            "Status": "employment_status",
         },
         naming_convention="snake_case",
-        case_sensitive=False
+        case_sensitive=False,
     )
 
     column_mapper = ColumnMapper(column_mapping_config)
@@ -89,31 +95,31 @@ def demo_comprehensive_data_processing():
         constants=[
             ConstantColumn(name="data_source", value="hr_system", data_type=pa.string()),
             ConstantColumn(name="load_date", value="2024-09-03", data_type=pa.string()),
-            ConstantColumn(name="processing_version", value="v2.1", data_type=pa.string())
+            ConstantColumn(name="processing_version", value="v2.1", data_type=pa.string()),
         ],
         expressions=[
             ExpressionColumn(
                 name="full_name",
                 expression="first_name + ' ' + last_name",
                 dependencies=["first_name", "last_name"],
-                description="Full employee name"
+                description="Full employee name",
             ),
             ExpressionColumn(
                 name="status_category",
                 expression="CASE WHEN employment_status = 'active' THEN 'current' ELSE 'former' END",
                 dependencies=["employment_status"],
-                description="Employment category"
-            )
+                description="Employment category",
+            ),
         ],
         calculated=[
             CalculatedColumn(
                 name="name_length",
                 function="string_length",
                 dependencies=["full_name"],
-                description="Length of full name"
+                description="Length of full name",
             )
         ],
-        partition_columns=["data_source", "department_name", "load_date"]
+        partition_columns=["data_source", "department_name", "load_date"],
     )
 
     calc_processor = CalculatedColumnsProcessor(calc_config)
@@ -149,7 +155,7 @@ def demo_schema_standard_features():
     # Load updated schema to show new features
     schema_path = "/Users/matt/PycharmProjects/forklift/schema-standards/20250826-csv.json"
 
-    with open(schema_path, 'r') as f:
+    with open(schema_path, "r") as f:
         schema_data = json.load(f)
 
     print("✅ All schema standards now include comprehensive processor features:")
@@ -159,11 +165,15 @@ def demo_schema_standard_features():
         transformations = schema_data["x-transformations"]
         print(f"\n🔧 Data Transformations (x-transformations):")
         print(f"  • String cleaning: {list(transformations.get('stringCleaning', {}).keys())}")
-        print(f"  • Case transformation: {list(transformations.get('caseTransformation', {}).keys())}")
+        print(
+            f"  • Case transformation: {list(transformations.get('caseTransformation', {}).keys())}"
+        )
         print(f"  • Numeric cleaning: {list(transformations.get('numericCleaning', {}).keys())}")
         print(f"  • Money type processing: {list(transformations.get('moneyType', {}).keys())}")
         print(f"  • DateTime parsing: {list(transformations.get('dateTimeParsing', {}).keys())}")
-        print(f"  • Column-specific rules: {list(transformations.get('columnSpecific', {}).keys())}")
+        print(
+            f"  • Column-specific rules: {list(transformations.get('columnSpecific', {}).keys())}"
+        )
 
     # Show column mapping features
     if "x-columnMapping" in schema_data:
@@ -171,7 +181,9 @@ def demo_schema_standard_features():
         print(f"\n🗂️  Column Mapping (x-columnMapping):")
         print(f"  • Explicit mappings: {len(column_mapping.get('explicitMappings', {}))}")
         print(f"  • Naming convention: {column_mapping.get('namingConvention')}")
-        print(f"  • Standardization rules: {list(column_mapping.get('standardizationRules', {}).keys())}")
+        print(
+            f"  • Standardization rules: {list(column_mapping.get('standardizationRules', {}).keys())}"
+        )
 
     # Show data quality features
     if "x-dataQuality" in schema_data:
@@ -197,7 +209,7 @@ def demo_schema_standard_features():
         "20250826-csv.json",
         "20250826-excel.json",
         "20250826-fwf.json",
-        "20250826-sql.json"
+        "20250826-sql.json",
     ]
 
     for schema_file in schema_files:
@@ -216,14 +228,14 @@ def demo_format_specific_features():
                 "Smart quote conversion",
                 "Whitespace collapsing",
                 "Case transformation (title/upper/lower)",
-                "Custom case mappings"
+                "Custom case mappings",
             ],
             "parsing": [
                 "Multi-format date parsing",
                 "Currency symbol cleaning",
                 "Numeric standardization",
-                "Regex-based replacements"
-            ]
+                "Regex-based replacements",
+            ],
         },
         "Excel": {
             "transformations": [
@@ -231,14 +243,14 @@ def demo_format_specific_features():
                 "Formula to value conversion",
                 "Merged cell handling",
                 "Excel serial date conversion",
-                "Cell formatting removal"
+                "Cell formatting removal",
             ],
             "parsing": [
                 "Excel-aware date parsing",
                 "Accounting format handling",
                 "Text number conversion",
-                "Leading zero preservation"
-            ]
+                "Leading zero preservation",
+            ],
         },
         "Fixed-Width": {
             "transformations": [
@@ -246,15 +258,15 @@ def demo_format_specific_features():
                 "Padding character handling",
                 "Field alignment validation",
                 "Fixed-format date parsing",
-                "Implied decimal support"
+                "Implied decimal support",
             ],
             "parsing": [
                 "Position-aware processing",
                 "Century windowing",
                 "Julian date support",
                 "Signed number formats",
-                "Record length validation"
-            ]
+                "Record length validation",
+            ],
         },
         "SQL": {
             "transformations": [
@@ -262,16 +274,16 @@ def demo_format_specific_features():
                 "VARCHAR padding trimming",
                 "Constraint validation",
                 "Referential integrity",
-                "SQL keyword avoidance"
+                "SQL keyword avoidance",
             ],
             "parsing": [
                 "SQL data type awareness",
                 "Timezone preservation",
                 "Precision/scale handling",
                 "Foreign key validation",
-                "Money type support"
-            ]
-        }
+                "Money type support",
+            ],
+        },
     }
 
     for format_name, features in format_features.items():
@@ -325,6 +337,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Demo failed: {e}")
         import traceback
+
         traceback.print_exc()
 
 

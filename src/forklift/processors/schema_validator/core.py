@@ -221,7 +221,9 @@ class SchemaValidator(BaseProcessor):
                             results.append(
                                 ValidationResult(
                                     is_valid=False,
-                                    error_message=f"Column '{col_name}' type mismatch: expected {expected_schema.data_type}, got {actual_type}, coercion not possible",
+                                    error_message=f"Column '{col_name}' type mismatch: "
+                                    f"expected {expected_schema.data_type}, "
+                                    f"got {actual_type}, coercion not possible",
                                     error_code="TYPE_MISMATCH_NO_COERCION",
                                     column_name=col_name,
                                 )
@@ -342,7 +344,8 @@ class SchemaValidator(BaseProcessor):
             results.append(
                 ValidationResult(
                     is_valid=False,
-                    error_message=f"Batch has {batch.num_rows} rows, below minimum {self.config.min_row_count}",
+                    error_message=f"Batch has {batch.num_rows} rows, "
+                    f"below minimum {self.config.min_row_count}",
                     error_code="MIN_ROW_COUNT_VIOLATION",
                 )
             )

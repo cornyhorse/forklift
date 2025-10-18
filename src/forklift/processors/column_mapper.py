@@ -17,7 +17,8 @@ class ColumnMappingConfig:
 
     Attributes:
         explicit_mappings: Direct column name mappings (source -> target)
-        naming_convention: Apply standard naming convention ('snake_case', 'camelCase', 'PascalCase', 'lowercase', 'UPPERCASE')
+        naming_convention: Apply standard naming convention
+               ('snake_case', 'camelCase', 'PascalCase', 'lowercase', 'UPPERCASE')
         custom_transform: Custom function to transform column names
         case_sensitive: Whether mappings are case sensitive
         allow_unmapped: Whether to keep columns that don't have explicit mappings
@@ -38,7 +39,8 @@ class ColumnMappingConfig:
         valid_conventions = {"snake_case", "camelCase", "PascalCase", "lowercase", "UPPERCASE"}
         if self.naming_convention and self.naming_convention not in valid_conventions:
             raise ValueError(
-                f"naming_convention must be one of {valid_conventions}, got: {self.naming_convention}"
+                f"naming_convention must be one of {valid_conventions}"
+                f", got: {self.naming_convention}"
             )
 
 

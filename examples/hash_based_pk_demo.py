@@ -3,6 +3,7 @@
 import hashlib
 from typing import Set, List, Any
 
+
 class HashBasedPrimaryKeyTracker:
     """Alternative implementation using hashing for composite primary keys.
 
@@ -28,7 +29,7 @@ class HashBasedPrimaryKeyTracker:
         key_string = "||".join(str(v) if v is not None else "NULL" for v in values)
 
         # Create SHA-256 hash
-        return hashlib.sha256(key_string.encode('utf-8')).hexdigest()
+        return hashlib.sha256(key_string.encode("utf-8")).hexdigest()
 
     def is_duplicate(self, values: List[Any], store_original: bool = False) -> bool:
         """Check if composite key is duplicate and optionally store original values.
@@ -76,9 +77,24 @@ def demonstrate_approaches():
 
     # Sample composite keys with long strings (realistic scenario)
     sample_keys = [
-        (12345, "john.smith@verylongcompanyname.com", "2024-01-01T10:30:00Z", "Department of Advanced Engineering Solutions"),
-        (12346, "jane.doe@anotherlongcompanyname.org", "2024-01-01T10:31:00Z", "Department of Advanced Engineering Solutions"),
-        (12347, "bob.wilson@yetanotherlongcompany.net", "2024-01-01T10:32:00Z", "Department of Advanced Engineering Solutions"),
+        (
+            12345,
+            "john.smith@verylongcompanyname.com",
+            "2024-01-01T10:30:00Z",
+            "Department of Advanced Engineering Solutions",
+        ),
+        (
+            12346,
+            "jane.doe@anotherlongcompanyname.org",
+            "2024-01-01T10:31:00Z",
+            "Department of Advanced Engineering Solutions",
+        ),
+        (
+            12347,
+            "bob.wilson@yetanotherlongcompany.net",
+            "2024-01-01T10:32:00Z",
+            "Department of Advanced Engineering Solutions",
+        ),
     ]
 
     # Add to tuple tracker

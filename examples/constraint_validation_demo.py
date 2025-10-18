@@ -12,14 +12,14 @@ import json
 from pathlib import Path
 
 # Add src to path for imports
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 import pyarrow as pa
 from forklift.processors.constraint_validator import (
     ConstraintValidator,
     ConstraintConfig,
     ConstraintErrorMode,
-    create_constraint_config_from_schema
+    create_constraint_config_from_schema,
 )
 from forklift.processors.bad_rows_handler import BadRowsHandler, BadRowsConfig
 from forklift.processors.enhanced_processor import EnhancedDataProcessor
@@ -33,27 +33,38 @@ def test_primary_key_constraint_validation():
 
     # Configure constraint validation
     config = ConstraintConfig(
-        primary_key_columns=['id'],
+        primary_key_columns=["id"],
         enforce_uniqueness=True,
         allow_nulls_in_pk=False,
-        error_mode=ConstraintErrorMode.BAD_ROWS
+        error_mode=ConstraintErrorMode.BAD_ROWS,
     )
 
     validator = ConstraintValidator(config)
 
     # Create test data with primary key issues
-    schema = pa.schema([
-        pa.field('id', pa.int64(), nullable=True),
-        pa.field('name', pa.string()),
-        pa.field('email', pa.string())
-    ])
+    schema = pa.schema(
+        [
+            pa.field("id", pa.int64(), nullable=True),
+            pa.field("name", pa.string()),
+            pa.field("email", pa.string()),
+        ]
+    )
 
     # Test data with duplicate ids and null id
-    batch = pa.record_batch([
-        [1, 2, 1, None, 4],  # Duplicate id=1, null id
-        ['Alice', 'Bob', 'Charlie', 'David', 'Eve'],
-        ['alice@test.com', 'bob@test.com', 'charlie@test.com', 'david@test.com', 'eve@test.com']
-    ], schema=schema)
+    batch = pa.record_batch(
+        [
+            [1, 2, 1, None, 4],  # Duplicate id=1, null id
+            ["Alice", "Bob", "Charlie", "David", "Eve"],
+            [
+                "alice@test.com",
+                "bob@test.com",
+                "charlie@test.com",
+                "david@test.com",
+                "eve@test.com",
+            ],
+        ],
+        schema=schema,
+    )
 
     print(f"Original batch: {batch.num_rows} rows")
 
@@ -80,24 +91,24 @@ def test_unique_constraints():
     print("=" * 60)
 
     config = ConstraintConfig(
-        unique_constraints=[['name', 'email']],
-        error_mode=ConstraintErrorMode.BAD_ROWS
+        unique_constraints=[["name", "email"]], error_mode=ConstraintErrorMode.BAD_ROWS
     )
 
     validator = ConstraintValidator(config)
 
-    schema = pa.schema([
-        pa.field('id', pa.int64()),
-        pa.field('name', pa.string()),
-        pa.field('email', pa.string())
-    ])
+    schema = pa.schema(
+        [pa.field("id", pa.int64()), pa.field("name", pa.string()), pa.field("email", pa.string())]
+    )
 
     # Test data with duplicate name+email combinations
-    batch = pa.record_batch([
-        [1, 2, 3, 4],
-        ['Alice', 'Bob', 'Alice', 'Charlie'],  # Alice appears twice
-        ['alice@test.com', 'bob@test.com', 'alice@test.com', 'charlie@test.com']  # Same email
-    ], schema=schema)
+    batch = pa.record_batch(
+        [
+            [1, 2, 3, 4],
+            ["Alice", "Bob", "Alice", "Charlie"],  # Alice appears twice
+            ["alice@test.com", "bob@test.com", "alice@test.com", "charlie@test.com"],  # Same email
+        ],
+        schema=schema,
+    )
 
     print(f"Original batch: {batch.num_rows} rows")
 
@@ -123,7 +134,7 @@ def test_bad_rows_handler():
             output_format="parquet",
             include_original_data=True,
             include_error_details=True,
-            create_summary=True
+            create_summary=True,
         )
 
         handler = BadRowsHandler(bad_rows_config)
@@ -140,9 +151,9 @@ def test_bad_rows_handler():
                     error_message="Age cannot be negative",
                     error_code="INVALID_AGE",
                     row_index=0,
-                    column_name="age"
+                    column_name="age",
                 )
-            ]
+            ],
         )
 
         handler.add_bad_row(
@@ -154,9 +165,9 @@ def test_bad_rows_handler():
                     error_message="ID cannot be null",
                     error_code="NULL_ID",
                     row_index=1,
-                    column_name="id"
+                    column_name="id",
                 )
-            ]
+            ],
         )
 
         print(f"Bad rows collected: {handler.get_bad_row_count()}")
@@ -173,7 +184,9 @@ def test_bad_rows_handler():
             if summary_path.exists():
                 with open(summary_path) as f:
                     summary = json.load(f)
-                print(f"Summary: {summary['bad_rows_count']} bad rows, {summary['bad_rows_percentage']:.1f}% of total")
+                print(
+                    f"Summary: {summary['bad_rows_count']} bad rows, {summary['bad_rows_percentage']:.1f}% of total"
+                )
 
 
 def test_schema_based_configuration():
@@ -187,20 +200,12 @@ def test_schema_based_configuration():
         "properties": {
             "id": {"type": "integer"},
             "name": {"type": "string"},
-            "email": {"type": "string", "nullable": False}
+            "email": {"type": "string", "nullable": False},
         },
         "required": ["id", "name"],
-        "x-primaryKey": {
-            "columns": ["id"],
-            "enforceUniqueness": True,
-            "allowNulls": False
-        },
-        "x-uniqueConstraints": [
-            {"columns": ["email"]}
-        ],
-        "x-constraintHandling": {
-            "errorMode": "bad_rows"
-        }
+        "x-primaryKey": {"columns": ["id"], "enforceUniqueness": True, "allowNulls": False},
+        "x-uniqueConstraints": [{"columns": ["email"]}],
+        "x-constraintHandling": {"errorMode": "bad_rows"},
     }
 
     config = create_constraint_config_from_schema(schema_dict)
@@ -223,48 +228,50 @@ def test_enhanced_processor_integration():
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Create Arrow schema
-        schema = pa.schema([
-            pa.field('id', pa.int64()),
-            pa.field('name', pa.string()),
-            pa.field('email', pa.string())
-        ])
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+                pa.field("email", pa.string()),
+            ]
+        )
 
         # Schema dictionary with constraints
         schema_dict = {
             "properties": {
                 "id": {"type": "integer"},
                 "name": {"type": "string"},
-                "email": {"type": "string"}
+                "email": {"type": "string"},
             },
             "required": ["id", "name"],
-            "x-primaryKey": {
-                "columns": ["id"],
-                "enforceUniqueness": True,
-                "allowNulls": False
-            },
-            "x-constraintHandling": {
-                "errorMode": "bad_rows"
-            }
+            "x-primaryKey": {"columns": ["id"], "enforceUniqueness": True, "allowNulls": False},
+            "x-constraintHandling": {"errorMode": "bad_rows"},
         }
 
         # Configure bad rows
         bad_rows_config = BadRowsConfig(
-            output_path=Path(tmp_dir) / "enhanced_bad_rows.parquet",
-            create_summary=True
+            output_path=Path(tmp_dir) / "enhanced_bad_rows.parquet", create_summary=True
         )
 
         processor = EnhancedDataProcessor(
-            schema=schema,
-            schema_dict=schema_dict,
-            bad_rows_config=bad_rows_config
+            schema=schema, schema_dict=schema_dict, bad_rows_config=bad_rows_config
         )
 
         # Test data with various issues
-        batch = pa.record_batch([
-            [1, 2, 1, None, 4],  # Duplicate id=1, null id
-            ["Alice", "Bob", "Charlie", "David", "Eve"],
-            ["alice@test.com", "bob@test.com", "charlie@test.com", "david@test.com", "eve@test.com"]
-        ], schema=schema)
+        batch = pa.record_batch(
+            [
+                [1, 2, 1, None, 4],  # Duplicate id=1, null id
+                ["Alice", "Bob", "Charlie", "David", "Eve"],
+                [
+                    "alice@test.com",
+                    "bob@test.com",
+                    "charlie@test.com",
+                    "david@test.com",
+                    "eve@test.com",
+                ],
+            ],
+            schema=schema,
+        )
 
         print(f"Processing batch with {batch.num_rows} rows...")
 
@@ -278,13 +285,13 @@ def test_enhanced_processor_integration():
         results = processor.finalize()
 
         print(f"Has bad rows: {results['has_bad_rows']}")
-        if results.get('bad_rows_file'):
+        if results.get("bad_rows_file"):
             print(f"Bad rows file: {results['bad_rows_file']}")
 
         # Show constraint violations summary
         summary = processor.get_constraint_violations_summary()
         print(f"Total constraint violations: {summary['total_violations']}")
-        for vtype, count in summary['violation_types'].items():
+        for vtype, count in summary["violation_types"].items():
             print(f"  {vtype}: {count}")
 
 
@@ -294,22 +301,15 @@ def demonstrate_error_modes():
     print("Testing Different Error Handling Modes")
     print("=" * 60)
 
-    schema = pa.schema([
-        pa.field('id', pa.int64()),
-        pa.field('name', pa.string())
-    ])
+    schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
 
-    batch = pa.record_batch([
-        [1, 1, 2],  # Duplicate id=1
-        ["Alice", "Bob", "Charlie"]
-    ], schema=schema)
+    batch = pa.record_batch(
+        [[1, 1, 2], ["Alice", "Bob", "Charlie"]], schema=schema  # Duplicate id=1
+    )
 
     # Test BAD_ROWS mode
     print("\n1. BAD_ROWS mode:")
-    config = ConstraintConfig(
-        primary_key_columns=['id'],
-        error_mode=ConstraintErrorMode.BAD_ROWS
-    )
+    config = ConstraintConfig(primary_key_columns=["id"], error_mode=ConstraintErrorMode.BAD_ROWS)
     validator = ConstraintValidator(config)
     valid_batch, _ = validator.process_batch(batch)
     print(f"   Continues processing: {valid_batch.num_rows} valid rows returned")
@@ -317,8 +317,7 @@ def demonstrate_error_modes():
     # Test FAIL_COMPLETE mode
     print("\n2. FAIL_COMPLETE mode:")
     config = ConstraintConfig(
-        primary_key_columns=['id'],
-        error_mode=ConstraintErrorMode.FAIL_COMPLETE
+        primary_key_columns=["id"], error_mode=ConstraintErrorMode.FAIL_COMPLETE
     )
     validator = ConstraintValidator(config)
     valid_batch, _ = validator.process_batch(batch)  # Should not fail yet
@@ -332,10 +331,7 @@ def demonstrate_error_modes():
 
     # Test FAIL_FAST mode
     print("\n3. FAIL_FAST mode:")
-    config = ConstraintConfig(
-        primary_key_columns=['id'],
-        error_mode=ConstraintErrorMode.FAIL_FAST
-    )
+    config = ConstraintConfig(primary_key_columns=["id"], error_mode=ConstraintErrorMode.FAIL_FAST)
     validator = ConstraintValidator(config)
 
     try:
@@ -364,4 +360,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nError during testing: {e}")
         import traceback
+
         traceback.print_exc()

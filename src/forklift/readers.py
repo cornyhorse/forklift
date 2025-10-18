@@ -43,7 +43,7 @@ class DataFrameReader:
         if temp_dir:
             _temp_dirs.add(temp_dir)
 
-    def as_polars(self, lazy: bool = False) -> "polars.DataFrame | polars.LazyFrame":
+    def as_polars(self, lazy: bool = False) -> "polars.DataFrame | polars.LazyFrame":  # noqa: F821
         """Return data as a Polars DataFrame or LazyFrame.
 
         Args:
@@ -53,8 +53,8 @@ class DataFrameReader:
             Polars DataFrame or LazyFrame
 
         Example:
-            >>> df = reader.as_polars()  # Eager DataFrame
-            >>> lf = reader.as_polars(lazy=True)  # Lazy evaluation
+            >>> df = reader.as_polars()  # noqa: F821
+            >>> lf = reader.as_polars(lazy=True)  # noqa: F821
         """
         try:
             import polars as pl
@@ -79,7 +79,7 @@ class DataFrameReader:
                 dfs = [pl.read_parquet(f) for f in self.parquet_files]
                 return pl.concat(dfs)
 
-    def as_pandas(self, **kwargs) -> "pandas.DataFrame":
+    def as_pandas(self, **kwargs) -> "pandas.DataFrame":  # noqa: F821
         """Return data as a Pandas DataFrame.
 
         Args:
@@ -102,7 +102,7 @@ class DataFrameReader:
             dfs = [pd.read_parquet(f, **kwargs) for f in self.parquet_files]
             return pd.concat(dfs, ignore_index=True)
 
-    def as_pyarrow(self) -> "pyarrow.Table":
+    def as_pyarrow(self) -> "pyarrow.Table":  # noqa: F821
         """Return data as a PyArrow Table.
 
         Returns:

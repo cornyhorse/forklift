@@ -1,4 +1,3 @@
-from unittest.mock import MagicMock, patch
 import os
 import sys
 from pathlib import Path
@@ -8,9 +7,9 @@ from dotenv import load_dotenv
 
 
 # Add the src directory to the Python path for imports
-_src_path = Path(__file__).parent.parent / "src"
-if str(_src_path) not in sys.path:
-    sys.path.insert(0, str(_src_path))
+src_path = Path(__file__).parent.parent / "src"
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
 
 
 def pytest_configure(config):
@@ -56,10 +55,10 @@ def pytest_collection_modifyitems(config, items):
         return
 
     # Skip integration tests by default
-    _skip_integration = pytest.mark.skip(reason="need --integration option to run")
+    skip_integration = pytest.mark.skip(reason="need --integration option to run")
     for item in items:
         if "integration" in item.keywords:
-            item.add_marker(_skip_integration)
+            item.add_marker(skip_integration)
 
         # Add slow marker to tests that might take longer
         if "integration" in item.nodeid or "slow" in item.name:

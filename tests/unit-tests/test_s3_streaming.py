@@ -24,6 +24,7 @@ from forklift.io.s3_streaming import (
 # Import mattstash for real AWS credentials
 try:
     import mattstash
+
     MATTSTASH_AVAILABLE = True
 except ImportError:
     MATTSTASH_AVAILABLE = False
@@ -45,7 +46,9 @@ def aws_credentials(request):
             region = mattstash.get("AWS_DEFAULT_REGION", show_password=True)
             bucket = mattstash.get("S3_TEST_BUCKET", show_password=True)
 
-            print(f"Raw mattstash responses - access_key type: {type(access_key)}, secret_key type: {type(secret_key)}")
+            print(
+                f"Raw mattstash responses - access_key type: {type(access_key)}, secret_key type: {type(secret_key)}"
+            )
             print(f"Raw region: {region}, bucket: {bucket}")
 
             # Extract raw values from mattstash response - handle different response formats
@@ -58,11 +61,11 @@ def aws_credentials(request):
 
                 if isinstance(response, dict):
                     # Try different possible keys that mattstash might use
-                    for key in ['value', 'data', 'secret', 'content']:
+                    for key in ["value", "data", "secret", "content"]:
                         if key in response:
                             val = response[key]
                             # Don't print sensitive values in logs
-                            if key_name in ['secret_key', 'access_key']:
+                            if key_name in ["secret_key", "access_key"]:
                                 print(f"Found {key_name} in '{key}': <redacted>")
                             else:
                                 print(f"Found {key_name} in '{key}': {val}")
@@ -79,12 +82,14 @@ def aws_credentials(request):
             region = extract_value(region, "region")
             bucket = extract_value(bucket, "bucket")
 
-            print(f"Extracted values - access_key: <redacted>, secret_key: <redacted>, region: {region}, bucket: {bucket}")
+            print(
+                f"Extracted values - access_key: <redacted>, secret_key: <redacted>, region: {region}, bucket: {bucket}"
+            )
 
             # Validate that we got actual credential values
-            if not access_key or access_key in ['*****', 'None', '', 'null']:
+            if not access_key or access_key in ["*****", "None", "", "null"]:
                 raise ValueError(f"Invalid or missing AWS_ACCESS_KEY_ID from mattstash")
-            if not secret_key or secret_key in ['*****', 'None', '', 'null']:
+            if not secret_key or secret_key in ["*****", "None", "", "null"]:
                 raise ValueError(f"Invalid or missing AWS_SECRET_ACCESS_KEY from mattstash")
 
             # Handle custom S3-compatible service endpoint
@@ -101,7 +106,7 @@ def aws_credentials(request):
                 print(f"Using bucket: {bucket} with forklift folder prefix")
 
             # Use default bucket if not provided
-            if not bucket or bucket in ['*****', 'None', '', 'null']:
+            if not bucket or bucket in ["*****", "None", "", "null"]:
                 bucket = "cornyhorse-data"
 
             credentials = {
@@ -112,7 +117,9 @@ def aws_credentials(request):
                 "endpoint_url": endpoint_url,
             }
 
-            print(f"Final credentials: access_key=<redacted>, region={region}, bucket={bucket}, endpoint={endpoint_url}")
+            print(
+                f"Final credentials: access_key=<redacted>, region={region}, bucket={bucket}, endpoint={endpoint_url}"
+            )
             return credentials
 
         except Exception as e:
@@ -370,13 +377,13 @@ class TestS3StreamingClient:
             # Create a test object with known content
             test_content = "This is test content for size checking."
             writer = client.open_for_write(s3_path)
-            writer.write(test_content.encode('utf-8'))
+            writer.write(test_content.encode("utf-8"))
             writer.close()
 
             try:
                 # Now get the size of the object we just created
                 result = client.get_size(s3_path)
-                assert result == len(test_content.encode('utf-8'))
+                assert result == len(test_content.encode("utf-8"))
             finally:
                 # Clean up - delete the test object
                 try:
@@ -405,7 +412,7 @@ class TestS3StreamingClient:
             # Create a test object with known text content
             test_content = "This is test content for text reading.\nLine 2 with unicode: éñçødîñg"
             writer = client.open_for_write(s3_path)
-            writer.write(test_content.encode('utf-8'))
+            writer.write(test_content.encode("utf-8"))
             writer.close()
 
             try:
@@ -438,7 +445,7 @@ class TestS3StreamingClient:
             s3_path = f"s3://{bucket}/forklift/test-read-binary-object"
 
             # Create a test object with known binary content
-            test_content = b"This is test binary content.\x00\x01\x02\x03\xFF"
+            test_content = b"This is test binary content.\x00\x01\x02\x03\xff"
             writer = client.open_for_write(s3_path)
             writer.write(test_content)
             writer.close()
@@ -525,4 +532,3 @@ class TestS3StreamingClient:
             # Just test that the method doesn't crash with max_keys parameter
             objects = list(client.list_objects(s3_prefix, max_keys=10))
             # No assertion on content since we don't know what's in the real bucket
-

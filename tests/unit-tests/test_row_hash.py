@@ -45,9 +45,7 @@ def test_different_algorithms():
     batch = pa.RecordBatch.from_pydict(data)
 
     algorithms = ["md5", "sha1", "sha256", "sha384", "sha512"]
-    expected_lengths = {
-        "md5": 32, "sha1": 40, "sha256": 64, "sha384": 96, "sha512": 128
-    }
+    expected_lengths = {"md5": 32, "sha1": 40, "sha256": 64, "sha384": 96, "sha512": 128}
 
     for algo in algorithms:
         config = RowHashConfig(enabled=True, column_name=f"{algo}_hash", algorithm=algo)

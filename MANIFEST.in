@@ -6,6 +6,7 @@ recursive-include src *.py
 recursive-include docs *.md
 recursive-include examples *.py
 recursive-include schema-standards *.json *.md
+recursive-include docker *
 prune tests
 prune htmlcov
 prune __pycache__
@@ -15,4 +16,3 @@ global-exclude *.pyo
 global-exclude *.pyd
 global-exclude __pycache__
 global-exclude .DS_Store
-

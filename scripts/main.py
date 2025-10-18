@@ -15,8 +15,8 @@ def display_parquet_head(file_path: str, num_rows: int = 5) -> None:
 
 def main() -> None:
     # Hardcoded absolute paths for demo purposes
-    schema_file = '/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.json'
-    csv_file = '/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt'
+    schema_file = '/tests/test-files/largecsv/parquet_types.json'
+    csv_file = '/tests/test-files/largecsv/parquet_types.txt'
     output_dir = '/Users/matt/PycharmProjects/forklift/output/largecsv'
 
     print("=== Forklift Large CSV Processing ===")

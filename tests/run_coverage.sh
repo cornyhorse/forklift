@@ -129,7 +129,7 @@ apply_black_formatting() {
         pip install black
     fi
 
-    echo -e "${YELLOW>Formatting code with Black...${NC}"
+    echo -e "${YELLOW}Formatting code with Black...${NC}"
 
     # Run Black to format the code
     if black src/ tests/ examples/; then

@@ -41,11 +41,11 @@ jobs:
 
     - name: Auto-format code with Black
       run: |
-        black src/ tests/
+        black --line-length 99 src/ tests/
 
     - name: Auto-sort imports with isort
       run: |
-        isort src/ tests/
+        isort --line-length 99 src/ tests/
 
     - name: Check for formatting changes and commit
       uses: stefanzweifel/git-auto-commit-action@v5
@@ -62,7 +62,7 @@ jobs:
 
     - name: Lint with flake8 (after formatting)
       run: |
-        flake8 src/ tests/ --max-line-length=88 --extend-ignore=E203,W503
+        flake8 src/ tests/ --max-line-length=99 --extend-ignore=E203,W503
 
     - name: Run full test suite with coverage
       run: |

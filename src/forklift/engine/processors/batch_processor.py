@@ -211,6 +211,13 @@ class BatchProcessor:
             if len(row) > expected_columns:
                 if self.config.excess_column_mode == ExcessColumnMode.REJECT:
                     continue  # Skip this row
+                elif self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH:
+                    # Keep all columns - extend column_names if needed
+                    if len(row) > len(column_names):
+                        # Generate default names for extra columns
+                        for i in range(len(column_names), len(row)):
+                            column_names.append(f"col_{i+1}")
+                    # Don't truncate the row, keep all data
                 else:  # TRUNCATE mode
                     row = row[:expected_columns]
             elif len(row) < expected_columns:
@@ -222,12 +229,16 @@ class BatchProcessor:
 
             # Yield batch when buffer is full
             if len(rows_buffer) >= batch_size:
-                yield self._convert_rows_to_batch(rows_buffer, expected_columns, column_names)
+                # Update expected_columns for PASSTHROUGH mode
+                actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+                yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
                 rows_buffer = []
 
         # Yield any remaining rows in buffer
         if rows_buffer:
-            yield self._convert_rows_to_batch(rows_buffer, expected_columns, column_names)
+            # Update expected_columns for PASSTHROUGH mode
+            actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+            yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
 
     def _handle_column_mismatch_reader(
         self, file_path: Path, skip_rows: int, column_names: List[str]
@@ -272,6 +283,13 @@ class BatchProcessor:
                         # Reject the entire row if it has excess columns
                         rejected_rows.append(row)
                         continue
+                    elif self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH:
+                        # Keep all columns - extend column_names if needed
+                        if len(row) > len(column_names):
+                            # Generate default names for extra columns
+                            for i in range(len(column_names), len(row)):
+                                column_names.append(f"col_{i+1}")
+                        # Don't truncate the row, keep all data
                     else:  # TRUNCATE mode (default)
                         # Remove excess columns and keep the row
                         row = row[:expected_columns]
@@ -283,12 +301,16 @@ class BatchProcessor:
 
                 # Yield batch when buffer is full
                 if len(rows_buffer) >= batch_size:
-                    yield self._convert_rows_to_batch(rows_buffer, expected_columns, column_names)
+                    # Update expected_columns for PASSTHROUGH mode
+                    actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+                    yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
                     rows_buffer = []
 
             # Yield any remaining rows in buffer
             if rows_buffer:
-                yield self._convert_rows_to_batch(rows_buffer, expected_columns, column_names)
+                # Update expected_columns for PASSTHROUGH mode
+                actual_columns = len(column_names) if self.config.excess_column_mode == ExcessColumnMode.PASSTHROUGH else expected_columns
+                yield self._convert_rows_to_batch(rows_buffer, actual_columns, column_names)
 
             # Note: rejected_rows could be logged or handled separately in future versions
 

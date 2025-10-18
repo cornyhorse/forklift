@@ -493,6 +493,35 @@ class TestBatchProcessor:
         finally:
             input_file.unlink(missing_ok=True)
 
+    def test_create_s3_csv_batches_excess_columns_passthrough(self, mock_config, mock_io_handler):
+        """Test S3 CSV batches with excess columns in passthrough mode."""
+        mock_config.excess_column_mode = ExcessColumnMode.PASSTHROUGH
+        processor = BatchProcessor(mock_config, mock_io_handler)
+
+        # Mock CSV reader with varying column counts
+        mock_io_handler.csv_reader.return_value = [
+            ['Name', 'Age', 'City'],  # Header
+            ['Alice', '25', 'New York'],  # Normal row
+            ['Bob', '30', 'Los Angeles', 'Extra1', 'Extra2']  # Row with excess columns
+        ]
+
+        with patch.object(processor, '_convert_rows_to_batch') as mock_convert:
+            mock_convert.return_value = Mock()
+
+            batches = list(processor._create_s3_csv_batches(
+                's3://bucket/file.csv', ['Name', 'Age', 'City'], 0, lambda x: False
+            ))
+
+            # Should process both rows, Bob's row should keep all columns
+            mock_convert.assert_called_once()
+            call_args = mock_convert.call_args[0]
+            assert len(call_args[0]) == 2  # Two data rows
+            assert call_args[0][0] == ['Alice', '25', 'New York']
+            assert call_args[0][1] == ['Bob', '30', 'Los Angeles', 'Extra1', 'Extra2']  # All columns preserved
+            # Check that column names were extended
+            assert len(call_args[2]) == 5  # Original 3 + 2 extra columns
+            assert call_args[2] == ['Name', 'Age', 'City', 'col_4', 'col_5']
+
     def test_create_filtered_file_no_footer(self, mock_config, mock_io_handler):
         """Test creating filtered file when no footer is detected."""
         processor = BatchProcessor(mock_config, mock_io_handler)

@@ -1,8 +1,10 @@
 import os
 import sys
 from pathlib import Path
+
 import pytest
 from dotenv import load_dotenv
+
 """Pytest configuration for forklift tests."""
 
 
@@ -103,6 +105,7 @@ def _load_credentials_from_env():
             "endpoint_url": os.getenv("AWS_ENDPOINT_URL"),
         }
 
+
 @pytest.fixture(scope="session")
 def s3_test_bucket(request):
     """Provide S3 test bucket name from command line or .env file."""
@@ -113,6 +116,7 @@ def s3_test_bucket(request):
     # Load from .env file or environment
     _load_credentials_from_env()  # This loads the .env file
     return os.getenv("S3_TEST_BUCKET", "cornyhorse-data")
+
 
 @pytest.fixture(scope="session")
 def aws_credentials():
@@ -149,6 +153,7 @@ def s3_mock_conditional(request, use_s3_mock):
     if use_s3_mock:
         # Use mocking
         from unittest.mock import MagicMock, patch
+
         with patch("boto3.Session") as mock_session:
             mock_client = MagicMock()
             mock_session.return_value.client.return_value = mock_client

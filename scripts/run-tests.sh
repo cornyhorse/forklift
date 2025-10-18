@@ -178,7 +178,7 @@ fi
 # Add specific module if requested
 if [[ -n "$SPECIFIC_MODULE" ]]; then
     echo -e "${YELLOW}Testing module: ${SPECIFIC_MODULE}${NC}"
-    PYTEST_CMD="$PYTEST_CMD tests/test_${SPECIFIC_MODULE}.py"
+
 fi
 
 # Add coverage omit for integration tests if not including them

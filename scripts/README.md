@@ -15,7 +15,7 @@ This directory contains shell scripts for common development tasks. All scripts 
 
 ## 🧪 `run-tests.sh` - Comprehensive Test Runner
 
-**Purpose**: Run tests with various configurations including unit tests, integration tests, performance tests, and coverage reporting. **Coverage with HTML report is now the default behavior.**
+**Purpose**: Run tests with various configurations including unit tests, integration tests, performance tests, and coverage reporting. **Coverage with HTML report is now the default behavior.** Includes comprehensive S3 testing support with both mocking and real S3 operations.
 
 ### Usage
 ```bash
@@ -26,6 +26,7 @@ This directory contains shell scripts for common development tasks. All scripts 
 - `--integration` - Include integration tests (requires database containers)
 - `--performance` - Include performance tests (normally excluded)
 - `--no-s3-mock` - Use real S3 instead of mocking (uses Hetzner backend - see S3 Requirements below)
+- `--s3-bucket BUCKET` - Specify custom S3 bucket for testing
 - `--no-coverage` - Skip coverage reporting (just run tests)
 - `--no-html` - Generate coverage report without HTML (terminal only)
 - `--module MODULE` - Test specific module only (e.g. date_parser)
@@ -33,24 +34,63 @@ This directory contains shell scripts for common development tasks. All scripts 
 - `--help` - Show help message
 
 ### S3 Testing Requirements
-The `--no-s3-mock` flag configures tests to use a real S3-compatible backend (currently Hetzner Cloud Object Storage):
+The Forklift test suite supports both mocked and real S3 testing as documented in `/docs/S3_TESTING.md`:
 
-- **Current Configuration**: Tests are configured to use the repository owner's Hetzner credentials
-- **For Repository Owner**: Tests will run against the configured Hetzner bucket
-- **For Other Developers**: This flag is currently only executable by the repository owner
-- **Custom S3 Setup**: To use your own S3 bucket, configure the appropriate S3 credentials and bucket location in your environment
+#### **Mocked S3 Testing (Default)**
+- **Behavior**: Uses `unittest.mock` to simulate S3 operations
+- **Pros**: Fast, no AWS costs, no network dependencies, predictable behavior
+- **Cons**: Doesn't test real S3 integration, may miss AWS-specific issues
+- **Use case**: Development, CI/CD pipelines, unit testing
 
-> **Note**: If you have your own S3-compatible storage (AWS S3, Hetzner, MinIO, etc.) and configure the correct credentials and bucket location, the tests will execute accordingly.
+#### **Real S3 Testing** 
+- **Behavior**: Uses actual S3 buckets for testing
+- **Pros**: Tests actual S3 integration, catches real-world issues
+- **Cons**: Slower, requires AWS credentials, may incur AWS costs
+- **Use case**: Integration testing, pre-production validation
+
+#### **Current Configuration**: 
+Tests are configured to use the repository owner's Hetzner Object Storage credentials when using `--no-s3-mock`.
+
+#### **For Repository Owner**: 
+Tests will run against the configured Hetzner bucket.
+
+#### **For Other Developers**: 
+Real S3 testing requires your own AWS-compatible storage credentials configured via:
+
+1. **mattstash (Recommended)**:
+   ```bash
+   mattstash set AWS_ACCESS_KEY_ID your_access_key
+   mattstash set AWS_SECRET_ACCESS_KEY your_secret_key
+   mattstash set AWS_DEFAULT_REGION us-east-1
+   mattstash set S3_TEST_BUCKET your-test-bucket-name
+   ```
+
+2. **Environment Variables**:
+   ```bash
+   export AWS_ACCESS_KEY_ID=your_access_key
+   export AWS_SECRET_ACCESS_KEY=your_secret_key
+   export AWS_DEFAULT_REGION=us-east-1
+   export S3_TEST_BUCKET=your-test-bucket-name
+   ```
+
+3. **AWS CLI Configuration**: `aws configure`
+
+> **Note**: If you have your own S3-compatible storage (AWS S3, Hetzner, MinIO, etc.) and configure the correct credentials and bucket location, the tests will execute accordingly. Tests automatically skip when credentials are not available.
 
 ### Example Output
 ```
 Forklift Test Runner
 ====================
 
+Configuring real S3 testing...
+Checking mattstash for AWS credentials...
+✓ Using mattstash credentials
+✓ Using S3 test bucket: my-test-bucket
+
 Cleaning up previous coverage data...
 Installing package in editable mode...
 Clearing pytest cache...
-Running command: pytest -q --cov=forklift --cov-report=html --cov-report=term-missing -m "not performance"
+Running command: pytest -q --cov=src/forklift --cov-report=html --cov-report=term-missing --cov-config=pyproject.toml --no-s3-mock --s3-bucket my-test-bucket -m "not performance"
 
 ✓ Tests completed successfully!
 ✓ HTML coverage report generated in htmlcov/index.html
@@ -66,255 +106,45 @@ Files with lowest coverage (bottom 10):
 src/forklift/some_file.py    45%
 ...
 
-Files with highest coverage (top 5):
-src/forklift/core.py         98%
-...
-
-Coverage Details:
-[Detailed coverage report with missing lines]
-
 Test run complete!
 ```
 
 ### Common Usage Examples
 ```bash
-# Basic unit tests with coverage + HTML report (NEW DEFAULT)
+# Basic unit tests with coverage + HTML report (DEFAULT - uses S3 mocking)
 ./scripts/run-tests.sh
 
-# Just run tests without coverage (old default behavior)
+# Just run tests without coverage (uses S3 mocking)
 ./scripts/run-tests.sh --no-coverage
 
-# Integration tests with coverage + HTML (default coverage enabled)
+# Integration tests with coverage + HTML (uses real S3 for integration tests)
 ./scripts/run-tests.sh --integration
 
-# Integration tests with real S3 + coverage (repository owner only)
+# Unit tests with real S3 operations (requires credentials)
+./scripts/run-tests.sh --no-s3-mock
+
+# Integration tests with real S3 + coverage (requires credentials)
 ./scripts/run-tests.sh --integration --no-s3-mock
 
-# Coverage report to terminal only (no HTML)
+# Real S3 with custom bucket
+./scripts/run-tests.sh --no-s3-mock --s3-bucket my-custom-test-bucket
+
+# Coverage report to terminal only (uses S3 mocking)
 ./scripts/run-tests.sh --no-html
 
-# Test specific module with verbose output and coverage
-./scripts/run-tests.sh --module date_parser --verbose
+# Test specific module with verbose output and real S3
+./scripts/run-tests.sh --module s3_streaming --verbose --no-s3-mock
 
-# Full test suite including performance tests with coverage
+# Full test suite including performance tests with coverage (uses S3 mocking)
 ./scripts/run-tests.sh --performance --integration
+
+# Integration testing workflow with real S3
+./scripts/run-tests.sh --integration --no-s3-mock --s3-bucket production-test-bucket
 ```
 
----
-
-## 🔍 `lint.sh` - Code Quality Checks
-
-**Purpose**: Run Black code formatting and flake8 linting checks. Can check code quality or automatically apply formatting fixes.
-
-### Usage
-```bash
-./scripts/lint.sh [options]
-```
-
-### Options
-- `--black-only` - Run only Black formatting check (skip flake8)
-- `--flake8-only` - Run only flake8 linting check (skip Black)
-- `--apply-black` - Apply Black formatting automatically
-- `--help` - Show help message
-
-### Example Output
-```
-Forklift Code Quality Checks
-============================
-
-Running Black Code Formatting Check
-====================================
-
-Checking code formatting with Black...
-✓ All Python files are properly formatted with Black!
-
-Running flake8 Linting Check
-============================
-
-Running flake8 linting (src only, matching GitHub workflow)...
-✓ All Python files pass flake8 linting!
-
-Final Summary:
-==============
-✓ Black formatting check: PASSED
-✓ flake8 linting check: PASSED
-
-All code quality checks passed!
-```
-
-### Common Usage Examples
-```bash
-# Run both Black and flake8 checks
-./scripts/lint.sh
-
-# Check only Black formatting
-./scripts/lint.sh --black-only
-
-# Auto-format code with Black
-./scripts/lint.sh --apply-black
-
-# Check only flake8 linting
-./scripts/lint.sh --flake8-only
-```
-
----
-
-## 🗄️ `manage-databases.sh` - Database Container Management
-
-**Purpose**: Manage Docker containers for database integration tests. Provides granular control over container lifecycle.
-
-### Usage
-```bash
-./scripts/manage-databases.sh [command]
-```
-
-### Commands
-- `start` - Start database containers for integration tests
-- `stop` - Stop database containers (preserves data)
-- `wipe` - Stop and remove containers and volumes (destroys data)
-- `status` - Show status of database containers
-- `logs` - Show logs from database containers
-- `restart` - Stop and start containers (preserves data)
-- `--help` - Show help message
-
-### Example Output
-```
-Starting Database Testing Containers
-====================================
-
-Starting database containers...
-✓ Database containers started successfully
-Use './scripts/manage-databases.sh status' to check container health
-Use './scripts/manage-databases.sh stop' to stop containers
-Use './scripts/manage-databases.sh wipe' to remove containers and data
-```
-
-### Common Usage Examples
-```bash
-# Start databases for testing
-./scripts/manage-databases.sh start
-
-# Check container status
-./scripts/manage-databases.sh status
-
-# View container logs
-./scripts/manage-databases.sh logs
-
-# Stop containers but keep data
-./scripts/manage-databases.sh stop
-
-# Clean slate (remove everything)
-./scripts/manage-databases.sh wipe
-```
-
----
-
-## 🚀 `setup-dev.sh` - Development Environment Setup
-
-**Purpose**: Bootstrap development environment with pre-commit hooks, development dependencies, and script permissions.
-
-### Usage
-```bash
-./scripts/setup-dev.sh
-```
-
-### What It Does
-1. Installs pre-commit hooks for code quality
-2. Installs development dependencies (black, isort, flake8, pytest, pytest-cov)
-3. Makes all scripts executable
-4. Provides guidance on available tools
-
-### Example Output
-```
-🚀 Setting up Forklift development environment...
-
-✅ pre-commit already installed
-🔧 Installing pre-commit hooks...
-📚 Installing development dependencies...
-🔐 Making scripts executable...
-
-✅ Setup complete! Your development environment is ready.
-
-🎯 What happens now:
-  • Black and isort will auto-format your code before each commit
-  • flake8 will check for linting issues before commits
-  • Tests will run before pushes (pre-push hook)
-  • GitHub Actions will also auto-format and test on push
-
-💡 Available developer scripts:
-  • ./scripts/run-tests.sh          # Run tests with coverage by default
-  • ./scripts/lint.sh               # Code formatting and linting
-  • ./scripts/manage-databases.sh   # Manage database containers
-
-📖 Common workflows:
-  • ./scripts/run-tests.sh --help   # See all testing options
-  • ./scripts/lint.sh --apply-black # Auto-format code with Black
-  • ./scripts/run-tests.sh --no-html # Coverage report to terminal only
-  • ./scripts/run-tests.sh --integration  # Integration tests with coverage
-  • ./scripts/manage-databases.sh start  # Start database containers for integration tests
-  • ./scripts/manage-databases.sh wipe   # Clean up database containers and data
-```
-
----
-
-## 📜 Legacy Scripts
-
-### `run_coverage.sh` (Root Level) - DEPRECATED
-This script has been replaced by the enhanced `run-tests.sh`. It shows deprecation warnings and redirects to appropriate new functionality:
-
-- `run_coverage.sh --html` → `./scripts/run-tests.sh` (HTML coverage is now default)
-- `run_coverage.sh --black-only` → `./scripts/lint.sh --black-only`
-- `run_coverage.sh --apply-black` → `./scripts/lint.sh --apply-black`
-- `run_coverage.sh --module MODULE` → `./scripts/run-tests.sh --module MODULE`
-
-### Legacy Database Scripts
-- `start-testing-containers.sh` → `./scripts/manage-databases.sh start`
-- `wipe-databases.sh` → `./scripts/manage-databases.sh wipe`
-
-These legacy scripts still work but redirect to the new consolidated tools.
-
----
-
-## 🔄 Common Workflows
-
-### Daily Development
-```bash
-# Set up environment (once)
-./scripts/setup-dev.sh
-
-# Before committing changes
-./scripts/lint.sh --apply-black
-./scripts/run-tests.sh  # Now includes coverage + HTML by default
-
-# Quick test run without coverage
-./scripts/run-tests.sh --no-coverage
-```
-
-### Integration Testing
-```bash
-# Start database containers
-./scripts/manage-databases.sh start
-
-# Run integration tests with coverage (coverage is default)
-./scripts/run-tests.sh --integration
-
-# Clean up when done
-./scripts/manage-databases.sh wipe
-```
-
-### Code Quality Review
-```bash
-# Full quality check
-./scripts/lint.sh
-./scripts/run-tests.sh --integration --performance  # Includes coverage by default
-```
-
-### Debugging
-```bash
-# Check container status
-./scripts/manage-databases.sh status
-./scripts/manage-databases.sh logs
-
-# Verbose test output with coverage
-./scripts/run-tests.sh --verbose --module specific_module
-```
+### S3 Testing Safety Features
+- **Automatic Cleanup**: Real S3 tests include cleanup mechanisms to abort incomplete uploads
+- **Credential Validation**: Tests automatically skip if AWS credentials are not available
+- **Bucket Isolation**: Uses dedicated test buckets (configurable via `S3_TEST_BUCKET`)
+- **Test Object Prefixes**: Test objects are prefixed to avoid production data conflicts
+- **Graceful Degradation**: Missing credentials result in test skips, not failures

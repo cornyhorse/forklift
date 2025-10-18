@@ -9,9 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    container: ghcr.io/cornyhorse/forklift:ci
-    permissions:
-      packages: read
     strategy:
       matrix:
         python-version: [3.9, 3.10, 3.11, 3.12]
@@ -24,9 +21,20 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install package in development mode
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
       run: |
-        pip install --user -e .[all]
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f pyproject.toml ]; then pip install -e .[all]; fi
 
     - name: Run tests with coverage
       run: |

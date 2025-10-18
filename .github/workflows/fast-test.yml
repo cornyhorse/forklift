@@ -50,7 +50,7 @@ jobs:
         python -m pytest tests/ --cov=src/forklift/ --cov-report=term-missing --cov-report=html -v
 
     - name: Upload coverage report
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: coverage-report

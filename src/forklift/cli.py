@@ -37,7 +37,10 @@ def main() -> None:
         "--header-mode",
         choices=["present", "auto", "absent"],
         default="present",
-        help="Explicit header handling: 'present' (file has header), 'absent' (no header, use override), 'auto'",
+        help=(
+            "Explicit header handling: 'present' (file has header), "
+            "'absent' (no header, use override), 'auto'"
+        ),
     )
 
     # Add schema generation command
@@ -119,7 +122,8 @@ def main() -> None:
         # Handle FWF spec if provided
         if args.fwf_spec:
             print(
-                f"Warning: FWF spec processing not yet implemented in new ForkliftCore: {args.fwf_spec}"
+                f"Warning: FWF spec processing not yet implemented in new "
+                f"ForkliftCore: {args.fwf_spec}"
             )
 
         # Handle preprocessors if provided
@@ -129,7 +133,8 @@ def main() -> None:
         # Handle Excel sheet if provided
         if args.sheet:
             print(
-                f"Warning: Excel sheet processing not yet implemented in new ForkliftCore: {args.sheet}"
+                f"Warning: Excel sheet processing not yet implemented in new "
+                f"ForkliftCore: {args.sheet}"
             )
 
         # Create and run ForkliftCore
@@ -148,7 +153,8 @@ def main() -> None:
                 print(f"Metadata file: {results.metadata_file}")
         else:
             print(
-                f"Error: Input kind '{args.input_kind}' not yet implemented in new ForkliftCore. Only 'csv' is currently supported."
+                f"Error: Input kind '{args.input_kind}' not yet implemented in new "
+                f"ForkliftCore. Only 'csv' is currently supported."
             )
     elif args.cmd == "generate-schema":
         # Validate output arguments
@@ -167,7 +173,7 @@ def main() -> None:
             encoding=args.encoding,
             sheet_name=args.sheet,
             include_sample_data=args.include_sample,
-            infer_primary_key_from_metadata=args.infer_primary_key,  # Use new metadata-based inference
+            infer_primary_key_from_metadata=args.infer_primary_key,  # Use metadata-based inference
             # New metadata generation options
             generate_metadata=not args.no_metadata,
             metadata_output_path=args.metadata_output,

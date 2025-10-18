@@ -106,7 +106,9 @@ def generate_schema_from_excel(
         >>> schema = generate_schema_from_excel("data.xlsx", infer_primary_key_from_metadata=True)
 
         >>> # With manual primary key specification
-        >>> schema = generate_schema_from_excel("data.xlsx", user_specified_primary_key=["record_id"])
+        >>> schema = generate_schema_from_excel(
+        ...     "data.xlsx", user_specified_primary_key=["record_id"]
+        ... )
     """
     # Validate input_path
     if input_path is None:
@@ -157,10 +159,14 @@ def generate_schema_from_parquet(
         >>> schema = generate_schema_from_parquet("data.parquet", nrows=1000)
 
         >>> # With primary key inference
-        >>> schema = generate_schema_from_parquet("data.parquet", infer_primary_key_from_metadata=True)
+        >>> schema = generate_schema_from_parquet(
+        ...     "data.parquet", infer_primary_key_from_metadata=True
+        ... )
 
         >>> # With manual primary key specification
-        >>> schema = generate_schema_from_parquet("data.parquet", user_specified_primary_key=["id"])
+        >>> schema = generate_schema_from_parquet(
+        ...     "data.parquet", user_specified_primary_key=["id"]
+        ... )
     """
     # Validate input_path
     if input_path is None:

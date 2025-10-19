@@ -7,6 +7,9 @@ __pycache__/
 *.so
 test_venv/
 
+# Bad rows output files
+bad_rows_*.json
+
 # Distribution / packaging
 .Python
 build/

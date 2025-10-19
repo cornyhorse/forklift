@@ -9,9 +9,11 @@ These tests are separated from unit tests to allow for:
 - Longer execution times without slowing down regular test suites
 """
 
-import pytest
 import tempfile
 from pathlib import Path
+
+import pytest
+
 from forklift.engine.forklift_core import import_csv
 
 
@@ -41,7 +43,7 @@ class TestCSVPerformance:
                     output_path=output_dir,
                     schema_file=schema_file,
                     batch_size=10000,  # Smaller batches for testing
-                    header_mode="present"
+                    header_mode="present",
                 )
 
                 assert results.total_rows > 10000  # Should be large

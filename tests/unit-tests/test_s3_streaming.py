@@ -51,11 +51,17 @@ def aws_credentials(request):
 
             # Validate credentials
             if not access_key:
-                raise RuntimeError("AWS_ACCESS_KEY_ID environment variable is required for CI mode")
+                raise RuntimeError(
+                    "AWS_ACCESS_KEY_ID environment variable is required for CI mode"
+                )
             if not secret_key:
-                raise RuntimeError("AWS_SECRET_ACCESS_KEY environment variable is required for CI mode")
+                raise RuntimeError(
+                    "AWS_SECRET_ACCESS_KEY environment variable is required for CI mode"
+                )
 
-            print(f"Using CI credentials: region={region}, bucket={bucket}, endpoint={endpoint_url}")
+            print(
+                f"Using CI credentials: region={region}, bucket={bucket}, endpoint={endpoint_url}"
+            )
 
             credentials = {
                 "aws_access_key_id": access_key,
@@ -158,7 +164,9 @@ def aws_credentials(request):
                 # Don't skip the test, let it fail with proper error message
                 raise RuntimeError(f"Failed to get AWS credentials from mattstash: {e}")
         else:
-            raise RuntimeError("--no-s3-mock requires either FORKLIFT_CI_MODE=true with environment variables or mattstash to be available")
+            raise RuntimeError(
+                "--no-s3-mock requires either FORKLIFT_CI_MODE=true with environment variables or mattstash to be available"
+            )
 
     # Return mock credentials for normal testing
     return {

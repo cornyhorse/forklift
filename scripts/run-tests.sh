@@ -180,6 +180,25 @@ fi
 # Add S3 mocking flag
 if [[ "$USE_REAL_S3" == true ]]; then
     PYTEST_CMD="$PYTEST_CMD --no-s3-mock"
+
+    # Check if we're in CI mode or local development
+    if [[ -n "$GITHUB_ACTIONS" ]]; then
+        echo -e "${YELLOW}Running in GitHub Actions CI mode with real S3...${NC}"
+        export FORKLIFT_CI_MODE=true
+
+        # Validate required environment variables are set
+        if [[ -z "$AWS_ACCESS_KEY_ID" ]]; then
+            echo -e "${RED}Error: AWS_ACCESS_KEY_ID environment variable is required for S3 testing in CI${NC}"
+            exit 1
+        fi
+        if [[ -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+            echo -e "${RED}Error: AWS_SECRET_ACCESS_KEY environment variable is required for S3 testing in CI${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}✓ AWS credentials found in environment${NC}"
+    else
+        echo -e "${YELLOW}Running in local development mode with real S3 (requires mattstash)...${NC}"
+    fi
 fi
 
 # Add S3 bucket flag if specified

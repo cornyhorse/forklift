@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -36,78 +37,25 @@ def aws_credentials(request):
     # Check if --no-s3-mock flag is used
     use_real_s3 = hasattr(request.config.option, "no_s3_mock") and request.config.option.no_s3_mock
 
-    if use_real_s3 and MATTSTASH_AVAILABLE:
-        # Use real credentials from mattstash when --no-s3-mock is used
-        try:
-            print("Attempting to retrieve AWS credentials from mattstash...")
+    if use_real_s3:
+        # Check if we're in CI mode (GitHub Actions)
+        if os.getenv("FORKLIFT_CI_MODE") == "true":
+            print("Running in CI mode, using environment variables for AWS credentials...")
 
-            access_key = mattstash.get("AWS_ACCESS_KEY_ID", show_password=True)
-            secret_key = mattstash.get("AWS_SECRET_ACCESS_KEY", show_password=True)
-            region = mattstash.get("AWS_DEFAULT_REGION", show_password=True)
-            bucket = mattstash.get("S3_TEST_BUCKET", show_password=True)
+            # Get credentials from environment variables (set by GitHub Actions secrets)
+            access_key = os.getenv("AWS_ACCESS_KEY_ID")
+            secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+            region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+            bucket = os.getenv("S3_TEST_BUCKET", "cornyhorse-data")
+            endpoint_url = os.getenv("S3_ENDPOINT_URL")
 
-            print(
-                f"Raw mattstash responses - access_key type: {type(access_key)}, secret_key type: {type(secret_key)}"
-            )
-            print(f"Raw region: {region}, bucket: {bucket}")
+            # Validate credentials
+            if not access_key:
+                raise RuntimeError("AWS_ACCESS_KEY_ID environment variable is required for CI mode")
+            if not secret_key:
+                raise RuntimeError("AWS_SECRET_ACCESS_KEY environment variable is required for CI mode")
 
-            # Extract raw values from mattstash response - handle different response formats
-            def extract_value(response, key_name):
-                if response is None:
-                    return None
-
-                if isinstance(response, str):
-                    return response
-
-                if isinstance(response, dict):
-                    # Try different possible keys that mattstash might use
-                    for key in ["value", "data", "secret", "content"]:
-                        if key in response:
-                            val = response[key]
-                            # Don't print sensitive values in logs
-                            if key_name in ["secret_key", "access_key"]:
-                                print(f"Found {key_name} in '{key}': <redacted>")
-                            else:
-                                print(f"Found {key_name} in '{key}': {val}")
-                            return val
-                    # If no standard key found, try to convert the dict to string
-                    print(f"No standard key found for {key_name}, using str conversion")
-                    return str(response)
-
-                # For any other type, convert to string
-                return str(response)
-
-            access_key = extract_value(access_key, "access_key")
-            secret_key = extract_value(secret_key, "secret_key")
-            region = extract_value(region, "region")
-            bucket = extract_value(bucket, "bucket")
-
-            print(
-                f"Extracted values - access_key: <redacted>, secret_key: <redacted>, region: {region}, bucket: {bucket}"
-            )
-
-            # Validate that we got actual credential values
-            if not access_key or access_key in ["*****", "None", "", "null"]:
-                raise ValueError(f"Invalid or missing AWS_ACCESS_KEY_ID from mattstash")
-            if not secret_key or secret_key in ["*****", "None", "", "null"]:
-                raise ValueError(f"Invalid or missing AWS_SECRET_ACCESS_KEY from mattstash")
-
-            # Handle custom S3-compatible service endpoint
-            endpoint_url = None
-            if region == "hel1":
-                # This is a custom S3-compatible service, not AWS
-                endpoint_url = "https://hel1.your-objectstorage.com"
-                region = "us-east-1"  # Use a standard region name for the SDK
-                print(f"Detected custom S3 service, using endpoint: {endpoint_url}")
-
-            # Set the correct bucket with forklift folder
-            if bucket == "cornyhorse-data":
-                bucket = "cornyhorse-data"  # Keep the bucket name, we'll handle the folder in the S3 paths
-                print(f"Using bucket: {bucket} with forklift folder prefix")
-
-            # Use default bucket if not provided
-            if not bucket or bucket in ["*****", "None", "", "null"]:
-                bucket = "cornyhorse-data"
+            print(f"Using CI credentials: region={region}, bucket={bucket}, endpoint={endpoint_url}")
 
             credentials = {
                 "aws_access_key_id": access_key,
@@ -117,15 +65,100 @@ def aws_credentials(request):
                 "endpoint_url": endpoint_url,
             }
 
-            print(
-                f"Final credentials: access_key=<redacted>, region={region}, bucket={bucket}, endpoint={endpoint_url}"
-            )
             return credentials
 
-        except Exception as e:
-            print(f"Failed to get AWS credentials from mattstash: {e}")
-            # Don't skip the test, let it fail with proper error message
-            raise RuntimeError(f"Failed to get AWS credentials from mattstash: {e}")
+        elif MATTSTASH_AVAILABLE:
+            # Use real credentials from mattstash when --no-s3-mock is used (local development)
+            try:
+                print("Attempting to retrieve AWS credentials from mattstash...")
+
+                access_key = mattstash.get("AWS_ACCESS_KEY_ID", show_password=True)
+                secret_key = mattstash.get("AWS_SECRET_ACCESS_KEY", show_password=True)
+                region = mattstash.get("AWS_DEFAULT_REGION", show_password=True)
+                bucket = mattstash.get("S3_TEST_BUCKET", show_password=True)
+
+                print(
+                    f"Raw mattstash responses - access_key type: {type(access_key)}, secret_key type: {type(secret_key)}"
+                )
+                print(f"Raw region: {region}, bucket: {bucket}")
+
+                # Extract raw values from mattstash response - handle different response formats
+                def extract_value(response, key_name):
+                    if response is None:
+                        return None
+
+                    if isinstance(response, str):
+                        return response
+
+                    if isinstance(response, dict):
+                        # Try different possible keys that mattstash might use
+                        for key in ["value", "data", "secret", "content"]:
+                            if key in response:
+                                val = response[key]
+                                # Don't print sensitive values in logs
+                                if key_name in ["secret_key", "access_key"]:
+                                    print(f"Found {key_name} in '{key}': <redacted>")
+                                else:
+                                    print(f"Found {key_name} in '{key}': {val}")
+                                return val
+                        # If no standard key found, try to convert the dict to string
+                        print(f"No standard key found for {key_name}, using str conversion")
+                        return str(response)
+
+                    # For any other type, convert to string
+                    return str(response)
+
+                access_key = extract_value(access_key, "access_key")
+                secret_key = extract_value(secret_key, "secret_key")
+                region = extract_value(region, "region")
+                bucket = extract_value(bucket, "bucket")
+
+                print(
+                    f"Extracted values - access_key: <redacted>, secret_key: <redacted>, region: {region}, bucket: {bucket}"
+                )
+
+                # Validate that we got actual credential values
+                if not access_key or access_key in ["*****", "None", "", "null"]:
+                    raise ValueError(f"Invalid or missing AWS_ACCESS_KEY_ID from mattstash")
+                if not secret_key or secret_key in ["*****", "None", "", "null"]:
+                    raise ValueError(f"Invalid or missing AWS_SECRET_ACCESS_KEY from mattstash")
+
+                # Handle custom S3-compatible service endpoint
+                endpoint_url = None
+                if region == "hel1":
+                    # This is a custom S3-compatible service, not AWS
+                    endpoint_url = "https://hel1.your-objectstorage.com"
+                    region = "us-east-1"  # Use a standard region name for the SDK
+                    print(f"Detected custom S3 service, using endpoint: {endpoint_url}")
+
+                # Set the correct bucket with forklift folder
+                if bucket == "cornyhorse-data":
+                    bucket = "cornyhorse-data"  # Keep the bucket name, we'll handle the folder in the S3 paths
+                    print(f"Using bucket: {bucket} with forklift folder prefix")
+
+                # Use default bucket if not provided
+                if not bucket or bucket in ["*****", "None", "", "null"]:
+                    bucket = "cornyhorse-data"
+
+                credentials = {
+                    "aws_access_key_id": access_key,
+                    "aws_secret_access_key": secret_key,
+                    "region_name": region,
+                    "s3_test_bucket": bucket,
+                    "endpoint_url": endpoint_url,
+                }
+
+                print(
+                    f"Final credentials: access_key=<redacted>, region={region}, bucket={bucket}, endpoint={endpoint_url}"
+                )
+                return credentials
+
+            except Exception as e:
+                print(f"Failed to get AWS credentials from mattstash: {e}")
+                # Don't skip the test, let it fail with proper error message
+                raise RuntimeError(f"Failed to get AWS credentials from mattstash: {e}")
+        else:
+            raise RuntimeError("--no-s3-mock requires either FORKLIFT_CI_MODE=true with environment variables or mattstash to be available")
 
     # Return mock credentials for normal testing
     return {

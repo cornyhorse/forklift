@@ -88,7 +88,7 @@ jobs:
   s3-integration:
     runs-on: ubuntu-latest
     # Only run if S3 credentials are available (not on forks)
-    if: github.repository == 'matt/forklift' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.repository == 'cornyhorse/forklift' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
     - uses: actions/checkout@v4

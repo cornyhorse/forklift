@@ -208,11 +208,14 @@ fi
 
 # Add test markers for performance tests
 if [[ "$INCLUDE_PERFORMANCE" == true ]]; then
-    # Include all tests
+    # Include performance tests by overriding the default exclusion from pyproject.toml
     echo -e "${YELLOW}Including performance tests...${NC}"
+    # Override the default marker exclusion with an explicit inclusion
+    PYTEST_CMD="$PYTEST_CMD -m 'performance or not performance'"
 else
-    # Exclude performance tests (default)
-    PYTEST_CMD="$PYTEST_CMD -m \"not performance\""
+    # Default behavior - exclude performance tests (handled by pyproject.toml default)
+    echo -e "${YELLOW}Excluding performance tests (default behavior)...${NC}"
+    # The pyproject.toml already has -m 'not performance' in addopts, so no need to add it again
 fi
 
 # Add specific module if requested
@@ -221,12 +224,15 @@ if [[ -n "$SPECIFIC_MODULE" ]]; then
     # Try different possible test file locations
     if [[ -f "tests/unit-tests/test_${SPECIFIC_MODULE}.py" ]]; then
         PYTEST_CMD="$PYTEST_CMD tests/unit-tests/test_${SPECIFIC_MODULE}.py"
+    elif [[ -f "tests/performance-tests/test_${SPECIFIC_MODULE}.py" ]]; then
+        PYTEST_CMD="$PYTEST_CMD tests/performance-tests/test_${SPECIFIC_MODULE}.py"
     elif [[ -f "tests/test_${SPECIFIC_MODULE}.py" ]]; then
         PYTEST_CMD="$PYTEST_CMD tests/test_${SPECIFIC_MODULE}.py"
     else
         echo -e "${RED}Test file not found for module: ${SPECIFIC_MODULE}${NC}"
         echo -e "${BLUE}Looked for:${NC}"
         echo -e "${BLUE}  - tests/unit-tests/test_${SPECIFIC_MODULE}.py${NC}"
+        echo -e "${BLUE}  - tests/performance-tests/test_${SPECIFIC_MODULE}.py${NC}"
         echo -e "${BLUE}  - tests/test_${SPECIFIC_MODULE}.py${NC}"
         exit 1
     fi

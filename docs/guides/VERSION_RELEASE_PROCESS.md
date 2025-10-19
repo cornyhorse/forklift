@@ -1,157 +1,124 @@
+- [ ] Package verified: `twine check dist/*`
+- [ ] Uploaded to PyPI: `twine upload dist/*`
 # Forklift Version Release Process
-
-This guide outlines the complete process for releasing a new version of Forklift, including updating both GitHub and PyPI packages.
-
-## Prerequisites
+### Cleanup
+- [ ] Feature branch deleted locally and remotely
+- [ ] Installation verified from PyPI
 
 Before starting a release, ensure you have:
-
+## Configuration
 - [ ] Write access to the GitHub repository
-- [ ] PyPI publishing credentials configured
+### PyPI Credentials
+Use API tokens in `~/.pypirc`:
 - [ ] All changes merged and tested on the release branch
 - [ ] Release notes prepared
-
-## Version Release Workflow
-
+index-servers = pypi testpypi
 ### 1. Pre-Release Preparation
 
 #### 1.1 Branch Management
 ```bash
-# Ensure you're on your release branch (e.g., v0.1.4)
+# Work on your feature/release branch (e.g., v0.1.4)
 git checkout v0.1.4
 
 # Ensure branch is up to date
 git pull origin v0.1.4
 
 # Verify current version in pyproject.toml
-grep "version" pyproject.toml
-```
+## Key Lessons Learned
 
-#### 1.2 Version Number Strategy
-Follow semantic versioning (SemVer):
-- **Patch (0.1.3 → 0.1.4)**: Bug fixes, minor improvements
-- **Minor (0.1.4 → 0.2.0)**: New features, backward compatible
-- **Major (0.2.0 → 1.0.0)**: Breaking changes
-
-### 2. Update Version Information
-
-#### 2.1 Update pyproject.toml
-```bash
-# Edit the version field in pyproject.toml
-# Change: version = "0.1.3"
-# To:     version = "0.1.4"
-```
-
-#### 2.2 Update Documentation (if applicable)
-- Update any version references in README.md
-- Update API documentation if version-specific
-- Update installation instructions if needed
-
-#### 2.3 Create/Update CHANGELOG
-Create or update CHANGELOG.md with:
-- Release version and date
-- New features
-- Bug fixes
-- Breaking changes (if any)
-- Known issues
-
-### 3. Pre-Release Testing
-
-#### 3.1 Local Testing
-```bash
-# Install in development mode
-pip install -e .
-
-# Run test suite
-pytest tests/
-
-# Test package build
-python -m build
-
-# Verify package contents
-tar -tzf dist/forklift_etl-0.1.4.tar.gz
-```
-
-#### 3.2 Integration Testing
-- Test key functionality with real data
-- Verify all x-attributes work as expected
-- Test with different Python versions (if applicable)
-
-### 4. GitHub Release Process
-
-#### 4.1 Merge to Main Branch
-```bash
-# Switch to main branch
-git checkout main
-
-# Merge your release branch
-git merge v0.1.4
-
-# Push to main
-git push origin main
-```
-
-#### 4.2 Create Git Tag
-```bash
+1. **Always create PRs first** - Never tag directly from feature branches
+2. **Use explicit git refs** - Avoid ambiguity between branches and tags with same names
+3. **SSH authentication** - Easier than HTTPS for frequent operations
+4. **Proper gitignore** - Keep generated files out of version control
+5. **Clean up after releases** - Remove feature branches once merged and tagged
 # Create annotated tag
 git tag -a v0.1.4 -m "Release version 0.1.4"
 
-# Push tag to remote
-git push origin v0.1.4
+*This process has been refined based on real-world experience and common issues encountered during releases.*
 ```
 
-#### 4.3 Create GitHub Release
+### 3. Common Issues and Solutions
+
+#### 3.1 "src refspec matches more than one" Error
+This happens when you have both a branch and tag with the same name.
+
+**Solution:**
+```bash
+# Push tag explicitly using full reference
+git push origin refs/tags/v0.1.4
+
+# Delete branch explicitly using full reference (if needed)
+git push origin --delete refs/heads/v0.1.4
+```
+
+#### 3.2 SSH vs HTTPS Authentication
+**Switch to SSH for easier authentication:**
+```bash
+# Check current remote
+git remote -v
+
+# Switch to SSH
+git remote set-url origin git@github.com:cornyhorse/forklift.git
+
+# Test connection
+ssh -T git@github.com
+```
+
+#### 3.3 Gitignore for Generated Files
+Add patterns for files that shouldn't be tracked:
+```bash
+# Add to .gitignore
+bad_rows_*.json
+```
+
+### 4. GitHub Release Process
+
+#### 4.1 Create GitHub Release
 1. Go to GitHub repository → Releases
 2. Click "Create a new release"
-3. Choose tag: `v0.1.4`
-4. Release title: `Forklift v0.1.4`
-5. Add release notes from CHANGELOG
-6. Upload any additional assets (if needed)
-7. Click "Publish release"
+3. Choose tag: `v0.1.4` (should already exist)
+4. Release title: `v0.1.4`
+5. Add comprehensive release notes
+6. Click "Publish release"
 
 ### 5. PyPI Release Process
 
-#### 5.1 Clean Previous Builds
+#### 5.1 Clean and Build
 ```bash
 # Remove previous build artifacts
-rm -rf dist/
-rm -rf build/
-rm -rf *.egg-info/
-```
+rm -rf dist/ build/ *.egg-info/
 
-#### 5.2 Build Package
-```bash
-# Install build tools (if not already installed)
-pip install build twine
+# Install/upgrade build tools
+pip install --upgrade build twine
 
-# Build source and wheel distributions
+# Build package
 python -m build
+
+# Verify build
+twine check dist/*
 ```
 
-#### 5.3 Verify Build
+#### 5.2 Upload to PyPI
 ```bash
-# Check package contents
-twine check dist/*
-
-# Test upload to TestPyPI (optional but recommended)
+# Test upload (optional but recommended)
 twine upload --repository testpypi dist/*
 
-# Install from TestPyPI to verify
-pip install --index-url https://test.pypi.org/simple/ forklift-etl==0.1.4
-```
-
-#### 5.4 Upload to PyPI
-```bash
 # Upload to production PyPI
 twine upload dist/*
-
-# Verify on PyPI website
-# Visit: https://pypi.org/project/forklift-etl/
 ```
 
-### 6. Post-Release Activities
+### 6. Post-Release Cleanup
 
-#### 6.1 Verify Installation
+#### 6.1 Clean Up Branches
+```bash
+# Delete local feature branch
+git branch -d v0.1.4
+
+# Delete remote feature branch (use explicit reference if needed)
+git push origin --delete refs/heads/v0.1.4
+```
+
+#### 6.2 Verify Release
 ```bash
 # Test installation from PyPI
 pip install forklift-etl==0.1.4
@@ -160,76 +127,23 @@ pip install forklift-etl==0.1.4
 python -c "import forklift; print(forklift.__version__)"
 ```
 
-#### 6.2 Update Documentation
-- Update any version-specific documentation
-- Update installation instructions
-- Update examples if API changed
-
-#### 6.3 Communication
-- Announce release on relevant channels
-- Update project status/roadmap
-- Close related GitHub issues/milestones
-
-### 7. Troubleshooting
-
-#### Common Issues and Solutions
-
-**PyPI Upload Fails**
-```bash
-# Check credentials
-twine upload --repository pypi dist/* --verbose
-
-# If authentication fails, configure credentials:
-# ~/.pypirc or use environment variables
-```
-
-**Version Conflicts**
-- Ensure version in pyproject.toml matches git tag
-- Check for existing releases with same version
-- Verify semantic versioning compliance
-
-**Build Failures**
-```bash
-# Check dependencies
-pip install --upgrade build setuptools wheel
-
-# Verify project structure
-python -m build --verbose
-```
-
-**Git Tag Issues**
-```bash
-# Delete tag if needed
-git tag -d v0.1.4
-git push origin --delete v0.1.4
-
-# Recreate tag
-git tag -a v0.1.4 -m "Release version 0.1.4"
-git push origin v0.1.4
-```
-
-## Release Checklist
+## Quick Release Checklist
 
 ### Pre-Release
-- [ ] All tests passing
-- [ ] Version updated in pyproject.toml
-- [ ] CHANGELOG updated
-- [ ] Documentation updated
-- [ ] Local testing completed
+- [ ] All changes committed and pushed to feature branch
+- [ ] Version updated in pyproject.toml (if needed)
+- [ ] Release notes prepared
 
 ### GitHub Release
-- [ ] Branch merged to main
-- [ ] Git tag created and pushed
-- [ ] GitHub release published
-- [ ] Release notes added
+- [ ] PR created and merged to main
+- [ ] Switched to main branch and pulled latest
+- [ ] Git tag created from main: `git tag -a v0.1.4 -m "Release version 0.1.4"`
+- [ ] Tag pushed: `git push origin refs/tags/v0.1.4` (use explicit ref if conflicts)
+- [ ] GitHub release created with release notes
 
-### PyPI Release
-- [ ] Build artifacts cleaned
-- [ ] Package built successfully
-- [ ] Package verified with twine check
-- [ ] TestPyPI upload tested (optional)
-- [ ] Production PyPI upload completed
-- [ ] Installation verified
+### PyPI Release (if applicable)
+- [ ] Build artifacts cleaned: `rm -rf dist/ build/ *.egg-info/`
+- [ ] Package built: `python -m build`
 
 ### Post-Release
 - [ ] Installation from PyPI verified

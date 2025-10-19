@@ -1,6 +1,6 @@
 # S3 Testing Configuration
 
-This document explains how to configure S3 testing in the Forklift project, including the new conditional mocking system.
+This document explains how to configure S3 testing in the Forklift project, including the conditional mocking system.
 
 ## Overview
 
@@ -146,8 +146,8 @@ The conditional mocking system is implemented using pytest fixtures:
 - Check that `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are set
 
 ### "Cannot access real S3 bucket"
-- Verify the test bucket exists and you have access
-- Check that `S3_TEST_BUCKET` is set to a bucket you control
+- Verify the test bucket exists and the user has access
+- Check that `S3_TEST_BUCKET` is set to a bucket under user control
 - Ensure IAM permissions allow S3 operations on the test bucket
 
 ### Tests skipped in real S3 mode

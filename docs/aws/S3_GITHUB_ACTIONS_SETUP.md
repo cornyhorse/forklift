@@ -1,6 +1,6 @@
 # S3 Integration Testing with GitHub Actions
 
-This document explains how to set up S3 integration testing in GitHub Actions using your Hetzner S3-compatible storage service.
+This document explains how to set up S3 integration testing in GitHub Actions using Hetzner S3-compatible storage service.
 
 ## Overview
 
@@ -13,9 +13,9 @@ The Forklift project supports two modes for S3 testing:
 
 ### Step 1: Configure Repository Secrets
 
-You need to add the following secrets to your GitHub repository:
+Add the following secrets to the GitHub repository:
 
-1. Go to your repository on GitHub
+1. Go to the repository on GitHub
 2. Click on **Settings** → **Secrets and variables** → **Actions**
 3. Click **New repository secret** for each of the following:
 
@@ -23,18 +23,18 @@ You need to add the following secrets to your GitHub repository:
 
 | Secret Name | Description | Example Value                         |
 |-------------|-------------|---------------------------------------|
-| `AWS_ACCESS_KEY_ID` | Your S3 access key | `N/A`                                 |
-| `AWS_SECRET_ACCESS_KEY` | Your S3 secret key | `N/A`                                 |
+| `AWS_ACCESS_KEY_ID` | S3 access key | `N/A`                                 |
+| `AWS_SECRET_ACCESS_KEY` | S3 secret key | `N/A`                                 |
 | `AWS_DEFAULT_REGION` | S3 region (use `hel1` for Hetzner) | `hel1`                                |
 | `S3_TEST_BUCKET` | Bucket name for testing | `forklift`                            |
 | `S3_ENDPOINT_URL` | Custom S3 endpoint URL | `https://hel1.your-objectstorage.com` |
 
 #### How to Get These Values
 
-Since you already have these working locally with mattstash, you can retrieve them:
+If these values are already configured locally with mattstash, retrieve them using:
 
 ```bash
-# Get your current mattstash values
+# Get current mattstash values
 mattstash get AWS_ACCESS_KEY_ID --show-password
 mattstash get AWS_SECRET_ACCESS_KEY --show-password  
 mattstash get AWS_DEFAULT_REGION --show-password
@@ -121,8 +121,8 @@ The test suite automatically detects the environment:
 
 ### Test Data Management
 
-All tests use the `forklift/` folder in your S3 bucket:
-- Objects: `s3://forklift/forklift/test-*` (based on your S3_TEST_BUCKET setting)
+All tests use the `forklift/` folder in the S3 bucket:
+- Objects: `s3://forklift/forklift/test-*` (based on S3_TEST_BUCKET setting)
 - Automatic cleanup after each test
 - Unique names to avoid conflicts
 - Single workflow prevents concurrent access conflicts

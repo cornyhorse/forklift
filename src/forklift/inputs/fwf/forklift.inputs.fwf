@@ -1,0 +1,228 @@
+# Forklift FWF (Fixed Width File) Package Documentation
+
+## Overview
+
+The `forklift.inputs.fwf` package provides comprehensive functionality for reading and processing fixed-width files with support for conditional schemas, field validation, data type conversion, and various configuration options. The package is designed with a modular architecture where each component has specific responsibilities.
+
+## Package Architecture
+
+The FWF package is organized into six main modules, each handling specific aspects of fixed-width file processing:
+
+### 1. `handlers.py` - Main Entry Point
+**Primary Class:** `FwfInputHandler`
+
+The main orchestrator that coordinates all other components. It provides:
+- File reading and parsing coordination
+- PyArrow table creation
+- Schema generation
+- Backward compatibility methods that delegate to specialized components
+
+**Key Methods:**
+- `read_file()` - Reads entire FWF files and returns parsed records
+- `create_arrow_table()` - Creates PyArrow tables from FWF data
+- `get_arrow_schema()` - Generates PyArrow schemas from field specifications
+- `parse_line()` - Delegates line parsing to `FwfLineParser`
+
+### 2. `parsers.py` - Line and Field Processing
+**Primary Classes:** `FwfLineParser`, `FwfFieldExtractor`
+
+Handles the core parsing logic:
+
+**FwfLineParser:**
+- Parses individual lines according to configuration
+- Handles conditional schema detection
+- Manages line filtering (comments, blanks, footers)
+- Coordinates field extraction and type conversion
+
+**FwfFieldExtractor:**
+- Extracts raw field values from lines using position/length specifications
+- Handles field alignment (left, right, center)
+- Manages padding and trimming operations
+- Converts 1-based field positions to 0-based array indices
+
+### 3. `converters.py` - Type Conversion and Value Processing
+**Primary Classes:** `FwfTypeConverter`, `FwfValueProcessor`
+
+**FwfTypeConverter:**
+- Converts Parquet type strings to PyArrow types
+- Handles type conversion from strings to appropriate Python types
+- Supports complex types (decimals, timestamps, lists)
+- Provides field-specific type conversion
+
+**FwfValueProcessor:**
+- Handles null value processing according to configuration
+- Supports global and per-column null value definitions
+- Processes empty strings and configured null representations
+
+### 4. `detectors.py` - Schema and Pattern Detection
+**Primary Classes:** `FwfEncodingDetector`, `FwfSchemaDetector`
+
+**FwfEncodingDetector:**
+- Auto-detects file encoding using chardet library
+- Provides fallback to UTF-8 encoding
+
+**FwfSchemaDetector:**
+- Determines which conditional schema applies to each line
+- Detects comment lines using regex patterns
+- Identifies footer rows and blank lines
+- Extracts flag values for conditional schema matching
+
+### 5. `validators.py` - Configuration and Field Validation
+**Primary Classes:** `FwfFieldValidator`, `FwfSchemaValidator`, `FwfConfigValidator`
+
+**FwfFieldValidator:**
+- Validates individual field specifications
+- Checks field names, positions, lengths, and data types
+- Ensures position ranges are valid
+
+**FwfSchemaValidator:**
+- Validates conditional schema configurations
+- Checks for field position overlaps
+- Ensures field name uniqueness within schemas
+
+**FwfConfigValidator:**
+- Validates overall FWF configuration
+- Ensures required components are present
+- Validates relationships between configuration elements
+
+### 6. `__init__.py` - Package Interface
+Provides clean package interface and maintains backward compatibility by exposing all main classes.
+
+## Processing Flow
+
+### 1. Initialization
+```
+FwfInputHandler(config) → validates config → initializes components
+```
+
+### 2. File Processing
+```
+read_file() → detect encoding → read lines → parse each line → return records
+```
+
+### 3. Line Processing Flow
+```
+Line Input → Schema Detection → Field Extraction → Type Conversion → Output Record
+```
+
+**Detailed Steps:**
+1. **Line Filtering**: Check if line should be skipped (blank, comment, footer)
+2. **Schema Selection**: Determine which field set to use (simple fields or conditional schema)
+3. **Field Extraction**: Extract raw values using position/length specifications
+4. **Value Processing**: Handle null values and trimming
+5. **Type Conversion**: Convert strings to appropriate data types
+6. **Record Assembly**: Create final dictionary with converted values
+
+## Conditional Schema Support
+
+The package supports conditional processing where different line types use different field specifications:
+
+### Components:
+- **Flag Column**: Identifies the line type
+- **Conditional Schemas**: Define fields for each line type
+- **Schema Detection**: Matches flag values to appropriate schemas
+
+### Processing:
+1. Extract flag value from configured position
+2. Match flag value to conditional schema
+3. Use schema's field specifications for processing
+4. Skip lines that don't match any schema
+
+## Configuration Features
+
+### Field Specifications
+- **Position-based**: Start position (1-based) and length
+- **Alignment**: Left, right, or center alignment
+- **Padding**: Custom padding characters
+- **Trimming**: Automatic whitespace removal
+- **Data Types**: Full Parquet type support
+
+### Line Processing Options
+- **Comment Detection**: Regex patterns for comment identification
+- **Footer Detection**: Pattern-based footer identification
+- **Blank Line Handling**: Skip or process blank lines
+- **Encoding**: Auto-detection or manual specification
+
+### Null Value Handling
+- **Global Null Values**: Apply to all fields
+- **Per-Column Null Values**: Field-specific null representations
+- **Empty String Processing**: Configurable empty string handling
+
+## Data Type Support
+
+The package supports extensive data type conversion:
+
+### Numeric Types
+- Integers: int8, int16, int32, int64, uint8, uint16, uint32, uint64
+- Floating Point: float32, float64, double
+- Decimal: decimal with precision/scale
+
+### Other Types
+- Boolean: Flexible true/false representations
+- String: UTF-8 string support
+- Date/Time: date32, date64, timestamp with units
+- Binary: Raw binary data
+- Complex: Lists and nested types
+
+## PyArrow Integration
+
+The package provides seamless PyArrow integration:
+
+### Schema Generation
+- Automatic schema creation from field specifications
+- Support for conditional schema field unification
+- Metadata field inclusion (line number, source file)
+
+### Table Creation
+- Direct PyArrow table generation from FWF files
+- Type-safe conversion with error handling
+- Empty table handling with proper schema
+
+## Error Handling and Validation
+
+### Configuration Validation
+- Comprehensive validation at initialization
+- Field overlap detection
+- Required component verification
+
+### Runtime Error Handling
+- Graceful handling of parsing errors
+- Encoding detection fallbacks
+- Type conversion error recovery
+
+## Usage Patterns
+
+### Basic Usage
+```python
+from forklift.inputs.fwf import FwfInputHandler
+from forklift.inputs.config import FwfInputConfig
+
+# Configure and process
+config = FwfInputConfig(...)
+handler = FwfInputHandler(config)
+records = handler.read_file(file_path)
+```
+
+### Advanced Usage with PyArrow
+```python
+# Create Arrow table for advanced processing
+table = handler.create_arrow_table(file_path)
+schema = handler.get_arrow_schema()
+```
+
+## Component Interactions
+
+The components work together in a layered architecture:
+
+```
+FwfInputHandler (Orchestration Layer)
+    ├── FwfLineParser (Processing Layer)
+    │   ├── FwfSchemaDetector (Detection Layer)
+    │   ├── FwfFieldExtractor (Extraction Layer)
+    │   ├── FwfValueProcessor (Processing Layer)
+    │   └── FwfTypeConverter (Conversion Layer)
+    ├── FwfEncodingDetector (Utility Layer)
+    └── FwfConfigValidator (Validation Layer)
+```
+
+This modular design provides flexibility, maintainability, and clear separation of concerns while supporting complex fixed-width file processing requirements.

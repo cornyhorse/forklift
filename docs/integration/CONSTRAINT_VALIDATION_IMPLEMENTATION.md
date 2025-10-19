@@ -2,7 +2,7 @@
 
 ## Overview
 
-I have implemented comprehensive constraint validation and bad rows handling functionality for the Forklift codebase that addresses your requirements for handling unique constraints, primary keys, and not-null violations according to schema standards.
+This document describes the comprehensive constraint validation and bad rows handling functionality implemented in the Forklift codebase that addresses data quality requirements for handling unique constraints, primary keys, and not-null violations according to schema standards.
 
 ## Key Components Implemented
 
@@ -38,7 +38,7 @@ I have implemented comprehensive constraint validation and bad rows handling fun
 
 ### Enhanced CSV Schema Standard
 
-I've updated the CSV schema standard (`20250826-csv.json`) to include comprehensive constraint handling configuration:
+The CSV schema standard (`20250826-csv.json`) includes comprehensive constraint handling configuration:
 
 ```json
 {
@@ -76,11 +76,11 @@ I've updated the CSV schema standard (`20250826-csv.json`) to include comprehens
 }
 ```
 
-## How It Addresses Your Requirements
+## How This Addresses Common Data Quality Requirements
 
 ### 1. Primary Key and Unique Constraint Handling
 
-**Problem**: How are rows with unique constraints or primary keys handled?
+**Problem**: How should rows with unique constraints or primary key violations be handled?
 
 **Solution**: 
 - Detects duplicate primary keys and unique constraint violations in real-time
@@ -89,7 +89,7 @@ I've updated the CSV schema standard (`20250826-csv.json`) to include comprehens
 
 ### 2. Not-Null Constraint Handling
 
-**Problem**: Not null portions of PK and required fields
+**Problem**: Handling null values in primary key columns and required fields
 
 **Solution**:
 - Validates not-null constraints on required fields
@@ -98,7 +98,7 @@ I've updated the CSV schema standard (`20250826-csv.json`) to include comprehens
 
 ### 3. Flexible Error Handling
 
-**Problem**: Need to either fail the file, continue to process to see ALL failing rows, or add them to bad rows
+**Problem**: Need to either fail the file, continue processing to see ALL failing rows, or add them to bad rows
 
 **Solution**: Three distinct error handling modes:
 - **Fail Fast**: Stop on first violation (immediate feedback)
@@ -107,7 +107,7 @@ I've updated the CSV schema standard (`20250826-csv.json`) to include comprehens
 
 ### 4. Schema-Driven Configuration
 
-**Problem**: Behavior should be indicated in schema-standard files
+**Problem**: Behavior should be configurable through schema definition files
 
 **Solution**:
 - Constraint definitions in schema files using `x-primaryKey`, `x-uniqueConstraints`
@@ -186,4 +186,4 @@ The constraint validation integrates seamlessly with existing Forklift component
 - **Scalable**: Tracks constraints using efficient set operations
 - **Configurable**: Optional constraint validation for performance-critical scenarios
 
-This implementation provides a robust, production-ready solution for handling data quality issues according to your schema standards while maintaining flexibility in error handling approaches.
+This implementation provides a robust, production-ready solution for handling data quality issues according to schema standards while maintaining flexibility in error handling approaches.

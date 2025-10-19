@@ -1,6 +1,7 @@
 """Conditional schema management functionality."""
 
 from __future__ import annotations
+
 from typing import Any, Dict, List, Optional
 
 from ..fields.positions import PositionCalculator
@@ -47,7 +48,11 @@ class ConditionalSchemaManager:
         Returns:
             List of all valid flag values
         """
-        return [variant.get("flagValue") for variant in self.schema_variants if variant.get("flagValue")]
+        return [
+            variant.get("flagValue")
+            for variant in self.schema_variants
+            if variant.get("flagValue")
+        ]
 
     def validate_flag_value(self, flag_value: str) -> bool:
         """Check if a flag value is valid according to the schema.
@@ -96,7 +101,7 @@ class ConditionalSchemaManager:
                 return {
                     "flagValue": flag_value,
                     "variant": variant,
-                    "fields": variant.get("fields", [])
+                    "fields": variant.get("fields", []),
                 }
 
         return None

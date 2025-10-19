@@ -6,16 +6,14 @@ chunked uploads for large files.
 """
 
 from __future__ import annotations
+
 import io
-import csv
-from typing import Iterator, Optional, Dict, Any, Union, BinaryIO, TextIO
 from pathlib import Path
+from typing import Any, BinaryIO, Dict, Iterator, Optional, TextIO, Union
 from urllib.parse import urlparse
-import tempfile
-import os
 
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
+from botocore.exceptions import ClientError
 
 
 class S3Path:
@@ -30,12 +28,12 @@ class S3Path:
         Raises:
             ValueError: If URI is not a valid S3 path
         """
-        if not s3_uri.startswith('s3://'):
+        if not s3_uri.startswith("s3://"):
             raise ValueError(f"Invalid S3 URI: {s3_uri}. Must start with 's3://'")
 
         parsed = urlparse(s3_uri)
         self.bucket = parsed.netloc
-        self.key = parsed.path.lstrip('/')
+        self.key = parsed.path.lstrip("/")
         self.uri = s3_uri
 
         if not self.bucket:
@@ -48,36 +46,39 @@ class S3Path:
         return f"S3Path('{self.uri}')"
 
     @property
-    def parent(self) -> 'S3Path':
+    def parent(self) -> "S3Path":
         """Get parent S3 path (directory)."""
-        if '/' not in self.key:
-            return S3Path(f's3://{self.bucket}/')
-        parent_key = '/'.join(self.key.split('/')[:-1])
-        return S3Path(f's3://{self.bucket}/{parent_key}')
+        if "/" not in self.key:
+            return S3Path(f"s3://{self.bucket}/")
+        parent_key = "/".join(self.key.split("/")[:-1])
+        return S3Path(f"s3://{self.bucket}/{parent_key}")
 
     @property
     def name(self) -> str:
         """Get file name (last component of key)."""
-        if '/' not in self.key:
+        if "/" not in self.key:
             return self.key
-        return self.key.split('/')[-1]
+        return self.key.split("/")[-1]
 
-    def join(self, *parts: str) -> 'S3Path':
+    def join(self, *parts: str) -> "S3Path":
         """Join additional path components."""
         key_parts = [self.key] + list(parts)
-        new_key = '/'.join(part.strip('/') for part in key_parts if part.strip('/'))
-        return S3Path(f's3://{self.bucket}/{new_key}')
+        new_key = "/".join(part.strip("/") for part in key_parts if part.strip("/"))
+        return S3Path(f"s3://{self.bucket}/{new_key}")
 
 
 class S3StreamingClient:
     """Client for streaming data to/from S3 using boto3."""
 
-    def __init__(self, aws_access_key_id: Optional[str] = None,
-                 aws_secret_access_key: Optional[str] = None,
-                 aws_session_token: Optional[str] = None,
-                 region_name: Optional[str] = None,
-                 endpoint_url: Optional[str] = None,
-                 **kwargs):
+    def __init__(
+        self,
+        aws_access_key_id: Optional[str] = None,
+        aws_secret_access_key: Optional[str] = None,
+        aws_session_token: Optional[str] = None,
+        region_name: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
+        **kwargs,
+    ):
         """Initialize S3 streaming client.
 
         Args:
@@ -85,21 +86,21 @@ class S3StreamingClient:
             aws_secret_access_key: AWS secret access key (optional)
             aws_session_token: AWS session token (optional, for temporary credentials)
             region_name: AWS region name (optional, uses boto3 default)
-            endpoint_url: Custom S3 endpoint URL (optional, for S3-compatible services like Hetzner)
+            endpoint_url: Custom S3 endpoint URL (optional, for S3-compatible services)
             **kwargs: Additional boto3 client parameters
         """
         self._session = boto3.Session(
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             aws_session_token=aws_session_token,
-            region_name=region_name
+            region_name=region_name,
         )
 
         # Add endpoint_url to kwargs if provided
         if endpoint_url:
-            kwargs['endpoint_url'] = endpoint_url
+            kwargs["endpoint_url"] = endpoint_url
 
-        self._s3_client = self._session.client('s3', **kwargs)
+        self._s3_client = self._session.client("s3", **kwargs)
 
     def exists(self, s3_path: Union[str, S3Path]) -> bool:
         """Check if S3 object exists.
@@ -117,7 +118,7 @@ class S3StreamingClient:
             self._s3_client.head_object(Bucket=s3_path.bucket, Key=s3_path.key)
             return True
         except ClientError as e:
-            if e.response['Error']['Code'] == '404':
+            if e.response["Error"]["Code"] == "404":
                 return False
             raise
 
@@ -137,11 +138,15 @@ class S3StreamingClient:
             s3_path = S3Path(s3_path)
 
         response = self._s3_client.head_object(Bucket=s3_path.bucket, Key=s3_path.key)
-        return response['ContentLength']
+        return response["ContentLength"]
 
-    def open_for_read(self, s3_path: Union[str, S3Path],
-                      encoding: str = 'utf-8',
-                      chunk_size: int = 8192, mode: str = 'r') -> Union[TextIO, BinaryIO]:
+    def open_for_read(
+        self,
+        s3_path: Union[str, S3Path],
+        encoding: str = "utf-8",
+        chunk_size: int = 8192,
+        mode: str = "r",
+    ) -> Union[TextIO, BinaryIO]:
         """Open S3 object for streaming read.
 
         Args:
@@ -160,16 +165,17 @@ class S3StreamingClient:
             s3_path = S3Path(s3_path)
 
         response = self._s3_client.get_object(Bucket=s3_path.bucket, Key=s3_path.key)
-        binary_stream = response['Body']
+        binary_stream = response["Body"]
 
         # Return binary stream for binary mode, text wrapper for text mode
-        if 'b' in mode:
+        if "b" in mode:
             return binary_stream
         else:
             return io.TextIOWrapper(binary_stream, encoding=encoding)
 
-    def open_for_write(self, s3_path: Union[str, S3Path],
-                       encoding: str = 'utf-8', mode: str = 'w') -> 'S3StreamingWriter':
+    def open_for_write(
+        self, s3_path: Union[str, S3Path], encoding: str = "utf-8", mode: str = "w"
+    ) -> "S3StreamingWriter":
         """Open S3 object for streaming write using multipart upload.
 
         Args:
@@ -185,8 +191,9 @@ class S3StreamingClient:
 
         return S3StreamingWriter(self._s3_client, s3_path, encoding=encoding, mode=mode)
 
-    def list_objects(self, s3_prefix: Union[str, S3Path],
-                     max_keys: Optional[int] = None) -> Iterator[Dict[str, Any]]:
+    def list_objects(
+        self, s3_prefix: Union[str, S3Path], max_keys: Optional[int] = None
+    ) -> Iterator[Dict[str, Any]]:
         """List objects with given prefix.
 
         Args:
@@ -199,24 +206,28 @@ class S3StreamingClient:
         if isinstance(s3_prefix, str):
             s3_prefix = S3Path(s3_prefix)
 
-        paginator = self._s3_client.get_paginator('list_objects_v2')
+        paginator = self._s3_client.get_paginator("list_objects_v2")
         page_iterator = paginator.paginate(
-            Bucket=s3_prefix.bucket,
-            Prefix=s3_prefix.key,
-            MaxKeys=max_keys or 1000
+            Bucket=s3_prefix.bucket, Prefix=s3_prefix.key, MaxKeys=max_keys or 1000
         )
 
         for page in page_iterator:
-            if 'Contents' in page:
-                for obj in page['Contents']:
+            if "Contents" in page:
+                for obj in page["Contents"]:
                     yield obj
 
 
 class S3StreamingWriter:
     """Streaming writer for S3 using multipart upload."""
 
-    def __init__(self, s3_client, s3_path: S3Path, encoding: str = 'utf-8',
-                 part_size: int = 100 * 1024 * 1024, mode: str = 'w'):  # 100MB default
+    def __init__(
+        self,
+        s3_client,
+        s3_path: S3Path,
+        encoding: str = "utf-8",
+        part_size: int = 100 * 1024 * 1024,
+        mode: str = "w",
+    ):  # 100MB default
         """Initialize S3 streaming writer.
 
         Args:
@@ -231,13 +242,12 @@ class S3StreamingWriter:
         self._encoding = encoding
         self._part_size = max(part_size, 5 * 1024 * 1024)  # Minimum 5MB
         self._mode = mode
-        self._is_binary = 'b' in mode
+        self._is_binary = "b" in mode
 
         # Initialize multipart upload
         self._upload_id = self._s3_client.create_multipart_upload(
-            Bucket=s3_path.bucket,
-            Key=s3_path.key
-        )['UploadId']
+            Bucket=s3_path.bucket, Key=s3_path.key
+        )["UploadId"]
 
         self._parts = []
         self._part_number = 1
@@ -300,7 +310,7 @@ class S3StreamingWriter:
             raise TypeError(f"Unsupported data type: {type(data)}. Expected str or bytes.")
 
         # Write to buffer
-        bytes_written = self._buffer.write(data_bytes)
+        self._buffer.write(data_bytes)
         self._position += return_count
 
         # Upload part if buffer is large enough
@@ -324,14 +334,11 @@ class S3StreamingWriter:
             Key=self._s3_path.key,
             PartNumber=self._part_number,
             UploadId=self._upload_id,
-            Body=part_data
+            Body=part_data,
         )
 
         # Track part
-        self._parts.append({
-            'ETag': response['ETag'],
-            'PartNumber': self._part_number
-        })
+        self._parts.append({"ETag": response["ETag"], "PartNumber": self._part_number})
 
         self._part_number += 1
         self._buffer = io.BytesIO()  # Reset buffer
@@ -357,9 +364,7 @@ class S3StreamingWriter:
                 data = self._buffer.read()
                 if data:  # Only upload if there's actually data
                     self._s3_client.put_object(
-                        Bucket=self._s3_path.bucket,
-                        Key=self._s3_path.key,
-                        Body=data
+                        Bucket=self._s3_path.bucket, Key=self._s3_path.key, Body=data
                     )
             else:
                 # Complete multipart upload with valid parts
@@ -367,7 +372,7 @@ class S3StreamingWriter:
                     Bucket=self._s3_path.bucket,
                     Key=self._s3_path.key,
                     UploadId=self._upload_id,
-                    MultipartUpload={'Parts': self._parts}
+                    MultipartUpload={"Parts": self._parts},
                 )
         except Exception:
             # Abort upload on failure
@@ -380,9 +385,7 @@ class S3StreamingWriter:
         """Abort the multipart upload (cleanup method)."""
         try:
             self._s3_client.abort_multipart_upload(
-                Bucket=self._s3_path.bucket,
-                Key=self._s3_path.key,
-                UploadId=self._upload_id
+                Bucket=self._s3_path.bucket, Key=self._s3_path.key, UploadId=self._upload_id
             )
         except Exception:
             pass  # Best effort cleanup
@@ -405,7 +408,7 @@ def is_s3_path(path: Union[str, Path]) -> bool:
     """
     if isinstance(path, Path):
         path = str(path)
-    return isinstance(path, str) and path.startswith('s3://')
+    return isinstance(path, str) and path.startswith("s3://")
 
 
 def get_s3_client(**kwargs) -> S3StreamingClient:

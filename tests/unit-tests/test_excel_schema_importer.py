@@ -1,9 +1,11 @@
 """Tests for Excel schema importer."""
-import pytest
+
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, mock_open
+from unittest.mock import mock_open, patch
+
+import pytest
 
 from forklift.schema.excel_schema_importer import ExcelSchemaImporter, SchemaValidationError
 
@@ -20,32 +22,16 @@ class TestExcelSchemaImporter:
             "title": "Test Excel Schema",
             "type": "object",
             "properties": {
-                "id": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 999999
-                },
+                "id": {"type": "integer", "minimum": 1, "maximum": 999999},
                 "name": {
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 100,
-                    "pattern": "^[A-Za-z ]+$"
+                    "pattern": "^[A-Za-z ]+$",
                 },
-                "email": {
-                    "type": "string",
-                    "format": "email"
-                },
-                "age": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 150
-                },
-                "scores": {
-                    "type": "array",
-                    "items": {
-                        "type": "number"
-                    }
-                }
+                "email": {"type": "string", "format": "email"},
+                "age": {"type": "integer", "minimum": 0, "maximum": 150},
+                "scores": {"type": "array", "items": {"type": "number"}},
             },
             "required": ["id", "name"],
             "additionalProperties": False,
@@ -54,50 +40,43 @@ class TestExcelSchemaImporter:
                 "valuesOnly": True,
                 "nulls": {
                     "global": ["", "NULL", "N/A"],
-                    "perColumn": {
-                        "age": ["", "NULL", "Unknown"]
-                    }
+                    "perColumn": {"age": ["", "NULL", "Unknown"]},
                 },
                 "sheets": [
                     {
-                        "select": {
-                            "name": "Sheet1"
-                        },
-                        "header": {
-                            "row": 1,
-                            "mode": "present"
-                        },
+                        "select": {"name": "Sheet1"},
+                        "header": {"row": 1, "mode": "present"},
                         "dataStartRow": 2,
                         "columns": [
                             {
                                 "name": "id",
                                 "position": "A",
                                 "type": "integer",
-                                "parquetType": "int32"
+                                "parquetType": "int32",
                             },
                             {
                                 "name": "name",
                                 "position": "B",
                                 "type": "string",
-                                "parquetType": "string"
+                                "parquetType": "string",
                             },
                             {
                                 "name": "email",
                                 "position": "C",
                                 "type": "string",
                                 "format": "email",
-                                "parquetType": "string"
+                                "parquetType": "string",
                             },
                             {
                                 "name": "age",
                                 "position": 4,
                                 "type": "integer",
-                                "parquetType": "int16"
-                            }
-                        ]
+                                "parquetType": "int16",
+                            },
+                        ],
                     }
-                ]
-            }
+                ],
+            },
         }
 
     @pytest.fixture
@@ -109,13 +88,7 @@ class TestExcelSchemaImporter:
             "title": "Minimal Schema",
             "type": "object",
             "properties": {},
-            "x-excel": {
-                "sheets": [
-                    {
-                        "select": {"name": "Sheet1"}
-                    }
-                ]
-            }
+            "x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]},
         }
 
     def test_init_with_dict_valid_schema(self, valid_excel_schema):
@@ -134,7 +107,7 @@ class TestExcelSchemaImporter:
     def test_init_with_file_path(self, valid_excel_schema, tmp_path):
         """Test initialization with a file path."""
         schema_file = tmp_path / "test_schema.json"
-        with open(schema_file, 'w') as f:
+        with open(schema_file, "w") as f:
             json.dump(valid_excel_schema, f)
 
         importer = ExcelSchemaImporter(schema_file, validate=False)
@@ -143,7 +116,7 @@ class TestExcelSchemaImporter:
     def test_init_with_pathlib_path(self, valid_excel_schema, tmp_path):
         """Test initialization with a pathlib Path object."""
         schema_file = tmp_path / "test_schema.json"
-        with open(schema_file, 'w') as f:
+        with open(schema_file, "w") as f:
             json.dump(valid_excel_schema, f)
 
         importer = ExcelSchemaImporter(Path(schema_file), validate=False)
@@ -185,7 +158,7 @@ class TestExcelSchemaImporter:
             "title": "Test",
             "type": "object",
             "properties": {},
-            "x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}
+            "x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]},
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -203,7 +176,7 @@ class TestExcelSchemaImporter:
             "title": "Test",
             "type": "array",  # Should be "object"
             "properties": "not_a_dict",  # Should be dict
-            "x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}
+            "x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]},
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -220,7 +193,7 @@ class TestExcelSchemaImporter:
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "Test",
             "type": "object",
-            "properties": {}
+            "properties": {},
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -238,8 +211,8 @@ class TestExcelSchemaImporter:
             "properties": {},
             "x-excel": {
                 "dateSystem": "invalid",  # Should be "1900" or "1904"
-                "sheets": [{"select": {"name": "Sheet1"}}]
-            }
+                "sheets": [{"select": {"name": "Sheet1"}}],
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -257,8 +230,8 @@ class TestExcelSchemaImporter:
             "properties": {},
             "x-excel": {
                 "valuesOnly": "not_a_boolean",  # Should be boolean
-                "sheets": [{"select": {"name": "Sheet1"}}]
-            }
+                "sheets": [{"select": {"name": "Sheet1"}}],
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -277,10 +250,10 @@ class TestExcelSchemaImporter:
             "x-excel": {
                 "nulls": {
                     "global": "not_a_list",  # Should be list
-                    "perColumn": "not_a_dict"  # Should be dict
+                    "perColumn": "not_a_dict",  # Should be dict
                 },
-                "sheets": [{"select": {"name": "Sheet1"}}]
-            }
+                "sheets": [{"select": {"name": "Sheet1"}}],
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -298,9 +271,7 @@ class TestExcelSchemaImporter:
             "title": "Test",
             "type": "object",
             "properties": {},
-            "x-excel": {
-                "sheets": []  # Empty array not allowed
-            }
+            "x-excel": {"sheets": []},  # Empty array not allowed
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -322,11 +293,9 @@ class TestExcelSchemaImporter:
                     {
                         # Missing required 'select'
                     },
-                    {
-                        "select": {}  # Invalid select - needs name, index, or regex
-                    }
+                    {"select": {}},  # Invalid select - needs name, index, or regex
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -347,12 +316,9 @@ class TestExcelSchemaImporter:
             "properties": {},
             "x-excel": {
                 "sheets": [
-                    {
-                        "select": {"name": "Sheet1"},
-                        "columns": "not_a_list"  # Should be list
-                    }
+                    {"select": {"name": "Sheet1"}, "columns": "not_a_list"}  # Should be list
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -378,7 +344,7 @@ class TestExcelSchemaImporter:
                                 # Missing name and position
                                 "type": "invalid_type",  # Invalid type
                                 "parquetType": "invalid_parquet_type",  # Invalid Parquet type
-                                "format": "invalid_format"  # Invalid format - but no type specified
+                                "format": "invalid_format",  # Invalid format - but no type specified
                             },
                             {
                                 "name": "test1",
@@ -395,11 +361,11 @@ class TestExcelSchemaImporter:
                             {
                                 "name": "test4",
                                 "position": "A",  # Duplicate position
-                            }
-                        ]
+                            },
+                        ],
                     }
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -430,12 +396,12 @@ class TestExcelSchemaImporter:
                         "select": {"name": "Sheet1"},
                         "header": {
                             "row": "not_an_integer",  # Should be integer
-                            "mode": "invalid_mode"  # Should be present/absent/auto
+                            "mode": "invalid_mode",  # Should be present/absent/auto
                         },
-                        "dataStartRow": "not_an_integer"  # Should be integer
+                        "dataStartRow": "not_an_integer",  # Should be integer
                     }
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -455,28 +421,21 @@ class TestExcelSchemaImporter:
             "type": "object",
             "properties": {
                 "invalid_field": "not_a_dict",  # Should be dict
-                "invalid_type_field": {
-                    "type": "invalid_type"  # Invalid type
-                },
+                "invalid_type_field": {"type": "invalid_type"},  # Invalid type
                 "invalid_integer_field": {
                     "type": "integer",
                     "minimum": "not_a_number",  # Should be number
-                    "maximum": "not_a_number"  # Should be number
+                    "maximum": "not_a_number",  # Should be number
                 },
                 "invalid_string_field": {
                     "type": "string",
                     "minLength": -1,  # Should be >= 0
                     "maxLength": "not_a_number",  # Should be number
-                    "pattern": "[invalid regex"  # Invalid regex
+                    "pattern": "[invalid regex",  # Invalid regex
                 },
-                "invalid_array_field": {
-                    "type": "array",
-                    "items": "not_a_dict"  # Should be dict
-                }
+                "invalid_array_field": {"type": "array", "items": "not_a_dict"},  # Should be dict
             },
-            "x-excel": {
-                "sheets": [{"select": {"name": "Sheet1"}}]
-            }
+            "x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]},
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -503,10 +462,21 @@ class TestExcelSchemaImporterParquetTypes:
 
         # Test all supported basic types
         basic_types = [
-            "int8", "int16", "int32", "int64",
-            "uint8", "uint16", "uint32", "uint64",
-            "float32", "double", "bool", "string", "binary",
-            "date32", "date64"
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "double",
+            "bool",
+            "string",
+            "binary",
+            "date32",
+            "date64",
         ]
 
         for ptype in basic_types:
@@ -518,8 +488,12 @@ class TestExcelSchemaImporterParquetTypes:
         importer = ExcelSchemaImporter(schema, validate=False)
 
         timestamp_types = [
-            "timestamp[s]", "timestamp[ms]", "timestamp[us]", "timestamp[ns]",
-            "timestamp[s, tz=UTC]", "timestamp[ms, tz=America/New_York]"
+            "timestamp[s]",
+            "timestamp[ms]",
+            "timestamp[us]",
+            "timestamp[ns]",
+            "timestamp[s, tz=UTC]",
+            "timestamp[ms, tz=America/New_York]",
         ]
 
         for ptype in timestamp_types:
@@ -530,9 +504,7 @@ class TestExcelSchemaImporterParquetTypes:
         schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
         importer = ExcelSchemaImporter(schema, validate=False)
 
-        duration_types = [
-            "duration[s]", "duration[ms]", "duration[us]", "duration[ns]"
-        ]
+        duration_types = ["duration[s]", "duration[ms]", "duration[us]", "duration[ns]"]
 
         for ptype in duration_types:
             assert importer._is_valid_parquet_type(ptype), f"Type {ptype} should be valid"
@@ -542,9 +514,7 @@ class TestExcelSchemaImporterParquetTypes:
         schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
         importer = ExcelSchemaImporter(schema, validate=False)
 
-        decimal_types = [
-            "decimal128(10,2)", "decimal128(38,18)", "decimal128(5,0)"
-        ]
+        decimal_types = ["decimal128(10,2)", "decimal128(38,18)", "decimal128(5,0)"]
 
         for ptype in decimal_types:
             assert importer._is_valid_parquet_type(ptype), f"Type {ptype} should be valid"
@@ -554,9 +524,7 @@ class TestExcelSchemaImporterParquetTypes:
         schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
         importer = ExcelSchemaImporter(schema, validate=False)
 
-        list_types = [
-            "list<string>", "list<int32>", "list<double>"
-        ]
+        list_types = ["list<string>", "list<int32>", "list<double>"]
 
         for ptype in list_types:
             assert importer._is_valid_parquet_type(ptype), f"Type {ptype} should be valid"
@@ -568,7 +536,7 @@ class TestExcelSchemaImporterParquetTypes:
 
         dict_types = [
             "dictionary<values=string, indices=int32>",
-            "dictionary<values=int64, indices=int16>"
+            "dictionary<values=int64, indices=int16>",
         ]
 
         for ptype in dict_types:
@@ -580,8 +548,15 @@ class TestExcelSchemaImporterParquetTypes:
         importer = ExcelSchemaImporter(schema, validate=False)
 
         invalid_types = [
-            "invalid_type", "int128", "varchar", "text", "datetime",
-            "timestamp", "duration", "list", "dictionary"
+            "invalid_type",
+            "int128",
+            "varchar",
+            "text",
+            "datetime",
+            "timestamp",
+            "duration",
+            "list",
+            "dictionary",
             # Note: removing "decimal128()" as it's actually considered valid by the current implementation
         ]
 
@@ -600,6 +575,7 @@ class TestExcelSchemaImporterParquetTypes:
             result = importer._is_valid_parquet_type(ptype)
             assert result is True, f"Type {ptype} should be valid and trigger early return"
 
+
 class TestExcelSchemaImporterAccessorMethods:
     """Test accessor methods in Excel schema importer."""
 
@@ -611,10 +587,7 @@ class TestExcelSchemaImporterAccessorMethods:
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/comprehensive.json",
             "title": "Comprehensive Schema",
             "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"}
-            },
+            "properties": {"id": {"type": "integer"}, "name": {"type": "string"}},
             "required": ["id"],
             "additionalProperties": True,
             "x-excel": {
@@ -622,27 +595,22 @@ class TestExcelSchemaImporterAccessorMethods:
                 "valuesOnly": False,
                 "nulls": {
                     "global": ["", "NULL"],
-                    "perColumn": {
-                        "age": ["", "Unknown"],
-                        "status": ["", "N/A"]
-                    }
+                    "perColumn": {"age": ["", "Unknown"], "status": ["", "N/A"]},
                 },
                 "sheets": [
                     {
                         "select": {"name": "Data"},
                         "columns": [
                             {"name": "id", "position": "A", "type": "integer"},
-                            {"name": "name", "position": "B", "type": "string"}
-                        ]
+                            {"name": "name", "position": "B", "type": "string"},
+                        ],
                     },
                     {
                         "select": {"name": "Summary"},
-                        "columns": [
-                            {"name": "total", "position": "A", "type": "number"}
-                        ]
-                    }
-                ]
-            }
+                        "columns": [{"name": "total", "position": "A", "type": "number"}],
+                    },
+                ],
+            },
         }
 
     def test_get_field_map(self, comprehensive_schema):
@@ -695,11 +663,7 @@ class TestExcelSchemaImporterAccessorMethods:
 
     def test_get_null_values_no_nulls_config(self):
         """Test getting null values when no nulls configuration exists."""
-        schema = {
-            "x-excel": {
-                "sheets": [{"select": {"name": "Sheet1"}}]
-            }
-        }
+        schema = {"x-excel": {"sheets": [{"select": {"name": "Sheet1"}}]}}
         importer = ExcelSchemaImporter(schema, validate=False)
 
         nulls = importer.get_null_values()
@@ -776,8 +740,8 @@ class TestExcelSchemaImporterAccessorMethods:
                         "columns": [
                             "not_a_dict",  # Invalid column
                             {"position": "A"},  # Missing name
-                            {"name": "valid", "position": "B"}  # Valid column
-                        ]
+                            {"name": "valid", "position": "B"},  # Valid column
+                        ],
                     }
                 ]
             }
@@ -822,8 +786,8 @@ class TestExcelSchemaImporterEdgeCases:
             "x-excel": {
                 "dateSystem": "invalid",  # Invalid value
                 "valuesOnly": "not_boolean",  # Wrong type
-                "sheets": []  # Empty array
-            }
+                "sheets": [],  # Empty array
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -842,7 +806,7 @@ class TestExcelSchemaImporterEdgeCases:
             "title": "Test",
             "type": "object",
             "properties": {},
-            "x-excel": {}  # Empty extension
+            "x-excel": {},  # Empty extension
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -864,11 +828,11 @@ class TestExcelSchemaImporterEdgeCases:
                         "select": {
                             "name": "Sheet1",
                             "index": 0,  # Multiple methods - should be valid
-                            "regex": "Sheet.*"
+                            "regex": "Sheet.*",
                         }
                     }
                 ]
-            }
+            },
         }
 
         # Should not raise error - having multiple selection methods is valid
@@ -889,13 +853,13 @@ class TestExcelSchemaImporterEdgeCases:
                         "select": {"name": "Sheet1"},
                         "columns": [
                             {"name": "col1", "position": "A"},  # String position
-                            {"name": "col2", "position": 2},    # Numeric position
-                            {"name": "col3", "position": "AB"}, # Multi-letter string position
-                            {"name": "col4", "position": 2}     # Duplicate numeric position
-                        ]
+                            {"name": "col2", "position": 2},  # Numeric position
+                            {"name": "col3", "position": "AB"},  # Multi-letter string position
+                            {"name": "col4", "position": 2},  # Duplicate numeric position
+                        ],
                     }
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -912,12 +876,12 @@ class TestExcelSchemaImporterEdgeCases:
         # Test edge cases that might not be covered
         edge_case_types = [
             "decimal128(",  # Invalid decimal format - missing closing parenthesis
-            "timestamp[",   # Invalid timestamp format - missing closing bracket
-            "duration[",    # Invalid duration format - missing closing bracket
-            "list<",        # Invalid list format - missing closing bracket
+            "timestamp[",  # Invalid timestamp format - missing closing bracket
+            "duration[",  # Invalid duration format - missing closing bracket
+            "list<",  # Invalid list format - missing closing bracket
             "dictionary<",  # Invalid dictionary format - missing closing bracket
-            "unknown_type", # Completely unknown type
-            "",             # Empty string
+            "unknown_type",  # Completely unknown type
+            "",  # Empty string
         ]
 
         for ptype in edge_case_types:
@@ -932,7 +896,7 @@ class TestExcelSchemaImporterEdgeCases:
             "title": "Test",
             "type": "object",
             "properties": {},
-            "x-excel": {"sheets": []}
+            "x-excel": {"sheets": []},
         }
         importer_no_sheets = ExcelSchemaImporter(schema_no_sheets, validate=False)
         mapping = importer_no_sheets.get_column_mapping()
@@ -952,7 +916,7 @@ class TestExcelSchemaImporterEdgeCases:
                         # No columns defined
                     }
                 ]
-            }
+            },
         }
         importer_no_columns = ExcelSchemaImporter(schema_no_columns, validate=False)
         mapping = importer_no_columns.get_column_mapping()
@@ -965,19 +929,12 @@ class TestExcelSchemaImporterEdgeCases:
             "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
             "title": "Test",
             "type": "object",
-            "properties": {
-                "test_field": None  # Null field definition
-            },
+            "properties": {"test_field": None},  # Null field definition
             "x-excel": {
                 "sheets": [
-                    {
-                        "select": {"name": "Sheet1"},
-                        "columns": [
-                            {"name": "test", "position": "A"}
-                        ]
-                    }
+                    {"select": {"name": "Sheet1"}, "columns": [{"name": "test", "position": "A"}]}
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -995,11 +952,9 @@ class TestExcelSchemaImporterEdgeCases:
             "properties": {},
             "x-excel": {
                 "sheets": [
-                    {
-                        "select": "not_a_dictionary"  # Should be dictionary - this covers line 165
-                    }
+                    {"select": "not_a_dictionary"}  # Should be dictionary - this covers line 165
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -1024,12 +979,12 @@ class TestExcelSchemaImporterEdgeCases:
                                 "name": "test_column",
                                 "position": "A",
                                 "type": "string",
-                                "format": "invalid_format"  # Invalid format with string type - this covers line 243
+                                "format": "invalid_format",  # Invalid format with string type - this covers line 243
                             }
-                        ]
+                        ],
                     }
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -1044,7 +999,9 @@ class TestExcelSchemaImporterEdgeCases:
 
         # Test a type that's in the SUPPORTED_PARQUET_TYPES set to trigger early return (line 326)
         # Using a simple test that directly checks if the first condition is met
-        result = importer._is_valid_parquet_type("int8")  # This should definitely be in SUPPORTED_PARQUET_TYPES
+        result = importer._is_valid_parquet_type(
+            "int8"
+        )  # This should definitely be in SUPPORTED_PARQUET_TYPES
         assert result is True, "Type 'int8' should be valid and trigger early return on line 326"
 
     def test_parquet_type_duration_validation_coverage(self):
@@ -1057,4 +1014,3 @@ class TestExcelSchemaImporterEdgeCases:
         for dtype in duration_types:
             result = importer._is_valid_parquet_type(dtype)
             assert result is True, f"Duration type '{dtype}' should be valid and trigger line 326"
-

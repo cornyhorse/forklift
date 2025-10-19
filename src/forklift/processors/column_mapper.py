@@ -1,9 +1,10 @@
 """Column mapping processor for transforming column names in PyArrow data."""
 
 from __future__ import annotations
-from typing import List, Tuple, Dict, Optional, Callable
-from dataclasses import dataclass
+
 import re
+from dataclasses import dataclass
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pyarrow as pa
 
@@ -16,12 +17,14 @@ class ColumnMappingConfig:
 
     Attributes:
         explicit_mappings: Direct column name mappings (source -> target)
-        naming_convention: Apply standard naming convention ('snake_case', 'camelCase', 'PascalCase', 'lowercase', 'UPPERCASE')
+        naming_convention: Apply standard naming convention
+               ('snake_case', 'camelCase', 'PascalCase', 'lowercase', 'UPPERCASE')
         custom_transform: Custom function to transform column names
         case_sensitive: Whether mappings are case sensitive
         allow_unmapped: Whether to keep columns that don't have explicit mappings
         drop_unmapped: Whether to drop columns that don't have mappings (overrides allow_unmapped)
     """
+
     explicit_mappings: Optional[Dict[str, str]] = None
     naming_convention: Optional[str] = None
     custom_transform: Optional[Callable[[str], str]] = None
@@ -33,9 +36,12 @@ class ColumnMappingConfig:
         if self.explicit_mappings is None:
             self.explicit_mappings = {}
 
-        valid_conventions = {'snake_case', 'camelCase', 'PascalCase', 'lowercase', 'UPPERCASE'}
+        valid_conventions = {"snake_case", "camelCase", "PascalCase", "lowercase", "UPPERCASE"}
         if self.naming_convention and self.naming_convention not in valid_conventions:
-            raise ValueError(f"naming_convention must be one of {valid_conventions}, got: {self.naming_convention}")
+            raise ValueError(
+                f"naming_convention must be one of {valid_conventions}"
+                f", got: {self.naming_convention}"
+            )
 
 
 class ColumnMapper(BaseProcessor):
@@ -73,7 +79,9 @@ class ColumnMapper(BaseProcessor):
         """
         self.config = config
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch by mapping column names.
 
         Args:
@@ -111,7 +119,9 @@ class ColumnMapper(BaseProcessor):
                 new_fields = []
                 for i, col_idx in enumerate(columns_to_keep):
                     old_field = batch.schema.field(col_idx)
-                    new_field = pa.field(new_column_names[i], old_field.type, old_field.nullable, old_field.metadata)
+                    new_field = pa.field(
+                        new_column_names[i], old_field.type, old_field.nullable, old_field.metadata
+                    )
                     new_fields.append(new_field)
 
                 new_schema = pa.schema(new_fields)
@@ -124,20 +134,24 @@ class ColumnMapper(BaseProcessor):
                 # Only add validation error if there were originally columns that got dropped
                 # An empty input batch should not generate a validation error
                 if len(current_columns) > 0:
-                    validation_results.append(ValidationResult(
-                        is_valid=False,
-                        error_message="All columns were dropped during mapping",
-                        error_code="ALL_COLUMNS_DROPPED"
-                    ))
+                    validation_results.append(
+                        ValidationResult(
+                            is_valid=False,
+                            error_message="All columns were dropped during mapping",
+                            error_code="ALL_COLUMNS_DROPPED",
+                        )
+                    )
 
             return new_batch, validation_results
 
         except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Column mapping failed: {str(e)}",
-                error_code="MAPPING_ERROR"
-            ))
+            validation_results.append(
+                ValidationResult(
+                    is_valid=False,
+                    error_message=f"Column mapping failed: {str(e)}",
+                    error_code="MAPPING_ERROR",
+                )
+            )
             return batch, validation_results
 
     def _map_column_name(self, column_name: str) -> Optional[str]:
@@ -161,7 +175,11 @@ class ColumnMapper(BaseProcessor):
             mapped_name = self.config.custom_transform(mapped_name)
 
         # Step 4: Check if we should keep unmapped columns
-        if mapped_name == column_name and not self.config.allow_unmapped and self.config.drop_unmapped:
+        if (
+            mapped_name == column_name
+            and not self.config.allow_unmapped
+            and self.config.drop_unmapped
+        ):
             return None
 
         return mapped_name
@@ -200,15 +218,15 @@ class ColumnMapper(BaseProcessor):
         if not self.config.naming_convention:
             return column_name
 
-        if self.config.naming_convention == 'snake_case':
+        if self.config.naming_convention == "snake_case":
             return self._to_snake_case(column_name)
-        elif self.config.naming_convention == 'camelCase':
+        elif self.config.naming_convention == "camelCase":
             return self._to_camel_case(column_name)
-        elif self.config.naming_convention == 'PascalCase':
+        elif self.config.naming_convention == "PascalCase":
             return self._to_pascal_case(column_name)
-        elif self.config.naming_convention == 'lowercase':
+        elif self.config.naming_convention == "lowercase":
             return column_name.lower()
-        elif self.config.naming_convention == 'UPPERCASE':
+        elif self.config.naming_convention == "UPPERCASE":
             return column_name.upper()
 
         return column_name
@@ -222,9 +240,9 @@ class ColumnMapper(BaseProcessor):
             XMLParser -> xml_parser
         """
         # Insert underscore before uppercase letters that follow lowercase letters
-        s1 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', name)
+        s1 = re.sub("([a-z0-9])([A-Z])", r"\1_\2", name)
         # Insert underscore before uppercase letters that are followed by lowercase letters
-        s2 = re.sub('([A-Z])([A-Z][a-z])', r'\1_\2', s1)
+        s2 = re.sub("([A-Z])([A-Z][a-z])", r"\1_\2", s1)
         return s2.lower()
 
     def _to_camel_case(self, name: str) -> str:
@@ -234,7 +252,7 @@ class ColumnMapper(BaseProcessor):
             state_id -> stateId
             StateID -> stateID
         """
-        components = re.split('[_\\s-]+', name)
+        components = re.split("[_\\s-]+", name)
         if not components:
             return name
 
@@ -253,8 +271,8 @@ class ColumnMapper(BaseProcessor):
             state_id -> StateId
             firstName -> FirstName
         """
-        components = re.split('[_\\s-]+', name)
-        return ''.join(component.capitalize() for component in components if component)
+        components = re.split("[_\\s-]+", name)
+        return "".join(component.capitalize() for component in components if component)
 
 
 def create_postgres_mapper() -> ColumnMapper:
@@ -266,8 +284,8 @@ def create_postgres_mapper() -> ColumnMapper:
         ColumnMapper configured for PostgreSQL conventions
     """
     config = ColumnMappingConfig(
-        naming_convention='snake_case',
-        case_sensitive=False  # PostgreSQL is case-insensitive by default
+        naming_convention="snake_case",
+        case_sensitive=False,  # PostgreSQL is case-insensitive by default
     )
     return ColumnMapper(config)
 
@@ -284,7 +302,7 @@ def create_custom_mapper(mappings: Dict[str, str], postgres_style: bool = True) 
     """
     config = ColumnMappingConfig(
         explicit_mappings=mappings,
-        naming_convention='snake_case' if postgres_style else None,
-        case_sensitive=False
+        naming_convention="snake_case" if postgres_style else None,
+        case_sensitive=False,
     )
     return ColumnMapper(config)

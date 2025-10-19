@@ -1,8 +1,10 @@
 """Tests for column name utilities."""
+
 import pytest
+
 from forklift.utils.column_name_utilities import (
     dedupe_column_names,
-    standardize_postgres_column_name
+    standardize_postgres_column_name,
 )
 
 
@@ -277,7 +279,9 @@ class TestStandardizePostgresColumnName:
 
         for input_name, expected in test_cases:
             result = standardize_postgres_column_name(input_name)
-            assert result == expected, f"Failed for '{input_name}': got '{result}', expected '{expected}'"
+            assert (
+                result == expected
+            ), f"Failed for '{input_name}': got '{result}', expected '{expected}'"
 
     def test_unicode_characters(self):
         """Test handling of unicode characters."""
@@ -357,7 +361,7 @@ class TestColumnNameUtilitiesIntegration:
             "Date/Time (Created)",
             "Status - Active/Inactive",
             "Product Description (Long Text)",
-            "Customer Name & Title"  # Another duplicate
+            "Customer Name & Title",  # Another duplicate
         ]
 
         # Process through both functions
@@ -372,7 +376,7 @@ class TestColumnNameUtilitiesIntegration:
             "date_time_created",
             "status_active_inactive",
             "product_description_long_text",
-            "customer_name_title_1"
+            "customer_name_title_1",
         ]
 
         assert final_result == expected

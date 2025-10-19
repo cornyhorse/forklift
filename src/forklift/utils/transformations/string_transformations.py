@@ -7,11 +7,17 @@ from __future__ import annotations
 
 import re
 import unicodedata
-import pyarrow as pa
-import pandas as pd
 from typing import Optional
 
-from .configs import RegexReplaceConfig, StringReplaceConfig, StringCleaningConfig, StringPaddingConfig
+import pandas as pd
+import pyarrow as pa
+
+from .configs import (
+    RegexReplaceConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+)
 
 
 class StringTransformer:
@@ -24,10 +30,7 @@ class StringTransformer:
 
         pandas_series = column.to_pandas()
         transformed_series = pandas_series.str.replace(
-            config.pattern,
-            config.replacement,
-            regex=True,
-            flags=config.flags
+            config.pattern, config.replacement, regex=True, flags=config.flags
         )
         return pa.array(transformed_series)
 
@@ -61,7 +64,9 @@ class StringTransformer:
 
         return pa.array(transformed_series)
 
-    def apply_string_trimming(self, column: pa.Array, side: str = "both", chars: Optional[str] = None) -> pa.Array:
+    def apply_string_trimming(
+        self, column: pa.Array, side: str = "both", chars: Optional[str] = None
+    ) -> pa.Array:
         """Apply string trimming operations (lstrip, rstrip, strip)."""
         if not pa.types.is_string(column.type):
             return column
@@ -118,36 +123,40 @@ class StringTransformer:
             # Zero-width and control characters
             if config.remove_zero_width:
                 replace_with_space = config.collapse_whitespace
-                str_value = self._remove_zero_width_chars(str_value, replace_with_space=replace_with_space)
+                str_value = self._remove_zero_width_chars(
+                    str_value, replace_with_space=replace_with_space
+                )
 
             # Tab handling
             if config.remove_tabs:
-                str_value = str_value.replace('\t', '')
-            elif '\t' in str_value:
+                str_value = str_value.replace("\t", "")
+            elif "\t" in str_value:
                 explicit_tab_replacement = (
                     config.tab_replacement != " " or config.collapse_whitespace
                 )
 
                 if explicit_tab_replacement:
-                    str_value = str_value.replace('\t', config.tab_replacement)
+                    str_value = str_value.replace("\t", config.tab_replacement)
                 elif config.remove_control_chars and not config.preserve_tabs:
                     pass
                 else:
-                    str_value = str_value.replace('\t', config.tab_replacement)
+                    str_value = str_value.replace("\t", config.tab_replacement)
 
             if config.remove_control_chars:
                 preserve_tabs_for_removal = config.preserve_tabs
-                str_value = self._remove_control_chars(str_value, config.preserve_newlines, preserve_tabs_for_removal)
+                str_value = self._remove_control_chars(
+                    str_value, config.preserve_newlines, preserve_tabs_for_removal
+                )
 
             # Whitespace handling
             if config.collapse_whitespace:
                 if config.tab_replacement != " " and len(config.tab_replacement) > 1:
-                    placeholder = "\uE000"
+                    placeholder = "\ue000"
                     str_value = str_value.replace(config.tab_replacement, placeholder)
-                    str_value = re.sub(r'\s+', ' ', str_value)
+                    str_value = re.sub(r"\s+", " ", str_value)
                     str_value = str_value.replace(placeholder, config.tab_replacement)
                 else:
-                    str_value = re.sub(r'\s+', ' ', str_value)
+                    str_value = re.sub(r"\s+", " ", str_value)
 
             if config.strip_whitespace:
                 str_value = str_value.strip()
@@ -161,39 +170,43 @@ class StringTransformer:
 
             # Case handling
             if config.fix_case_issues:
-                str_value = self._fix_case_issues(str_value, config.title_case_exceptions, config.acronyms)
+                str_value = self._fix_case_issues(
+                    str_value, config.title_case_exceptions, config.acronyms
+                )
 
-            if config.case_transform == 'upper':
+            if config.case_transform == "upper":
                 str_value = str_value.upper()
-            elif config.case_transform == 'lower':
+            elif config.case_transform == "lower":
                 str_value = str_value.lower()
-            elif config.case_transform in {'title', 'proper'}:
-                if config.case_transform == 'title':
-                    parts = re.split(r'(\s+|-)', str_value)
+            elif config.case_transform in {"title", "proper"}:
+                if config.case_transform == "title":
+                    parts = re.split(r"(\s+|-)", str_value)
                     transformed_parts = [part.title() if part.strip() else part for part in parts]
-                    str_value = ''.join(transformed_parts)
+                    str_value = "".join(transformed_parts)
                 else:  # proper
-                    str_value = str_value[0].upper() + str_value[1:].lower() if str_value else str_value
+                    str_value = (
+                        str_value[0].upper() + str_value[1:].lower() if str_value else str_value
+                    )
 
             # Custom case mapping
             if config.custom_case_mapping:
                 for key, mapped_value in config.custom_case_mapping.items():
-                    if config.case_mapping_mode == 'exact' and str_value == key:
+                    if config.case_mapping_mode == "exact" and str_value == key:
                         str_value = mapped_value
                         break
-                    elif config.case_mapping_mode == 'startswith' and str_value.startswith(key):
-                        str_value = mapped_value + str_value[len(key):]
+                    elif config.case_mapping_mode == "startswith" and str_value.startswith(key):
+                        str_value = mapped_value + str_value[len(key) :]
                         break
-                    elif config.case_mapping_mode == 'endswith' and str_value.endswith(key):
-                        str_value = str_value[:-len(key)] + mapped_value
+                    elif config.case_mapping_mode == "endswith" and str_value.endswith(key):
+                        str_value = str_value[: -len(key)] + mapped_value
                         break
-                    elif config.case_mapping_mode == 'contains' and key in str_value:
+                    elif config.case_mapping_mode == "contains" and key in str_value:
                         str_value = str_value.replace(key, mapped_value)
 
             # Acronym handling
             if config.acronyms:
                 for acronym in config.acronyms:
-                    pattern = r'\b' + re.escape(acronym.lower()) + r'\b'
+                    pattern = r"\b" + re.escape(acronym.lower()) + r"\b"
                     str_value = re.sub(pattern, acronym.upper(), str_value, flags=re.IGNORECASE)
 
             transformed_values.append(str_value)
@@ -202,13 +215,29 @@ class StringTransformer:
 
     def _fix_encoding_errors(self, text: str) -> str:
         """Fix common encoding errors."""
-        if 'Donâ€™t' in text:
-            text = text.replace('Donâ€™t', "Don't")
+        if "Donâ€™t" in text:
+            text = text.replace("Donâ€™t", "Don't")
 
         fixes = {
-            'â€™': "'", 'â€œ': '"', 'â€': '"', 'â€"': '—', 'â€"': '-', 'â€¦': '…', 'âœ"': '✓',
-            'Ã¡': 'á', 'Ã©': 'é', 'Ã­': 'í', 'Ã³': 'ó', 'Ãº': 'ú', 'Ã±': 'ñ', 'Ã¼': 'ü',
-            'Ã ': 'à', 'Ã¨': 'è', 'Ã¬': 'ì', 'Ã²': 'ò', 'Ã¹': 'ù', 'Â': '',
+            "â€™": "'",
+            "â€œ": '"',
+            "â€": '"',
+            'â€"': "—",
+            "â€¦": "…",
+            'âœ"': "✓",
+            "Ã¡": "á",
+            "Ã©": "é",
+            "Ã­": "í",
+            "Ã³": "ó",
+            "Ãº": "ú",
+            "Ã±": "ñ",
+            "Ã¼": "ü",
+            "Ã ": "à",
+            "Ã¨": "è",
+            "Ã¬": "ì",
+            "Ã²": "ò",
+            "Ã¹": "ù",
+            "Â": "",
         }
 
         for wrong, right in fixes.items():
@@ -220,9 +249,18 @@ class StringTransformer:
     def _normalize_quotes(self, text: str) -> str:
         """Normalize smart quotes to ASCII quotes."""
         quote_mappings = {
-            '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201B': "'",
-            '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u201F': '"',
-            '\u2039': "'", '\u203A': "'", '\u00AB': '"', '\u00BB': '"',
+            "\u2018": "'",
+            "\u2019": "'",
+            "\u201a": "'",
+            "\u201b": "'",
+            "\u201c": '"',
+            "\u201d": '"',
+            "\u201e": '"',
+            "\u201f": '"',
+            "\u2039": "'",
+            "\u203a": "'",
+            "\u00ab": '"',
+            "\u00bb": '"',
         }
 
         for smart_quote, ascii_quote in quote_mappings.items():
@@ -233,10 +271,10 @@ class StringTransformer:
     def _normalize_dashes(self, text: str) -> str:
         """Normalize em/en dashes to hyphens."""
         dash_mappings = {
-            '\u2013': '-',  # En dash
-            '\u2014': '-',  # Em dash
-            '\u2015': '-',  # Horizontal bar
-            '\u2212': '-',  # Minus sign
+            "\u2013": "-",  # En dash
+            "\u2014": "-",  # Em dash
+            "\u2015": "-",  # Horizontal bar
+            "\u2212": "-",  # Minus sign
         }
 
         for dash, hyphen in dash_mappings.items():
@@ -247,21 +285,21 @@ class StringTransformer:
     def _normalize_spaces(self, text: str) -> str:
         """Convert non-breaking spaces to regular spaces."""
         space_mappings = {
-            '\u00A0': ' ',  # Non-breaking space
-            '\u2000': ' ',  # En quad
-            '\u2001': ' ',  # Em quad
-            '\u2002': ' ',  # En space
-            '\u2003': ' ',  # Em space
-            '\u2004': ' ',  # Three-per-em space
-            '\u2005': ' ',  # Four-per-em space
-            '\u2006': ' ',  # Six-per-em space
-            '\u2007': ' ',  # Figure space
-            '\u2008': ' ',  # Punctuation space
-            '\u2009': ' ',  # Thin space
-            '\u200A': ' ',  # Hair space
-            '\u202F': ' ',  # Narrow no-break space
-            '\u205F': ' ',  # Medium mathematical space
-            '\u3000': ' ',  # Ideographic space
+            "\u00a0": " ",  # Non-breaking space
+            "\u2000": " ",  # En quad
+            "\u2001": " ",  # Em quad
+            "\u2002": " ",  # En space
+            "\u2003": " ",  # Em space
+            "\u2004": " ",  # Three-per-em space
+            "\u2005": " ",  # Four-per-em space
+            "\u2006": " ",  # Six-per-em space
+            "\u2007": " ",  # Figure space
+            "\u2008": " ",  # Punctuation space
+            "\u2009": " ",  # Thin space
+            "\u200a": " ",  # Hair space
+            "\u202f": " ",  # Narrow no-break space
+            "\u205f": " ",  # Medium mathematical space
+            "\u3000": " ",  # Ideographic space
         }
 
         for special_space, regular_space in space_mappings.items():
@@ -272,29 +310,31 @@ class StringTransformer:
     def _remove_zero_width_chars(self, text: str, replace_with_space: bool = False) -> str:
         """Remove zero-width characters."""
         zero_width_chars = [
-            '\u200B',  # Zero-width space
-            '\u200C',  # Zero-width non-joiner
-            '\u200D',  # Zero-width joiner
-            '\uFEFF',  # Zero-width no-break space (BOM)
-            '\u2060',  # Word joiner
+            "\u200b",  # Zero-width space
+            "\u200c",  # Zero-width non-joiner
+            "\u200d",  # Zero-width joiner
+            "\ufeff",  # Zero-width no-break space (BOM)
+            "\u2060",  # Word joiner
         ]
 
-        replacement = ' ' if replace_with_space else ''
+        replacement = " " if replace_with_space else ""
         for char in zero_width_chars:
             text = text.replace(char, replacement)
 
         return text
 
-    def _remove_control_chars(self, text: str, preserve_newlines: bool = True, preserve_tabs: bool = False) -> str:
+    def _remove_control_chars(
+        self, text: str, preserve_newlines: bool = True, preserve_tabs: bool = False
+    ) -> str:
         """Remove control characters."""
         result = []
         for char in text:
             code = ord(char)
 
             if code < 32:  # Control characters
-                if preserve_newlines and char in '\n\r':
+                if preserve_newlines and char in "\n\r":
                     result.append(char)
-                elif preserve_tabs and char == '\t':
+                elif preserve_tabs and char == "\t":
                     result.append(char)
                 # Skip other control characters
             elif code == 127:  # DEL character
@@ -303,13 +343,14 @@ class StringTransformer:
             else:
                 result.append(char)
 
-        return ''.join(result)
+        return "".join(result)
 
     def _remove_accents(self, text: str) -> str:
         """Remove diacritical marks."""
-        return ''.join(
-            char for char in unicodedata.normalize('NFD', text)
-            if unicodedata.category(char) != 'Mn'
+        return "".join(
+            char
+            for char in unicodedata.normalize("NFD", text)
+            if unicodedata.category(char) != "Mn"
         )
 
     def _to_ascii_only(self, text: str) -> str:
@@ -317,10 +358,10 @@ class StringTransformer:
         # First remove accents to ensure proper ASCII conversion
         text_no_accents = self._remove_accents(text)
         try:
-            return text_no_accents.encode('ascii', 'ignore').decode('ascii')
+            return text_no_accents.encode("ascii", "ignore").decode("ascii")
         except (UnicodeError, UnicodeEncodeError):
             # Fallback: manually filter to ASCII characters
-            return ''.join(char for char in text_no_accents if ord(char) < 128)
+            return "".join(char for char in text_no_accents if ord(char) < 128)
 
     def _fix_case_issues(self, text: str, title_case_exceptions: list, acronyms: list) -> str:
         """Fix common case issues."""
@@ -330,11 +371,53 @@ class StringTransformer:
 
         # Default common acronyms that should remain uppercase
         default_acronyms = {
-            'NASA', 'FBI', 'CIA', 'USA', 'UK', 'US', 'CEO', 'CTO', 'CFO', 'VP',
-            'HR', 'IT', 'AI', 'API', 'URL', 'HTTP', 'HTTPS', 'SQL', 'HTML',
-            'CSS', 'JS', 'XML', 'JSON', 'PDF', 'CSV', 'ZIP', 'HTTP', 'FTP',
-            'TCP', 'IP', 'DNS', 'SSL', 'TLS', 'AWS', 'IBM', 'AMD', 'GPU',
-            'CPU', 'RAM', 'SSD', 'HDD', 'USB', 'DVD', 'CD', 'TV', 'HD', 'UHD'
+            "NASA",
+            "FBI",
+            "CIA",
+            "USA",
+            "UK",
+            "US",
+            "CEO",
+            "CTO",
+            "CFO",
+            "VP",
+            "HR",
+            "IT",
+            "AI",
+            "API",
+            "URL",
+            "HTTP",
+            "HTTPS",
+            "SQL",
+            "HTML",
+            "CSS",
+            "JS",
+            "XML",
+            "JSON",
+            "PDF",
+            "CSV",
+            "ZIP",
+            "HTTP",
+            "FTP",
+            "TCP",
+            "IP",
+            "DNS",
+            "SSL",
+            "TLS",
+            "AWS",
+            "IBM",
+            "AMD",
+            "GPU",
+            "CPU",
+            "RAM",
+            "SSD",
+            "HDD",
+            "USB",
+            "DVD",
+            "CD",
+            "TV",
+            "HD",
+            "UHD",
         }
 
         # Combine default acronyms with custom ones
@@ -348,7 +431,7 @@ class StringTransformer:
 
         for i, word in enumerate(words):
             # Remove punctuation for checking exceptions/acronyms
-            word_clean = ''.join(c for c in word if c.isalpha())
+            word_clean = "".join(c for c in word if c.isalpha())
 
             # Check if word is a known acronym
             if word_clean.upper() in all_acronyms:
@@ -362,12 +445,12 @@ class StringTransformer:
                 fixed_words.append(result)
             elif i == 0:
                 # First word is always capitalized, but handle hyphenated compound names
-                if '-' in word:
+                if "-" in word:
                     # Handle hyphenated compound names even for first word
-                    parts = word.split('-')
+                    parts = word.split("-")
                     fixed_parts = []
                     for j, part in enumerate(parts):
-                        part_clean = ''.join(c for c in part if c.isalpha())
+                        part_clean = "".join(c for c in part if c.isalpha())
                         if part_clean.upper() in all_acronyms:
                             fixed_parts.append(part.upper())
                         elif j == 0:
@@ -378,7 +461,7 @@ class StringTransformer:
                         else:
                             # All other parts in compound names stay lowercase
                             fixed_parts.append(part.lower())
-                    fixed_words.append('-'.join(fixed_parts))
+                    fixed_words.append("-".join(fixed_parts))
                 else:
                     # Regular first word - convert to title case
                     fixed_words.append(word.title())
@@ -393,12 +476,12 @@ class StringTransformer:
                 fixed_words.append(result)
             else:
                 # Convert to title case, but handle hyphenated compound names
-                if '-' in word:
+                if "-" in word:
                     # Handle hyphenated compound names
-                    parts = word.split('-')
+                    parts = word.split("-")
                     fixed_parts = []
                     for j, part in enumerate(parts):
-                        part_clean = ''.join(c for c in part if c.isalpha())
+                        part_clean = "".join(c for c in part if c.isalpha())
                         if part_clean.upper() in all_acronyms:
                             fixed_parts.append(part.upper())
                         elif j == 0:
@@ -409,9 +492,9 @@ class StringTransformer:
                         else:
                             # All other parts in compound names stay lowercase
                             fixed_parts.append(part.lower())
-                    fixed_words.append('-'.join(fixed_parts))
+                    fixed_words.append("-".join(fixed_parts))
                 else:
                     # Regular word - convert to title case
                     fixed_words.append(word.title())
 
-        return ' '.join(fixed_words)
+        return " ".join(fixed_words)

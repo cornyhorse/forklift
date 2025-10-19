@@ -1,21 +1,22 @@
 """Tests for calculated columns factory functionality."""
 
-import pytest
-import pyarrow as pa
 from unittest.mock import Mock, patch
 
-from forklift.processors.calculated_columns_factory import (
-    _parse_data_type,
-    create_calculated_columns_processor_from_schema,
-    create_calculated_columns_processor_from_metadata,
-    validate_calculated_columns_schema
-)
+import pyarrow as pa
+import pytest
+
 from forklift.processors.calculated_columns import (
-    CalculatedColumnsProcessor,
+    CalculatedColumn,
     CalculatedColumnsConfig,
+    CalculatedColumnsProcessor,
     ConstantColumn,
     ExpressionColumn,
-    CalculatedColumn
+)
+from forklift.processors.calculated_columns_factory import (
+    _parse_data_type,
+    create_calculated_columns_processor_from_metadata,
+    create_calculated_columns_processor_from_schema,
+    validate_calculated_columns_schema,
 )
 
 
@@ -53,15 +54,15 @@ class TestParseDataType:
         assert _parse_data_type("date64") == pa.date64()
 
         # Other types
-        assert _parse_data_type("timestamp") == pa.timestamp('ns')
+        assert _parse_data_type("timestamp") == pa.timestamp("ns")
         assert _parse_data_type("binary") == pa.binary()
 
     def test_parse_data_type_complex_timestamp(self):
         """Test parsing complex timestamp types with units."""
-        assert _parse_data_type("timestamp[s]") == pa.timestamp('s')
-        assert _parse_data_type("timestamp[ms]") == pa.timestamp('ms')
-        assert _parse_data_type("timestamp[us]") == pa.timestamp('us')
-        assert _parse_data_type("timestamp[ns]") == pa.timestamp('ns')
+        assert _parse_data_type("timestamp[s]") == pa.timestamp("s")
+        assert _parse_data_type("timestamp[ms]") == pa.timestamp("ms")
+        assert _parse_data_type("timestamp[us]") == pa.timestamp("us")
+        assert _parse_data_type("timestamp[ns]") == pa.timestamp("ns")
 
     def test_parse_data_type_decimal128(self):
         """Test parsing decimal128 types with precision and scale."""
@@ -117,10 +118,7 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
 
     def test_create_processor_no_columns_no_partitions(self):
         """Test creating processor with no columns and no partition columns."""
-        config = {
-            "failOnError": True,
-            "addMetadata": False
-        }
+        config = {"failOnError": True, "addMetadata": False}
         assert create_calculated_columns_processor_from_schema(config) is None
 
     def test_create_processor_with_constants(self):
@@ -131,13 +129,9 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
                     "name": "PI",
                     "value": 3.14159,
                     "dataType": "float64",
-                    "description": "The value of pi"
+                    "description": "The value of pi",
                 },
-                {
-                    "name": "DEFAULT_STRING",
-                    "value": "default",
-                    "dataType": "string"
-                }
+                {"name": "DEFAULT_STRING", "value": "default", "dataType": "string"},
             ]
         }
 
@@ -157,14 +151,14 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
                     "expression": "first_name + ' ' + last_name",
                     "dataType": "string",
                     "description": "Full name concatenation",
-                    "dependencies": ["first_name", "last_name"]
+                    "dependencies": ["first_name", "last_name"],
                 },
                 {
                     "name": "age_plus_ten",
                     "expression": "age + 10",
                     "dataType": "int64",
-                    "dependencies": ["age"]
-                }
+                    "dependencies": ["age"],
+                },
             ]
         }
 
@@ -184,14 +178,14 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
                     "expression": "quantity * price",
                     "dataType": "float64",
                     "description": "Total amount calculation",
-                    "dependencies": ["quantity", "price"]
+                    "dependencies": ["quantity", "price"],
                 },
                 {
                     "name": "discount_amount",
                     "function": "total_amount * 0.1",  # backward compatibility
                     "dataType": "float64",
-                    "dependencies": ["total_amount"]
-                }
+                    "dependencies": ["total_amount"],
+                },
             ]
         }
 
@@ -205,7 +199,7 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
         # Test backward compatibility with 'function' field
         assert processor.config.calculated[1].name == "discount_amount"
         assert processor.config.calculated[1].expression == "total_amount * 0.1"
-        assert hasattr(processor.config.calculated[1], 'function')
+        assert hasattr(processor.config.calculated[1], "function")
 
     def test_create_processor_with_function_field_only(self):
         """Test creating processor with calculated columns using only 'function' field."""
@@ -215,7 +209,7 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
                     "name": "computed_value",
                     "function": "x + y",
                     "dataType": "int64",
-                    "dependencies": ["x", "y"]
+                    "dependencies": ["x", "y"],
                 }
             ]
         }
@@ -235,7 +229,7 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
                     "expression": "a + b",
                     "function": "x + y",  # should be ignored when expression is present
                     "dataType": "int64",
-                    "dependencies": ["a", "b"]
+                    "dependencies": ["a", "b"],
                 }
             ]
         }
@@ -248,9 +242,7 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
 
     def test_create_processor_with_partition_columns_only(self):
         """Test creating processor with only partition columns."""
-        config = {
-            "partitionColumns": ["year", "month", "day"]
-        }
+        config = {"partitionColumns": ["year", "month", "day"]}
 
         processor = create_calculated_columns_processor_from_schema(config)
         assert processor is not None
@@ -260,11 +252,13 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
     def test_create_processor_with_all_types(self):
         """Test creating processor with all types of columns."""
         config = {
-            "constants": [
-                {"name": "VERSION", "value": "1.0", "dataType": "string"}
-            ],
+            "constants": [{"name": "VERSION", "value": "1.0", "dataType": "string"}],
             "expressions": [
-                {"name": "full_name", "expression": "first + ' ' + last", "dependencies": ["first", "last"]}
+                {
+                    "name": "full_name",
+                    "expression": "first + ' ' + last",
+                    "dependencies": ["first", "last"],
+                }
             ],
             "calculated": [
                 {"name": "total", "expression": "price * qty", "dependencies": ["price", "qty"]}
@@ -272,7 +266,7 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
             "partitionColumns": ["year", "month"],
             "failOnError": False,
             "addMetadata": True,
-            "validateDependencies": False
+            "validateDependencies": False,
         }
 
         processor = create_calculated_columns_processor_from_schema(config)
@@ -287,11 +281,7 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
 
     def test_create_processor_default_config_values(self):
         """Test that default configuration values are applied correctly."""
-        config = {
-            "constants": [
-                {"name": "TEST", "value": "test"}
-            ]
-        }
+        config = {"constants": [{"name": "TEST", "value": "test"}]}
 
         processor = create_calculated_columns_processor_from_schema(config)
         assert processor is not None
@@ -303,15 +293,19 @@ class TestCreateCalculatedColumnsProcessorFromSchema:
     def test_create_processor_missing_optional_fields(self):
         """Test creating processor with missing optional fields."""
         config = {
-            "constants": [
-                {"name": "TEST", "value": "test"}  # No dataType or description
-            ],
+            "constants": [{"name": "TEST", "value": "test"}],  # No dataType or description
             "expressions": [
-                {"name": "expr", "expression": "x + 1"}  # No dataType, description, or dependencies
+                {
+                    "name": "expr",
+                    "expression": "x + 1",
+                }  # No dataType, description, or dependencies
             ],
             "calculated": [
-                {"name": "calc", "expression": "y * 2"}  # No dataType, description, or dependencies
-            ]
+                {
+                    "name": "calc",
+                    "expression": "y * 2",
+                }  # No dataType, description, or dependencies
+            ],
         }
 
         processor = create_calculated_columns_processor_from_schema(config)
@@ -341,10 +335,8 @@ class TestCreateCalculatedColumnsProcessorFromMetadata:
         """Test creating processor from metadata with calculated columns config."""
         metadata = {
             "x-calculatedColumns": {
-                "constants": [
-                    {"name": "PI", "value": 3.14159, "dataType": "float64"}
-                ],
-                "failOnError": True
+                "constants": [{"name": "PI", "value": 3.14159, "dataType": "float64"}],
+                "failOnError": True,
             }
         }
 
@@ -354,18 +346,18 @@ class TestCreateCalculatedColumnsProcessorFromMetadata:
         assert len(processor.config.constants) == 1
         assert processor.config.constants[0].name == "PI"
 
-    @patch('forklift.processors.calculated_columns_factory.create_calculated_columns_processor_from_schema')
-    def test_create_processor_from_metadata_delegates_to_schema_function(self, mock_create_from_schema):
+    @patch(
+        "forklift.processors.calculated_columns_factory.create_calculated_columns_processor_from_schema"
+    )
+    def test_create_processor_from_metadata_delegates_to_schema_function(
+        self, mock_create_from_schema
+    ):
         """Test that the metadata function properly delegates to the schema function."""
         mock_processor = Mock()
         mock_create_from_schema.return_value = mock_processor
 
-        calculated_config = {
-            "constants": [{"name": "TEST", "value": "test"}]
-        }
-        metadata = {
-            "x-calculatedColumns": calculated_config
-        }
+        calculated_config = {"constants": [{"name": "TEST", "value": "test"}]}
+        metadata = {"x-calculatedColumns": calculated_config}
 
         result = create_calculated_columns_processor_from_metadata(metadata)
 
@@ -394,10 +386,7 @@ class TestValidateCalculatedColumnsSchema:
     def test_validate_constants_valid(self):
         """Test validation of valid constants."""
         schema = {
-            "constants": [
-                {"name": "PI", "value": 3.14159},
-                {"name": "VERSION", "value": "1.0"}
-            ]
+            "constants": [{"name": "PI", "value": 3.14159}, {"name": "VERSION", "value": "1.0"}]
         }
         errors = validate_calculated_columns_schema(schema)
         assert len(errors) == 0
@@ -409,7 +398,7 @@ class TestValidateCalculatedColumnsSchema:
                 "not a dict",  # Invalid type
                 {"value": 123},  # Missing name
                 {"name": "TEST"},  # Missing value
-                {}  # Missing both name and value
+                {},  # Missing both name and value
             ]
         }
         errors = validate_calculated_columns_schema(schema)
@@ -425,7 +414,7 @@ class TestValidateCalculatedColumnsSchema:
         schema = {
             "expressions": [
                 {"name": "full_name", "expression": "first + ' ' + last"},
-                {"name": "age_plus_ten", "expression": "age + 10"}
+                {"name": "age_plus_ten", "expression": "age + 10"},
             ]
         }
         errors = validate_calculated_columns_schema(schema)
@@ -438,7 +427,7 @@ class TestValidateCalculatedColumnsSchema:
                 "not a dict",  # Invalid type
                 {"expression": "x + 1"},  # Missing name
                 {"name": "test"},  # Missing expression
-                {}  # Missing both name and expression
+                {},  # Missing both name and expression
             ]
         }
         errors = validate_calculated_columns_schema(schema)
@@ -455,7 +444,7 @@ class TestValidateCalculatedColumnsSchema:
             "calculated": [
                 {"name": "total", "expression": "price * qty"},
                 {"name": "discount", "function": "total * 0.1"},
-                {"name": "both", "expression": "a + b", "function": "x + y"}
+                {"name": "both", "expression": "a + b", "function": "x + y"},
             ]
         }
         errors = validate_calculated_columns_schema(schema)
@@ -468,38 +457,47 @@ class TestValidateCalculatedColumnsSchema:
                 "not a dict",  # Invalid type
                 {"name": "test"},  # Missing both expression and function
                 {"expression": "x + 1"},  # Missing name
-                {}  # Missing name and expression/function
+                {},  # Missing name and expression/function
             ]
         }
         errors = validate_calculated_columns_schema(schema)
         assert len(errors) == 5
         assert "Calculated column at index 0 must be a dictionary" in errors[0]
-        assert "Calculated column at index 1 missing required 'function' or 'expression' field" in errors[1]
+        assert (
+            "Calculated column at index 1 missing required 'function' or 'expression' field"
+            in errors[1]
+        )
         assert "Calculated column at index 2 missing required 'name' field" in errors[2]
         assert "Calculated column at index 3 missing required 'name' field" in errors[3]
-        assert "Calculated column at index 3 missing required 'function' or 'expression' field" in errors[4]
+        assert (
+            "Calculated column at index 3 missing required 'function' or 'expression' field"
+            in errors[4]
+        )
 
     def test_validate_mixed_valid_and_invalid(self):
         """Test validation with a mix of valid and invalid configurations."""
         schema = {
-            "constants": [
-                {"name": "VALID", "value": 1},
-                {"name": "INVALID"}  # Missing value
-            ],
+            "constants": [{"name": "VALID", "value": 1}, {"name": "INVALID"}],  # Missing value
             "expressions": [
                 {"name": "valid_expr", "expression": "x + 1"},
-                "invalid"  # Not a dict
-            ],
+                "invalid",
+            ],  # Not a dict
             "calculated": [
                 {"name": "valid_calc", "expression": "y * 2"},
-                {"name": "invalid_calc"}  # Missing expression/function
-            ]
+                {"name": "invalid_calc"},  # Missing expression/function
+            ],
         }
         errors = validate_calculated_columns_schema(schema)
         assert len(errors) == 3
-        assert any("Constant at index 1 missing required 'value' field" in error for error in errors)
+        assert any(
+            "Constant at index 1 missing required 'value' field" in error for error in errors
+        )
         assert any("Expression at index 1 must be a dictionary" in error for error in errors)
-        assert any("Calculated column at index 1 missing required 'function' or 'expression' field" in error for error in errors)
+        assert any(
+            "Calculated column at index 1 missing required 'function' or 'expression' field"
+            in error
+            for error in errors
+        )
 
 
 class TestIntegration:
@@ -508,18 +506,24 @@ class TestIntegration:
     def test_end_to_end_processor_creation(self):
         """Test complete end-to-end processor creation and basic functionality."""
         schema_config = {
-            "constants": [
-                {"name": "TAX_RATE", "value": 0.08, "dataType": "float64"}
-            ],
+            "constants": [{"name": "TAX_RATE", "value": 0.08, "dataType": "float64"}],
             "expressions": [
-                {"name": "subtotal", "expression": "price * quantity", "dependencies": ["price", "quantity"]}
+                {
+                    "name": "subtotal",
+                    "expression": "price * quantity",
+                    "dependencies": ["price", "quantity"],
+                }
             ],
             "calculated": [
-                {"name": "tax_amount", "expression": "subtotal * TAX_RATE", "dependencies": ["subtotal"]}
+                {
+                    "name": "tax_amount",
+                    "expression": "subtotal * TAX_RATE",
+                    "dependencies": ["subtotal"],
+                }
             ],
             "partitionColumns": ["year", "month"],
             "failOnError": True,
-            "addMetadata": True
+            "addMetadata": True,
         }
 
         # Validate the schema first
@@ -543,12 +547,10 @@ class TestIntegration:
         """Test the workflow from metadata to processor creation."""
         metadata = {
             "x-calculatedColumns": {
-                "constants": [
-                    {"name": "DEFAULT_STATUS", "value": "active", "dataType": "string"}
-                ],
+                "constants": [{"name": "DEFAULT_STATUS", "value": "active", "dataType": "string"}],
                 "expressions": [
                     {"name": "full_address", "expression": "street + ', ' + city + ', ' + state"}
-                ]
+                ],
             }
         }
 
@@ -567,11 +569,11 @@ class TestIntegration:
         schema_config = {
             "constants": [
                 {"name": "RATES", "value": [0.1, 0.2, 0.3], "dataType": "list<float64>"},
-                {"name": "PRECISION_VALUE", "value": 123.45, "dataType": "decimal128(10,2)"}
+                {"name": "PRECISION_VALUE", "value": 123.45, "dataType": "decimal128(10,2)"},
             ],
             "expressions": [
                 {"name": "event_time", "expression": "now()", "dataType": "timestamp[ms]"}
-            ]
+            ],
         }
 
         processor = create_calculated_columns_processor_from_schema(schema_config)
@@ -586,4 +588,4 @@ class TestIntegration:
         assert precision_constant.data_type == pa.decimal128(10, 2)
 
         event_expr = processor.config.expressions[0]
-        assert event_expr.data_type == pa.timestamp('ms')
+        assert event_expr.data_type == pa.timestamp("ms")

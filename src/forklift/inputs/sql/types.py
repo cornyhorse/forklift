@@ -1,9 +1,11 @@
 """SQL to PyArrow type conversion utilities."""
 
 from __future__ import annotations
-from typing import Optional
-import pyarrow as pa
+
 import logging
+from typing import Optional
+
+import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
@@ -32,37 +34,38 @@ class SqlTypeConverter:
             import pyodbc
 
             type_map = {
-                pyodbc.SQL_CHAR: 'CHAR',
-                pyodbc.SQL_VARCHAR: 'VARCHAR',
-                pyodbc.SQL_LONGVARCHAR: 'TEXT',
-                pyodbc.SQL_WCHAR: 'NCHAR',
-                pyodbc.SQL_WVARCHAR: 'NVARCHAR',
-                pyodbc.SQL_WLONGVARCHAR: 'NTEXT',
-                pyodbc.SQL_DECIMAL: 'DECIMAL',
-                pyodbc.SQL_NUMERIC: 'NUMERIC',
-                pyodbc.SQL_SMALLINT: 'SMALLINT',
-                pyodbc.SQL_INTEGER: 'INTEGER',
-                pyodbc.SQL_REAL: 'REAL',
-                pyodbc.SQL_FLOAT: 'FLOAT',
-                pyodbc.SQL_DOUBLE: 'DOUBLE',
-                pyodbc.SQL_BIT: 'BIT',
-                pyodbc.SQL_TINYINT: 'TINYINT',
-                pyodbc.SQL_BIGINT: 'BIGINT',
-                pyodbc.SQL_BINARY: 'BINARY',
-                pyodbc.SQL_VARBINARY: 'VARBINARY',
-                pyodbc.SQL_LONGVARBINARY: 'BLOB',
-                pyodbc.SQL_TYPE_DATE: 'DATE',
-                pyodbc.SQL_TYPE_TIME: 'TIME',
-                pyodbc.SQL_TYPE_TIMESTAMP: 'TIMESTAMP',
+                pyodbc.SQL_CHAR: "CHAR",
+                pyodbc.SQL_VARCHAR: "VARCHAR",
+                pyodbc.SQL_LONGVARCHAR: "TEXT",
+                pyodbc.SQL_WCHAR: "NCHAR",
+                pyodbc.SQL_WVARCHAR: "NVARCHAR",
+                pyodbc.SQL_WLONGVARCHAR: "NTEXT",
+                pyodbc.SQL_DECIMAL: "DECIMAL",
+                pyodbc.SQL_NUMERIC: "NUMERIC",
+                pyodbc.SQL_SMALLINT: "SMALLINT",
+                pyodbc.SQL_INTEGER: "INTEGER",
+                pyodbc.SQL_REAL: "REAL",
+                pyodbc.SQL_FLOAT: "FLOAT",
+                pyodbc.SQL_DOUBLE: "DOUBLE",
+                pyodbc.SQL_BIT: "BIT",
+                pyodbc.SQL_TINYINT: "TINYINT",
+                pyodbc.SQL_BIGINT: "BIGINT",
+                pyodbc.SQL_BINARY: "BINARY",
+                pyodbc.SQL_VARBINARY: "VARBINARY",
+                pyodbc.SQL_LONGVARBINARY: "BLOB",
+                pyodbc.SQL_TYPE_DATE: "DATE",
+                pyodbc.SQL_TYPE_TIME: "TIME",
+                pyodbc.SQL_TYPE_TIMESTAMP: "TIMESTAMP",
             }
 
-            return type_map.get(odbc_type, 'VARCHAR')
+            return type_map.get(odbc_type, "VARCHAR")
 
         except ImportError:
-            return 'VARCHAR'
+            return "VARCHAR"
 
-    def sql_type_to_pyarrow(self, sql_type: str, size: Optional[int] = None,
-                           decimal_digits: Optional[int] = None) -> pa.DataType:
+    def sql_type_to_pyarrow(
+        self, sql_type: str, size: Optional[int] = None, decimal_digits: Optional[int] = None
+    ) -> pa.DataType:
         """Convert SQL data type to PyArrow data type.
 
         Args:
@@ -76,45 +79,46 @@ class SqlTypeConverter:
         sql_type = sql_type.upper()
 
         # Use schema importer mapping if available
-        if self.schema_importer and hasattr(self.schema_importer, 'parquet_type_mapping'):
+        if self.schema_importer and hasattr(self.schema_importer, "parquet_type_mapping"):
             # This would need to be enhanced to map SQL types to Parquet types
             pass
 
         # Map common SQL types to PyArrow types
-        if sql_type in ('INT', 'INTEGER', 'INT4'):
+        if sql_type in ("INT", "INTEGER", "INT4"):
             return pa.int32()
-        elif sql_type in ('BIGINT', 'INT8'):
+        elif sql_type in ("BIGINT", "INT8"):
             return pa.int64()
-        elif sql_type in ('SMALLINT', 'INT2'):
+        elif sql_type in ("SMALLINT", "INT2"):
             return pa.int16()
-        elif sql_type in ('TINYINT', 'INT1'):
+        elif sql_type in ("TINYINT", "INT1"):
             return pa.int8()
-        elif sql_type in ('FLOAT', 'REAL'):
+        elif sql_type in ("FLOAT", "REAL"):
             return pa.float32()
-        elif sql_type in ('DOUBLE', 'DOUBLE PRECISION', 'FLOAT8'):
+        elif sql_type in ("DOUBLE", "DOUBLE PRECISION", "FLOAT8"):
             return pa.float64()
-        elif sql_type in ('DECIMAL', 'NUMERIC'):
+        elif sql_type in ("DECIMAL", "NUMERIC"):
             if size and decimal_digits is not None:
                 return pa.decimal128(size, decimal_digits)
             return pa.float64()
-        elif sql_type in ('BOOLEAN', 'BOOL', 'BIT'):
+        elif sql_type in ("BOOLEAN", "BOOL", "BIT"):
             return pa.bool_()
-        elif sql_type in ('DATE',):
+        elif sql_type in ("DATE",):
             return pa.date32()
-        elif sql_type in ('TIME',):
-            return pa.time64('us')
-        elif sql_type in ('TIMESTAMP', 'DATETIME', 'TIMESTAMP WITHOUT TIME ZONE'):
-            return pa.timestamp('us')
-        elif sql_type in ('TIMESTAMPTZ', 'TIMESTAMP WITH TIME ZONE'):
-            return pa.timestamp('us', tz='UTC')
-        elif sql_type in ('BINARY', 'VARBINARY', 'BLOB', 'BYTEA'):
+        elif sql_type in ("TIME",):
+            return pa.time64("us")
+        elif sql_type in ("TIMESTAMP", "DATETIME", "TIMESTAMP WITHOUT TIME ZONE"):
+            return pa.timestamp("us")
+        elif sql_type in ("TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE"):
+            return pa.timestamp("us", tz="UTC")
+        elif sql_type in ("BINARY", "VARBINARY", "BLOB", "BYTEA"):
             return pa.binary()
         else:
             # Default to string for text types and unknown types
             return pa.string()
 
-    def convert_column_data(self, column_data: tuple, pa_type: pa.DataType,
-                           null_values: Optional[list] = None) -> pa.Array:
+    def convert_column_data(
+        self, column_data: tuple, pa_type: pa.DataType, null_values: Optional[list] = None
+    ) -> pa.Array:
         """Convert column data to PyArrow array with proper type.
 
         Args:

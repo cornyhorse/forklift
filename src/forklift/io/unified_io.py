@@ -5,14 +5,16 @@ local filesystem and S3, integrating with ForkliftCore's streaming architecture.
 """
 
 from __future__ import annotations
+
 import csv
 import tempfile
-from typing import Iterator, Optional, Union, TextIO, BinaryIO, Tuple, List
 from pathlib import Path
+from typing import Iterator, List, Optional, TextIO, Union
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from .s3_streaming import S3StreamingClient, S3Path, is_s3_path, S3StreamingWriter
+from .s3_streaming import S3Path, S3StreamingClient, S3StreamingWriter, is_s3_path
 
 
 class UnifiedIOHandler:
@@ -31,6 +33,7 @@ class UnifiedIOHandler:
         """Get S3 client, creating one if needed."""
         if self._s3_client is None:
             from .s3_streaming import get_s3_client
+
             self._s3_client = get_s3_client()
         return self._s3_client
 
@@ -72,9 +75,7 @@ class UnifiedIOHandler:
         else:
             return Path(path).stat().st_size
 
-    def open_for_read(self, path: Union[str, Path],
-                      encoding: str = 'utf-8',
-                      **kwargs) -> TextIO:
+    def open_for_read(self, path: Union[str, Path], encoding: str = "utf-8", **kwargs) -> TextIO:
         """Open file/object for reading.
 
         Args:
@@ -88,11 +89,11 @@ class UnifiedIOHandler:
         if is_s3_path(path):
             return self.s3_client.open_for_read(path, encoding=encoding)
         else:
-            return open(path, 'r', encoding=encoding, **kwargs)
+            return open(path, "r", encoding=encoding, **kwargs)
 
-    def open_for_write(self, path: Union[str, Path],
-                       encoding: str = 'utf-8',
-                       **kwargs) -> Union[TextIO, S3StreamingWriter]:
+    def open_for_write(
+        self, path: Union[str, Path], encoding: str = "utf-8", **kwargs
+    ) -> Union[TextIO, S3StreamingWriter]:
         """Open file/object for writing.
 
         Args:
@@ -108,13 +109,16 @@ class UnifiedIOHandler:
         else:
             # Ensure parent directory exists for local files only
             Path(path).parent.mkdir(parents=True, exist_ok=True)
-            return open(path, 'w', encoding=encoding, **kwargs)
+            return open(path, "w", encoding=encoding, **kwargs)
 
-    def csv_reader(self, path: Union[str, Path],
-                   delimiter: str = ',',
-                   quotechar: str = '"',
-                   encoding: str = 'utf-8',
-                   **kwargs) -> Iterator[List[str]]:
+    def csv_reader(
+        self,
+        path: Union[str, Path],
+        delimiter: str = ",",
+        quotechar: str = '"',
+        encoding: str = "utf-8",
+        **kwargs,
+    ) -> Iterator[List[str]]:
         """Create CSV reader for file/object.
 
         Args:
@@ -132,11 +136,14 @@ class UnifiedIOHandler:
             for row in reader:
                 yield row
 
-    def csv_writer(self, path: Union[str, Path],
-                   delimiter: str = ',',
-                   quotechar: str = '"',
-                   encoding: str = 'utf-8',
-                   **kwargs) -> 'UnifiedCSVWriter':
+    def csv_writer(
+        self,
+        path: Union[str, Path],
+        delimiter: str = ",",
+        quotechar: str = '"',
+        encoding: str = "utf-8",
+        **kwargs,
+    ) -> "UnifiedCSVWriter":
         """Create CSV writer for file/object.
 
         Args:
@@ -149,12 +156,13 @@ class UnifiedIOHandler:
         Returns:
             CSV writer context manager
         """
-        return UnifiedCSVWriter(self, path, delimiter=delimiter,
-                              quotechar=quotechar, encoding=encoding, **kwargs)
+        return UnifiedCSVWriter(
+            self, path, delimiter=delimiter, quotechar=quotechar, encoding=encoding, **kwargs
+        )
 
-    def copy_file(self, src_path: Union[str, Path],
-                  dest_path: Union[str, Path],
-                  chunk_size: int = 8192) -> None:
+    def copy_file(
+        self, src_path: Union[str, Path], dest_path: Union[str, Path], chunk_size: int = 8192
+    ) -> None:
         """Copy file between local/S3 locations.
 
         Supports:
@@ -176,19 +184,14 @@ class UnifiedIOHandler:
             src_s3_path = S3Path(str(src_path))
             dest_s3_path = S3Path(str(dest_path))
 
-            copy_source = {
-                'Bucket': src_s3_path.bucket,
-                'Key': src_s3_path.key
-            }
+            copy_source = {"Bucket": src_s3_path.bucket, "Key": src_s3_path.key}
             self.s3_client._s3_client.copy_object(
-                CopySource=copy_source,
-                Bucket=dest_s3_path.bucket,
-                Key=dest_s3_path.key
+                CopySource=copy_source, Bucket=dest_s3_path.bucket, Key=dest_s3_path.key
             )
         else:
             # Stream copy for other combinations
-            with self.open_for_read(src_path, encoding='utf-8') as src_f:
-                with self.open_for_write(dest_path, encoding='utf-8') as dest_f:
+            with self.open_for_read(src_path, encoding="utf-8") as src_f:
+                with self.open_for_write(dest_path, encoding="utf-8") as dest_f:
                     while True:
                         chunk = src_f.read(chunk_size)
                         if not chunk:
@@ -199,9 +202,15 @@ class UnifiedIOHandler:
 class UnifiedCSVWriter:
     """Context manager for CSV writing to local files or S3."""
 
-    def __init__(self, io_handler: UnifiedIOHandler, path: Union[str, Path],
-                 delimiter: str = ',', quotechar: str = '"', encoding: str = 'utf-8',
-                 **kwargs):
+    def __init__(
+        self,
+        io_handler: UnifiedIOHandler,
+        path: Union[str, Path],
+        delimiter: str = ",",
+        quotechar: str = '"',
+        encoding: str = "utf-8",
+        **kwargs,
+    ):
         """Initialize CSV writer.
 
         Args:
@@ -223,14 +232,9 @@ class UnifiedCSVWriter:
 
     def __enter__(self) -> csv.writer:
         """Enter context and return CSV writer."""
-        self._file = self.io_handler.open_for_write(
-            self.path, encoding=self.encoding
-        )
+        self._file = self.io_handler.open_for_write(self.path, encoding=self.encoding)
         self._writer = csv.writer(
-            self._file,
-            delimiter=self.delimiter,
-            quotechar=self.quotechar,
-            **self.kwargs
+            self._file, delimiter=self.delimiter, quotechar=self.quotechar, **self.kwargs
         )
         return self._writer
 
@@ -243,10 +247,14 @@ class UnifiedCSVWriter:
 class S3ParquetWriter:
     """Parquet writer that can output to S3 using streaming."""
 
-    def __init__(self, s3_path: Union[str, S3Path], schema: pa.Schema,
-                 s3_client: Optional[S3StreamingClient] = None,
-                 compression: str = 'snappy',
-                 **parquet_kwargs):
+    def __init__(
+        self,
+        s3_path: Union[str, S3Path],
+        schema: pa.Schema,
+        s3_client: Optional[S3StreamingClient] = None,
+        compression: str = "snappy",
+        **parquet_kwargs,
+    ):
         """Initialize S3 Parquet writer.
 
         Args:
@@ -266,20 +274,18 @@ class S3ParquetWriter:
 
         if s3_client is None:
             from .s3_streaming import get_s3_client
+
             s3_client = get_s3_client()
         self.s3_client = s3_client
 
         # Use a temporary file for local parquet writing, then upload
-        self._temp_file = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
+        self._temp_file = tempfile.NamedTemporaryFile(suffix=".parquet", delete=False)
         self._temp_path = Path(self._temp_file.name)
         self._temp_file.close()
 
         # Initialize parquet writer
         self._writer = pq.ParquetWriter(
-            self._temp_path,
-            schema,
-            compression=compression,
-            **parquet_kwargs
+            self._temp_path, schema, compression=compression, **parquet_kwargs
         )
 
     def write_table(self, table: pa.Table) -> None:
@@ -306,12 +312,8 @@ class S3ParquetWriter:
 
         try:
             # Upload to S3
-            with open(self._temp_path, 'rb') as f:
-                self.s3_client._s3_client.upload_fileobj(
-                    f,
-                    self.s3_path.bucket,
-                    self.s3_path.key
-                )
+            with open(self._temp_path, "rb") as f:
+                self.s3_client._s3_client.upload_fileobj(f, self.s3_path.bucket, self.s3_path.key)
         finally:
             # Clean up temp file
             try:
@@ -326,10 +328,13 @@ class S3ParquetWriter:
         self.close()
 
 
-def create_parquet_writer(path: Union[str, Path], schema: pa.Schema,
-                         s3_client: Optional[S3StreamingClient] = None,
-                         compression: str = 'snappy',
-                         **kwargs) -> Union[pq.ParquetWriter, S3ParquetWriter]:
+def create_parquet_writer(
+    path: Union[str, Path],
+    schema: pa.Schema,
+    s3_client: Optional[S3StreamingClient] = None,
+    compression: str = "snappy",
+    **kwargs,
+) -> Union[pq.ParquetWriter, S3ParquetWriter]:
     """Create appropriate parquet writer for local or S3 output.
 
     Args:
@@ -343,8 +348,9 @@ def create_parquet_writer(path: Union[str, Path], schema: pa.Schema,
         ParquetWriter instance appropriate for the path type
     """
     if is_s3_path(path):
-        return S3ParquetWriter(path, schema, s3_client=s3_client,
-                              compression=compression, **kwargs)
+        return S3ParquetWriter(
+            path, schema, s3_client=s3_client, compression=compression, **kwargs
+        )
     else:
         # Ensure parent directory exists for local files
         Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -363,4 +369,5 @@ def get_s3_client(**kwargs) -> S3StreamingClient:
         Configured S3StreamingClient instance
     """
     from .s3_streaming import get_s3_client as _get_s3_client
+
     return _get_s3_client(**kwargs)

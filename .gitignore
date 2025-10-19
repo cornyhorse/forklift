@@ -5,6 +5,10 @@ __pycache__/
 .idea/*
 # C extensions
 *.so
+test_venv/
+
+# Bad rows output files
+bad_rows_*.json
 
 # Distribution / packaging
 .Python

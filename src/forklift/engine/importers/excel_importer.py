@@ -1,8 +1,9 @@
 """Excel importer implementation."""
 
 from __future__ import annotations
-import time
+
 import logging
+import time
 from pathlib import Path
 from typing import Union
 
@@ -20,11 +21,10 @@ class ExcelImporter:
         input_path: Union[str, Path],
         output_path: Union[str, Path],
         schema_file: Union[str, Path] = None,
-        **kwargs
+        **kwargs,
     ) -> ProcessingResults:
         """Import Excel file with multi-sheet support."""
         from ...inputs.excel import ExcelInputHandler
-        from ...inputs.config import ExcelInputConfig, ExcelSheetConfig
         from ...schema.excel_schema_importer import ExcelSchemaImporter
 
         logger = logging.getLogger(__name__)
@@ -61,19 +61,22 @@ class ExcelImporter:
                 excel_config = ExcelImporter._create_default_excel_config(input_path, **kwargs)
 
             # Override config with kwargs
-            if 'values_only' in kwargs:
-                excel_config.values_only = kwargs['values_only']
-            if 'engine' in kwargs:
-                excel_config.engine = kwargs['engine']
-            if 'date_system' in kwargs:
-                excel_config.date_system = kwargs['date_system']
+            if "values_only" in kwargs:
+                excel_config.values_only = kwargs["values_only"]
+            if "engine" in kwargs:
+                excel_config.engine = kwargs["engine"]
+            if "date_system" in kwargs:
+                excel_config.date_system = kwargs["date_system"]
 
             # Initialize Excel input handler
             excel_handler = ExcelInputHandler(excel_config)
 
             # Get file information for logging
             file_info = excel_handler.get_sheet_info(input_path)
-            logger.info(f"Processing Excel file with {file_info['sheet_count']} sheets using {file_info['engine']} engine")
+            logger.info(
+                f"Processing Excel file with {file_info['sheet_count']} sheets "
+                f"using {file_info['engine']} engine"
+            )
 
             # Process sheets and collect results
             results = ProcessingResults()
@@ -130,13 +133,13 @@ class ExcelImporter:
         sheet_configs = []
         for sheet_def in schema_importer.sheets:
             sheet_config = ExcelSheetConfig(
-                select=sheet_def.get('select', {}),
-                columns=sheet_def.get('columns'),
-                header=sheet_def.get('header'),
-                data_start_row=sheet_def.get('dataStartRow'),
-                data_end_row=sheet_def.get('dataEndRow'),
-                skip_blank_rows=sheet_def.get('skipBlankRows', True),
-                name_override=sheet_def.get('nameOverride')
+                select=sheet_def.get("select", {}),
+                columns=sheet_def.get("columns"),
+                header=sheet_def.get("header"),
+                data_start_row=sheet_def.get("dataStartRow"),
+                data_end_row=sheet_def.get("dataEndRow"),
+                skip_blank_rows=sheet_def.get("skipBlankRows", True),
+                name_override=sheet_def.get("nameOverride"),
             )
             sheet_configs.append(sheet_config)
 
@@ -144,7 +147,7 @@ class ExcelImporter:
             sheets=sheet_configs,
             values_only=schema_importer.values_only,
             date_system=schema_importer.date_system,
-            nulls=schema_importer.nulls
+            nulls=schema_importer.nulls,
         )
 
     @staticmethod
@@ -159,38 +162,38 @@ class ExcelImporter:
 
         try:
             file_info = temp_handler.get_sheet_info(file_path)
-            sheet_names = file_info['sheet_names']
+            sheet_names = file_info["sheet_names"]
 
             # Create configs for all sheets or specific sheet
             sheet_configs = []
-            if 'sheet' in kwargs:
+            if "sheet" in kwargs:
                 # Process specific sheet
-                sheet_spec = kwargs['sheet']
+                sheet_spec = kwargs["sheet"]
                 if isinstance(sheet_spec, str):
                     # Sheet name
                     if sheet_spec in sheet_names:
-                        sheet_config = ExcelSheetConfig(select={'name': sheet_spec})
+                        sheet_config = ExcelSheetConfig(select={"name": sheet_spec})
                         sheet_configs.append(sheet_config)
                     else:
                         raise ValueError(f"Sheet '{sheet_spec}' not found in workbook")
                 elif isinstance(sheet_spec, int):
                     # Sheet index
                     if 0 <= sheet_spec < len(sheet_names):
-                        sheet_config = ExcelSheetConfig(select={'index': sheet_spec})
+                        sheet_config = ExcelSheetConfig(select={"index": sheet_spec})
                         sheet_configs.append(sheet_config)
                     else:
                         raise ValueError(f"Sheet index {sheet_spec} out of range")
             else:
                 # Process all sheets
                 for i, sheet_name in enumerate(sheet_names):
-                    sheet_config = ExcelSheetConfig(select={'name': sheet_name})
+                    sheet_config = ExcelSheetConfig(select={"name": sheet_name})
                     sheet_configs.append(sheet_config)
 
             return ExcelInputConfig(
                 sheets=sheet_configs,
-                values_only=kwargs.get('values_only', True),
-                date_system=kwargs.get('date_system', '1900'),
-                engine=kwargs.get('engine')
+                values_only=kwargs.get("values_only", True),
+                date_system=kwargs.get("date_system", "1900"),
+                engine=kwargs.get("engine"),
             )
 
         finally:
@@ -200,9 +203,10 @@ class ExcelImporter:
     def _sanitize_filename(filename: str) -> str:
         """Sanitize sheet name for use as filename."""
         import re
+
         # Replace invalid filename characters with underscores
-        sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        sanitized = re.sub(r'[<>:"/\\|?*]', "_", filename)
         # Remove leading/trailing whitespace and dots
-        sanitized = sanitized.strip(' .')
+        sanitized = sanitized.strip(" .")
         # Ensure not empty
-        return sanitized or 'sheet'
+        return sanitized or "sheet"

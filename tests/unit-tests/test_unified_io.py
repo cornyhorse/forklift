@@ -3,20 +3,21 @@
 Tests both mocked and real S3 operations based on --no-s3-mock flag.
 """
 
-import pytest
 import csv
-from unittest.mock import MagicMock, patch, mock_open
-import pyarrow as pa
 from io import StringIO
+from unittest.mock import MagicMock, mock_open, patch
 
+import pyarrow as pa
+import pytest
+
+from forklift.io.s3_streaming import S3Path, S3StreamingClient
 from forklift.io.unified_io import (
-    UnifiedIOHandler,
-    UnifiedCSVWriter,
     S3ParquetWriter,
+    UnifiedCSVWriter,
+    UnifiedIOHandler,
     create_parquet_writer,
-    get_s3_client
+    get_s3_client,
 )
-from forklift.io.s3_streaming import S3StreamingClient, S3Path
 
 
 class TestUnifiedIOHandler:
@@ -74,7 +75,7 @@ class TestUnifiedIOHandler:
         """Test exists method with S3 path."""
         mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
+            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
                 mock_s3_client.exists.return_value = True
 
                 handler = UnifiedIOHandler()
@@ -92,13 +93,13 @@ class TestUnifiedIOHandler:
         handler = UnifiedIOHandler()
         size = handler.get_size(test_file)
 
-        assert size == len(content.encode('utf-8'))
+        assert size == len(content.encode("utf-8"))
 
     def test_get_size_s3_path(self, s3_mock_conditional):
         """Test get_size method with S3 path."""
         mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
+            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
                 mock_s3_client.get_size.return_value = 1024
 
                 handler = UnifiedIOHandler()
@@ -123,10 +124,10 @@ class TestUnifiedIOHandler:
         """Test open_for_read method with custom encoding."""
         test_file = tmp_path / "test.txt"
         content = "test content with special chars: é, ñ, ü"
-        test_file.write_text(content, encoding='utf-8')
+        test_file.write_text(content, encoding="utf-8")
 
         handler = UnifiedIOHandler()
-        with handler.open_for_read(test_file, encoding='utf-8') as f:
+        with handler.open_for_read(test_file, encoding="utf-8") as f:
             read_content = f.read()
 
         assert read_content == content
@@ -135,16 +136,18 @@ class TestUnifiedIOHandler:
         """Test open_for_read method with S3 path."""
         mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
+            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
                 mock_file = StringIO("s3 content")
                 mock_s3_client.open_for_read.return_value = mock_file
 
                 handler = UnifiedIOHandler()
-                with handler.open_for_read("s3://bucket/key", encoding='utf-8') as f:
+                with handler.open_for_read("s3://bucket/key", encoding="utf-8") as f:
                     content = f.read()
 
                 assert content == "s3 content"
-                mock_s3_client.open_for_read.assert_called_once_with("s3://bucket/key", encoding='utf-8')
+                mock_s3_client.open_for_read.assert_called_once_with(
+                    "s3://bucket/key", encoding="utf-8"
+                )
 
     def test_open_for_write_local_file(self, tmp_path):
         """Test open_for_write method with local file."""
@@ -174,15 +177,17 @@ class TestUnifiedIOHandler:
         """Test open_for_write method with S3 path."""
         mock_session, mock_s3_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
+            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
                 mock_writer = MagicMock()
                 mock_s3_client.open_for_write.return_value = mock_writer
 
                 handler = UnifiedIOHandler()
-                result = handler.open_for_write("s3://bucket/key", encoding='utf-8')
+                result = handler.open_for_write("s3://bucket/key", encoding="utf-8")
 
                 assert result is mock_writer
-                mock_s3_client.open_for_write.assert_called_once_with("s3://bucket/key", encoding='utf-8')
+                mock_s3_client.open_for_write.assert_called_once_with(
+                    "s3://bucket/key", encoding="utf-8"
+                )
 
     def test_csv_reader_local_file(self, tmp_path):
         """Test csv_reader method with local file."""
@@ -201,7 +206,7 @@ class TestUnifiedIOHandler:
         test_file.write_text("col1\tcol2\nval1\tval2")
 
         handler = UnifiedIOHandler()
-        rows = list(handler.csv_reader(test_file, delimiter='\t'))
+        rows = list(handler.csv_reader(test_file, delimiter="\t"))
 
         expected = [["col1", "col2"], ["val1", "val2"]]
         assert rows == expected
@@ -224,7 +229,7 @@ class TestUnifiedIOHandler:
             csv_content = "col1,col2\nval1,val2"
             mock_file = StringIO(csv_content)
 
-            with patch.object(UnifiedIOHandler, 'open_for_read', return_value=mock_file):
+            with patch.object(UnifiedIOHandler, "open_for_read", return_value=mock_file):
                 handler = UnifiedIOHandler()
                 rows = list(handler.csv_reader("s3://bucket/test.csv"))
 
@@ -263,15 +268,15 @@ class TestUnifiedIOHandler:
             content = "test content for s3 upload"
             src_file.write_text(content)
 
-            with patch('forklift.io.s3_streaming.is_s3_path') as mock_is_s3:
-                mock_is_s3.side_effect = lambda path: str(path).startswith('s3://')
+            with patch("forklift.io.s3_streaming.is_s3_path") as mock_is_s3:
+                mock_is_s3.side_effect = lambda path: str(path).startswith("s3://")
 
                 mock_s3_writer = MagicMock()
                 mock_s3_writer.__enter__ = MagicMock(return_value=mock_s3_writer)
                 mock_s3_writer.__exit__ = MagicMock(return_value=None)
 
                 handler = UnifiedIOHandler()
-                with patch.object(handler, 'open_for_write', return_value=mock_s3_writer):
+                with patch.object(handler, "open_for_write", return_value=mock_s3_writer):
                     handler.copy_file(src_file, "s3://bucket/dest.txt")
 
                 mock_s3_writer.write.assert_called_with(content)
@@ -283,13 +288,13 @@ class TestUnifiedIOHandler:
             dest_file = tmp_path / "dest.txt"
             s3_content = "content from s3"
 
-            with patch('forklift.io.s3_streaming.is_s3_path') as mock_is_s3:
-                mock_is_s3.side_effect = lambda path: str(path).startswith('s3://')
+            with patch("forklift.io.s3_streaming.is_s3_path") as mock_is_s3:
+                mock_is_s3.side_effect = lambda path: str(path).startswith("s3://")
 
                 mock_s3_reader = StringIO(s3_content)
 
                 handler = UnifiedIOHandler()
-                with patch.object(handler, 'open_for_read', return_value=mock_s3_reader):
+                with patch.object(handler, "open_for_read", return_value=mock_s3_reader):
                     handler.copy_file("s3://bucket/source.txt", dest_file)
 
                 assert dest_file.exists()
@@ -299,8 +304,8 @@ class TestUnifiedIOHandler:
         """Test copy_file method from S3 to S3 using native S3 copy."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
-                with patch('forklift.io.unified_io.S3Path') as mock_s3_path_class:
+            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
+                with patch("forklift.io.unified_io.S3Path") as mock_s3_path_class:
                     mock_src_path = MagicMock()
                     mock_src_path.bucket = "src-bucket"
                     mock_src_path.key = "src-key"
@@ -319,9 +324,9 @@ class TestUnifiedIOHandler:
                     handler.copy_file("s3://src-bucket/src-key", "s3://dest-bucket/dest-key")
 
                     mock_boto3_client.copy_object.assert_called_once_with(
-                        CopySource={'Bucket': 'src-bucket', 'Key': 'src-key'},
-                        Bucket='dest-bucket',
-                        Key='dest-key'
+                        CopySource={"Bucket": "src-bucket", "Key": "src-key"},
+                        Bucket="dest-bucket",
+                        Key="dest-key",
                     )
 
     def test_copy_file_with_custom_chunk_size(self, tmp_path):
@@ -347,15 +352,14 @@ class TestUnifiedCSVWriter:
         handler = UnifiedIOHandler()
 
         writer = UnifiedCSVWriter(
-            handler, test_file,
-            delimiter=';', quotechar="'", encoding='latin-1'
+            handler, test_file, delimiter=";", quotechar="'", encoding="latin-1"
         )
 
         assert writer.io_handler is handler
         assert writer.path == test_file
-        assert writer.delimiter == ';'
+        assert writer.delimiter == ";"
         assert writer.quotechar == "'"
-        assert writer.encoding == 'latin-1'
+        assert writer.encoding == "latin-1"
         assert writer._file is None
         assert writer._writer is None
 
@@ -379,7 +383,7 @@ class TestUnifiedCSVWriter:
         test_file = tmp_path / "test.tsv"
         handler = UnifiedIOHandler()
 
-        with UnifiedCSVWriter(handler, test_file, delimiter='\t', quotechar="'") as writer:
+        with UnifiedCSVWriter(handler, test_file, delimiter="\t", quotechar="'") as writer:
             writer.writerow(["col1", "col2"])
             writer.writerow(["val with space", "val2"])
 
@@ -401,8 +405,8 @@ class TestUnifiedCSVWriter:
 
             handler = UnifiedIOHandler()
 
-            with patch.object(handler, 'open_for_write', return_value=mock_s3_writer):
-                with patch('csv.writer', return_value=mock_csv_writer):
+            with patch.object(handler, "open_for_write", return_value=mock_s3_writer):
+                with patch("csv.writer", return_value=mock_csv_writer):
                     with UnifiedCSVWriter(handler, "s3://bucket/test.csv") as writer:
                         assert writer is mock_csv_writer
 
@@ -439,12 +443,12 @@ class TestS3ParquetWriter:
         """Test S3ParquetWriter initialization with string S3 path."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string()), ('col2', pa.int64())])
+            schema = pa.schema([("col1", pa.string()), ("col2", pa.int64())])
 
-            with patch('forklift.io.unified_io.S3Path') as mock_s3_path:
-                with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
-                    with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                        with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer:
+            with patch("forklift.io.unified_io.S3Path") as mock_s3_path:
+                with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_client:
+                    with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                        with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer:
                             mock_temp = MagicMock()
                             mock_temp.name = "/tmp/test.parquet"
                             mock_tempfile.return_value = mock_temp
@@ -456,18 +460,18 @@ class TestS3ParquetWriter:
 
                             mock_s3_path.assert_called_once_with("s3://bucket/test.parquet")
                             assert writer.schema == schema
-                            assert writer.compression == 'snappy'
+                            assert writer.compression == "snappy"
 
     def test_init_with_s3_path_object(self, s3_mock_conditional):
         """Test S3ParquetWriter initialization with S3Path object."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
             s3_path = S3Path("s3://bucket/test.parquet")
 
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer:
+            with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_client:
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer:
                         mock_temp = MagicMock()
                         mock_temp.name = "/tmp/test.parquet"
                         mock_tempfile.return_value = mock_temp
@@ -483,16 +487,18 @@ class TestS3ParquetWriter:
         """Test S3ParquetWriter initialization with provided S3 client."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
             mock_s3_client = MagicMock(spec=S3StreamingClient)
 
-            with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer:
+            with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer:
                     mock_temp = MagicMock()
                     mock_temp.name = "/tmp/test.parquet"
                     mock_tempfile.return_value = mock_temp
 
-                    writer = S3ParquetWriter("s3://bucket/test.parquet", schema, s3_client=mock_s3_client)
+                    writer = S3ParquetWriter(
+                        "s3://bucket/test.parquet", schema, s3_client=mock_s3_client
+                    )
 
                     assert writer.s3_client is mock_s3_client
 
@@ -500,29 +506,31 @@ class TestS3ParquetWriter:
         """Test S3ParquetWriter initialization with custom compression."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
 
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer:
+            with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_client:
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer:
                         mock_temp = MagicMock()
                         mock_temp.name = "/tmp/test.parquet"
                         mock_tempfile.return_value = mock_temp
 
-                        writer = S3ParquetWriter("s3://bucket/test.parquet", schema, compression='gzip')
+                        writer = S3ParquetWriter(
+                            "s3://bucket/test.parquet", schema, compression="gzip"
+                        )
 
-                        assert writer.compression == 'gzip'
+                        assert writer.compression == "gzip"
 
     def test_write_table(self, s3_mock_conditional):
         """Test write_table method."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
-            table = pa.table([['value1', 'value2']], schema=schema)
+            schema = pa.schema([("col1", pa.string())])
+            table = pa.table([["value1", "value2"]], schema=schema)
 
-            with patch('forklift.io.s3_streaming.get_s3_client'):
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer_class:
+            with patch("forklift.io.s3_streaming.get_s3_client"):
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer_class:
                         mock_temp = MagicMock()
                         mock_temp.name = "/tmp/test.parquet"
                         mock_tempfile.return_value = mock_temp
@@ -539,12 +547,12 @@ class TestS3ParquetWriter:
         """Test write_batch method."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
-            batch = pa.record_batch([['value1', 'value2']], schema=schema)
+            schema = pa.schema([("col1", pa.string())])
+            batch = pa.record_batch([["value1", "value2"]], schema=schema)
 
-            with patch('forklift.io.s3_streaming.get_s3_client'):
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer_class:
+            with patch("forklift.io.s3_streaming.get_s3_client"):
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer_class:
                         mock_temp = MagicMock()
                         mock_temp.name = "/tmp/test.parquet"
                         mock_tempfile.return_value = mock_temp
@@ -562,12 +570,12 @@ class TestS3ParquetWriter:
         """Test close method uploads file to S3."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
 
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer_class:
-                        with patch('builtins.open', mock_open(read_data=b'parquet_data')):
+            with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_client:
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer_class:
+                        with patch("builtins.open", mock_open(read_data=b"parquet_data")):
                             mock_temp = MagicMock()
                             mock_temp.name = "/tmp/test.parquet"
                             mock_tempfile.return_value = mock_temp
@@ -589,12 +597,12 @@ class TestS3ParquetWriter:
         """Test close method cleans up temp file even on exception."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
 
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer_class:
-                        with patch('builtins.open', side_effect=Exception("Upload failed")):
+            with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_client:
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer_class:
+                        with patch("builtins.open", side_effect=Exception("Upload failed")):
                             mock_temp = MagicMock()
                             mock_temp.name = "/tmp/test.parquet"
                             mock_tempfile.return_value = mock_temp
@@ -614,12 +622,12 @@ class TestS3ParquetWriter:
         """Test close method handles cleanup exceptions gracefully."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
 
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer_class:
-                        with patch('builtins.open', mock_open(read_data=b'parquet_data')):
+            with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_client:
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer_class:
+                        with patch("builtins.open", mock_open(read_data=b"parquet_data")):
                             mock_temp = MagicMock()
                             mock_temp.name = "/tmp/test.parquet"
                             mock_tempfile.return_value = mock_temp
@@ -632,7 +640,7 @@ class TestS3ParquetWriter:
                             mock_get_client.return_value = mock_s3_client
 
                             # Mock Path to simulate cleanup exception
-                            with patch('forklift.io.unified_io.Path') as mock_path_class:
+                            with patch("forklift.io.unified_io.Path") as mock_path_class:
                                 mock_path = MagicMock()
                                 mock_path.unlink.side_effect = Exception("Cleanup failed")
                                 mock_path_class.return_value = mock_path
@@ -648,18 +656,18 @@ class TestS3ParquetWriter:
         """Test S3ParquetWriter as context manager."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
 
-            with patch('forklift.io.s3_streaming.get_s3_client'):
-                with patch('tempfile.NamedTemporaryFile') as mock_tempfile:
-                    with patch('forklift.io.unified_io.pq.ParquetWriter'):
+            with patch("forklift.io.s3_streaming.get_s3_client"):
+                with patch("tempfile.NamedTemporaryFile") as mock_tempfile:
+                    with patch("forklift.io.unified_io.pq.ParquetWriter"):
                         mock_temp = MagicMock()
                         mock_temp.name = "/tmp/test.parquet"
                         mock_tempfile.return_value = mock_temp
 
                         writer = S3ParquetWriter("s3://bucket/test.parquet", schema)
 
-                        with patch.object(writer, 'close') as mock_close:
+                        with patch.object(writer, "close") as mock_close:
                             with writer as w:
                                 assert w is writer
 
@@ -672,53 +680,50 @@ class TestCreateParquetWriter:
     def test_create_parquet_writer_local_path(self, tmp_path):
         """Test create_parquet_writer with local path."""
         output_file = tmp_path / "subdir" / "test.parquet"
-        schema = pa.schema([('col1', pa.string())])
+        schema = pa.schema([("col1", pa.string())])
 
-        with patch('forklift.io.unified_io.pq.ParquetWriter') as mock_pq_writer:
-            writer = create_parquet_writer(output_file, schema, compression='gzip')
+        with patch("forklift.io.unified_io.pq.ParquetWriter") as mock_pq_writer:
+            writer = create_parquet_writer(output_file, schema, compression="gzip")
 
             assert output_file.parent.exists()  # Parent directory created
-            mock_pq_writer.assert_called_once_with(output_file, schema, compression='gzip')
+            mock_pq_writer.assert_called_once_with(output_file, schema, compression="gzip")
 
     def test_create_parquet_writer_s3_path(self, s3_mock_conditional):
         """Test create_parquet_writer with S3 path."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
 
-            with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
-                with patch('forklift.io.unified_io.S3ParquetWriter') as mock_s3_writer:
+            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
+                with patch("forklift.io.unified_io.S3ParquetWriter") as mock_s3_writer:
                     mock_s3_client = MagicMock()
 
                     writer = create_parquet_writer(
                         "s3://bucket/test.parquet",
                         schema,
                         s3_client=mock_s3_client,
-                        compression='snappy'
+                        compression="snappy",
                     )
 
                     mock_s3_writer.assert_called_once_with(
                         "s3://bucket/test.parquet",
                         schema,
                         s3_client=mock_s3_client,
-                        compression='snappy'
+                        compression="snappy",
                     )
 
     def test_create_parquet_writer_s3_path_no_client(self, s3_mock_conditional):
         """Test create_parquet_writer with S3 path and no client provided."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            schema = pa.schema([('col1', pa.string())])
+            schema = pa.schema([("col1", pa.string())])
 
-            with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
-                with patch('forklift.io.unified_io.S3ParquetWriter') as mock_s3_writer:
+            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
+                with patch("forklift.io.unified_io.S3ParquetWriter") as mock_s3_writer:
                     writer = create_parquet_writer("s3://bucket/test.parquet", schema)
 
                     mock_s3_writer.assert_called_once_with(
-                        "s3://bucket/test.parquet",
-                        schema,
-                        s3_client=None,
-                        compression='snappy'
+                        "s3://bucket/test.parquet", schema, s3_client=None, compression="snappy"
                     )
 
 
@@ -729,14 +734,14 @@ class TestGetS3Client:
         """Test get_s3_client function delegates to s3_streaming module."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch('forklift.io.s3_streaming.get_s3_client') as mock_get_client:
+            with patch("forklift.io.s3_streaming.get_s3_client") as mock_get_client:
                 mock_s3_client = MagicMock()
                 mock_get_client.return_value = mock_s3_client
 
-                result = get_s3_client(region_name='us-west-2')
+                result = get_s3_client(region_name="us-west-2")
 
                 assert result is mock_s3_client
-                mock_get_client.assert_called_once_with(region_name='us-west-2')
+                mock_get_client.assert_called_once_with(region_name="us-west-2")
 
 
 # Integration tests that work with both mocked and real S3
@@ -750,7 +755,7 @@ class TestUnifiedIOIntegration:
 
         # Create input CSV
         input_data = [["name", "age"], ["Alice", "30"], ["Bob", "25"]]
-        with open(input_file, 'w', newline='') as f:
+        with open(input_file, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerows(input_data)
 
@@ -789,7 +794,7 @@ class TestUnifiedIOIntegration:
 
         # Check size
         size = handler.get_size(test_file)
-        assert size == len(content.encode('utf-8'))
+        assert size == len(content.encode("utf-8"))
 
         # Read file
         with handler.open_for_read(test_file) as f:
@@ -808,7 +813,7 @@ class TestUnifiedIOIntegration:
 
     def _test_s3_operations_mocked(self, mock_session, mock_client):
         """Test S3 operations with mocked S3."""
-        with patch('forklift.io.s3_streaming.is_s3_path', return_value=True):
+        with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
             mock_s3_client = MagicMock(spec=S3StreamingClient)
             mock_s3_client.exists.return_value = False
             mock_s3_client.get_size.return_value = 1024

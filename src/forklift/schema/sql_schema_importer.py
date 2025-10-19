@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 
 class SchemaValidationError(Exception):
     """Raised when schema validation fails."""
+
     pass
 
 
@@ -30,13 +31,33 @@ class SqlSchemaImporter:
 
     # Define supported Parquet data types
     SUPPORTED_PARQUET_TYPES = {
-        "int8", "int16", "int32", "int64",
-        "uint8", "uint16", "uint32", "uint64",
-        "float32", "double", "bool", "string", "binary",
-        "date32", "date64", "timestamp[s]", "timestamp[ms]",
-        "timestamp[us]", "timestamp[ns]", "duration[s]", "duration[ms]",
-        "duration[us]", "duration[ns]", "decimal128(10,2)",
-        "list<string>", "struct", "dictionary<values=string, indices=int32>"
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float32",
+        "double",
+        "bool",
+        "string",
+        "binary",
+        "date32",
+        "date64",
+        "timestamp[s]",
+        "timestamp[ms]",
+        "timestamp[us]",
+        "timestamp[ns]",
+        "duration[s]",
+        "duration[ms]",
+        "duration[us]",
+        "duration[ns]",
+        "decimal128(10,2)",
+        "list<string>",
+        "struct",
+        "dictionary<values=string, indices=int32>",
     }
 
     def __init__(self, schema: Union[str, Path, Dict[str, Any]], validate: bool = True):
@@ -102,7 +123,9 @@ class SqlSchemaImporter:
 
         self.validation_errors = errors
         if errors:
-            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(f"  - {err}" for err in errors)
+            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(
+                f"  - {err}" for err in errors
+            )
             raise SchemaValidationError(error_msg)
 
     def _validate_json_schema_structure(self) -> List[str]:
@@ -117,7 +140,9 @@ class SqlSchemaImporter:
 
         if not self.schema.get("$id"):
             errors.append("Missing required '$id' field")
-        elif not self.schema["$id"].startswith("https://github.com/cornyhorse/forklift/schema-standards/"):
+        elif not self.schema["$id"].startswith(
+            "https://github.com/cornyhorse/forklift/schema-standards/"
+        ):
             errors.append("Schema $id must follow the standard GitHub URL pattern")
 
         if not self.schema.get("title"):
@@ -195,7 +220,9 @@ class SqlSchemaImporter:
         has_pattern = "pattern" in select
 
         if not (has_schema_name or has_name_only or has_pattern):
-            errors.append(f"Table {table_index} select must have 'name', 'schema'+'name', or 'pattern'")
+            errors.append(
+                f"Table {table_index} select must have 'name', 'schema'+'name', or 'pattern'"
+            )
 
         # Validate individual fields
         if "schema" in select and not isinstance(select["schema"], str):
@@ -227,12 +254,17 @@ class SqlSchemaImporter:
             if col_type:
                 valid_types = {"string", "integer", "number", "boolean", "array", "object"}
                 if col_type not in valid_types:
-                    errors.append(f"Table {table_index} column '{col_name}' invalid type '{col_type}'")
+                    errors.append(
+                        f"Table {table_index} column '{col_name}' invalid type '{col_type}'"
+                    )
 
             # Validate Parquet type
             parquet_type = col_def.get("parquetType")
             if parquet_type and not self._is_valid_parquet_type(parquet_type):
-                errors.append(f"Table {table_index} column '{col_name}' invalid Parquet type '{parquet_type}'")
+                errors.append(
+                    f"Table {table_index} column '{col_name}'"
+                    f" invalid Parquet type '{parquet_type}'"
+                )
 
             # Validate constraints based on type
             if col_type == "integer":
@@ -256,7 +288,9 @@ class SqlSchemaImporter:
                     try:
                         re.compile(pattern)
                     except re.error:
-                        errors.append(f"Table {table_index} column '{col_name}' invalid regex pattern")
+                        errors.append(
+                            f"Table {table_index} column '{col_name}' invalid regex pattern"
+                        )
 
         return errors
 
@@ -274,7 +308,9 @@ class SqlSchemaImporter:
                 if isinstance(col_def, dict):
                     parquet_type = col_def.get("parquetType")
                     if parquet_type and not self._is_valid_parquet_type(parquet_type):
-                        errors.append(f"Table {i} column '{col_name}' invalid Parquet type '{parquet_type}'")
+                        errors.append(
+                            f"Table {i} column '{col_name}' invalid Parquet type '{parquet_type}'"
+                        )
 
         return errors
 
@@ -292,7 +328,9 @@ class SqlSchemaImporter:
             if len(parts) == 2:
                 schema_part, table_part = parts
                 # Both parts must be valid identifiers or wildcards
-                return self._is_valid_identifier_or_wildcard(schema_part) and self._is_valid_identifier_or_wildcard(table_part)
+                return self._is_valid_identifier_or_wildcard(
+                    schema_part
+                ) and self._is_valid_identifier_or_wildcard(table_part)
 
         # Single identifier (table name)
         return self._is_valid_identifier_or_wildcard(pattern)
@@ -303,7 +341,7 @@ class SqlSchemaImporter:
             return True
 
         # Basic SQL identifier validation (simplified)
-        return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
+        return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name))
 
     def _is_valid_parquet_type(self, parquet_type: str) -> bool:
         """Check if a Parquet type is valid."""
@@ -345,7 +383,9 @@ class SqlSchemaImporter:
         """Get the table configurations."""
         return self.tables
 
-    def get_table_by_name(self, schema_name: Optional[str], table_name: str) -> Optional[Dict[str, Any]]:
+    def get_table_by_name(
+        self, schema_name: Optional[str], table_name: str
+    ) -> Optional[Dict[str, Any]]:
         """Get a specific table configuration by schema and table name."""
         for table in self.tables:
             select = table.get("select", {})
@@ -380,7 +420,9 @@ class SqlSchemaImporter:
         # Individual tables are explicitly listed in the schema
         return True
 
-    def _matches_pattern(self, full_name: str, pattern: str, schema_name: Optional[str], table_name: str) -> bool:
+    def _matches_pattern(
+        self, full_name: str, pattern: str, schema_name: Optional[str], table_name: str
+    ) -> bool:
         """Check if a table matches a specific pattern - deprecated."""
         # No longer used since we use explicit table lists instead of glob patterns
         return True
@@ -416,7 +458,7 @@ class SqlSchemaImporter:
                 "ARRAY": "list<string>",
                 "JSON": "struct",
                 "JSONB": "struct",
-                "UUID": "string"
+                "UUID": "string",
             }
 
         return mapping

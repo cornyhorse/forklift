@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
-from .base import BaseFormatter
+
 from ..configs import EmailConfig
+from .base import BaseFormatter
 
 
 class EmailFormatter(BaseFormatter):
@@ -26,11 +27,11 @@ class EmailFormatter(BaseFormatter):
         if self.config.strip_whitespace:
             original_value = original_value.strip()
 
-        if self.config.normalize_domain and '.' in original_value:
-            original_value = re.sub(r'\.+$', '', original_value)
+        if self.config.normalize_domain and "." in original_value:
+            original_value = re.sub(r"\.+$", "", original_value)
 
         if self.config.validate_format:
-            pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
             if not re.match(pattern, original_value):
                 raise ValueError("Invalid email format")
 

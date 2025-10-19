@@ -1,8 +1,8 @@
 """Schema formatting utilities."""
 
 import json
-from typing import Any, Dict, Optional
 from datetime import datetime
+from typing import Any, Dict
 
 
 class SchemaFormatter:
@@ -22,7 +22,9 @@ class SchemaFormatter:
         return json.dumps(schema, indent=indent, default=str)
 
     @staticmethod
-    def add_generation_metadata(schema: Dict[str, Any], source_file: str, rows_analyzed: int) -> Dict[str, Any]:
+    def add_generation_metadata(
+        schema: Dict[str, Any], source_file: str, rows_analyzed: int
+    ) -> Dict[str, Any]:
         """Add generation metadata to schema.
 
         Args:
@@ -37,7 +39,7 @@ class SchemaFormatter:
             "generated_at": datetime.now().isoformat(),
             "source_file": str(source_file),
             "rows_analyzed": rows_analyzed,
-            "generator_version": "1.0.0"
+            "generator_version": "1.0.0",
         }
         return schema
 
@@ -53,11 +55,13 @@ class SchemaFormatter:
         """
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$id": f"https://github.com/cornyhorse/forklift/schema-standards/{datetime.now().strftime('%Y%m%d')}-{file_type}.json",
+            "$id": f"https://github.com/cornyhorse/forklift/schema-standards/"
+            f"{datetime.now().strftime('%Y%m%d')}-{file_type}.json",
             "title": f"Forklift {file_type.upper()} Schema - Generated",
-            "description": f"Auto-generated schema for {file_type.upper()} file processing with Forklift",
+            "description": f"Auto-generated schema for "
+            f"{file_type.upper()} file processing with Forklift",
             "type": "object",
             "properties": {},
             "required": [],
-            "additionalProperties": False
+            "additionalProperties": False,
         }

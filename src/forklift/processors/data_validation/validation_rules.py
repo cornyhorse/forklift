@@ -1,10 +1,10 @@
 """Individual validation rule implementations."""
 
 import re
+from datetime import date, datetime
 from typing import Any, Optional
-from datetime import datetime, date
 
-from .validation_config import RangeValidation, StringValidation, EnumValidation, DateValidation
+from .validation_config import DateValidation, EnumValidation, RangeValidation, StringValidation
 
 
 class ValidationRules:
@@ -27,18 +27,21 @@ class ValidationRules:
             if isinstance(value, str):
                 # Try to parse as number if it looks like one
                 try:
-                    if '.' in value:
+                    if "." in value:
                         value = float(value)
                     else:
                         value = int(value)
                 except ValueError:
-                    return f"Field '{field_name}' value '{value}' cannot be converted to numeric for range validation"
+                    return (
+                        f"Field '{field_name}' value '{value}' "
+                        f"cannot be converted to numeric for range validation"
+                    )
 
             # Check minimum
             if range_val.min_value is not None:
                 min_val = range_val.min_value
                 if isinstance(min_val, str):
-                    min_val = float(min_val) if '.' in min_val else int(min_val)
+                    min_val = float(min_val) if "." in min_val else int(min_val)
 
                 if range_val.inclusive:
                     if value < min_val:
@@ -51,7 +54,7 @@ class ValidationRules:
             if range_val.max_value is not None:
                 max_val = range_val.max_value
                 if isinstance(max_val, str):
-                    max_val = float(max_val) if '.' in max_val else int(max_val)
+                    max_val = float(max_val) if "." in max_val else int(max_val)
 
                 if range_val.inclusive:
                     if value > max_val:
@@ -66,18 +69,25 @@ class ValidationRules:
             return f"Field '{field_name}' range validation error: {str(e)}"
 
     @staticmethod
-    def validate_string(field_name: str, value: Any, string_val: StringValidation) -> Optional[str]:
+    def validate_string(
+        field_name: str, value: Any, string_val: StringValidation
+    ) -> Optional[str]:
         """Validate string constraints."""
         if not isinstance(value, str):
             value = str(value)
 
         # Check minimum length
         if string_val.min_length is not None and len(value) < string_val.min_length:
-            return f"Field '{field_name}' length {len(value)} is below minimum {string_val.min_length}"
+            return (
+                f"Field '{field_name}' length {len(value)} "
+                f"is below minimum {string_val.min_length}"
+            )
 
         # Check maximum length
         if string_val.max_length is not None and len(value) > string_val.max_length:
-            return f"Field '{field_name}' length {len(value)} exceeds maximum {string_val.max_length}"
+            return (
+                f"Field '{field_name}' length {len(value)} exceeds maximum {string_val.max_length}"
+            )
 
         # Check pattern
         if string_val.pattern is not None:
@@ -100,13 +110,17 @@ class ValidationRules:
 
         if enum_val.case_sensitive:
             if value not in allowed_values:
-                return f"Field '{field_name}' value '{value}' not in allowed values: {allowed_values}"
+                return (
+                    f"Field '{field_name}' value '{value}' not in allowed values: {allowed_values}"
+                )
         else:
             # Case-insensitive comparison
             value_lower = str(value).lower()
             allowed_lower = [str(v).lower() for v in allowed_values]
             if value_lower not in allowed_lower:
-                return f"Field '{field_name}' value '{value}' not in allowed values: {allowed_values}"
+                return (
+                    f"Field '{field_name}' value '{value}' not in allowed values: {allowed_values}"
+                )
 
         return None
 

@@ -1,9 +1,10 @@
 """Base classes for data processors in the Forklift pipeline."""
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Tuple
 from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 import pyarrow as pa
 
@@ -19,6 +20,7 @@ class ValidationResult:
         row_index: Row index where error occurred (if applicable)
         column_name: Column name where error occurred (if applicable)
     """
+
     is_valid: bool
     error_message: Optional[str] = None
     error_code: Optional[str] = None
@@ -34,7 +36,9 @@ class BaseProcessor(ABC):
     """
 
     @abstractmethod
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch of data.
 
         Args:

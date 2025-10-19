@@ -1,9 +1,11 @@
 """Constraint validation classes for data quality checks."""
 
 from __future__ import annotations
-from typing import List, Any, Optional, Dict, Tuple
+
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple
+
 import pyarrow as pa
 
 from .base import BaseProcessor, ValidationResult
@@ -11,6 +13,7 @@ from .base import BaseProcessor, ValidationResult
 
 class ErrorMode(Enum):
     """Error handling modes for constraint validation."""
+
     FAIL_FAST = "fail_fast"
     FAIL_COMPLETE = "fail_complete"
     BAD_ROWS = "bad_rows"
@@ -19,6 +22,7 @@ class ErrorMode(Enum):
 @dataclass
 class ConstraintConfig:
     """Configuration for constraint validation."""
+
     error_mode: ErrorMode = ErrorMode.BAD_ROWS
     check_constraints: Dict[str, Any] = None
     unique_constraints: List[str] = None
@@ -57,7 +61,9 @@ class ConstraintValidator(BaseProcessor):
         self.config = config
         self.violations: List[ConstraintViolation] = []
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process batch and validate against constraints.
 
         Args:
@@ -81,7 +87,10 @@ class ConstraintValidator(BaseProcessor):
 
     def finalize(self):
         """Finalize validation and potentially raise exceptions based on error mode."""
-        if self.violations and self.config.error_mode in [ErrorMode.FAIL_FAST, ErrorMode.FAIL_COMPLETE]:
+        if self.violations and self.config.error_mode in [
+            ErrorMode.FAIL_FAST,
+            ErrorMode.FAIL_COMPLETE,
+        ]:
             violation_count = len(self.violations)
             raise ValueError(f"Constraint validation failed with {violation_count} violations")
 
@@ -118,7 +127,7 @@ def create_constraint_config_from_schema(schema_dict: Dict[str, Any]) -> Constra
             check_constraints[f"{field_name}_range"] = {
                 "column": field_name,
                 "min": field_def.get("minimum"),
-                "max": field_def.get("maximum")
+                "max": field_def.get("maximum"),
             }
 
         # Check for unique constraints
@@ -129,5 +138,5 @@ def create_constraint_config_from_schema(schema_dict: Dict[str, Any]) -> Constra
         error_mode=error_mode,
         check_constraints=check_constraints,
         unique_constraints=unique_constraints,
-        foreign_key_constraints=foreign_key_constraints
+        foreign_key_constraints=foreign_key_constraints,
     )

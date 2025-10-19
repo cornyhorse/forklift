@@ -180,6 +180,7 @@ For detailed documentation, see the [`docs/`](docs/) directory:
 
 See the [`examples/`](examples/) directory for comprehensive examples:
 
+- **[getting_started.py](examples/getting_started.py)** - **Start here!** Complete introduction to CSV processing with schema validation, including basic usage, complete schema validation, and passthrough mode for processing subsets of columns
 - **calculated_columns_demo.py** - Calculated columns functionality
 - **constraint_validation_demo.py** - Constraint validation examples
 - **validation_demo.py** - Data validation with bad rows handling

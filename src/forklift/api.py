@@ -6,10 +6,15 @@ that can be used by other Python applications.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union, List
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
-from .schema.schema_generator import SchemaGenerator, SchemaGenerationConfig, OutputTarget, FileType
+from .schema.schema_generator import (
+    FileType,
+    OutputTarget,
+    SchemaGenerationConfig,
+    SchemaGenerator,
+)
 
 
 def generate_schema_from_csv(
@@ -19,7 +24,7 @@ def generate_schema_from_csv(
     encoding: str = "utf-8",
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key_from_metadata: bool = False,  # Use metadata-based inference
-    user_specified_primary_key: Optional[List[str]] = None  # Allow manual specification
+    user_specified_primary_key: Optional[List[str]] = None,  # Allow manual specification
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from a CSV file.
 
@@ -64,7 +69,7 @@ def generate_schema_from_csv(
         encoding=encoding,
         include_sample_data=include_sample_data,
         infer_primary_key_from_metadata=infer_primary_key_from_metadata,
-        user_specified_primary_key=user_specified_primary_key
+        user_specified_primary_key=user_specified_primary_key,
     )
 
     generator = SchemaGenerator(config)
@@ -77,7 +82,7 @@ def generate_schema_from_excel(
     sheet_name: Optional[str] = None,
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key_from_metadata: bool = False,  # Use metadata-based inference
-    user_specified_primary_key: Optional[List[str]] = None  # Allow manual specification
+    user_specified_primary_key: Optional[List[str]] = None,  # Allow manual specification
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from an Excel file.
 
@@ -101,7 +106,9 @@ def generate_schema_from_excel(
         >>> schema = generate_schema_from_excel("data.xlsx", infer_primary_key_from_metadata=True)
 
         >>> # With manual primary key specification
-        >>> schema = generate_schema_from_excel("data.xlsx", user_specified_primary_key=["record_id"])
+        >>> schema = generate_schema_from_excel(
+        ...     "data.xlsx", user_specified_primary_key=["record_id"]
+        ... )
     """
     # Validate input_path
     if input_path is None:
@@ -117,7 +124,7 @@ def generate_schema_from_excel(
         sheet_name=sheet_name,
         include_sample_data=include_sample_data,
         infer_primary_key_from_metadata=infer_primary_key_from_metadata,
-        user_specified_primary_key=user_specified_primary_key
+        user_specified_primary_key=user_specified_primary_key,
     )
 
     generator = SchemaGenerator(config)
@@ -129,7 +136,7 @@ def generate_schema_from_parquet(
     nrows: Optional[int] = None,  # Default to None (analyze entire file)
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key_from_metadata: bool = False,  # Use metadata-based inference
-    user_specified_primary_key: Optional[List[str]] = None  # Allow manual specification
+    user_specified_primary_key: Optional[List[str]] = None,  # Allow manual specification
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from a Parquet file.
 
@@ -152,17 +159,21 @@ def generate_schema_from_parquet(
         >>> schema = generate_schema_from_parquet("data.parquet", nrows=1000)
 
         >>> # With primary key inference
-        >>> schema = generate_schema_from_parquet("data.parquet", infer_primary_key_from_metadata=True)
+        >>> schema = generate_schema_from_parquet(
+        ...     "data.parquet", infer_primary_key_from_metadata=True
+        ... )
 
         >>> # With manual primary key specification
-        >>> schema = generate_schema_from_parquet("data.parquet", user_specified_primary_key=["id"])
+        >>> schema = generate_schema_from_parquet(
+        ...     "data.parquet", user_specified_primary_key=["id"]
+        ... )
     """
     # Validate input_path
     if input_path is None:
         raise ValueError("input_path cannot be None")
     if isinstance(input_path, str) and not input_path.strip():
         raise ValueError("input_path cannot be empty")
-    
+
     config = SchemaGenerationConfig(
         input_path=input_path,
         file_type=FileType.PARQUET,
@@ -170,7 +181,7 @@ def generate_schema_from_parquet(
         output_target=OutputTarget.STDOUT,  # Not used for API calls
         include_sample_data=include_sample_data,
         infer_primary_key_from_metadata=infer_primary_key_from_metadata,
-        user_specified_primary_key=user_specified_primary_key
+        user_specified_primary_key=user_specified_primary_key,
     )
 
     generator = SchemaGenerator(config)
@@ -182,7 +193,7 @@ def generate_and_save_schema(
     output_path: Union[str, Path],
     file_type: str,
     nrows: Optional[int] = None,
-    **kwargs
+    **kwargs,
 ) -> None:
     """Generate a schema and save it to a file.
 
@@ -207,7 +218,7 @@ def generate_and_save_schema(
         nrows=nrows,
         output_target=OutputTarget.FILE,
         output_path=output_path,
-        **kwargs
+        **kwargs,
     )
 
     generator = SchemaGenerator(config)
@@ -216,10 +227,7 @@ def generate_and_save_schema(
 
 
 def generate_and_copy_schema(
-    input_path: Union[str, Path],
-    file_type: str,
-    nrows: Optional[int] = None,
-    **kwargs
+    input_path: Union[str, Path], file_type: str, nrows: Optional[int] = None, **kwargs
 ) -> Dict[str, Any]:
     """Generate a schema and copy it to the clipboard.
 
@@ -241,7 +249,7 @@ def generate_and_copy_schema(
         file_type=FileType(file_type),
         nrows=nrows,
         output_target=OutputTarget.CLIPBOARD,
-        **kwargs
+        **kwargs,
     )
 
     generator = SchemaGenerator(config)

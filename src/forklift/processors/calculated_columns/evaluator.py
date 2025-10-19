@@ -1,7 +1,8 @@
 """Expression evaluation logic for calculated columns."""
 
-from typing import Any, Dict
 import re
+from typing import Any, Dict
+
 import pyarrow as pa
 
 from .functions import get_available_functions, get_constants
@@ -62,24 +63,30 @@ class ExpressionEvaluator:
 
     def _has_arithmetic_operations(self, expression: str) -> bool:
         """Check if expression contains basic arithmetic operations."""
-        return any(op in expression for op in [' + ', ' - ', ' * ', ' / ', ' % ', ' ** '])
+        return any(op in expression for op in [" + ", " - ", " * ", " / ", " % ", " ** "])
 
     def _has_null_variables_in_arithmetic(self, expression: str, context: Dict[str, Any]) -> bool:
         """Check if expression has null variables in arithmetic operations."""
         # Extract variable names from expression
-        var_pattern = r'\b[a-zA-Z_][a-zA-Z0-9_]*\b'
+        var_pattern = r"\b[a-zA-Z_][a-zA-Z0-9_]*\b"
         variables = re.findall(var_pattern, expression)
 
         # Check if any variables are None and not function names
         null_vars = []
         for var in variables:
-            if (var in context and not callable(context.get(var)) and
-                context[var] is None and var not in self._available_functions and
-                var not in self._constants):
+            if (
+                var in context
+                and not callable(context.get(var))
+                and context[var] is None
+                and var not in self._available_functions
+                and var not in self._constants
+            ):
                 null_vars.append(var)
 
         # If we have null variables in a simple arithmetic expression, return None
-        return bool(null_vars and not any(func in expression for func in self._available_functions.keys()))
+        return bool(
+            null_vars and not any(func in expression for func in self._available_functions.keys())
+        )
 
     def validate_expression(self, expression: str, sample_data: Dict[str, Any]) -> bool:
         """Validate an expression against sample data.
@@ -103,7 +110,9 @@ class ExpressionEvaluator:
         except Exception:
             return False
 
-    def calculate_column_values(self, batch: pa.RecordBatch, column_config: CalculatedColumn) -> pa.Array:
+    def calculate_column_values(
+        self, batch: pa.RecordBatch, column_config: CalculatedColumn
+    ) -> pa.Array:
         """Calculate values for a single column.
 
         Args:

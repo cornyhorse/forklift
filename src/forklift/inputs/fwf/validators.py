@@ -1,9 +1,10 @@
 """Field validation and configuration validation for FWF processing."""
 
 from __future__ import annotations
+
 from typing import List
 
-from ..config import FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
+from ..config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 
 
 class FwfFieldValidator:
@@ -47,10 +48,22 @@ class FwfFieldValidator:
             ValueError: If data type is invalid
         """
         valid_types = {
-            "string", "int8", "int16", "int32", "int64",
-            "uint8", "uint16", "uint32", "uint64",
-            "float32", "float64", "bool", "date32", "date64",
-            "timestamp", "binary"
+            "string",
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float32",
+            "float64",
+            "bool",
+            "date32",
+            "date64",
+            "timestamp",
+            "binary",
         }
 
         # Handle decimal types with precision/scale
@@ -130,15 +143,19 @@ class FwfSchemaValidator:
         """
         for i, field1 in enumerate(fields):
             field1_end = field1.start + field1.length - 1
-            for j, field2 in enumerate(fields[i + 1:], i + 1):
+            for j, field2 in enumerate(fields[i + 1 :], i + 1):
                 field2_end = field2.start + field2.length - 1
 
                 # Check for overlap
-                if (field1.start <= field2.start <= field1_end or
-                    field2.start <= field1.start <= field2_end):
+                if (
+                    field1.start <= field2.start <= field1_end
+                    or field2.start <= field1.start <= field2_end
+                ):
                     raise ValueError(
-                        f"Field positions overlap: '{field1.name}' (positions {field1.start}-{field1_end}) "
-                        f"overlaps with '{field2.name}' (positions {field2.start}-{field2_end})"
+                        f"Field positions overlap: '{field1.name}' "
+                        f"(positions {field1.start}-{field1_end}) "
+                        f"overlaps with '{field2.name}' "
+                        f"(positions {field2.start}-{field2_end})"
                     )
 
     @staticmethod

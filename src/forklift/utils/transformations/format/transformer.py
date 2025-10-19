@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import pyarrow as pa
-from .ssn import SSNFormatter
-from .postal import ZipCodeFormatter
-from .phone import PhoneNumberFormatter
+
+from ..configs import (
+    EmailConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    PhoneNumberConfig,
+    SSNConfig,
+    ZipCodeConfig,
+)
 from .email import EmailFormatter
 from .network import IPAddressFormatter, MACAddressFormatter
-from ..configs import (
-    SSNConfig, ZipCodeConfig, PhoneNumberConfig,
-    EmailConfig, IPAddressConfig, MACAddressConfig
-)
+from .phone import PhoneNumberFormatter
+from .postal import ZipCodeFormatter
+from .ssn import SSNFormatter
 
 
 class FormatTransformer:
@@ -31,7 +36,9 @@ class FormatTransformer:
         formatter = ZipCodeFormatter(config)
         return formatter.apply_formatting(column)
 
-    def apply_phone_number_formatting(self, column: pa.Array, config: PhoneNumberConfig) -> pa.Array:
+    def apply_phone_number_formatting(
+        self, column: pa.Array, config: PhoneNumberConfig
+    ) -> pa.Array:
         """Format phone numbers according to the specified style."""
         formatter = PhoneNumberFormatter(config)
         return formatter.apply_formatting(column)

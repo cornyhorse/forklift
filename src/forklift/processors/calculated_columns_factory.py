@@ -1,15 +1,17 @@
 """Factory functions for creating calculated columns processors from schema configurations."""
 
 from __future__ import annotations
-from typing import Dict, Any, Optional, List
+
+from typing import Any, Dict, List, Optional
+
 import pyarrow as pa
 
 from .calculated_columns import (
-    CalculatedColumnsProcessor,
+    CalculatedColumn,
     CalculatedColumnsConfig,
+    CalculatedColumnsProcessor,
     ConstantColumn,
     ExpressionColumn,
-    CalculatedColumn
 )
 
 
@@ -24,10 +26,10 @@ def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
     """
     if data_type_str is None:
         return None
-    
+
     if data_type_str == "":
         return None
-    
+
     # For whitespace-only strings, strip first then check if empty
     stripped = data_type_str.strip()
     if not stripped:
@@ -37,18 +39,18 @@ def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
 
     # Handle simple types
     type_mapping = {
-        'string': pa.string(),
-        'int64': pa.int64(),
-        'int32': pa.int32(),
-        'float64': pa.float64(),
-        'float32': pa.float32(),
-        'double': pa.float64(),  # alias for float64
-        'bool': pa.bool_(),
-        'boolean': pa.bool_(),
-        'date32': pa.date32(),
-        'date64': pa.date64(),
-        'timestamp': pa.timestamp('ns'),
-        'binary': pa.binary(),
+        "string": pa.string(),
+        "int64": pa.int64(),
+        "int32": pa.int32(),
+        "float64": pa.float64(),
+        "float32": pa.float32(),
+        "double": pa.float64(),  # alias for float64
+        "bool": pa.bool_(),
+        "boolean": pa.bool_(),
+        "date32": pa.date32(),
+        "date64": pa.date64(),
+        "timestamp": pa.timestamp("ns"),
+        "binary": pa.binary(),
     }
 
     # Handle simple mapped types first
@@ -56,21 +58,21 @@ def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
         return type_mapping[data_type_str]
 
     # Handle complex types with parameters
-    if data_type_str.startswith('timestamp[') and data_type_str.endswith(']'):
+    if data_type_str.startswith("timestamp[") and data_type_str.endswith("]"):
         # Extract unit from timestamp[unit]
         unit = data_type_str[10:-1]  # Remove 'timestamp[' and ']'
         return pa.timestamp(unit)
 
-    if data_type_str.startswith('decimal128(') and data_type_str.endswith(')'):
+    if data_type_str.startswith("decimal128(") and data_type_str.endswith(")"):
         # Extract precision and scale from decimal128(precision,scale)
         params = data_type_str[11:-1]  # Remove 'decimal128(' and ')'
         try:
-            precision, scale = map(int, params.split(','))
+            precision, scale = map(int, params.split(","))
             return pa.decimal128(precision, scale)
         except (ValueError, TypeError):
             pass
 
-    if data_type_str.startswith('list<') and data_type_str.endswith('>'):
+    if data_type_str.startswith("list<") and data_type_str.endswith(">"):
         # Extract inner type from list<type>
         inner_type_str = data_type_str[5:-1]  # Remove 'list<' and '>'
         inner_type = _parse_data_type(inner_type_str)
@@ -82,7 +84,7 @@ def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
 
 
 def create_calculated_columns_processor_from_schema(
-    schema_config: Dict[str, Any]
+    schema_config: Dict[str, Any],
 ) -> Optional[CalculatedColumnsProcessor]:
     """Create a CalculatedColumnsProcessor from schema configuration.
 
@@ -106,7 +108,7 @@ def create_calculated_columns_processor_from_schema(
         const_kwargs = {
             "name": const_def["name"],
             "value": const_def["value"],
-            "description": const_def.get("description")
+            "description": const_def.get("description"),
         }
         if "dataType" in const_def:
             const_kwargs["data_type"] = _parse_data_type(const_def["dataType"])
@@ -122,7 +124,7 @@ def create_calculated_columns_processor_from_schema(
             "name": expr_def["name"],
             "expression": expr_def["expression"],
             "description": expr_def.get("description"),
-            "dependencies": expr_def.get("dependencies", [])
+            "dependencies": expr_def.get("dependencies", []),
         }
         if "dataType" in expr_def:
             expr_kwargs["data_type"] = _parse_data_type(expr_def["dataType"])
@@ -141,7 +143,7 @@ def create_calculated_columns_processor_from_schema(
             "name": calc_def["name"],
             "expression": expression_value,
             "dependencies": calc_def.get("dependencies", []),
-            "description": calc_def.get("description")
+            "description": calc_def.get("description"),
         }
         if "dataType" in calc_def:
             calc_kwargs["data_type"] = _parse_data_type(calc_def["dataType"])
@@ -168,14 +170,14 @@ def create_calculated_columns_processor_from_schema(
         constants=constants_list,
         expressions=expressions_list,
         calculated=calculated_list,
-        partition_columns=partition_columns
+        partition_columns=partition_columns,
     )
 
     return CalculatedColumnsProcessor(config)
 
 
 def create_calculated_columns_processor_from_metadata(
-    metadata: Dict[str, Any]
+    metadata: Dict[str, Any],
 ) -> Optional[CalculatedColumnsProcessor]:
     """Create a CalculatedColumnsProcessor from metadata configuration.
 
@@ -238,6 +240,8 @@ def validate_calculated_columns_schema(schema_config: Dict[str, Any]) -> List[st
         if "name" not in calc_def:
             errors.append(f"Calculated column at index {i} missing required 'name' field")
         if "function" not in calc_def and "expression" not in calc_def:
-            errors.append(f"Calculated column at index {i} missing required 'function' or 'expression' field")
+            errors.append(
+                f"Calculated column at index {i} missing required 'function' or 'expression' field"
+            )
 
     return errors

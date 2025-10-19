@@ -4,17 +4,13 @@ This module provides the main public functions that maintain backward compatibil
 with the original date_parser.py interface.
 """
 
-from typing import Any, List, Optional, Union
 import datetime
+from typing import Any, List, Optional, Union
 
-from .parsing import parse_date_value, coerce_date_value, coerce_datetime_value
+from .parsing import coerce_date_value, coerce_datetime_value, parse_date_value
 
 
-def parse_date(
-    value: Any,
-    fmt: Optional[str] = None,
-    formats: Optional[List[str]] = None
-) -> bool:
+def parse_date(value: Any, fmt: Optional[str] = None, formats: Optional[List[str]] = None) -> bool:
     """Check if a value can be parsed as a date.
 
     Args:
@@ -28,11 +24,7 @@ def parse_date(
     return parse_date_value(value, fmt, formats)
 
 
-def coerce_date(
-    value: Any,
-    fmt: Optional[str] = None,
-    formats: Optional[List[str]] = None
-) -> str:
+def coerce_date(value: Any, fmt: Optional[str] = None, formats: Optional[List[str]] = None) -> str:
     """Coerce a value to ISO date format (YYYY-MM-DD).
 
     Args:
@@ -56,7 +48,7 @@ def coerce_datetime(
     from_epoch: bool = False,
     to_epoch: Optional[str] = None,
     fuzzy: bool = False,
-    allow_fuzzy: Optional[bool] = None
+    allow_fuzzy: Optional[bool] = None,
 ) -> Union[datetime.datetime, int]:
     """Coerce a value to datetime object or epoch timestamp.
 
@@ -76,6 +68,4 @@ def coerce_datetime(
     Raises:
         ValueError: If value cannot be parsed as a datetime
     """
-    return coerce_datetime_value(
-        value, fmt, formats, from_epoch, to_epoch, fuzzy, allow_fuzzy
-    )
+    return coerce_datetime_value(value, fmt, formats, from_epoch, to_epoch, fuzzy, allow_fuzzy)

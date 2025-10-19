@@ -1,9 +1,10 @@
 """Line parsing and field extraction logic for FWF processing."""
 
 from __future__ import annotations
-from typing import Dict, Any, Optional, List
 
-from ..config import FwfInputConfig, FwfFieldSpec
+from typing import Any, Dict, Optional
+
+from ..config import FwfFieldSpec, FwfInputConfig
 from .converters import FwfTypeConverter, FwfValueProcessor
 from .detectors import FwfSchemaDetector
 
@@ -50,10 +51,12 @@ class FwfFieldExtractor:
 
         # Remove padding characters based on alignment - handle edge cases
         if field.align == "right" and field.pad != " ":
-            # Strip leading pad characters, but preserve at least one character if all are pad chars
+            # Strip leading pad characters, but preserve at least one character
+            # if all are pad chars
             stripped = raw_value.lstrip(field.pad)
             if not stripped and raw_value:
-                raw_value = field.pad  # Keep one pad character if that's all we have
+                # Keep one pad character if that's all we have
+                raw_value = field.pad
             else:
                 raw_value = stripped
         elif field.align == "left" and field.pad != " ":
@@ -123,7 +126,9 @@ class FwfLineParser:
 
             # Convert to appropriate type
             if processed_value is not None:
-                converted_value = FwfTypeConverter.convert_value(processed_value, field.parquet_type)
+                converted_value = FwfTypeConverter.convert_value(
+                    processed_value, field.parquet_type
+                )
             else:
                 converted_value = None
 

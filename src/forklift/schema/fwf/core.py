@@ -6,16 +6,16 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .exceptions import SchemaValidationError
-from .validation import (
-    JsonSchemaValidator,
-    FwfExtensionValidator,
-    FieldValidator,
-    CompatibilityValidator
-)
-from .fields import FieldParser, PositionCalculator, FieldMapper
 from .conditional import ConditionalSchemaManager, VariantManager
+from .exceptions import SchemaValidationError
+from .fields import FieldMapper, FieldParser, PositionCalculator
 from .utils import ParquetMappingUtils
+from .validation import (
+    CompatibilityValidator,
+    FieldValidator,
+    FwfExtensionValidator,
+    JsonSchemaValidator,
+)
 
 
 class FwfSchemaImporter:
@@ -69,11 +69,13 @@ class FwfSchemaImporter:
             self._conditional_manager = ConditionalSchemaManager(self.conditional_schemas)
             self._variant_manager = VariantManager(
                 self._conditional_manager.get_schema_variants(),
-                self._conditional_manager.get_flag_column_info()
+                self._conditional_manager.get_flag_column_info(),
             )
 
         # Extract case configuration
-        case_cfg = self.fwf_ext.get("case", {}) if isinstance(self.fwf_ext.get("case", {}), dict) else {}
+        case_cfg = (
+            self.fwf_ext.get("case", {}) if isinstance(self.fwf_ext.get("case", {}), dict) else {}
+        )
         self.standardize_names: Optional[str] = case_cfg.get("standardizeNames")
         self.dedupe_names: Optional[str] = case_cfg.get("dedupeNames")
 
@@ -103,7 +105,9 @@ class FwfSchemaImporter:
 
         self.validation_errors = errors
         if errors:
-            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(f"  - {err}" for err in errors)
+            error_msg = "Schema validation failed with the following errors:\n" + "\n".join(
+                f"  - {err}" for err in errors
+            )
             raise SchemaValidationError(error_msg)
 
     def _validate_fields(self) -> List[str]:
@@ -128,9 +132,11 @@ class FwfSchemaImporter:
 
         if self.has_conditional_schemas:
             # Validate compatibility between variants
-            errors.extend(CompatibilityValidator.validate_schema_compatibility(
-                self._conditional_manager.get_schema_variants()
-            ))
+            errors.extend(
+                CompatibilityValidator.validate_schema_compatibility(
+                    self._conditional_manager.get_schema_variants()
+                )
+            )
 
         return errors
 
@@ -161,9 +167,7 @@ class FwfSchemaImporter:
 
     def get_column_names(self) -> List[str]:
         """Get column names in field order."""
-        return FieldParser.get_column_names(
-            self.fields, self.standardize_names, self.dedupe_names
-        )
+        return FieldParser.get_column_names(self.fields, self.standardize_names, self.dedupe_names)
 
     def should_trim_field(self, field_name: str) -> bool:
         """Check if a field should be trimmed."""
@@ -202,16 +206,14 @@ class FwfSchemaImporter:
             self.has_conditional_schemas,
             self.fields,
             self.get_flag_column_info(),
-            self.get_schema_variants()
+            self.get_schema_variants(),
         )
 
     def get_unified_parquet_schema(self) -> Dict[str, str]:
         """Get a unified Parquet schema that accommodates all variants."""
         all_fields = self.get_all_possible_fields()
         return FieldMapper.get_unified_parquet_schema(
-            all_fields,
-            self.get_flag_column_info(),
-            self.get_schema_variants()
+            all_fields, self.get_flag_column_info(), self.get_schema_variants()
         )
 
     def get_fields_for_flag_value(self, flag_value: str) -> List[Dict[str, Any]]:

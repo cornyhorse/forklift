@@ -9,7 +9,4 @@ from .fwf.core import FwfSchemaImporter
 from .fwf.exceptions import SchemaValidationError
 
 # Maintain backward compatibility
-__all__ = [
-    'FwfSchemaImporter',
-    'SchemaValidationError'
-]
+__all__ = ["FwfSchemaImporter", "SchemaValidationError"]

@@ -1,15 +1,16 @@
 """Tests for constraint validation functionality."""
 
-import pytest
-import pyarrow as pa
 from unittest.mock import Mock, patch
 
+import pyarrow as pa
+import pytest
+
 from forklift.processors.constraint_validator import (
-    ErrorMode,
     ConstraintConfig,
-    ConstraintViolation,
     ConstraintValidator,
-    create_constraint_config_from_schema
+    ConstraintViolation,
+    ErrorMode,
+    create_constraint_config_from_schema,
 )
 
 
@@ -38,9 +39,7 @@ class TestConstraintConfig:
     def test_constraint_config_with_none_values(self):
         """Test that None values are properly initialized in __post_init__."""
         config = ConstraintConfig(
-            check_constraints=None,
-            unique_constraints=None,
-            foreign_key_constraints=None
+            check_constraints=None, unique_constraints=None, foreign_key_constraints=None
         )
 
         assert config.check_constraints == {}
@@ -57,7 +56,7 @@ class TestConstraintConfig:
             error_mode=ErrorMode.FAIL_FAST,
             check_constraints=check_constraints,
             unique_constraints=unique_constraints,
-            foreign_key_constraints=foreign_key_constraints
+            foreign_key_constraints=foreign_key_constraints,
         )
 
         assert config.error_mode == ErrorMode.FAIL_FAST
@@ -77,7 +76,7 @@ class TestConstraintViolation:
             columns=["age"],
             values=[150],
             constraint_name="age_range",
-            row_index=5
+            row_index=5,
         )
 
         assert violation.violation_type == "range"
@@ -94,7 +93,7 @@ class TestConstraintViolation:
             error_message="Duplicate value",
             columns=["email"],
             values=["test@example.com"],
-            constraint_name="email_unique"
+            constraint_name="email_unique",
         )
 
         assert violation.row_index is None
@@ -117,14 +116,8 @@ class TestConstraintValidator:
         validator = ConstraintValidator(config)
 
         # Create a simple batch
-        schema = pa.schema([
-            pa.field('id', pa.int64()),
-            pa.field('name', pa.string())
-        ])
-        batch = pa.record_batch([
-            [1, 2, 3],
-            ['Alice', 'Bob', 'Charlie']
-        ], schema=schema)
+        schema = pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string())])
+        batch = pa.record_batch([[1, 2, 3], ["Alice", "Bob", "Charlie"]], schema=schema)
 
         result_batch, validation_results = validator.process_batch(batch)
 
@@ -151,7 +144,7 @@ class TestConstraintValidator:
             error_message="Test violation",
             columns=["test_col"],
             values=["test_val"],
-            constraint_name="test_constraint"
+            constraint_name="test_constraint",
         )
         validator.violations.append(violation)
 
@@ -160,13 +153,15 @@ class TestConstraintValidator:
         assert violations[0] == violation
 
         # Verify it's a copy
-        violations.append(ConstraintViolation(
-            violation_type="test2",
-            error_message="Test violation 2",
-            columns=["test_col2"],
-            values=["test_val2"],
-            constraint_name="test_constraint2"
-        ))
+        violations.append(
+            ConstraintViolation(
+                violation_type="test2",
+                error_message="Test violation 2",
+                columns=["test_col2"],
+                values=["test_val2"],
+                constraint_name="test_constraint2",
+            )
+        )
         assert len(validator.violations) == 1  # Original should be unchanged
 
     def test_finalize_no_violations(self):
@@ -183,13 +178,15 @@ class TestConstraintValidator:
         validator = ConstraintValidator(config)
 
         # Add a violation
-        validator.violations.append(ConstraintViolation(
-            violation_type="test",
-            error_message="Test violation",
-            columns=["test_col"],
-            values=["test_val"],
-            constraint_name="test_constraint"
-        ))
+        validator.violations.append(
+            ConstraintViolation(
+                violation_type="test",
+                error_message="Test violation",
+                columns=["test_col"],
+                values=["test_val"],
+                constraint_name="test_constraint",
+            )
+        )
 
         # Should not raise exception in BAD_ROWS mode
         validator.finalize()
@@ -200,22 +197,24 @@ class TestConstraintValidator:
         validator = ConstraintValidator(config)
 
         # Add violations
-        validator.violations.extend([
-            ConstraintViolation(
-                violation_type="test1",
-                error_message="Test violation 1",
-                columns=["test_col1"],
-                values=["test_val1"],
-                constraint_name="test_constraint1"
-            ),
-            ConstraintViolation(
-                violation_type="test2",
-                error_message="Test violation 2",
-                columns=["test_col2"],
-                values=["test_val2"],
-                constraint_name="test_constraint2"
-            )
-        ])
+        validator.violations.extend(
+            [
+                ConstraintViolation(
+                    violation_type="test1",
+                    error_message="Test violation 1",
+                    columns=["test_col1"],
+                    values=["test_val1"],
+                    constraint_name="test_constraint1",
+                ),
+                ConstraintViolation(
+                    violation_type="test2",
+                    error_message="Test violation 2",
+                    columns=["test_col2"],
+                    values=["test_val2"],
+                    constraint_name="test_constraint2",
+                ),
+            ]
+        )
 
         with pytest.raises(ValueError, match="Constraint validation failed with 2 violations"):
             validator.finalize()
@@ -226,13 +225,15 @@ class TestConstraintValidator:
         validator = ConstraintValidator(config)
 
         # Add a violation
-        validator.violations.append(ConstraintViolation(
-            violation_type="test",
-            error_message="Test violation",
-            columns=["test_col"],
-            values=["test_val"],
-            constraint_name="test_constraint"
-        ))
+        validator.violations.append(
+            ConstraintViolation(
+                violation_type="test",
+                error_message="Test violation",
+                columns=["test_col"],
+                values=["test_val"],
+                constraint_name="test_constraint",
+            )
+        )
 
         with pytest.raises(ValueError, match="Constraint validation failed with 1 violations"):
             validator.finalize()
@@ -253,22 +254,14 @@ class TestCreateConstraintConfigFromSchema:
 
     def test_create_config_with_error_mode(self):
         """Test creating config with specified error mode."""
-        schema_dict = {
-            "x-constraintHandling": {
-                "errorMode": "fail_fast"
-            }
-        }
+        schema_dict = {"x-constraintHandling": {"errorMode": "fail_fast"}}
         config = create_constraint_config_from_schema(schema_dict)
 
         assert config.error_mode == ErrorMode.FAIL_FAST
 
     def test_create_config_with_invalid_error_mode(self):
         """Test creating config with invalid error mode falls back to BAD_ROWS."""
-        schema_dict = {
-            "x-constraintHandling": {
-                "errorMode": "invalid_mode"
-            }
-        }
+        schema_dict = {"x-constraintHandling": {"errorMode": "invalid_mode"}}
         config = create_constraint_config_from_schema(schema_dict)
 
         assert config.error_mode == ErrorMode.BAD_ROWS
@@ -277,18 +270,9 @@ class TestCreateConstraintConfigFromSchema:
         """Test creating config with minimum/maximum constraints."""
         schema_dict = {
             "properties": {
-                "age": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 120
-                },
-                "score": {
-                    "type": "number",
-                    "minimum": 0.0
-                },
-                "name": {
-                    "type": "string"
-                }
+                "age": {"type": "integer", "minimum": 0, "maximum": 120},
+                "score": {"type": "number", "minimum": 0.0},
+                "name": {"type": "string"},
             }
         }
         config = create_constraint_config_from_schema(schema_dict)
@@ -307,21 +291,10 @@ class TestCreateConstraintConfigFromSchema:
         """Test creating config with unique constraints."""
         schema_dict = {
             "properties": {
-                "id": {
-                    "type": "integer",
-                    "x-unique": True
-                },
-                "email": {
-                    "type": "string",
-                    "x-unique": True
-                },
-                "name": {
-                    "type": "string",
-                    "x-unique": False
-                },
-                "description": {
-                    "type": "string"
-                }
+                "id": {"type": "integer", "x-unique": True},
+                "email": {"type": "string", "x-unique": True},
+                "name": {"type": "string", "x-unique": False},
+                "description": {"type": "string"},
             }
         }
         config = create_constraint_config_from_schema(schema_dict)
@@ -335,32 +308,14 @@ class TestCreateConstraintConfigFromSchema:
     def test_create_config_complex_schema(self):
         """Test creating config with complex schema containing multiple constraint types."""
         schema_dict = {
-            "x-constraintHandling": {
-                "errorMode": "fail_complete"
-            },
+            "x-constraintHandling": {"errorMode": "fail_complete"},
             "properties": {
-                "id": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "x-unique": True
-                },
-                "age": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 150
-                },
-                "email": {
-                    "type": "string",
-                    "x-unique": True
-                },
-                "salary": {
-                    "type": "number",
-                    "minimum": 0
-                },
-                "name": {
-                    "type": "string"
-                }
-            }
+                "id": {"type": "integer", "minimum": 1, "x-unique": True},
+                "age": {"type": "integer", "minimum": 0, "maximum": 150},
+                "email": {"type": "string", "x-unique": True},
+                "salary": {"type": "number", "minimum": 0},
+                "name": {"type": "string"},
+            },
         }
         config = create_constraint_config_from_schema(schema_dict)
 
@@ -383,12 +338,7 @@ class TestCreateConstraintConfigFromSchema:
 
     def test_create_config_no_properties(self):
         """Test creating config from schema without properties."""
-        schema_dict = {
-            "x-constraintHandling": {
-                "errorMode": "fail_fast"
-            },
-            "type": "object"
-        }
+        schema_dict = {"x-constraintHandling": {"errorMode": "fail_fast"}, "type": "object"}
         config = create_constraint_config_from_schema(schema_dict)
 
         assert config.error_mode == ErrorMode.FAIL_FAST
@@ -398,13 +348,7 @@ class TestCreateConstraintConfigFromSchema:
 
     def test_create_config_missing_constraint_handling(self):
         """Test creating config when x-constraintHandling is missing."""
-        schema_dict = {
-            "properties": {
-                "test_field": {
-                    "type": "string"
-                }
-            }
-        }
+        schema_dict = {"properties": {"test_field": {"type": "string"}}}
         config = create_constraint_config_from_schema(schema_dict)
 
         assert config.error_mode == ErrorMode.BAD_ROWS
@@ -412,14 +356,8 @@ class TestCreateConstraintConfigFromSchema:
     def test_create_config_constraint_handling_without_error_mode(self):
         """Test creating config when x-constraintHandling exists but errorMode is missing."""
         schema_dict = {
-            "x-constraintHandling": {
-                "someOtherSetting": "value"
-            },
-            "properties": {
-                "test_field": {
-                    "type": "string"
-                }
-            }
+            "x-constraintHandling": {"someOtherSetting": "value"},
+            "properties": {"test_field": {"type": "string"}},
         }
         config = create_constraint_config_from_schema(schema_dict)
 
@@ -433,21 +371,11 @@ class TestIntegration:
         """Test complete workflow from schema to validation."""
         # Define a schema with constraints
         schema_dict = {
-            "x-constraintHandling": {
-                "errorMode": "fail_fast"
-            },
+            "x-constraintHandling": {"errorMode": "fail_fast"},
             "properties": {
-                "id": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "x-unique": True
-                },
-                "age": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 120
-                }
-            }
+                "id": {"type": "integer", "minimum": 1, "x-unique": True},
+                "age": {"type": "integer", "minimum": 0, "maximum": 120},
+            },
         }
 
         # Create config from schema
@@ -457,14 +385,8 @@ class TestIntegration:
         validator = ConstraintValidator(config)
 
         # Create test batch
-        schema = pa.schema([
-            pa.field('id', pa.int64()),
-            pa.field('age', pa.int64())
-        ])
-        batch = pa.record_batch([
-            [1, 2, 3],
-            [25, 30, 35]
-        ], schema=schema)
+        schema = pa.schema([pa.field("id", pa.int64()), pa.field("age", pa.int64())])
+        batch = pa.record_batch([[1, 2, 3], [25, 30, 35]], schema=schema)
 
         # Process batch
         result_batch, validation_results = validator.process_batch(batch)

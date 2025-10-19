@@ -1,13 +1,14 @@
 """Comprehensive tests for the FWF inputs module."""
 
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import pyarrow as pa
+from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
+import pytest
+
+from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 from forklift.inputs.fwf import FwfInputHandler
-from forklift.inputs.config import FwfInputConfig, FwfFieldSpec, FwfConditionalSchema
 from forklift.inputs.fwf_utils import create_fwf_config_from_schema, create_simple_fwf_config
 
 
@@ -37,7 +38,7 @@ class TestFwfFieldSpec:
             pad="0",
             parquet_type="int64",
             required=True,
-            trim=False
+            trim=False,
         )
 
         assert field.name == "id"
@@ -55,15 +56,8 @@ class TestFwfConditionalSchema:
 
     def test_fwf_conditional_schema(self):
         """Test FwfConditionalSchema creation."""
-        fields = [
-            FwfFieldSpec("id", 1, 5),
-            FwfFieldSpec("name", 6, 20)
-        ]
-        schema = FwfConditionalSchema(
-            flag_value="A",
-            description="Schema A",
-            fields=fields
-        )
+        fields = [FwfFieldSpec("id", 1, 5), FwfFieldSpec("name", 6, 20)]
+        schema = FwfConditionalSchema(flag_value="A", description="Schema A", fields=fields)
 
         assert schema.flag_value == "A"
         assert schema.description == "Schema A"
@@ -93,7 +87,7 @@ class TestFwfInputConfig:
         """Test FwfInputConfig with field specifications."""
         fields = [
             FwfFieldSpec("id", 1, 10, parquet_type="int64"),
-            FwfFieldSpec("name", 11, 30, parquet_type="string")
+            FwfFieldSpec("name", 11, 30, parquet_type="string"),
         ]
         config = FwfInputConfig(fields=fields)
 
@@ -105,16 +99,12 @@ class TestFwfInputConfig:
         """Test FwfInputConfig with conditional schemas."""
         flag_column = FwfFieldSpec("type", 1, 1)
         conditional_schemas = [
-            FwfConditionalSchema("A", "Type A", [
-                FwfFieldSpec("id", 2, 5),
-                FwfFieldSpec("data", 7, 10)
-            ])
+            FwfConditionalSchema(
+                "A", "Type A", [FwfFieldSpec("id", 2, 5), FwfFieldSpec("data", 7, 10)]
+            )
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
 
         assert config.flag_column.name == "type"
         assert len(config.conditional_schemas) == 1
@@ -129,7 +119,7 @@ class TestFwfInputHandler:
         self.simple_fields = [
             FwfFieldSpec("id", 1, 5, align="right", pad="0", parquet_type="int64"),
             FwfFieldSpec("name", 6, 20, align="left", parquet_type="string"),
-            FwfFieldSpec("amount", 26, 10, align="right", parquet_type="decimal128(10,2)")
+            FwfFieldSpec("amount", 26, 10, align="right", parquet_type="decimal128(10,2)"),
         ]
         self.simple_config = FwfInputConfig(fields=self.simple_fields)
 
@@ -141,24 +131,26 @@ class TestFwfInputHandler:
     def test_fwf_handler_validation_no_config(self):
         """Test validation fails when no fields or conditional schemas provided."""
         config = FwfInputConfig()
-        with pytest.raises(ValueError, match="Either fields or conditional_schemas must be specified"):
+        with pytest.raises(
+            ValueError, match="Either fields or conditional_schemas must be specified"
+        ):
             FwfInputHandler(config)
 
     def test_fwf_handler_validation_conditional_no_flag(self):
         """Test validation fails when conditional schemas provided without flag column."""
-        conditional_schemas = [
-            FwfConditionalSchema("A", "Type A", [FwfFieldSpec("id", 1, 5)])
-        ]
+        conditional_schemas = [FwfConditionalSchema("A", "Type A", [FwfFieldSpec("id", 1, 5)])]
         config = FwfInputConfig(conditional_schemas=conditional_schemas)
 
-        with pytest.raises(ValueError, match="Flag column must be specified when using conditional schemas"):
+        with pytest.raises(
+            ValueError, match="Flag column must be specified when using conditional schemas"
+        ):
             FwfInputHandler(config)
 
     def test_field_overlap_validation(self):
         """Test validation of overlapping fields."""
         overlapping_fields = [
             FwfFieldSpec("field1", 1, 10),
-            FwfFieldSpec("field2", 5, 10)  # Overlaps with field1
+            FwfFieldSpec("field2", 5, 10),  # Overlaps with field1
         ]
         config = FwfInputConfig(fields=overlapping_fields)
 
@@ -243,10 +235,7 @@ class TestFwfInputHandler:
 
     def test_parse_line_comment(self):
         """Test parsing comment lines."""
-        config = FwfInputConfig(
-            fields=self.simple_fields,
-            comment_patterns=["^#", "^//"]
-        )
+        config = FwfInputConfig(fields=self.simple_fields, comment_patterns=["^#", "^//"])
         handler = FwfInputHandler(config)
 
         # Should return None for comment lines
@@ -260,12 +249,7 @@ class TestFwfInputHandler:
         """Test null value processing."""
         config = FwfInputConfig(
             fields=self.simple_fields,
-            null_values={
-                "global": ["", "NULL", "N/A"],
-                "perColumn": {
-                    "name": ["UNKNOWN"]
-                }
-            }
+            null_values={"global": ["", "NULL", "N/A"], "perColumn": {"name": ["UNKNOWN"]}},
         )
         handler = FwfInputHandler(config)
 
@@ -284,22 +268,27 @@ class TestFwfInputHandler:
         """Test conditional schema detection."""
         flag_column = FwfFieldSpec("type", 1, 1)
         conditional_schemas = [
-            FwfConditionalSchema("A", "Type A", [
-                FwfFieldSpec("type", 1, 1),
-                FwfFieldSpec("id", 2, 5),
-                FwfFieldSpec("data_a", 7, 10)
-            ]),
-            FwfConditionalSchema("B", "Type B", [
-                FwfFieldSpec("type", 1, 1),
-                FwfFieldSpec("id", 2, 3),
-                FwfFieldSpec("data_b", 5, 8)
-            ])
+            FwfConditionalSchema(
+                "A",
+                "Type A",
+                [
+                    FwfFieldSpec("type", 1, 1),
+                    FwfFieldSpec("id", 2, 5),
+                    FwfFieldSpec("data_a", 7, 10),
+                ],
+            ),
+            FwfConditionalSchema(
+                "B",
+                "Type B",
+                [
+                    FwfFieldSpec("type", 1, 1),
+                    FwfFieldSpec("id", 2, 3),
+                    FwfFieldSpec("data_b", 5, 8),
+                ],
+            ),
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
         handler = FwfInputHandler(config)
 
         # Test schema A detection
@@ -320,22 +309,29 @@ class TestFwfInputHandler:
         """Test parsing with conditional schemas."""
         flag_column = FwfFieldSpec("type", 1, 1)
         conditional_schemas = [
-            FwfConditionalSchema("A", "Type A", [
-                FwfFieldSpec("type", 1, 1),
-                FwfFieldSpec("id", 2, 5, parquet_type="int64"),
-                FwfFieldSpec("name", 7, 15, parquet_type="string")
-            ]),
-            FwfConditionalSchema("B", "Type B", [
-                FwfFieldSpec("type", 1, 1),
-                FwfFieldSpec("id", 2, 3, parquet_type="int64"),
-                FwfFieldSpec("amount", 5, 10, parquet_type="decimal128(10,2)")  # Increased length
-            ])
+            FwfConditionalSchema(
+                "A",
+                "Type A",
+                [
+                    FwfFieldSpec("type", 1, 1),
+                    FwfFieldSpec("id", 2, 5, parquet_type="int64"),
+                    FwfFieldSpec("name", 7, 15, parquet_type="string"),
+                ],
+            ),
+            FwfConditionalSchema(
+                "B",
+                "Type B",
+                [
+                    FwfFieldSpec("type", 1, 1),
+                    FwfFieldSpec("id", 2, 3, parquet_type="int64"),
+                    FwfFieldSpec(
+                        "amount", 5, 10, parquet_type="decimal128(10,2)"
+                    ),  # Increased length
+                ],
+            ),
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
         handler = FwfInputHandler(config)
 
         # Test parsing type A record
@@ -350,7 +346,9 @@ class TestFwfInputHandler:
         assert result_b is not None
         assert result_b["type"] == "B"
         assert result_b["id"] == 123  # Should be integer since parquet_type="int64"
-        assert result_b["amount"] == 1234.56  # Should be float since parquet_type="decimal128(10,2)"
+        assert (
+            result_b["amount"] == 1234.56
+        )  # Should be float since parquet_type="decimal128(10,2)"
 
         # Test unknown type (should return None)
         result_unknown = handler.parse_line("C123unknown")
@@ -397,21 +395,21 @@ class TestFwfInputHandler:
         assert schema.field("__line_number__").type == pa.int64()
         assert schema.field("__source_file__").type == pa.string()
 
-    @patch('chardet.detect')
+    @patch("chardet.detect")
     def test_encoding_detection(self, mock_detect):
         """Test encoding detection."""
-        mock_detect.return_value = {'encoding': 'latin-1'}
+        mock_detect.return_value = {"encoding": "latin-1"}
 
         handler = FwfInputHandler(self.simple_config)
 
         # Create a temporary file
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as f:
-            f.write(b'test data')
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
+            f.write(b"test data")
             temp_path = Path(f.name)
 
         try:
             encoding = handler.detect_encoding(temp_path)
-            assert encoding == 'latin-1'
+            assert encoding == "latin-1"
             mock_detect.assert_called_once()
         finally:
             temp_path.unlink()
@@ -420,16 +418,21 @@ class TestFwfInputHandler:
         """Test encoding detection when chardet is not available."""
         handler = FwfInputHandler(self.simple_config)
 
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as f:
-            f.write(b'test data')
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False) as f:
+            f.write(b"test data")
             temp_path = Path(f.name)
 
         try:
             # Mock ImportError when trying to import chardet
-            with patch('builtins.__import__', side_effect=lambda name, *args: exec('raise ImportError()') if name == 'chardet' else __import__(name, *args)):
+            with patch(
+                "builtins.__import__",
+                side_effect=lambda name, *args: (
+                    exec("raise ImportError()") if name == "chardet" else __import__(name, *args)
+                ),
+            ):
                 # Should fall back to utf-8
                 encoding = handler.detect_encoding(temp_path)
-                assert encoding == 'utf-8'
+                assert encoding == "utf-8"
         finally:
             temp_path.unlink()
 
@@ -440,13 +443,13 @@ class TestFwfInputHandler:
             "00123John Doe               1234.56",
             "00456Jane Smith             5678.90",
             "",  # Blank line (should be skipped)
-            "00789Bob Johnson            9876.54"
+            "00789Bob Johnson            9876.54",
         ]
 
         # Create temporary file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             for line in test_data:
-                f.write(line + '\n')
+                f.write(line + "\n")
             temp_path = Path(f.name)
 
         try:
@@ -459,19 +462,25 @@ class TestFwfInputHandler:
             # Check first record
             assert results[0]["id"] == 123  # Should be integer since parquet_type="int64"
             assert results[0]["name"] == "John Doe"
-            assert results[0]["amount"] == 1234.56  # Should be float since parquet_type="decimal128(10,2)"
+            assert (
+                results[0]["amount"] == 1234.56
+            )  # Should be float since parquet_type="decimal128(10,2)"
             assert results[0]["__line_number__"] == 1
 
             # Check second record
             assert results[1]["id"] == 456  # Should be integer since parquet_type="int64"
             assert results[1]["name"] == "Jane Smith"
-            assert results[1]["amount"] == 5678.90  # Should be float since parquet_type="decimal128(10,2)"
+            assert (
+                results[1]["amount"] == 5678.90
+            )  # Should be float since parquet_type="decimal128(10,2)"
             assert results[1]["__line_number__"] == 2
 
             # Check third record (line 4 due to skipped blank line)
             assert results[2]["id"] == 789  # Should be integer since parquet_type="int64"
             assert results[2]["name"] == "Bob Johnson"
-            assert results[2]["amount"] == 9876.54  # Should be float since parquet_type="decimal128(10,2)"
+            assert (
+                results[2]["amount"] == 9876.54
+            )  # Should be float since parquet_type="decimal128(10,2)"
             assert results[2]["__line_number__"] == 4
 
         finally:
@@ -480,15 +489,12 @@ class TestFwfInputHandler:
     def test_create_arrow_table(self):
         """Test PyArrow table creation."""
         # Create test data with proper field alignment: ID(1-5) + Name(6-25) + Amount(26-35)
-        test_data = [
-            "00123John Doe               1234.56",
-            "00456Jane Smith             5678.90"
-        ]
+        test_data = ["00123John Doe               1234.56", "00456Jane Smith             5678.90"]
 
         # Create temporary file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             for line in test_data:
-                f.write(line + '\n')
+                f.write(line + "\n")
             temp_path = Path(f.name)
 
         try:
@@ -501,10 +507,10 @@ class TestFwfInputHandler:
             assert table.num_columns == 5  # 3 data + 2 metadata
 
             # Check data values
-            id_column = table.column('id').to_pylist()
+            id_column = table.column("id").to_pylist()
             assert id_column == [123, 456]
 
-            name_column = table.column('name').to_pylist()
+            name_column = table.column("name").to_pylist()
             assert name_column == ["John Doe", "Jane Smith"]
 
         finally:
@@ -549,7 +555,9 @@ class TestFwfInputHandler:
         assert handler.convert_field_value("FALSE", field_bool) is False
 
         # Test ValueError handling in conversion
-        assert handler.convert_field_value("invalid", field_int32) == "invalid"  # Should return raw value on error
+        assert (
+            handler.convert_field_value("invalid", field_int32) == "invalid"
+        )  # Should return raw value on error
 
     def test_get_arrow_type_additional_types(self):
         """Test _get_arrow_type with additional types not covered in basic tests."""
@@ -573,16 +581,16 @@ class TestFwfInputHandler:
         assert handler._get_arrow_type("date64") == pa.date64()
 
         # Test timestamp types
-        assert handler._get_arrow_type("timestamp[s]") == pa.timestamp('s')
-        assert handler._get_arrow_type("timestamp[ms]") == pa.timestamp('ms')
-        assert handler._get_arrow_type("timestamp[us]") == pa.timestamp('us')
-        assert handler._get_arrow_type("timestamp[ns]") == pa.timestamp('ns')
+        assert handler._get_arrow_type("timestamp[s]") == pa.timestamp("s")
+        assert handler._get_arrow_type("timestamp[ms]") == pa.timestamp("ms")
+        assert handler._get_arrow_type("timestamp[us]") == pa.timestamp("us")
+        assert handler._get_arrow_type("timestamp[ns]") == pa.timestamp("ns")
 
         # Test duration types
-        assert handler._get_arrow_type("duration[s]") == pa.duration('s')
-        assert handler._get_arrow_type("duration[ms]") == pa.duration('ms')
-        assert handler._get_arrow_type("duration[us]") == pa.duration('us')
-        assert handler._get_arrow_type("duration[ns]") == pa.duration('ns')
+        assert handler._get_arrow_type("duration[s]") == pa.duration("s")
+        assert handler._get_arrow_type("duration[ms]") == pa.duration("ms")
+        assert handler._get_arrow_type("duration[us]") == pa.duration("us")
+        assert handler._get_arrow_type("duration[ns]") == pa.duration("ns")
 
         # Test decimal without proper format (should use default)
         decimal_type = handler._get_arrow_type("decimal128")
@@ -601,17 +609,14 @@ class TestFwfInputHandler:
 
     def test_encoding_auto_detection(self):
         """Test automatic encoding detection."""
-        config = FwfInputConfig(
-            encoding="auto",
-            fields=self.simple_fields
-        )
+        config = FwfInputConfig(encoding="auto", fields=self.simple_fields)
         handler = FwfInputHandler(config)
 
         # Create test data
         test_data = "00123John Doe               1234.56"
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
-            f.write(test_data + '\n')
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
+            f.write(test_data + "\n")
             temp_path = Path(f.name)
 
         try:
@@ -624,11 +629,7 @@ class TestFwfInputHandler:
     def test_footer_detection_regex(self):
         """Test footer detection with regex pattern."""
         config = FwfInputConfig(
-            fields=self.simple_fields,
-            footer_detection={
-                "mode": "regex",
-                "pattern": r"^TOTAL.*"
-            }
+            fields=self.simple_fields, footer_detection={"mode": "regex", "pattern": r"^TOTAL.*"}
         )
         handler = FwfInputHandler(config)
 
@@ -649,7 +650,7 @@ class TestFwfInputHandler:
             footer_detection={
                 "mode": "regex"
                 # No pattern specified
-            }
+            },
         )
         handler = FwfInputHandler(config)
 
@@ -658,9 +659,7 @@ class TestFwfInputHandler:
 
     def test_field_extraction_no_trim(self):
         """Test field extraction without trimming."""
-        fields = [
-            FwfFieldSpec("test", 1, 10, trim=False)
-        ]
+        fields = [FwfFieldSpec("test", 1, 10, trim=False)]
         config = FwfInputConfig(fields=fields, trim_whitespace=False)
         handler = FwfInputHandler(config)
 
@@ -685,7 +684,7 @@ class TestFwfInputHandler:
     def test_create_arrow_table_empty_file(self):
         """Test creating PyArrow table from empty file."""
         # Create empty temporary file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             temp_path = Path(f.name)
 
         try:
@@ -704,7 +703,7 @@ class TestFwfInputHandler:
         # Create config with string type to avoid conversion issues
         fields = [
             FwfFieldSpec("id", 1, 5, parquet_type="string"),
-            FwfFieldSpec("amount", 6, 10, parquet_type="string")
+            FwfFieldSpec("amount", 6, 10, parquet_type="string"),
         ]
         config = FwfInputConfig(fields=fields)
         handler = FwfInputHandler(config)
@@ -712,8 +711,8 @@ class TestFwfInputHandler:
         # Create test data
         test_data = "12345invalid  "
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
-            f.write(test_data + '\n')
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
+            f.write(test_data + "\n")
             temp_path = Path(f.name)
 
         try:
@@ -726,13 +725,11 @@ class TestFwfInputHandler:
     def test_arrow_table_fallback_to_string(self):
         """Test PyArrow table creation with string arrays to avoid conversion errors."""
         # Create config with string type
-        fields = [
-            FwfFieldSpec("test_field", 1, 10, parquet_type="string")
-        ]
+        fields = [FwfFieldSpec("test_field", 1, 10, parquet_type="string")]
         config = FwfInputConfig(fields=fields)
         handler = FwfInputHandler(config)
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             f.write("test_value\n")
             temp_path = Path(f.name)
 
@@ -746,21 +743,19 @@ class TestFwfInputHandler:
     def test_decimal_type_conversion_edge_cases(self):
         """Test decimal type conversion edge cases in create_arrow_table."""
         # Create config with string type to avoid decimal conversion issues
-        fields = [
-            FwfFieldSpec("amount", 1, 10, parquet_type="string")
-        ]
+        fields = [FwfFieldSpec("amount", 1, 10, parquet_type="string")]
         config = FwfInputConfig(fields=fields)
         handler = FwfInputHandler(config)
 
         # Create test data with various scenarios
         test_data = [
             "   123.45 ",  # With spaces
-            "text_data"    # Text data (empty line will be skipped)
+            "text_data",  # Text data (empty line will be skipped)
         ]
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             for line in test_data:
-                f.write(line + '\n')
+                f.write(line + "\n")
             temp_path = Path(f.name)
 
         try:
@@ -792,15 +787,10 @@ class TestFwfInputHandler:
         # Create a scenario where conditional schema doesn't match
         flag_column = FwfFieldSpec("type", 1, 1)
         conditional_schemas = [
-            FwfConditionalSchema("A", "Type A", [
-                FwfFieldSpec("id", 2, 5, parquet_type="int64")
-            ])
+            FwfConditionalSchema("A", "Type A", [FwfFieldSpec("id", 2, 5, parquet_type="int64")])
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
         handler = FwfInputHandler(config)
 
         # Test line that doesn't match any conditional schema
@@ -820,16 +810,17 @@ class TestFwfInputHandler:
         flag_column = FwfFieldSpec("type", 1, 1)
         # Create overlapping fields in conditional schema
         conditional_schemas = [
-            FwfConditionalSchema("A", "Type A", [
-                FwfFieldSpec("field1", 1, 10),
-                FwfFieldSpec("field2", 5, 10)  # Overlaps with field1
-            ])
+            FwfConditionalSchema(
+                "A",
+                "Type A",
+                [
+                    FwfFieldSpec("field1", 1, 10),
+                    FwfFieldSpec("field2", 5, 10),  # Overlaps with field1
+                ],
+            )
         ]
 
-        config = FwfInputConfig(
-            flag_column=flag_column,
-            conditional_schemas=conditional_schemas
-        )
+        config = FwfInputConfig(flag_column=flag_column, conditional_schemas=conditional_schemas)
 
         with pytest.raises(ValueError, match="overlaps with"):
             FwfInputHandler(config)
@@ -856,7 +847,7 @@ class TestFwfInputHandler:
         # Create test data with multiple lines - some valid, some that might cause issues
         test_data = "00123John Doe               1234.56\n00456Jane Smith             5678.90\n"
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             f.write(test_data)
             temp_path = Path(f.name)
 
@@ -894,9 +885,7 @@ class TestFwfInputHandler:
     def test_arrow_table_type_conversion_exception_handling(self):
         """Test exception handling in create_arrow_table type conversion."""
         # Create config that could cause type conversion issues
-        fields = [
-            FwfFieldSpec("test_field", 1, 10, parquet_type="int64")
-        ]
+        fields = [FwfFieldSpec("test_field", 1, 10, parquet_type="int64")]
         config = FwfInputConfig(fields=fields)
         handler = FwfInputHandler(config)
 
@@ -904,7 +893,9 @@ class TestFwfInputHandler:
         class TestHandler(FwfInputHandler):
             def create_arrow_table(self, file_path):
                 # Simulate the scenario in the actual method
-                rows = [{"test_field": "123", "__line_number__": 1, "__source_file__": str(file_path)}]
+                rows = [
+                    {"test_field": "123", "__line_number__": 1, "__source_file__": str(file_path)}
+                ]
                 schema = self.get_arrow_schema()
 
                 columns = {}
@@ -931,7 +922,7 @@ class TestFwfInputHandler:
 
         handler = TestHandler(config)
 
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8') as f:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as f:
             f.write("123\n")
             temp_path = Path(f.name)
 

@@ -1,26 +1,25 @@
 """Core schema generator that orchestrates all components."""
 
-import json
-from typing import Any, Dict, Optional, Union
-from pathlib import Path
-from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, Optional, Union
 
 import pyarrow as pa
 
-from .inference import DataTypeInferrer
-from .validation import SchemaValidator
-from ..processors.json_schema import JSONSchemaProcessor
+from ...io import UnifiedIOHandler, is_s3_path
 from ..processors.config_parser import ConfigurationParser
+from ..processors.json_schema import JSONSchemaProcessor
 from ..processors.metadata import MetadataGenerator
 from ..types.special_types import SpecialTypeDetector
 from ..utils.formatters import SchemaFormatter
-from ...io import UnifiedIOHandler, is_s3_path
+from .inference import DataTypeInferrer
+from .validation import SchemaValidator
 
 # Import pyperclip with fallback
 try:
     import pyperclip
+
     CLIPBOARD_AVAILABLE = True
 except ImportError:
     pyperclip = None
@@ -29,6 +28,7 @@ except ImportError:
 
 class OutputTarget(Enum):
     """Target for schema output."""
+
     STDOUT = "stdout"
     FILE = "file"
     CLIPBOARD = "clipboard"
@@ -36,6 +36,7 @@ class OutputTarget(Enum):
 
 class FileType(Enum):
     """Supported file types for schema generation."""
+
     CSV = "csv"
     EXCEL = "excel"
     PARQUET = "parquet"
@@ -44,6 +45,7 @@ class FileType(Enum):
 @dataclass
 class SchemaGenerationConfig:
     """Configuration for schema generation."""
+
     input_path: Union[str, Path]
     file_type: FileType
     nrows: Optional[int] = 1000
@@ -104,19 +106,14 @@ class SchemaGenerator:
                 self.config.input_path,
                 self.config.nrows,
                 self.config.delimiter,
-                self.config.encoding
+                self.config.encoding,
             )
         elif self.config.file_type == FileType.EXCEL:
             return self.inferrer.read_excel_sample(
-                self.config.input_path,
-                self.config.nrows,
-                self.config.sheet_name
+                self.config.input_path, self.config.nrows, self.config.sheet_name
             )
         elif self.config.file_type == FileType.PARQUET:
-            return self.inferrer.read_parquet_sample(
-                self.config.input_path,
-                self.config.nrows
-            )
+            return self.inferrer.read_parquet_sample(self.config.input_path, self.config.nrows)
         else:
             raise ValueError(f"Unsupported file type: {self.config.file_type}")
 
@@ -152,19 +149,17 @@ class SchemaGenerator:
 
         # Add generation metadata
         schema = self.formatter.add_generation_metadata(
-            schema,
-            str(self.config.input_path),
-            table.num_rows
+            schema, str(self.config.input_path), table.num_rows
         )
 
         # Add metadata if requested
         if self.config.generate_metadata:
             metadata_config = {
-                'enum_threshold': self.config.enum_threshold,
-                'uniqueness_threshold': self.config.uniqueness_threshold,
-                'top_n_values': self.config.top_n_values,
-                'quantiles': self.config.quantiles,
-                'source_file': str(self.config.input_path)
+                "enum_threshold": self.config.enum_threshold,
+                "uniqueness_threshold": self.config.uniqueness_threshold,
+                "top_n_values": self.config.top_n_values,
+                "quantiles": self.config.quantiles,
+                "source_file": str(self.config.input_path),
             }
             metadata = self.metadata_generator.generate_metadata(table, metadata_config)
             if metadata:
@@ -178,11 +173,11 @@ class SchemaGenerator:
             return None
 
         metadata_config = {
-            'enum_threshold': self.config.enum_threshold,
-            'uniqueness_threshold': self.config.uniqueness_threshold,
-            'top_n_values': self.config.top_n_values,
-            'quantiles': self.config.quantiles,
-            'source_file': str(self.config.input_path)
+            "enum_threshold": self.config.enum_threshold,
+            "uniqueness_threshold": self.config.uniqueness_threshold,
+            "top_n_values": self.config.top_n_values,
+            "quantiles": self.config.quantiles,
+            "source_file": str(self.config.input_path),
         }
         metadata = self.metadata_generator.generate_metadata(table, metadata_config)
 
@@ -190,10 +185,12 @@ class SchemaGenerator:
             metadata_json = self.formatter.format_schema_json(metadata)
 
             if is_s3_path(str(self.config.metadata_output_path)):
-                with self.io_handler.open_for_write(str(self.config.metadata_output_path), encoding='utf-8') as f:
+                with self.io_handler.open_for_write(
+                    str(self.config.metadata_output_path), encoding="utf-8"
+                ) as f:
                     f.write(metadata_json)
             else:
-                with open(self.config.metadata_output_path, 'w', encoding='utf-8') as f:
+                with open(self.config.metadata_output_path, "w", encoding="utf-8") as f:
                     f.write(metadata_json)
 
             return str(self.config.metadata_output_path)
@@ -211,10 +208,12 @@ class SchemaGenerator:
                 raise ValueError("output_path must be specified when output_target is FILE")
 
             if is_s3_path(str(self.config.output_path)):
-                with self.io_handler.open_for_write(str(self.config.output_path), encoding='utf-8') as f:
+                with self.io_handler.open_for_write(
+                    str(self.config.output_path), encoding="utf-8"
+                ) as f:
                     f.write(schema_json)
             else:
-                with open(self.config.output_path, 'w', encoding='utf-8') as f:
+                with open(self.config.output_path, "w", encoding="utf-8") as f:
                     f.write(schema_json)
 
             print(f"Schema written to: {self.config.output_path}")

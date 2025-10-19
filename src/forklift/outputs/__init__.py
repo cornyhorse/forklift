@@ -13,17 +13,16 @@ The module is organized with separate files for each responsibility:
 
 # Import configuration
 from .config import OutputConfig
+from .manifest import ManifestGenerator
+from .metadata import MetadataGenerator
 
 # Import core output handlers
 from .parquet import ParquetOutputHandler
-from .manifest import ManifestGenerator
-from .metadata import MetadataGenerator
 
 # Define public API
 __all__ = [
     # Configuration
     "OutputConfig",
-
     # Core handlers
     "ParquetOutputHandler",
     "ManifestGenerator",

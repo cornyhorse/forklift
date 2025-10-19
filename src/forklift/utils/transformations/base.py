@@ -6,21 +6,31 @@ class that combines all transformation capabilities.
 
 from __future__ import annotations
 
-import pyarrow as pa
-import pandas as pd
 from typing import Optional
-from decimal import Decimal
+
+import pyarrow as pa
 
 from .configs import (
-    RegexReplaceConfig, StringReplaceConfig, MoneyTypeConfig, NumericCleaningConfig,
-    StringPaddingConfig, HTMLXMLConfig, DateTimeTransformConfig, StringCleaningConfig,
-    SSNConfig, ZipCodeConfig, PhoneNumberConfig, EmailConfig, IPAddressConfig, MACAddressConfig
+    DateTimeTransformConfig,
+    EmailConfig,
+    HTMLXMLConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    PhoneNumberConfig,
+    RegexReplaceConfig,
+    SSNConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+    ZipCodeConfig,
 )
-from .string_transformations import StringTransformer
-from .numeric_transformations import NumericTransformer
 from .datetime_transformations import DateTimeTransformer
 from .format.transformer import FormatTransformer
 from .html_xml_transformations import HTMLXMLTransformer
+from .numeric_transformations import NumericTransformer
+from .string_transformations import StringTransformer
 
 
 class DataTransformer:
@@ -55,7 +65,9 @@ class DataTransformer:
         """Apply string padding operations (lstrip, rstrip, lpad, rpad)."""
         return self.string_transformer.apply_string_padding(column, config)
 
-    def apply_string_trimming(self, column: pa.Array, side: str = "both", chars: Optional[str] = None) -> pa.Array:
+    def apply_string_trimming(
+        self, column: pa.Array, side: str = "both", chars: Optional[str] = None
+    ) -> pa.Array:
         """Apply string trimming operations (lstrip, rstrip, strip)."""
         return self.string_transformer.apply_string_trimming(column, side, chars)
 
@@ -64,12 +76,16 @@ class DataTransformer:
         """Convert money strings to decimal values."""
         return self.numeric_transformer.apply_money_conversion(column, config)
 
-    def apply_numeric_cleaning(self, column: pa.Array, config: NumericCleaningConfig, target_type: str = "double") -> pa.Array:
+    def apply_numeric_cleaning(
+        self, column: pa.Array, config: NumericCleaningConfig, target_type: str = "double"
+    ) -> pa.Array:
         """Clean numeric fields with configurable separators and NaN handling."""
         return self.numeric_transformer.apply_numeric_cleaning(column, config, target_type)
 
     # DateTime transformation methods
-    def apply_datetime_transformation(self, column: pa.Array, config: DateTimeTransformConfig) -> pa.Array:
+    def apply_datetime_transformation(
+        self, column: pa.Array, config: DateTimeTransformConfig
+    ) -> pa.Array:
         """Apply datetime parsing and transformation to a column."""
         return self.datetime_transformer.apply_datetime_transformation(column, config)
 
@@ -82,7 +98,9 @@ class DataTransformer:
         """Format ZIP codes according to the specified type."""
         return self.format_transformer.apply_zip_code_formatting(column, config)
 
-    def apply_phone_number_formatting(self, column: pa.Array, config: PhoneNumberConfig) -> pa.Array:
+    def apply_phone_number_formatting(
+        self, column: pa.Array, config: PhoneNumberConfig
+    ) -> pa.Array:
         """Format phone numbers according to the specified style."""
         return self.format_transformer.apply_phone_number_formatting(column, config)
 
@@ -127,9 +145,13 @@ class DataTransformer:
         """Remove zero-width characters."""
         return self.string_transformer._remove_zero_width_chars(text, replace_with_space)
 
-    def _remove_control_chars(self, text: str, preserve_newlines: bool = True, preserve_tabs: bool = False) -> str:
+    def _remove_control_chars(
+        self, text: str, preserve_newlines: bool = True, preserve_tabs: bool = False
+    ) -> str:
         """Remove control characters."""
-        return self.string_transformer._remove_control_chars(text, preserve_newlines, preserve_tabs)
+        return self.string_transformer._remove_control_chars(
+            text, preserve_newlines, preserve_tabs
+        )
 
     def _remove_accents(self, text: str) -> str:
         """Remove diacritical marks."""

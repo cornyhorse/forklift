@@ -1,6 +1,7 @@
 """Pipeline for chaining multiple processors together."""
 
 from __future__ import annotations
+
 from typing import List, Tuple
 
 import pyarrow as pa
@@ -29,7 +30,9 @@ class ProcessorPipeline:
         """
         self.processors = processors
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process batch through all processors in sequence.
 
         Passes the batch through each processor in the pipeline, accumulating

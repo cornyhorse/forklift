@@ -7,18 +7,32 @@ from schema configuration dictionaries.
 from __future__ import annotations
 
 import inspect
-from typing import Any, Dict, Callable
+from typing import Any, Callable, Dict
+
 import pyarrow as pa
 
-from .configs import (
-    RegexReplaceConfig, StringReplaceConfig, MoneyTypeConfig, NumericCleaningConfig,
-    StringPaddingConfig, HTMLXMLConfig, DateTimeTransformConfig, StringCleaningConfig,
-    SSNConfig, ZipCodeConfig, PhoneNumberConfig, EmailConfig, IPAddressConfig, MACAddressConfig
-)
 from .base import DataTransformer
+from .configs import (
+    DateTimeTransformConfig,
+    EmailConfig,
+    HTMLXMLConfig,
+    IPAddressConfig,
+    MACAddressConfig,
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    PhoneNumberConfig,
+    RegexReplaceConfig,
+    SSNConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+    ZipCodeConfig,
+)
 
 
-def create_transformation_from_config(transform_type: str, config: Dict[str, Any]) -> Callable[[pa.Array], pa.Array]:
+def create_transformation_from_config(
+    transform_type: str, config: Dict[str, Any]
+) -> Callable[[pa.Array], pa.Array]:
     """Create a transformation function from schema configuration.
 
     Args:
@@ -33,18 +47,18 @@ def create_transformation_from_config(transform_type: str, config: Dict[str, Any
     # Helper function to filter config to only include expected parameters
     def filter_config_for_class(config_class, config_dict):
         """Filter config dict to only include fields that the config class accepts."""
-        if hasattr(config_class, '__dataclass_fields__'):
+        if hasattr(config_class, "__dataclass_fields__"):
             # For dataclasses, get field names
             valid_fields = set(config_class.__dataclass_fields__.keys())
         else:
             # For regular classes, get constructor parameters
             sig = inspect.signature(config_class.__init__)
-            valid_fields = set(sig.parameters.keys()) - {'self'}
+            valid_fields = set(sig.parameters.keys()) - {"self"}
 
         return {k: v for k, v in config_dict.items() if k in valid_fields}
 
     # Remove 'enabled' from config since it's not part of any transformation config
-    clean_config = {k: v for k, v in config.items() if k != 'enabled'}
+    clean_config = {k: v for k, v in config.items() if k != "enabled"}
 
     if transform_type == "regex_replace":
         filtered_config = filter_config_for_class(RegexReplaceConfig, clean_config)

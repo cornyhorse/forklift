@@ -1,12 +1,17 @@
 from __future__ import annotations
+
 from pathlib import Path
+
 import forklift as fl
+
 
 def main() -> None:
     # Hardcoded absolute paths for your demo
-    schema_file = '/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.json'
-    csv_file = '/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt'
-    output_dir = '/Users/matt/PycharmProjects/forklift/output/largecsv'
+    schema_file = (
+        "/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.json"
+    )
+    csv_file = "/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt"
+    output_dir = "/Users/matt/PycharmProjects/forklift/output/largecsv"
 
     print("=== Forklift Large CSV Processing ===")
     print(f"Input CSV: {csv_file}")
@@ -26,14 +31,15 @@ def main() -> None:
     # Display schema information first
     print("\n=== Schema Information ===")
     from forklift.schema.csv_schema_importer import CsvSchemaImporter
+
     importer = CsvSchemaImporter(schema_file)
     schema_dict = importer.as_dict()
     print(f"Schema title: {schema_dict.get('title', 'Unknown')}")
     print(f"Number of columns: {len(schema_dict.get('properties', {}))}")
     print("Column types:")
-    for col_name, col_def in schema_dict.get('properties', {}).items():
-        col_type = col_def.get('type', 'unknown')
-        col_format = col_def.get('format', '')
+    for col_name, col_def in schema_dict.get("properties", {}).items():
+        col_type = col_def.get("type", "unknown")
+        col_format = col_def.get("format", "")
         type_str = f"{col_type}" + (f" ({col_format})" if col_format else "")
         print(f"  {col_name}: {type_str}")
 
@@ -45,22 +51,22 @@ def main() -> None:
             output_path=output_dir,
             schema_file=schema_file,
             header_mode="present",  # CSV has headers
-            batch_size=50000,       # Process in 50k row batches for efficiency
+            batch_size=50000,  # Process in 50k row batches for efficiency
             encoding="utf-8",
             validate_schema=True,
             create_manifest=True,
             create_metadata=True,
-            compression="snappy"
+            compression="snappy",
         )
 
         print("✅ Processing completed successfully!")
-        print(f"\n=== Results ===")
+        print("\n=== Results ===")
         print(f"Total rows processed: {results.total_rows:,}")
         print(f"Valid rows: {results.valid_rows:,}")
         print(f"Invalid rows: {results.invalid_rows:,}")
         print(f"Execution time: {results.execution_time:.2f} seconds")
 
-        print(f"\n=== Output Files ===")
+        print("\n=== Output Files ===")
         for file_path in results.output_files:
             file_size = Path(file_path).stat().st_size if Path(file_path).exists() else 0
             print(f"📄 {Path(file_path).name}: {file_size:,} bytes")
@@ -72,7 +78,7 @@ def main() -> None:
             print(f"📊 Metadata: {Path(results.metadata_file).name}")
 
         if results.errors:
-            print(f"\n⚠️  Errors encountered:")
+            print("\n⚠️  Errors encountered:")
             for error in results.errors:
                 print(f"  - {error}")
 
@@ -84,6 +90,7 @@ def main() -> None:
     except Exception as e:
         print(f"❌ Error processing CSV: {str(e)}")
         import traceback
+
         traceback.print_exc()
 
 

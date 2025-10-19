@@ -1,7 +1,6 @@
 """Base processor interface for data processing operations."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 from ..config import ImportConfig, ProcessingResults
 

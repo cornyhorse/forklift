@@ -1,30 +1,31 @@
 """Tests for data transformation utilities."""
 
-import pytest
-import pyarrow as pa
-import pandas as pd
 import datetime
+import ipaddress
 import re
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
-import ipaddress
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+import pyarrow as pa
+import pytest
 
 from forklift.utils.transformations import (
+    DataTransformer,
     DateTimeTransformConfig,
-    RegexReplaceConfig,
-    StringReplaceConfig,
-    MoneyTypeConfig,
-    NumericCleaningConfig,
-    StringPaddingConfig,
-    HTMLXMLConfig,
-    StringCleaningConfig,
-    SSNConfig,
-    ZipCodeConfig,
-    PhoneNumberConfig,
     EmailConfig,
+    HTMLXMLConfig,
     IPAddressConfig,
     MACAddressConfig,
-    DataTransformer
+    MoneyTypeConfig,
+    NumericCleaningConfig,
+    PhoneNumberConfig,
+    RegexReplaceConfig,
+    SSNConfig,
+    StringCleaningConfig,
+    StringPaddingConfig,
+    StringReplaceConfig,
+    ZipCodeConfig,
 )
 
 
@@ -57,7 +58,9 @@ class TestDateTimeTransformConfig:
 
     def test_datetime_config_specify_formats_no_formats(self):
         """Test specify_formats mode without formats raises ValueError."""
-        with pytest.raises(ValueError, match="Formats list must be specified when mode is 'specify_formats'"):
+        with pytest.raises(
+            ValueError, match="Formats list must be specified when mode is 'specify_formats'"
+        ):
             DateTimeTransformConfig(mode="specify_formats")
 
     def test_datetime_config_invalid_target_type(self):
@@ -156,7 +159,17 @@ class TestNumericCleaningConfig:
         assert config.thousands_separator == ","
         assert config.decimal_separator == "."
         assert config.allow_nan is True
-        assert config.nan_values == ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!"]
+        assert config.nan_values == [
+            "",
+            "N/A",
+            "NA",
+            "NULL",
+            "null",
+            "NaN",
+            "nan",
+            "#N/A",
+            "#NULL!",
+        ]
         assert config.strip_whitespace is True
 
     def test_numeric_config_custom_nan_values(self):
@@ -613,8 +626,7 @@ class TestDataTransformer:
 
         # Test exact mapping
         config = StringCleaningConfig(
-            custom_case_mapping={"california": "CA", "new york": "NY"},
-            case_mapping_mode="exact"
+            custom_case_mapping={"california": "CA", "new york": "NY"}, case_mapping_mode="exact"
         )
         result = self.transformer.apply_string_cleaning(column, config)
         expected = ["CA", "NY", "texas"]
@@ -623,10 +635,7 @@ class TestDataTransformer:
     def test_apply_string_cleaning_acronyms(self):
         """Test string cleaning with acronym preservation."""
         column = pa.array(["nasa mission", "api endpoint", "ceo meeting"])
-        config = StringCleaningConfig(
-            case_transform="title",
-            acronyms=["NASA", "API", "CEO"]
-        )
+        config = StringCleaningConfig(case_transform="title", acronyms=["NASA", "API", "CEO"])
 
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
@@ -677,12 +686,16 @@ class TestDataTransformer:
         assert result_int32.type == pa.int32()
 
         # Test float32
-        result_float32 = self.transformer.apply_numeric_cleaning(column, config, target_type="float32")
+        result_float32 = self.transformer.apply_numeric_cleaning(
+            column, config, target_type="float32"
+        )
         assert result_float32.type == pa.float32()
 
     def test_apply_numeric_cleaning_overflow_error(self):
         """Test numeric cleaning with overflow error."""
-        column = pa.array(["99999999999999999999"])  # Use a very large number that will cause overflow
+        column = pa.array(
+            ["99999999999999999999"]
+        )  # Use a very large number that will cause overflow
         config = NumericCleaningConfig(allow_nan=True)
 
         try:
@@ -693,10 +706,11 @@ class TestDataTransformer:
             # If PyArrow itself raises an error, that's expected behavior
             assert True
 
-    @patch('forklift.utils.transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.coerce_datetime")
     def test_apply_datetime_transformation_with_timezone(self, mock_coerce):
         """Test datetime transformation with timezone conversion."""
         import pytz
+
         mock_dt = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=pytz.UTC)
         mock_coerce.return_value = mock_dt
 
@@ -707,7 +721,7 @@ class TestDataTransformer:
         # Should handle timezone conversion
         assert result is not None
 
-    @patch('forklift.utils.transformations.coerce_datetime')
+    @patch("forklift.utils.transformations.coerce_datetime")
     def test_apply_datetime_transformation_target_string_with_date(self, mock_coerce):
         """Test datetime transformation with target string and date object."""
         mock_coerce.return_value = datetime.date(2024, 1, 1)
@@ -727,9 +741,7 @@ class TestDataTransformer:
         # Test with a simple string that should trigger various cleaning operations
         column = pa.array(['"hello world" – this\'s a test'])
         config = StringCleaningConfig(
-            normalize_quotes=True,
-            normalize_dashes=True,
-            normalize_spaces=True
+            normalize_quotes=True, normalize_dashes=True, normalize_spaces=True
         )
 
         result = transformer.apply_string_cleaning(column, config)
@@ -739,12 +751,14 @@ class TestDataTransformer:
 
     def test_apply_string_cleaning_comprehensive(self):
         """Test comprehensive string cleaning with multiple operations."""
-        column = pa.array([
-            "  hello\tworld  ",  # Whitespace and tabs
-            '"smart quotes"',     # Smart quotes
-            "em—dash test",       # Em dash
-            "control\x00char",    # Control character
-        ])
+        column = pa.array(
+            [
+                "  hello\tworld  ",  # Whitespace and tabs
+                '"smart quotes"',  # Smart quotes
+                "em—dash test",  # Em dash
+                "control\x00char",  # Control character
+            ]
+        )
 
         config = StringCleaningConfig(
             strip_whitespace=True,
@@ -752,7 +766,7 @@ class TestDataTransformer:
             normalize_quotes=True,
             normalize_dashes=True,
             remove_control_chars=True,
-            tab_replacement=" "
+            tab_replacement=" ",
         )
 
         result = self.transformer.apply_string_cleaning(column, config)
@@ -767,10 +781,10 @@ class TestDataTransformer:
         """Test money conversion edge cases."""
         # Test various edge cases for money conversion
         test_cases = [
-            "$0.00",      # Zero amount
-            "$-123.45",   # Negative with minus sign
+            "$0.00",  # Zero amount
+            "$-123.45",  # Negative with minus sign
             "€1.234,56",  # European format
-            "£ 1,000.00", # With spaces
+            "£ 1,000.00",  # With spaces
             "$1,234,567.89",  # Large amount
         ]
 
@@ -787,7 +801,7 @@ class TestDataTransformer:
 
     def test_datetime_transformation_epoch_units(self):
         """Test datetime transformation with different epoch units."""
-        with patch('forklift.utils.transformations.coerce_datetime') as mock_coerce:
+        with patch("forklift.utils.transformations.coerce_datetime") as mock_coerce:
             # Test milliseconds
             mock_coerce.return_value = 1704110400000
             column = pa.array(["2024-01-01"])

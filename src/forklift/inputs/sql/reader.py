@@ -1,14 +1,16 @@
 """SQL data reading and batch processing."""
 
 from __future__ import annotations
-from typing import Iterator, List, Tuple
-import pyarrow as pa
-import logging
 
+import logging
+from typing import Iterator, List, Tuple
+
+import pyarrow as pa
+
+from ..config import SqlInputConfig
 from .connection import SqlConnectionManager
 from .schema import SqlSchemaManager
 from .types import SqlTypeConverter
-from ..config import SqlInputConfig
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +18,12 @@ logger = logging.getLogger(__name__)
 class SqlDataReader:
     """Handles reading data from SQL databases and converting to PyArrow format."""
 
-    def __init__(self, config: SqlInputConfig, connection_manager: SqlConnectionManager,
-                 schema_manager: SqlSchemaManager):
+    def __init__(
+        self,
+        config: SqlInputConfig,
+        connection_manager: SqlConnectionManager,
+        schema_manager: SqlSchemaManager,
+    ):
         """Initialize the data reader.
 
         Args:
@@ -62,7 +68,7 @@ class SqlDataReader:
             quoted_table = self.schema_manager._quote_identifier(table_name)
             quoted_schema = self.schema_manager._quote_identifier(schema_name)
 
-            if schema_name and schema_name != 'default':
+            if schema_name and schema_name != "default":
                 full_table_name = f"{quoted_schema}.{quoted_table}"
             else:
                 full_table_name = quoted_table
@@ -113,9 +119,7 @@ class SqlDataReader:
         arrays = []
         for i, (column_data, field) in enumerate(zip(columns, schema)):
             array = self.type_converter.convert_column_data(
-                column_data,
-                field.type,
-                self.config.null_values
+                column_data, field.type, self.config.null_values
             )
             arrays.append(array)
 

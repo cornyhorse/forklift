@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
-from .base import BaseFormatter, ValidationMixin
+
 from ..configs import PhoneNumberConfig
+from .base import BaseFormatter, ValidationMixin
 
 
 class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
@@ -20,7 +21,7 @@ class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
         if not original_value:
             raise ValueError("Empty phone number value")
 
-        digits_and_plus = re.sub(r'[^\d+]', '', original_value)
+        digits_and_plus = re.sub(r"[^\d+]", "", original_value)
         digits_only = self.extract_digits(original_value)
 
         if not digits_only:
@@ -34,19 +35,30 @@ class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
 
         # Validate phone number length
         if self.config.validate:
-            if len(phone_digits) < self.config.min_digits or len(phone_digits) > self.config.max_digits:
-                if len(digits_only) == 11 and digits_only.startswith('1'):
+            if (
+                len(phone_digits) < self.config.min_digits
+                or len(phone_digits) > self.config.max_digits
+            ):
+                if len(digits_only) == 11 and digits_only.startswith("1"):
                     if len(phone_digits) != 10:
-                        raise ValueError(f"Phone number must have {self.config.min_digits}-{self.config.max_digits} digits, got {len(phone_digits)}")
+                        raise ValueError(
+                            f"Phone number must have {self.config.min_digits}-"
+                            f"{self.config.max_digits} digits, got {len(phone_digits)}"
+                        )
                 else:
-                    raise ValueError(f"Phone number must have {self.config.min_digits}-{self.config.max_digits} digits, got {len(phone_digits)}")
+                    raise ValueError(
+                        f"Phone number must have {self.config.min_digits}-"
+                        f"{self.config.max_digits} digits, got {len(phone_digits)}"
+                    )
 
         # Format according to style
-        formatted_number = self._apply_format_style(phone_digits, digits_only, has_country_code, original_value)
+        formatted_number = self._apply_format_style(
+            phone_digits, digits_only, has_country_code, original_value
+        )
 
         # Replace dashes with dots if requested
         if self.config.use_dots:
-            formatted_number = formatted_number.replace('-', '.')
+            formatted_number = formatted_number.replace("-", ".")
 
         return formatted_number
 
@@ -55,10 +67,18 @@ class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
         has_country_code = False
         phone_digits = digits_only
 
-        if digits_and_plus.startswith('+1') and len(digits_only) == 11 and digits_only.startswith('1'):
+        if (
+            digits_and_plus.startswith("+1")
+            and len(digits_only) == 11
+            and digits_only.startswith("1")
+        ):
             has_country_code = True
             phone_digits = digits_only[1:]
-        elif not digits_and_plus.startswith('+') and len(digits_only) == 11 and digits_only.startswith('1'):
+        elif (
+            not digits_and_plus.startswith("+")
+            and len(digits_only) == 11
+            and digits_only.startswith("1")
+        ):
             has_country_code = True
             phone_digits = digits_only[1:]
         elif len(digits_only) == 10:
@@ -67,7 +87,9 @@ class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
 
         return has_country_code, phone_digits
 
-    def _apply_format_style(self, phone_digits: str, digits_only: str, has_country_code: bool, original_value: str) -> str:
+    def _apply_format_style(
+        self, phone_digits: str, digits_only: str, has_country_code: bool, original_value: str
+    ) -> str:
         """Apply the specified format style."""
         if self.config.format_style == "international":
             return self._format_international(phone_digits, digits_only, has_country_code)
@@ -78,7 +100,9 @@ class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
         else:  # preserve
             return original_value
 
-    def _format_international(self, phone_digits: str, digits_only: str, has_country_code: bool) -> str:
+    def _format_international(
+        self, phone_digits: str, digits_only: str, has_country_code: bool
+    ) -> str:
         """Format in international style."""
         if self.config.include_country_code or has_country_code:
             if phone_digits and len(phone_digits) == 10:

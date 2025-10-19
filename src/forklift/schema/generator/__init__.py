@@ -4,4 +4,4 @@ from .core import SchemaGenerator
 from .inference import DataTypeInferrer
 from .validation import SchemaValidator
 
-__all__ = ['SchemaGenerator', 'DataTypeInferrer', 'SchemaValidator']
+__all__ = ["SchemaGenerator", "DataTypeInferrer", "SchemaValidator"]

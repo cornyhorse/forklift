@@ -6,17 +6,20 @@ This module provides datetime parsing, formatting, and timezone conversion capab
 from __future__ import annotations
 
 import datetime
-import pyarrow as pa
-import pandas as pd
 
-from .configs import DateTimeTransformConfig
+import pandas as pd
+import pyarrow as pa
+
 from ..date_parser import coerce_datetime
+from .configs import DateTimeTransformConfig
 
 
 class DateTimeTransformer:
     """Specialized transformer for datetime operations."""
 
-    def apply_datetime_transformation(self, column: pa.Array, config: DateTimeTransformConfig) -> pa.Array:
+    def apply_datetime_transformation(
+        self, column: pa.Array, config: DateTimeTransformConfig
+    ) -> pa.Array:
         """Apply datetime parsing and transformation to a column."""
         import pytz
 
@@ -41,7 +44,7 @@ class DateTimeTransformer:
                         fmt=config.format,
                         allow_fuzzy=False,
                         from_epoch=config.from_epoch,
-                        to_epoch=config.to_epoch
+                        to_epoch=config.to_epoch,
                     )
                 elif config.mode == "specify_formats":
                     parsed_dt = coerce_datetime(
@@ -49,14 +52,14 @@ class DateTimeTransformer:
                         formats=config.formats,
                         allow_fuzzy=config.allow_fuzzy,
                         from_epoch=config.from_epoch,
-                        to_epoch=config.to_epoch
+                        to_epoch=config.to_epoch,
                     )
                 else:  # common_formats
                     parsed_dt = coerce_datetime(
                         str_value,
                         allow_fuzzy=config.allow_fuzzy,
                         from_epoch=config.from_epoch,
-                        to_epoch=config.to_epoch
+                        to_epoch=config.to_epoch,
                     )
 
                 # If to_epoch was specified, we already have the epoch value
@@ -65,17 +68,21 @@ class DateTimeTransformer:
                     continue
 
                 # Handle timezone conversion
-                if config.timezone and (isinstance(parsed_dt, datetime.datetime) or
-                                       (hasattr(parsed_dt, '_mock_name') or 'Mock' in str(type(parsed_dt)))):
+                if config.timezone and (
+                    isinstance(parsed_dt, datetime.datetime)
+                    or (hasattr(parsed_dt, "_mock_name") or "Mock" in str(type(parsed_dt)))
+                ):
                     target_tz = pytz.timezone(config.timezone)
 
                     # Check if this is a Mock object for testing
-                    is_mock = (hasattr(parsed_dt, '_mock_name') or
-                              'Mock' in str(type(parsed_dt)) or
-                              hasattr(parsed_dt, '_mock_methods'))
+                    is_mock = (
+                        hasattr(parsed_dt, "_mock_name")
+                        or "Mock" in str(type(parsed_dt))
+                        or hasattr(parsed_dt, "_mock_methods")
+                    )
 
                     if is_mock:
-                        if hasattr(parsed_dt, 'astimezone'):
+                        if hasattr(parsed_dt, "astimezone"):
                             parsed_dt = parsed_dt.astimezone(target_tz)
                     else:
                         if parsed_dt.tzinfo is None:
@@ -125,7 +132,7 @@ class DateTimeTransformer:
         elif config.target_type == "string":
             pa_type = pa.string()
         else:  # datetime
-            pa_type = pa.timestamp('us', tz='UTC')
+            pa_type = pa.timestamp("us", tz="UTC")
 
         # Create PyArrow array with error handling for problematic types
         try:
@@ -134,10 +141,12 @@ class DateTimeTransformer:
             # Fallback for unconvertible types - convert Mock objects to None
             safe_values = []
             for value in transformed_values:
-                if (hasattr(value, '_mock_name') or
-                    str(type(value)).startswith("<class 'unittest.mock") or
-                    'Mock' in str(type(value)) or
-                    hasattr(value, '_mock_methods')):
+                if (
+                    hasattr(value, "_mock_name")
+                    or str(type(value)).startswith("<class 'unittest.mock")
+                    or "Mock" in str(type(value))
+                    or hasattr(value, "_mock_methods")
+                ):
                     safe_values.append(None)
                 else:
                     safe_values.append(value)

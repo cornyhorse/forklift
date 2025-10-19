@@ -1,15 +1,18 @@
 """Utility functions for schema validation."""
 
-from typing import Dict, Any, Optional
-import pyarrow as pa
 from datetime import datetime
+from typing import Any, Dict, Optional
 
-from .core import SchemaValidator
+import pyarrow as pa
+
 from .config import SchemaValidatorConfig
+from .core import SchemaValidator
 from .type_converter import TypeConverter
 
 
-def create_schema_validator_from_json(schema_json: Dict[str, Any], config: Optional[SchemaValidatorConfig] = None) -> SchemaValidator:
+def create_schema_validator_from_json(
+    schema_json: Dict[str, Any], config: Optional[SchemaValidatorConfig] = None
+) -> SchemaValidator:
     """Create a schema validator from a JSON schema definition.
 
     Args:
@@ -22,7 +25,9 @@ def create_schema_validator_from_json(schema_json: Dict[str, Any], config: Optio
     return SchemaValidator(schema_json, config)
 
 
-def create_schema_from_batch(batch: pa.RecordBatch, include_nullability: bool = True) -> Dict[str, Any]:
+def create_schema_from_batch(
+    batch: pa.RecordBatch, include_nullability: bool = True
+) -> Dict[str, Any]:
     """Create a schema definition from a PyArrow RecordBatch.
 
     Args:
@@ -38,7 +43,7 @@ def create_schema_from_batch(batch: pa.RecordBatch, include_nullability: bool = 
         column_def = {
             "name": field.name,
             "type": str(field.type),
-            "nullable": field.nullable if include_nullability else True
+            "nullable": field.nullable if include_nullability else True,
         }
 
         # Add basic constraints based on data type
@@ -52,6 +57,6 @@ def create_schema_from_batch(batch: pa.RecordBatch, include_nullability: bool = 
         "metadata": {
             "created_from_batch": True,
             "creation_timestamp": datetime.now().isoformat(),
-            "total_columns": len(columns)
-        }
+            "total_columns": len(columns),
+        },
     }

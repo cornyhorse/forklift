@@ -1,13 +1,14 @@
 """Comprehensive tests for the CSV inputs module to improve code coverage."""
 
-import pytest
+import csv
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import csv
+from unittest.mock import MagicMock, patch
 
-from forklift.inputs.csv import CsvInputHandler
+import pytest
+
 from forklift.inputs.config import CsvInputConfig
+from forklift.inputs.csv import CsvInputHandler
 
 
 class TestCsvInputConfig:
@@ -38,7 +39,7 @@ class TestCsvInputConfig:
             header_search_rows=5,
             skip_blank_lines=False,
             comment_patterns=["^#", "^//"],
-            footer_detection={"mode": "regex", "pattern": "^TOTAL"}
+            footer_detection={"mode": "regex", "pattern": "^TOTAL"},
         )
 
         assert config.delimiter == ";"
@@ -68,7 +69,9 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary file with UTF-8 content
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("name,age,email\n")
             f.write("Alice,25,alice@example.com\n")
             f.write("Bob,30,bob@example.com\n")
@@ -77,7 +80,7 @@ class TestCsvInputHandler:
         try:
             encoding = handler.detect_encoding(temp_path)
             # Should detect UTF-8 or similar
-            assert encoding in ['utf-8', 'ascii', 'UTF-8', 'ASCII']
+            assert encoding in ["utf-8", "ascii", "UTF-8", "ASCII"]
         finally:
             temp_path.unlink()
 
@@ -87,16 +90,18 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary file
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("test content")
             temp_path = Path(f.name)
 
         try:
             # Mock chardet to return None encoding
-            with patch('chardet.detect') as mock_detect:
+            with patch("chardet.detect") as mock_detect:
                 mock_detect.return_value = {}  # Empty dict, no 'encoding' key
                 encoding = handler.detect_encoding(temp_path)
-                assert encoding == 'utf-8'  # Should fallback to utf-8
+                assert encoding == "utf-8"  # Should fallback to utf-8
         finally:
             temp_path.unlink()
 
@@ -106,7 +111,9 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("name,age,email\n")
             f.write("Alice,25,alice@example.com\n")
             f.write("Bob,30,bob@example.com\n")
@@ -115,7 +122,7 @@ class TestCsvInputHandler:
         try:
             header_row, column_names = handler.find_header_row(temp_path)
             assert header_row == 0
-            assert column_names == ['name', 'age', 'email']
+            assert column_names == ["name", "age", "email"]
         finally:
             temp_path.unlink()
 
@@ -125,7 +132,9 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with comments
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("# This is a comment\n")
             f.write("// Another comment\n")
             f.write("name,age,email\n")
@@ -135,7 +144,7 @@ class TestCsvInputHandler:
         try:
             header_row, column_names = handler.find_header_row(temp_path)
             assert header_row == 2
-            assert column_names == ['name', 'age', 'email']
+            assert column_names == ["name", "age", "email"]
         finally:
             temp_path.unlink()
 
@@ -145,7 +154,9 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with blank lines
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("\n")
             f.write("   \n")  # Blank line with spaces
             f.write("name,age,email\n")
@@ -155,7 +166,7 @@ class TestCsvInputHandler:
         try:
             header_row, column_names = handler.find_header_row(temp_path)
             assert header_row == 2
-            assert column_names == ['name', 'age', 'email']
+            assert column_names == ["name", "age", "email"]
         finally:
             temp_path.unlink()
 
@@ -165,7 +176,9 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with blank lines
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("\n")
             f.write("name,age,email\n")
             temp_path = Path(f.name)
@@ -183,7 +196,9 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file where header is beyond search limit
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("row1\n")
             f.write("row2\n")
             f.write("name,age,email\n")  # This won't be found due to search limit
@@ -192,17 +207,21 @@ class TestCsvInputHandler:
         try:
             header_row, column_names = handler.find_header_row(temp_path)
             assert header_row == 0
-            assert column_names == ['row1']  # First row becomes header
+            assert column_names == ["row1"]  # First row becomes header
         finally:
             temp_path.unlink()
 
     def test_find_header_row_no_valid_header(self):
         """Test exception when no valid header row is found."""
-        config = CsvInputConfig(header_search_rows=1, comment_patterns=["^.*"])  # All rows are comments
+        config = CsvInputConfig(
+            header_search_rows=1, comment_patterns=["^.*"]
+        )  # All rows are comments
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file where all rows are comments
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("# comment row\n")
             temp_path = Path(f.name)
 
@@ -251,23 +270,20 @@ class TestCsvInputHandler:
 
     def test_create_arrow_reader(self):
         """Test creating PyArrow CSV reader."""
-        config = CsvInputConfig(
-            delimiter=",",
-            quote_char='"',
-            escape_char="\\",
-            encoding="utf-8"
-        )
+        config = CsvInputConfig(delimiter=",", quote_char='"', escape_char="\\", encoding="utf-8")
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("name,age,email\n")
             f.write("Alice,25,alice@example.com\n")
             f.write("Bob,30,bob@example.com\n")
             temp_path = Path(f.name)
 
         try:
-            column_names = ['name', 'age', 'email']
+            column_names = ["name", "age", "email"]
             reader = handler.create_arrow_reader(temp_path, column_names, skip_rows=1)
 
             # Verify reader is created and can read data
@@ -284,14 +300,16 @@ class TestCsvInputHandler:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("# Comment line\n")
             f.write("name,age,email\n")
             f.write("Alice,25,alice@example.com\n")
             temp_path = Path(f.name)
 
         try:
-            column_names = ['name', 'age', 'email']
+            column_names = ["name", "age", "email"]
             reader = handler.create_arrow_reader(temp_path, column_names, skip_rows=2)
 
             # Should skip the comment and header lines
@@ -304,22 +322,19 @@ class TestCsvInputHandler:
 
     def test_create_arrow_reader_custom_config(self):
         """Test creating PyArrow CSV reader with custom configuration."""
-        config = CsvInputConfig(
-            delimiter=";",
-            quote_char="'",
-            escape_char="/",
-            encoding="latin-1"
-        )
+        config = CsvInputConfig(delimiter=";", quote_char="'", escape_char="/", encoding="latin-1")
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with custom format
-        with tempfile.NamedTemporaryFile(mode='w', encoding='latin-1', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="latin-1", delete=False, suffix=".csv"
+        ) as f:
             f.write("name;age;email\n")
             f.write("'Alice';25;'alice@example.com'\n")
             temp_path = Path(f.name)
 
         try:
-            column_names = ['name', 'age', 'email']
+            column_names = ["name", "age", "email"]
             reader = handler.create_arrow_reader(temp_path, column_names, skip_rows=1)
 
             assert reader is not None
@@ -339,7 +354,9 @@ class TestCsvInputHandlerEdgeCases:
         handler = CsvInputHandler(config)
 
         # Create a completely empty temporary CSV file
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             # Write nothing to the file
             temp_path = Path(f.name)
 
@@ -355,10 +372,12 @@ class TestCsvInputHandlerEdgeCases:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with only blank lines
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("\n")
             f.write("   \n")  # Blank line with spaces
-            f.write("\t\n")   # Blank line with tab
+            f.write("\t\n")  # Blank line with tab
             temp_path = Path(f.name)
 
         try:
@@ -370,20 +389,22 @@ class TestCsvInputHandlerEdgeCases:
     def test_find_header_row_comments_and_blanks_only(self):
         """Test exception when file only contains comments and blank lines within search limit."""
         config = CsvInputConfig(
-            comment_patterns=["^#", "^//"],
-            skip_blank_lines=True,
-            header_search_rows=5
+            comment_patterns=["^#", "^//"], skip_blank_lines=True, header_search_rows=5
         )
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with only comments and blank lines within search limit
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("# First comment\n")
             f.write("\n")  # Blank line
             f.write("// Second comment\n")
             f.write("   \n")  # Blank line with spaces
             f.write("# Third comment\n")
-            f.write("name,age,email\n")  # This is beyond search limit of 5 (0-indexed, so rows 0-4)
+            f.write(
+                "name,age,email\n"
+            )  # This is beyond search limit of 5 (0-indexed, so rows 0-4)
             temp_path = Path(f.name)
 
         try:
@@ -398,7 +419,9 @@ class TestCsvInputHandlerEdgeCases:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with semicolon delimiter
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("name;age;email\n")
             f.write("Alice;25;alice@example.com\n")
             temp_path = Path(f.name)
@@ -406,7 +429,7 @@ class TestCsvInputHandlerEdgeCases:
         try:
             header_row, column_names = handler.find_header_row(temp_path)
             assert header_row == 0
-            assert column_names == ['name', 'age', 'email']
+            assert column_names == ["name", "age", "email"]
         finally:
             temp_path.unlink()
 
@@ -427,7 +450,9 @@ class TestCsvInputHandlerEdgeCases:
         handler = CsvInputHandler(config)
 
         # Create a temporary CSV file with whitespace in headers
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("  name  , age ,  email  \n")
             f.write("Alice,25,alice@example.com\n")
             temp_path = Path(f.name)
@@ -435,7 +460,7 @@ class TestCsvInputHandlerEdgeCases:
         try:
             header_row, column_names = handler.find_header_row(temp_path)
             assert header_row == 0
-            assert column_names == ['name', 'age', 'email']  # Whitespace should be stripped
+            assert column_names == ["name", "age", "email"]  # Whitespace should be stripped
         finally:
             temp_path.unlink()
 
@@ -445,7 +470,9 @@ class TestCsvInputHandlerEdgeCases:
         handler = CsvInputHandler(config)
 
         # Create a temporary file with special characters
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix='.csv') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", delete=False, suffix=".csv"
+        ) as f:
             f.write("name,description\n")
             f.write("Café,Français\n")
             f.write("Naïve,Résumé\n")

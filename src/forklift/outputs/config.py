@@ -1,6 +1,7 @@
 """Configuration classes for output operations."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 
 
@@ -14,6 +15,7 @@ class OutputConfig:
         create_metadata: Whether to generate metadata files (default: True)
         row_group_size: Number of rows per row group in parquet (default: 50000)
     """
+
     compression: str = "snappy"
     create_manifest: bool = True
     create_metadata: bool = True

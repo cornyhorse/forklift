@@ -1,12 +1,13 @@
 """Main data validation processor."""
 
-from typing import List, Tuple, Dict, Optional, Any, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 import pyarrow as pa
 
 from ..base import BaseProcessor, ValidationResult
+from .bad_rows_handler import BadRowsHandler
 from .validation_config import ValidationConfig
 from .validation_rules import ValidationRules
-from .bad_rows_handler import BadRowsHandler
 
 
 class DataValidationProcessor(BaseProcessor):
@@ -39,7 +40,9 @@ class DataValidationProcessor(BaseProcessor):
             if rule.unique:
                 self.unique_value_tracker[rule.field_name] = set()
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch with validation and bad row handling.
 
         Args:
@@ -63,12 +66,14 @@ class DataValidationProcessor(BaseProcessor):
 
                     # Add validation results for bad rows
                     for error in errors:
-                        validation_results.append(ValidationResult(
-                            is_valid=False,
-                            error_message=error,
-                            error_code="VALIDATION_ERROR",
-                            row_index=row_idx
-                        ))
+                        validation_results.append(
+                            ValidationResult(
+                                is_valid=False,
+                                error_message=error,
+                                error_code="VALIDATION_ERROR",
+                                row_index=row_idx,
+                            )
+                        )
 
             # Create clean batch with only good rows
             if good_row_indices:
@@ -88,21 +93,28 @@ class DataValidationProcessor(BaseProcessor):
 
             # Check if bad rows exceed threshold
             if self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed):
-                bad_rows_percent = self.bad_rows_handler.get_bad_rows_percentage(self.total_rows_processed)
-                validation_results.append(ValidationResult(
-                    is_valid=False,
-                    error_message=f"Bad rows ({bad_rows_percent:.1f}%) exceed threshold ({self.config.bad_rows_config.max_bad_rows_percent}%)",
-                    error_code="BAD_ROWS_THRESHOLD_EXCEEDED"
-                ))
+                bad_rows_percent = self.bad_rows_handler.get_bad_rows_percentage(
+                    self.total_rows_processed
+                )
+                validation_results.append(
+                    ValidationResult(
+                        is_valid=False,
+                        error_message=f"Bad rows ({bad_rows_percent:.1f}%) exceed "
+                        f"threshold ({self.config.bad_rows_config.max_bad_rows_percent}%)",
+                        error_code="BAD_ROWS_THRESHOLD_EXCEEDED",
+                    )
+                )
 
             return clean_batch, validation_results
 
         except Exception as e:
-            validation_results.append(ValidationResult(
-                is_valid=False,
-                error_message=f"Validation processing failed: {str(e)}",
-                error_code="VALIDATION_PROCESSOR_ERROR"
-            ))
+            validation_results.append(
+                ValidationResult(
+                    is_valid=False,
+                    error_message=f"Validation processing failed: {str(e)}",
+                    error_code="VALIDATION_PROCESSOR_ERROR",
+                )
+            )
             return batch, validation_results
 
     def _validate_row(self, batch: pa.RecordBatch, row_idx: int) -> Tuple[bool, List[str]]:
@@ -137,33 +149,47 @@ class DataValidationProcessor(BaseProcessor):
             if rule.unique:
                 if value in self.unique_value_tracker[rule.field_name]:
                     if self.config.uniqueness_strategy == "first_wins":
-                        errors.append(f"Field '{rule.field_name}' value '{value}' is not unique (duplicate found)")
+                        errors.append(
+                            f"Field '{rule.field_name}' value '{value}' "
+                            f"is not unique (duplicate found)"
+                        )
                     elif self.config.uniqueness_strategy == "fail_on_duplicate":
-                        errors.append(f"Field '{rule.field_name}' value '{value}' violates uniqueness constraint")
+                        errors.append(
+                            f"Field '{rule.field_name}' value '{value}' "
+                            f"violates uniqueness constraint"
+                        )
                 else:
                     self.unique_value_tracker[rule.field_name].add(value)
 
             # Range validation
             if rule.range_validation:
-                range_error = self.validation_rules.validate_range(rule.field_name, value, rule.range_validation)
+                range_error = self.validation_rules.validate_range(
+                    rule.field_name, value, rule.range_validation
+                )
                 if range_error:
                     errors.append(range_error)
 
             # String validation
             if rule.string_validation:
-                string_error = self.validation_rules.validate_string(rule.field_name, value, rule.string_validation)
+                string_error = self.validation_rules.validate_string(
+                    rule.field_name, value, rule.string_validation
+                )
                 if string_error:
                     errors.append(string_error)
 
             # Enum validation
             if rule.enum_validation:
-                enum_error = self.validation_rules.validate_enum(rule.field_name, value, rule.enum_validation)
+                enum_error = self.validation_rules.validate_enum(
+                    rule.field_name, value, rule.enum_validation
+                )
                 if enum_error:
                     errors.append(enum_error)
 
             # Date validation
             if rule.date_validation:
-                date_error = self.validation_rules.validate_date(rule.field_name, value, rule.date_validation)
+                date_error = self.validation_rules.validate_date(
+                    rule.field_name, value, rule.date_validation
+                )
                 if date_error:
                     errors.append(date_error)
 
@@ -186,9 +212,13 @@ class DataValidationProcessor(BaseProcessor):
         return {
             "total_rows_processed": self.total_rows_processed,
             "bad_rows_count": self.bad_rows_handler.get_bad_rows_count(),
-            "bad_rows_percent": self.bad_rows_handler.get_bad_rows_percentage(self.total_rows_processed),
+            "bad_rows_percent": self.bad_rows_handler.get_bad_rows_percentage(
+                self.total_rows_processed
+            ),
             "unique_fields_tracked": list(self.unique_value_tracker.keys()),
-            "unique_values_counts": {field: len(values) for field, values in self.unique_value_tracker.items()}
+            "unique_values_counts": {
+                field: len(values) for field, values in self.unique_value_tracker.items()
+            },
         }
 
     # Backward compatibility methods and properties for tests

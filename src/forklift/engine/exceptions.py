@@ -3,4 +3,5 @@
 
 class ProcessingError(Exception):
     """Raised when data processing fails."""
+
     pass

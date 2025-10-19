@@ -1,8 +1,8 @@
 """Schema validation utilities."""
 
-from typing import Dict, Any, List, Tuple
+from typing import Any, Dict, List, Tuple
+
 import pyarrow as pa
-from ..utils.helpers import SchemaValidationError
 
 
 class SchemaValidator:
@@ -51,7 +51,9 @@ class SchemaValidator:
         return len(errors) == 0, errors
 
     @staticmethod
-    def validate_data_compatibility(schema: Dict[str, Any], table: pa.Table) -> Tuple[bool, List[str]]:
+    def validate_data_compatibility(
+        schema: Dict[str, Any], table: pa.Table
+    ) -> Tuple[bool, List[str]]:
         """Validate that data is compatible with schema.
 
         Args:
@@ -120,12 +122,20 @@ class SchemaValidator:
             else:
                 for col_name, transforms in col_transforms.items():
                     if not isinstance(transforms, dict):
-                        errors.append(f"Transformations for column '{col_name}' must be a dictionary")
+                        errors.append(
+                            f"Transformations for column '{col_name}' must be a dictionary"
+                        )
                     else:
                         for transform_name, transform_def in transforms.items():
                             if not isinstance(transform_def, dict):
-                                errors.append(f"Transform '{transform_name}' for column '{col_name}' must be a dictionary")
+                                errors.append(
+                                    f"Transform '{transform_name}' for column "
+                                    f"'{col_name}' must be a dictionary"
+                                )
                             elif "enabled" not in transform_def:
-                                errors.append(f"Transform '{transform_name}' for column '{col_name}' missing 'enabled' field")
+                                errors.append(
+                                    f"Transform '{transform_name}' for column"
+                                    f" '{col_name}' missing 'enabled' field"
+                                )
 
         return len(errors) == 0, errors

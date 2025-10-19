@@ -4,13 +4,15 @@ This module contains all the dataclass configurations used by the transformation
 """
 
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
 class DateTimeTransformConfig:
     """Configuration for datetime parsing and transformation."""
+
     mode: str = "common_formats"  # "enforce", "specify_formats", "common_formats"
     format: Optional[str] = None  # Single format to enforce (enforce mode)
     formats: Optional[List[str]] = None  # List of allowed formats (specify_formats mode)
@@ -34,17 +36,22 @@ class DateTimeTransformConfig:
 
         valid_targets = ["datetime", "date", "timestamp", "string"]
         if self.target_type not in valid_targets:
-            raise ValueError(f"Invalid target_type: {self.target_type}. Must be one of {valid_targets}")
+            raise ValueError(
+                f"Invalid target_type: {self.target_type}. Must be one of {valid_targets}"
+            )
 
         if self.to_epoch:
             valid_epoch_units = ["seconds", "milliseconds", "microseconds", "nanoseconds"]
             if self.to_epoch not in valid_epoch_units:
-                raise ValueError(f"Invalid to_epoch unit: {self.to_epoch}. Must be one of {valid_epoch_units}")
+                raise ValueError(
+                    f"Invalid to_epoch unit: {self.to_epoch}. Must be one of {valid_epoch_units}"
+                )
 
 
 @dataclass
 class RegexReplaceConfig:
     """Configuration for regex replace operations."""
+
     pattern: str
     replacement: str
     flags: int = 0  # re.IGNORECASE, re.MULTILINE, etc.
@@ -53,6 +60,7 @@ class RegexReplaceConfig:
 @dataclass
 class StringReplaceConfig:
     """Configuration for simple string replace operations."""
+
     old: str
     new: str
     count: int = -1  # -1 means replace all occurrences
@@ -61,6 +69,7 @@ class StringReplaceConfig:
 @dataclass
 class MoneyTypeConfig:
     """Configuration for money type conversions."""
+
     currency_symbols: List[str] = None
     thousands_separator: str = ","
     decimal_separator: str = "."
@@ -75,6 +84,7 @@ class MoneyTypeConfig:
 @dataclass
 class NumericCleaningConfig:
     """Configuration for numeric field cleaning."""
+
     thousands_separator: str = ","
     decimal_separator: str = "."
     allow_nan: bool = True
@@ -89,6 +99,7 @@ class NumericCleaningConfig:
 @dataclass
 class StringPaddingConfig:
     """Configuration for string padding operations."""
+
     width: int
     fillchar: str = " "
     side: str = "left"  # "left", "right", "both"
@@ -97,6 +108,7 @@ class StringPaddingConfig:
 @dataclass
 class HTMLXMLConfig:
     """Configuration for HTML/XML cleaning."""
+
     strip_tags: bool = True
     decode_entities: bool = True
     preserve_whitespace: bool = False
@@ -105,6 +117,7 @@ class HTMLXMLConfig:
 @dataclass
 class StringCleaningConfig:
     """Configuration for comprehensive string cleaning operations."""
+
     # Smart quotes and special characters
     normalize_quotes: bool = True  # Convert smart quotes to ASCII quotes
     normalize_dashes: bool = True  # Convert em/en dashes to hyphens
@@ -127,11 +140,19 @@ class StringCleaningConfig:
 
     # Case handling
     fix_case_issues: bool = False  # Fix common case issues (e.g., multiple caps)
-    case_transform: Optional[str] = None  # Case transformation: 'upper', 'lower', 'title', 'proper', or None
+    case_transform: Optional[str] = (
+        None  # Case transformation: 'upper', 'lower', 'title', 'proper', or None
+    )
     title_case_exceptions: List[str] = None  # Words to not title case (e.g., ["of", "the", "and"])
-    custom_case_mapping: Optional[Dict[str, str]] = None  # Custom case mappings (e.g., state codes: {"california": "CA"})
-    case_mapping_mode: str = "exact"  # How to apply custom mappings: 'exact', 'contains', 'startswith', 'endswith'
-    acronyms: Optional[List[str]] = None  # Custom acronyms to preserve in uppercase (e.g., ["NASA", "API", "CEO"])
+    custom_case_mapping: Optional[Dict[str, str]] = (
+        None  # Custom case mappings (e.g., state codes: {"california": "CA"})
+    )
+    case_mapping_mode: str = (
+        "exact"  # How to apply custom mappings: 'exact', 'contains', 'startswith', 'endswith'
+    )
+    acronyms: Optional[List[str]] = (
+        None  # Custom acronyms to preserve in uppercase (e.g., ["NASA", "API", "CEO"])
+    )
 
     # Other cleaning
     remove_accents: bool = False  # Remove diacritical marks
@@ -140,7 +161,27 @@ class StringCleaningConfig:
 
     def __post_init__(self):
         if self.title_case_exceptions is None:
-            self.title_case_exceptions = ["a", "an", "and", "as", "at", "but", "by", "for", "if", "in", "nor", "of", "on", "or", "so", "the", "to", "up", "yet"]
+            self.title_case_exceptions = [
+                "a",
+                "an",
+                "and",
+                "as",
+                "at",
+                "but",
+                "by",
+                "for",
+                "if",
+                "in",
+                "nor",
+                "of",
+                "on",
+                "or",
+                "so",
+                "the",
+                "to",
+                "up",
+                "yet",
+            ]
 
         if self.custom_case_mapping is None:
             self.custom_case_mapping = {}
@@ -149,19 +190,24 @@ class StringCleaningConfig:
             self.acronyms = []
 
         # Validate case_transform parameter
-        valid_transforms = {None, 'upper', 'lower', 'title', 'proper'}
+        valid_transforms = {None, "upper", "lower", "title", "proper"}
         if self.case_transform not in valid_transforms:
-            raise ValueError(f"case_transform must be one of {valid_transforms}, got: {self.case_transform}")
+            raise ValueError(
+                f"case_transform must be one of {valid_transforms}, got: {self.case_transform}"
+            )
 
         # Validate case_mapping_mode
-        valid_modes = {'exact', 'contains', 'startswith', 'endswith'}
+        valid_modes = {"exact", "contains", "startswith", "endswith"}
         if self.case_mapping_mode not in valid_modes:
-            raise ValueError(f"case_mapping_mode must be one of {valid_modes}, got: {self.case_mapping_mode}")
+            raise ValueError(
+                f"case_mapping_mode must be one of {valid_modes}, got: {self.case_mapping_mode}"
+            )
 
 
 @dataclass
 class SSNConfig:
     """Configuration for Social Security Number formatting."""
+
     format_with_dashes: bool = True  # Format as XXX-XX-XXXX
     zero_pad: bool = True  # Zero-pad numbers with fewer than 9 digits
     validate: bool = True  # Validate that result has exactly 9 digits
@@ -171,6 +217,7 @@ class SSNConfig:
 @dataclass
 class ZipCodeConfig:
     """Configuration for ZIP code formatting."""
+
     zip_type: str = "zip-permissive"  # "zip-permissive", "zip-5", "zip-9"
     format_with_dash: bool = True  # Format ZIP+4 as XXXXX-XXXX
     zero_pad: bool = True  # Zero-pad ZIP codes
@@ -186,6 +233,7 @@ class ZipCodeConfig:
 @dataclass
 class PhoneNumberConfig:
     """Configuration for phone number formatting."""
+
     format_style: str = "us-standard"  # "us-standard", "international", "digits-only", "preserve"
     validate: bool = True  # Validate phone number format
     allow_invalid: bool = False  # If False, invalid phone numbers become None
@@ -199,12 +247,15 @@ class PhoneNumberConfig:
     def __post_init__(self):
         valid_styles = {"us-standard", "international", "digits-only", "preserve"}
         if self.format_style not in valid_styles:
-            raise ValueError(f"format_style must be one of {valid_styles}, got: {self.format_style}")
+            raise ValueError(
+                f"format_style must be one of {valid_styles}, got: {self.format_style}"
+            )
 
 
 @dataclass
 class EmailConfig:
     """Configuration for email formatting."""
+
     normalize_case: bool = True  # Convert to lowercase
     strip_whitespace: bool = True  # Remove leading/trailing whitespace
     normalize_domain: bool = True  # Normalize domain (remove trailing dots)
@@ -215,6 +266,7 @@ class EmailConfig:
 @dataclass
 class IPAddressConfig:
     """Configuration for IP address formatting."""
+
     ip_version: str = "both"  # "ipv4", "ipv6", "both"
     normalize_ipv6: bool = True  # Normalize IPv6 addresses (expand/compress)
     compress_ipv6: bool = True  # Compress IPv6 addresses (remove leading zeros)
@@ -230,6 +282,7 @@ class IPAddressConfig:
 @dataclass
 class MACAddressConfig:
     """Configuration for MAC address formatting."""
+
     format_style: str = "colon"  # "colon", "dash", "dot", "none"
     case_style: str = "lower"  # "lower", "upper", "preserve"
     zero_pad: bool = True  # Zero-pad MAC addresses
@@ -239,7 +292,9 @@ class MACAddressConfig:
     def __post_init__(self):
         valid_formats = {"colon", "dash", "dot", "none"}
         if self.format_style not in valid_formats:
-            raise ValueError(f"format_style must be one of {valid_formats}, got: {self.format_style}")
+            raise ValueError(
+                f"format_style must be one of {valid_formats}, got: {self.format_style}"
+            )
 
         valid_cases = {"lower", "upper", "preserve"}
         if self.case_style not in valid_cases:

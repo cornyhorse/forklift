@@ -1,10 +1,11 @@
 """Tests for SQL schema importer with explicit table specifications."""
 
-import pytest
 import json
 from unittest.mock import Mock
 
-from forklift.schema.sql_schema_importer import SqlSchemaImporter, SchemaValidationError
+import pytest
+
+from forklift.schema.sql_schema_importer import SchemaValidationError, SqlSchemaImporter
 
 
 class TestSqlSchemaImporter:
@@ -21,30 +22,21 @@ class TestSqlSchemaImporter:
             "properties": {
                 "customer_id": {"type": "integer"},
                 "customer_name": {"type": "string"},
-                "created_date": {"type": "string", "format": "date"}
+                "created_date": {"type": "string", "format": "date"},
             },
             "x-sql": {
                 "tables": [
                     {
-                        "select": {
-                            "schema": "sales",
-                            "name": "customers"
-                        },
-                        "outputName": "customers"
+                        "select": {"schema": "sales", "name": "customers"},
+                        "outputName": "customers",
                     },
                     {
-                        "select": {
-                            "schema": "inventory",
-                            "name": "products"
-                        },
-                        "outputName": "products"
-                    }
+                        "select": {"schema": "inventory", "name": "products"},
+                        "outputName": "products",
+                    },
                 ],
-                "parquetTypeMapping": {
-                    "customer_id": "int32",
-                    "customer_name": "string"
-                }
-            }
+                "parquetTypeMapping": {"customer_id": "int32", "customer_name": "string"},
+            },
         }
 
     def test_init_valid_schema(self, valid_sql_schema):
@@ -63,10 +55,7 @@ class TestSqlSchemaImporter:
 
         table_list = importer.get_table_list()
 
-        expected = [
-            ("sales", "customers", "customers"),
-            ("inventory", "products", "products")
-        ]
+        expected = [("sales", "customers", "customers"), ("inventory", "products", "products")]
         assert table_list == expected
 
     def test_get_table_list_with_default_schema(self):
@@ -77,16 +66,7 @@ class TestSqlSchemaImporter:
             "title": "Test Schema",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-sql": {
-                "tables": [
-                    {
-                        "select": {
-                            "name": "users"
-                        },
-                        "outputName": "users_output"
-                    }
-                ]
-            }
+            "x-sql": {"tables": [{"select": {"name": "users"}, "outputName": "users_output"}]},
         }
 
         importer = SqlSchemaImporter(schema)
@@ -103,16 +83,7 @@ class TestSqlSchemaImporter:
             "title": "Test Schema",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-sql": {
-                "tables": [
-                    {
-                        "select": {
-                            "schema": "public",
-                            "name": "orders"
-                        }
-                    }
-                ]
-            }
+            "x-sql": {"tables": [{"select": {"schema": "public", "name": "orders"}}]},
         }
 
         importer = SqlSchemaImporter(schema)
@@ -125,7 +96,7 @@ class TestSqlSchemaImporter:
         """Test validation errors for missing required fields."""
         invalid_schema = {
             "type": "object",
-            "properties": {"id": {"type": "integer"}}
+            "properties": {"id": {"type": "integer"}},
             # Missing $id, $schema, title
         }
 
@@ -144,7 +115,7 @@ class TestSqlSchemaImporter:
             "$schema": "https://json-schema.org/draft-07/schema",  # Wrong version
             "title": "Test Schema",
             "type": "object",
-            "properties": {"id": {"type": "integer"}}
+            "properties": {"id": {"type": "integer"}},
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -157,7 +128,7 @@ class TestSqlSchemaImporter:
         """Test that validation can be disabled."""
         invalid_schema = {
             "type": "object",
-            "properties": {"id": {"type": "integer"}}
+            "properties": {"id": {"type": "integer"}},
             # Missing required fields, but validation is disabled
         }
 
@@ -173,7 +144,7 @@ class TestSqlSchemaImporter:
             "title": "Test Schema",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-sql": {"tables": []}
+            "x-sql": {"tables": []},
         }
 
         schema_file = tmp_path / "test_schema.json"
@@ -200,17 +171,15 @@ class TestSqlSchemaImporter:
             "x-sql": {
                 "tables": [
                     "invalid_table",  # Should be dict
-                    {
-                        "select": "invalid_select"  # Should be dict
-                    },
+                    {"select": "invalid_select"},  # Should be dict
                     {
                         "select": {
                             "schema": 123,  # Should be string
-                            "name": ["invalid"]  # Should be string
+                            "name": ["invalid"],  # Should be string
                         }
-                    }
+                    },
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -232,33 +201,13 @@ class TestSqlSchemaImporter:
             "properties": {"id": {"type": "integer"}},
             "x-sql": {
                 "tables": [
-                    {
-                        "select": {
-                            "pattern": 123  # Should be string
-                        }
-                    },
-                    {
-                        "select": {
-                            "pattern": "invalid..pattern"  # Invalid pattern
-                        }
-                    },
-                    {
-                        "select": {
-                            "pattern": "*.*"  # Valid pattern
-                        }
-                    },
-                    {
-                        "select": {
-                            "pattern": "schema.*"  # Valid pattern
-                        }
-                    },
-                    {
-                        "select": {
-                            "pattern": "schema.table"  # Valid pattern
-                        }
-                    }
+                    {"select": {"pattern": 123}},  # Should be string
+                    {"select": {"pattern": "invalid..pattern"}},  # Invalid pattern
+                    {"select": {"pattern": "*.*"}},  # Valid pattern
+                    {"select": {"pattern": "schema.*"}},  # Valid pattern
+                    {"select": {"pattern": "schema.table"}},  # Valid pattern
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -282,17 +231,15 @@ class TestSqlSchemaImporter:
                         "select": {"name": "test_table"},
                         "columns": {
                             "invalid_col": "not_dict",  # Should be dict
-                            "invalid_type_col": {
-                                "type": "invalid_type"  # Invalid type
-                            },
+                            "invalid_type_col": {"type": "invalid_type"},  # Invalid type
                             "invalid_parquet_col": {
                                 "type": "string",
-                                "parquetType": "invalid_parquet_type"
-                            }
-                        }
+                                "parquetType": "invalid_parquet_type",
+                            },
+                        },
                     }
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -301,7 +248,10 @@ class TestSqlSchemaImporter:
         error_message = str(exc_info.value)
         assert "Table 0 column 'invalid_col' must be an object" in error_message
         assert "Table 0 column 'invalid_type_col' invalid type 'invalid_type'" in error_message
-        assert "Table 0 column 'invalid_parquet_col' invalid Parquet type 'invalid_parquet_type'" in error_message
+        assert (
+            "Table 0 column 'invalid_parquet_col' invalid Parquet type 'invalid_parquet_type'"
+            in error_message
+        )
 
     def test_validate_integer_constraints(self):
         """Test validation of integer column constraints."""
@@ -316,23 +266,13 @@ class TestSqlSchemaImporter:
                     {
                         "select": {"name": "test_table"},
                         "columns": {
-                            "invalid_min": {
-                                "type": "integer",
-                                "minimum": "not_number"
-                            },
-                            "invalid_max": {
-                                "type": "integer",
-                                "maximum": ["not_number"]
-                            },
-                            "valid_constraints": {
-                                "type": "integer",
-                                "minimum": 0,
-                                "maximum": 100
-                            }
-                        }
+                            "invalid_min": {"type": "integer", "minimum": "not_number"},
+                            "invalid_max": {"type": "integer", "maximum": ["not_number"]},
+                            "valid_constraints": {"type": "integer", "minimum": 0, "maximum": 100},
+                        },
                     }
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -355,28 +295,19 @@ class TestSqlSchemaImporter:
                     {
                         "select": {"name": "test_table"},
                         "columns": {
-                            "invalid_min_length": {
-                                "type": "string",
-                                "minLength": -1
-                            },
-                            "invalid_max_length": {
-                                "type": "string",
-                                "maxLength": "not_int"
-                            },
-                            "invalid_pattern": {
-                                "type": "string",
-                                "pattern": "[invalid regex"
-                            },
+                            "invalid_min_length": {"type": "string", "minLength": -1},
+                            "invalid_max_length": {"type": "string", "maxLength": "not_int"},
+                            "invalid_pattern": {"type": "string", "pattern": "[invalid regex"},
                             "valid_string": {
                                 "type": "string",
                                 "minLength": 1,
                                 "maxLength": 100,
-                                "pattern": "^[a-zA-Z]+$"
-                            }
-                        }
+                                "pattern": "^[a-zA-Z]+$",
+                            },
+                        },
                     }
                 ]
-            }
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -389,14 +320,17 @@ class TestSqlSchemaImporter:
 
     def test_parquet_type_validation(self):
         """Test Parquet type validation functionality."""
-        importer = SqlSchemaImporter({
-            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Test Schema",
-            "type": "object",
-            "properties": {"id": {"type": "integer"}},
-            "x-sql": {"tables": []}
-        }, validate=False)
+        importer = SqlSchemaImporter(
+            {
+                "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "title": "Test Schema",
+                "type": "object",
+                "properties": {"id": {"type": "integer"}},
+                "x-sql": {"tables": []},
+            },
+            validate=False,
+        )
 
         # Test valid Parquet types
         valid_types = ["int32", "string", "double", "bool", "timestamp[ms]"]
@@ -410,14 +344,17 @@ class TestSqlSchemaImporter:
 
     def test_include_pattern_validation(self):
         """Test include pattern validation."""
-        importer = SqlSchemaImporter({
-            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Test Schema",
-            "type": "object",
-            "properties": {"id": {"type": "integer"}},
-            "x-sql": {"tables": []}
-        }, validate=False)
+        importer = SqlSchemaImporter(
+            {
+                "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "title": "Test Schema",
+                "type": "object",
+                "properties": {"id": {"type": "integer"}},
+                "x-sql": {"tables": []},
+            },
+            validate=False,
+        )
 
         # Test valid patterns
         valid_patterns = ["*.*", "schema.*", "schema.table", "table_name"]
@@ -431,14 +368,17 @@ class TestSqlSchemaImporter:
 
     def test_identifier_wildcard_validation(self):
         """Test SQL identifier and wildcard validation."""
-        importer = SqlSchemaImporter({
-            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Test Schema",
-            "type": "object",
-            "properties": {"id": {"type": "integer"}},
-            "x-sql": {"tables": []}
-        }, validate=False)
+        importer = SqlSchemaImporter(
+            {
+                "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "title": "Test Schema",
+                "type": "object",
+                "properties": {"id": {"type": "integer"}},
+                "x-sql": {"tables": []},
+            },
+            validate=False,
+        )
 
         # Test valid identifiers and wildcards
         valid_names = ["*", "table_name", "schema1", "_valid", "CamelCase"]
@@ -457,7 +397,7 @@ class TestSqlSchemaImporter:
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "title": "Test Schema",
             "type": "object",
-            "properties": {"id": {"type": "integer"}}
+            "properties": {"id": {"type": "integer"}},
             # Missing x-sql extension
         }
 
@@ -475,7 +415,7 @@ class TestSqlSchemaImporter:
             "title": "Test Schema",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-sql": "invalid_type"  # Should be dict
+            "x-sql": "invalid_type",  # Should be dict
         }
 
         # This will cause an AttributeError when trying to call .get() on a string
@@ -490,7 +430,7 @@ class TestSqlSchemaImporter:
             "title": "Test Schema",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-sql": {}  # Missing tables
+            "x-sql": {},  # Missing tables
         }
 
         # When tables are missing, it defaults to empty list
@@ -510,18 +450,15 @@ class TestSqlSchemaImporter:
                     {
                         "select": {"name": "test_table"},
                         "columns": {
-                            "invalid_parquet": {
-                                "type": "string",
-                                "parquetType": "invalid_type"
-                            }
-                        }
+                            "invalid_parquet": {"type": "string", "parquetType": "invalid_type"}
+                        },
                     }
                 ],
                 "parquetTypeMapping": {
                     "valid_field": "int32",
-                    "invalid_field": "invalid_parquet_type"
-                }
-            }
+                    "invalid_field": "invalid_parquet_type",
+                },
+            },
         }
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -543,7 +480,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
             "title": "Test Schema",
             "type": "object",
             "properties": {"id": {"type": "integer"}},
-            "x-sql": {}
+            "x-sql": {},
         }
 
     def test_invalid_tables_not_list_validation(self):
@@ -569,9 +506,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
     def test_table_missing_select_validation(self):
         """Test validation when table is missing select field."""
         schema = {**self.base_schema}
-        schema["x-sql"]["tables"] = [
-            {"outputName": "test"}  # Missing select - Line 162
-        ]
+        schema["x-sql"]["tables"] = [{"outputName": "test"}]  # Missing select - Line 162
 
         with pytest.raises(SchemaValidationError) as exc_info:
             SqlSchemaImporter(schema)
@@ -582,10 +517,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test validation when table columns is not a dict."""
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
-            {
-                "select": {"name": "test_table"},
-                "columns": "not_a_dict"  # Line 172
-            }
+            {"select": {"name": "test_table"}, "columns": "not_a_dict"}  # Line 172
         ]
 
         # This will cause an AttributeError in _validate_parquet_types before reaching the validation check
@@ -604,12 +536,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         assert len(errors) == 0  # No errors for empty tables
 
         # Test with invalid columns structure
-        importer.tables = [
-            {
-                "select": {"name": "test_table"},
-                "columns": "not_a_dict"
-            }
-        ]
+        importer.tables = [{"select": {"name": "test_table"}, "columns": "not_a_dict"}]
 
         errors = importer._validate_tables()
         assert "Table 0 columns must be an object" in errors
@@ -618,10 +545,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test validation when table required is not a list."""
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
-            {
-                "select": {"name": "test_table"},
-                "required": "not_a_list"  # Line 179
-            }
+            {"select": {"name": "test_table"}, "required": "not_a_list"}  # Line 179
         ]
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -633,10 +557,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test validation when table required item is not a string."""
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
-            {
-                "select": {"name": "test_table"},
-                "required": [123, "valid_string"]  # Lines 181-182
-            }
+            {"select": {"name": "test_table"}, "required": [123, "valid_string"]}  # Lines 181-182
         ]
 
         with pytest.raises(SchemaValidationError) as exc_info:
@@ -648,15 +569,15 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test validation when table select has no valid selection method."""
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
-            {
-                "select": {"invalid": "value"}  # Line 198 - no name, schema+name, or pattern
-            }
+            {"select": {"invalid": "value"}}  # Line 198 - no name, schema+name, or pattern
         ]
 
         with pytest.raises(SchemaValidationError) as exc_info:
             SqlSchemaImporter(schema)
 
-        assert "Table 0 select must have 'name', 'schema'+'name', or 'pattern'" in str(exc_info.value)
+        assert "Table 0 select must have 'name', 'schema'+'name', or 'pattern'" in str(
+            exc_info.value
+        )
 
     def test_invalid_include_pattern_empty_string(self):
         """Test invalid include pattern validation with empty string."""
@@ -730,14 +651,8 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test get_table_by_name method functionality."""
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
-            {
-                "select": {"schema": "sales", "name": "customers"},
-                "outputName": "customers"
-            },
-            {
-                "select": {"name": "products"},  # No schema
-                "outputName": "products"
-            }
+            {"select": {"schema": "sales", "name": "customers"}, "outputName": "customers"},
+            {"select": {"name": "products"}, "outputName": "products"},  # No schema
         ]
 
         importer = SqlSchemaImporter(schema)
@@ -762,10 +677,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         schema["x-sql"]["tables"] = [
             {
                 "select": {"name": "test_table"},
-                "columns": {
-                    "id": {"type": "integer"},
-                    "name": {"type": "string"}
-                }
+                "columns": {"id": {"type": "integer"}, "name": {"type": "string"}},
             }
         ]
 
@@ -784,10 +696,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test get_required_columns method functionality."""
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
-            {
-                "select": {"name": "test_table"},
-                "required": ["id", "name"]
-            }
+            {"select": {"name": "test_table"}, "required": ["id", "name"]}
         ]
 
         importer = SqlSchemaImporter(schema)
@@ -837,10 +746,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test get_sql_to_parquet_mapping with custom mappings."""
         schema = {**self.base_schema}
         schema["x-sql"]["parquetTypeMapping"] = {
-            "sqlToParquet": {
-                "INTEGER": "int32",
-                "VARCHAR": "string"
-            }
+            "sqlToParquet": {"INTEGER": "int32", "VARCHAR": "string"}
         }
 
         importer = SqlSchemaImporter(schema, validate=False)
@@ -885,7 +791,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
             {"select": {"name": "table1"}},
-            {"select": {"name": "table2"}}
+            {"select": {"name": "table2"}},
         ]
 
         importer = SqlSchemaImporter(schema, validate=False)
@@ -902,7 +808,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         schema["x-sql"]["tables"] = [
             {
                 "select": {"schema": "test_schema"},  # Missing name - Line 60
-                "outputName": "test_output"
+                "outputName": "test_output",
             }
         ]
 
@@ -948,12 +854,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         """Test validation when table name is not a string."""
         schema = {**self.base_schema}
         schema["x-sql"]["tables"] = [
-            {
-                "select": {
-                    "schema": "test_schema",
-                    "name": 123  # Should be string
-                }
-            }
+            {"select": {"schema": "test_schema", "name": 123}}  # Should be string
         ]
 
         with pytest.raises(SchemaValidationError) as exc_info:

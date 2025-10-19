@@ -7,7 +7,4 @@ Fixed Width File schemas with JSON Schema extensions.
 from .core import FwfSchemaImporter
 from .exceptions import SchemaValidationError
 
-__all__ = [
-    'FwfSchemaImporter',
-    'SchemaValidationError'
-]
+__all__ = ["FwfSchemaImporter", "SchemaValidationError"]

@@ -1,6 +1,7 @@
 """Data type conversion utilities."""
 
-from typing import Dict, Any
+from typing import Any, Dict
+
 import pyarrow as pa
 
 
@@ -34,7 +35,7 @@ class DataTypeConverter:
         elif pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type):
             return {"type": "string", "contentEncoding": "base64"}
         elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-            if hasattr(arrow_type, 'value_type'):
+            if hasattr(arrow_type, "value_type"):
                 value_type = DataTypeConverter.arrow_to_json_schema_type(arrow_type.value_type)
             else:
                 value_type = {"type": "string"}
@@ -59,26 +60,26 @@ class DataTypeConverter:
         import re
 
         patterns = {
-            'has_thousands_separator': False,
-            'has_decimal_separator': False,
-            'has_currency_symbols': False,
-            'has_parentheses_negative': False
+            "has_thousands_separator": False,
+            "has_decimal_separator": False,
+            "has_currency_symbols": False,
+            "has_parentheses_negative": False,
         }
 
-        currency_pattern = r'[\$€£¥₹₽¢]'
-        thousands_pattern = r'\d+,\d+'
-        decimal_pattern = r'\d+\.\d+'
-        parentheses_pattern = r'\(.*\)'
+        currency_pattern = r"[\$€£¥₹₽¢]"
+        thousands_pattern = r"\d+,\d+"
+        decimal_pattern = r"\d+\.\d+"
+        parentheses_pattern = r"\(.*\)"
 
         for value in sample_values[:10]:  # Check first 10 values
             str_val = str(value)
             if re.search(currency_pattern, str_val):
-                patterns['has_currency_symbols'] = True
+                patterns["has_currency_symbols"] = True
             if re.search(thousands_pattern, str_val):
-                patterns['has_thousands_separator'] = True
+                patterns["has_thousands_separator"] = True
             if re.search(decimal_pattern, str_val):
-                patterns['has_decimal_separator'] = True
+                patterns["has_decimal_separator"] = True
             if re.search(parentheses_pattern, str_val):
-                patterns['has_parentheses_negative'] = True
+                patterns["has_parentheses_negative"] = True
 
         return patterns

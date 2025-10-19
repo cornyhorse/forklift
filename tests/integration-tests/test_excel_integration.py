@@ -1,17 +1,18 @@
 """Integration tests for Excel file processing using real test files."""
 
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pandas as pd
+import pytest
 
-from forklift.inputs.excel import ExcelInputHandler
 from forklift.inputs.config import ExcelInputConfig, ExcelSheetConfig
-from forklift.io.s3_streaming import S3StreamingClient, S3Path
+from forklift.inputs.excel import ExcelInputHandler
+from forklift.io.s3_streaming import S3Path, S3StreamingClient
 
 
 @pytest.mark.integration
@@ -25,15 +26,10 @@ class TestExcelIntegration:
 
         # Basic configuration for Excel processing
         sheet_config = ExcelSheetConfig(
-            select={"name": "Sheet1"},
-            header={"mode": "present"},
-            skip_blank_rows=True
+            select={"name": "Sheet1"}, header={"mode": "present"}, skip_blank_rows=True
         )
 
-        config = ExcelInputConfig(
-            sheets=[sheet_config],
-            values_only=True
-        )
+        config = ExcelInputConfig(sheets=[sheet_config], values_only=True)
 
         handler = ExcelInputHandler(config)
 
@@ -52,7 +48,9 @@ class TestExcelIntegration:
 
     def test_excel_1904_dates_file_processing(self):
         """Test processing Excel file with 1904 date system."""
-        test_file = Path(__file__).parent.parent / "test-files" / "excel" / "excel-data-1904dates.xlsx"
+        test_file = (
+            Path(__file__).parent.parent / "test-files" / "excel" / "excel-data-1904dates.xlsx"
+        )
 
         # Skip test if file doesn't exist
         if not test_file.exists():
@@ -62,14 +60,10 @@ class TestExcelIntegration:
         sheet_config = ExcelSheetConfig(
             select={"index": 0},  # Use first sheet instead of specific name
             header={"mode": "present"},
-            skip_blank_rows=True
+            skip_blank_rows=True,
         )
 
-        config = ExcelInputConfig(
-            sheets=[sheet_config],
-            values_only=True,
-            date_system="1904"
-        )
+        config = ExcelInputConfig(sheets=[sheet_config], values_only=True, date_system="1904")
 
         handler = ExcelInputHandler(config)
 
@@ -93,30 +87,30 @@ class TestExcelIntegration:
         # Configuration for multiple sheets using indices instead of names
         sheet_configs = [
             ExcelSheetConfig(
-                select={"index": 0},  # First sheet
+                select={"index": 0},
                 header={"mode": "present"},
-                skip_blank_rows=True
+                skip_blank_rows=True,  # First sheet
             )
         ]
 
         # Try to add more sheets if they exist
         try:
             import pandas as pd
+
             xls = pd.ExcelFile(test_file)
             if len(xls.sheet_names) > 1:
-                sheet_configs.append(ExcelSheetConfig(
-                    select={"index": 1},  # Second sheet
-                    header={"mode": "present"},
-                    skip_blank_rows=True
-                ))
+                sheet_configs.append(
+                    ExcelSheetConfig(
+                        select={"index": 1},  # Second sheet
+                        header={"mode": "present"},
+                        skip_blank_rows=True,
+                    )
+                )
         except Exception:
             # If we can't read the file structure, just test with one sheet
             pass
 
-        config = ExcelInputConfig(
-            sheets=sheet_configs,
-            values_only=True
-        )
+        config = ExcelInputConfig(sheets=sheet_configs, values_only=True)
 
         handler = ExcelInputHandler(config)
 
@@ -146,13 +140,10 @@ class TestExcelIntegration:
         sheet_config = ExcelSheetConfig(
             select={"index": 0},  # Use first sheet
             header={"mode": "absent", "override": ["col1", "col2", "col3"]},
-            skip_blank_rows=True
+            skip_blank_rows=True,
         )
 
-        config = ExcelInputConfig(
-            sheets=[sheet_config],
-            values_only=True
-        )
+        config = ExcelInputConfig(sheets=[sheet_config], values_only=True)
 
         handler = ExcelInputHandler(config)
 
@@ -176,15 +167,10 @@ class TestExcelIntegration:
         test_file = Path(__file__).parent.parent / "test-files" / "excel" / "excel-data.xlsx"
 
         sheet_config = ExcelSheetConfig(
-            select={"name": "Sheet1"},
-            header={"mode": "present"},
-            skip_blank_rows=True
+            select={"name": "Sheet1"}, header={"mode": "present"}, skip_blank_rows=True
         )
 
-        config = ExcelInputConfig(
-            sheets=[sheet_config],
-            values_only=True
-        )
+        config = ExcelInputConfig(sheets=[sheet_config], values_only=True)
 
         handler = ExcelInputHandler(config)
 
@@ -204,15 +190,10 @@ class TestExcelIntegration:
 
         # Configuration using sheet index
         sheet_config = ExcelSheetConfig(
-            select={"index": 0},  # First sheet
-            header={"mode": "present"},
-            skip_blank_rows=True
+            select={"index": 0}, header={"mode": "present"}, skip_blank_rows=True  # First sheet
         )
 
-        config = ExcelInputConfig(
-            sheets=[sheet_config],
-            values_only=True
-        )
+        config = ExcelInputConfig(sheets=[sheet_config], values_only=True)
 
         handler = ExcelInputHandler(config)
 
@@ -231,33 +212,34 @@ class TestExcelS3Integration:
     def s3_config(self):
         """Get S3 configuration from .env file."""
         config = {
-            'aws_access_key_id': None,
-            'aws_secret_access_key': None,
-            'region_name': 'us-east-1',
-            'test_bucket': 'cornyhorse-data',
-            'endpoint_url': None
+            "aws_access_key_id": None,
+            "aws_secret_access_key": None,
+            "region_name": "us-east-1",
+            "test_bucket": "cornyhorse-data",
+            "endpoint_url": None,
         }
 
         # Load from environment variables or .env file
-        from dotenv import load_dotenv
         import os
         from pathlib import Path
 
+        from dotenv import load_dotenv
+
         # Load from ~/.credentials/.env first, then fallback to local .env
-        credentials_path = Path.home() / '.credentials' / '.env'
+        credentials_path = Path.home() / ".credentials" / ".env"
         if credentials_path.exists():
             load_dotenv(credentials_path)
         else:
             load_dotenv()  # fallback to local .env
 
-        config['aws_access_key_id'] = os.getenv('AWS_ACCESS_KEY_ID')
-        config['aws_secret_access_key'] = os.getenv('AWS_SECRET_ACCESS_KEY')
-        config['region_name'] = os.getenv('AWS_DEFAULT_REGION', 'eu-north-1')
-        config['test_bucket'] = os.getenv('S3_TEST_BUCKET', 'cornyhorse-data')
-        config['endpoint_url'] = os.getenv('AWS_ENDPOINT_URL')
+        config["aws_access_key_id"] = os.getenv("AWS_ACCESS_KEY_ID")
+        config["aws_secret_access_key"] = os.getenv("AWS_SECRET_ACCESS_KEY")
+        config["region_name"] = os.getenv("AWS_DEFAULT_REGION", "eu-north-1")
+        config["test_bucket"] = os.getenv("S3_TEST_BUCKET", "cornyhorse-data")
+        config["endpoint_url"] = os.getenv("AWS_ENDPOINT_URL")
 
         # Skip if no credentials are configured
-        if not config['aws_access_key_id'] or not config['aws_secret_access_key']:
+        if not config["aws_access_key_id"] or not config["aws_secret_access_key"]:
             pytest.skip("AWS credentials not configured")
 
         return config
@@ -266,10 +248,10 @@ class TestExcelS3Integration:
     def s3_client(self, s3_config):
         """Create real S3 client for integration tests."""
         return S3StreamingClient(
-            aws_access_key_id=s3_config['aws_access_key_id'],
-            aws_secret_access_key=s3_config['aws_secret_access_key'],
-            region_name=s3_config['region_name'],
-            endpoint_url=s3_config['endpoint_url']
+            aws_access_key_id=s3_config["aws_access_key_id"],
+            aws_secret_access_key=s3_config["aws_secret_access_key"],
+            region_name=s3_config["region_name"],
+            endpoint_url=s3_config["endpoint_url"],
         )
 
     @pytest.fixture
@@ -282,20 +264,17 @@ class TestExcelS3Integration:
         # Cleanup after test
         if objects_to_cleanup:
             client = S3StreamingClient(
-                aws_access_key_id=s3_config['aws_access_key_id'],
-                aws_secret_access_key=s3_config['aws_secret_access_key'],
-                region_name=s3_config['region_name'],
-                endpoint_url=s3_config['endpoint_url']
+                aws_access_key_id=s3_config["aws_access_key_id"],
+                aws_secret_access_key=s3_config["aws_secret_access_key"],
+                region_name=s3_config["region_name"],
+                endpoint_url=s3_config["endpoint_url"],
             )
 
             for s3_path in objects_to_cleanup:
                 try:
                     # Delete the object
                     s3_path_obj = S3Path(s3_path) if isinstance(s3_path, str) else s3_path
-                    client._s3_client.delete_object(
-                        Bucket=s3_path_obj.bucket,
-                        Key=s3_path_obj.key
-                    )
+                    client._s3_client.delete_object(Bucket=s3_path_obj.bucket, Key=s3_path_obj.key)
                     print(f"Cleaned up S3 object: {s3_path}")
                 except Exception as e:
                     print(f"Failed to cleanup S3 object {s3_path}: {e}")
@@ -306,15 +285,10 @@ class TestExcelS3Integration:
         test_file = Path(__file__).parent.parent / "test-files" / "excel" / "excel-data.xlsx"
 
         sheet_config = ExcelSheetConfig(
-            select={"name": "Sheet1"},
-            header={"mode": "present"},
-            skip_blank_rows=True
+            select={"name": "Sheet1"}, header={"mode": "present"}, skip_blank_rows=True
         )
 
-        config = ExcelInputConfig(
-            sheets=[sheet_config],
-            values_only=True
-        )
+        config = ExcelInputConfig(sheets=[sheet_config], values_only=True)
 
         handler = ExcelInputHandler(config)
 
@@ -328,7 +302,9 @@ class TestExcelS3Integration:
 
         # Upload to S3
         timestamp = int(time.time())
-        s3_path = S3Path(f"s3://{s3_config['test_bucket']}/test-uploads/excel-integration-test-{timestamp}.parquet")
+        s3_path = S3Path(
+            f"s3://{s3_config['test_bucket']}/test-uploads/excel-integration-test-{timestamp}.parquet"
+        )
 
         # Register for cleanup
         cleanup_s3_objects.append(s3_path)
@@ -352,14 +328,15 @@ class TestExcelS3Integration:
 
         # Configuration for multiple sheets
         sheet_configs = [
-            ExcelSheetConfig(select={"name": "Sheet1"}, header={"mode": "present"}, skip_blank_rows=True),
-            ExcelSheetConfig(select={"name": "Sheet2"}, header={"mode": "present"}, skip_blank_rows=True)
+            ExcelSheetConfig(
+                select={"name": "Sheet1"}, header={"mode": "present"}, skip_blank_rows=True
+            ),
+            ExcelSheetConfig(
+                select={"name": "Sheet2"}, header={"mode": "present"}, skip_blank_rows=True
+            ),
         ]
 
-        config = ExcelInputConfig(
-            sheets=sheet_configs,
-            values_only=True
-        )
+        config = ExcelInputConfig(sheets=sheet_configs, values_only=True)
 
         handler = ExcelInputHandler(config)
 
@@ -371,7 +348,9 @@ class TestExcelS3Integration:
         for i, (sheet_name, table) in enumerate(results):
             if table.num_rows > 0:  # Only upload if table has data
                 # Create S3 path for this sheet
-                s3_path = S3Path(f"s3://{s3_config['test_bucket']}/test-uploads/excel-multi-sheet-{sheet_name}-{timestamp}-{i}.parquet")
+                s3_path = S3Path(
+                    f"s3://{s3_config['test_bucket']}/test-uploads/excel-multi-sheet-{sheet_name}-{timestamp}-{i}.parquet"
+                )
 
                 # Register for cleanup
                 cleanup_s3_objects.append(s3_path)

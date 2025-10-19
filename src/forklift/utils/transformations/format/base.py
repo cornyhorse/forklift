@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import pyarrow as pa
-import pandas as pd
 from abc import ABC, abstractmethod
 from typing import Any
+
+import pandas as pd
+import pyarrow as pa
 
 
 class BaseFormatter(ABC):
@@ -54,7 +55,7 @@ class BaseFormatter(ABC):
                 formatted_value = self.format_value(str(value))
                 formatted_values.append(formatted_value)
             except ValueError:
-                if getattr(self.config, 'allow_invalid', False):
+                if getattr(self.config, "allow_invalid", False):
                     formatted_values.append(str(value))
                 else:
                     formatted_values.append(None)
@@ -69,13 +70,15 @@ class ValidationMixin:
     def has_letters(value: str) -> bool:
         """Check if value contains letters."""
         import re
-        return bool(re.search(r'[a-zA-Z]', value))
+
+        return bool(re.search(r"[a-zA-Z]", value))
 
     @staticmethod
     def extract_digits(value: str) -> str:
         """Extract only digits from a value."""
         import re
-        return re.sub(r'\D', '', value)
+
+        return re.sub(r"\D", "", value)
 
     @staticmethod
     def validate_length(value: str, expected_length: int, allow_shorter: bool = False) -> bool:

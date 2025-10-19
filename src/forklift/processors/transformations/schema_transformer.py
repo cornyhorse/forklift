@@ -1,19 +1,18 @@
 """Schema-driven transformation processor."""
 
 from __future__ import annotations
-from typing import Dict, List, Tuple, Callable, Any
+
+from typing import Any, Callable, Dict, List, Tuple
 
 import pyarrow as pa
 
+from ...utils.transformations import DataTransformer, create_transformation_from_config
 from ..base import BaseProcessor, ValidationResult
-from ...utils.transformations import (
-    DataTransformer,
-    create_transformation_from_config
-)
 
 
 class SchemaBasedTransformer(BaseProcessor):
-    """Schema-driven data transformer that applies transformations based on x-transformations schema extension.
+    """Schema-driven data transformer that applies transformations
+    based on x-transformations schema extension.
 
     This processor reads transformation configurations from the schema's x-transformations
     extension and applies them automatically during data processing.
@@ -55,14 +54,19 @@ class SchemaBasedTransformer(BaseProcessor):
                         column_transforms.append(transform_func)
                     except ValueError as e:
                         # Log warning but continue processing
-                        print(f"Warning: Could not create transformation {transform_type} for column {column_name}: {e}")
+                        print(
+                            f"Warning: Could not create"
+                            f" transformation {transform_type} for column {column_name}: {e}"
+                        )
 
             if column_transforms:
                 transformations[column_name] = column_transforms
 
         return transformations
 
-    def _add_special_type_transformations(self, transformations: Dict[str, List[Callable]]) -> None:
+    def _add_special_type_transformations(
+        self, transformations: Dict[str, List[Callable]]
+    ) -> None:
         """Automatically add transformations for fields with x-special-type markers.
 
         Scans schema properties for fields with x-special-type and adds appropriate
@@ -81,57 +85,87 @@ class SchemaBasedTransformer(BaseProcessor):
                 if special_type == "ssn":
                     # Auto-configure SSN formatting
                     from ...utils.transformations import SSNConfig
+
                     ssn_config = SSNConfig(
-                        format_with_dashes=True,
-                        zero_pad=True,
-                        validate=True,
-                        allow_invalid=False
+                        format_with_dashes=True, zero_pad=True, validate=True, allow_invalid=False
                     )
-                    transform_func = lambda col: self.transformer.apply_ssn_formatting(col, ssn_config)
+
+                    def create_ssn_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_ssn_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_ssn_transform(ssn_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type in ["zip-permissive", "zip-5", "zip-9"]:
                     # Auto-configure ZIP code formatting
                     from ...utils.transformations import ZipCodeConfig
+
                     zip_config = ZipCodeConfig(
                         zip_type=special_type,
                         format_with_dash=True,
                         zero_pad=True,
                         validate=True,
-                        allow_invalid=False
+                        allow_invalid=False,
                     )
-                    transform_func = lambda col: self.transformer.apply_zip_code_formatting(col, zip_config)
+
+                    def create_zip_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_zip_code_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_zip_transform(zip_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type == "phone":
                     # Auto-configure phone number formatting
                     from ...utils.transformations import PhoneNumberConfig
+
                     phone_config = PhoneNumberConfig(
                         format_style="us-standard",
                         use_parentheses=True,
                         use_dashes=True,
                         validate=True,
-                        allow_invalid=False
+                        allow_invalid=False,
                     )
-                    transform_func = lambda col: self.transformer.apply_phone_number_formatting(col, phone_config)
+
+                    def create_phone_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_phone_number_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_phone_transform(phone_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type == "email":
                     # Auto-configure email formatting
                     from ...utils.transformations import EmailConfig
+
                     email_config = EmailConfig(
                         normalize_case=True,
                         validate_format=True,
                         allow_invalid=False,
                         strip_whitespace=True,
-                        normalize_domain=True
+                        normalize_domain=True,
                     )
-                    transform_func = lambda col: self.transformer.apply_email_formatting(col, email_config)
+
+                    def create_email_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_email_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_email_transform(email_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type in ["ipv4", "ipv6", "ip"]:
                     # Auto-configure IP address formatting
                     from ...utils.transformations import IPAddressConfig
+
                     if special_type == "ipv4":
                         ip_version = "ipv4"
                     elif special_type == "ipv6":
@@ -144,25 +178,42 @@ class SchemaBasedTransformer(BaseProcessor):
                         normalize_ipv6=True,
                         validate=True,
                         allow_invalid=False,
-                        compress_ipv6=True
+                        compress_ipv6=True,
                     )
-                    transform_func = lambda col: self.transformer.apply_ip_address_formatting(col, ip_config)
+
+                    def create_ip_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_ip_address_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_ip_transform(ip_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
                 elif special_type == "mac-address":
                     # Auto-configure MAC address formatting
                     from ...utils.transformations import MACAddressConfig
+
                     mac_config = MACAddressConfig(
                         format_style="colon",
                         case_style="lower",
                         validate=True,
                         allow_invalid=False,
-                        zero_pad=True
+                        zero_pad=True,
                     )
-                    transform_func = lambda col: self.transformer.apply_mac_address_formatting(col, mac_config)
+
+                    def create_mac_transform(config):
+                        def transform_func(col):
+                            return self.transformer.apply_mac_address_formatting(col, config)
+
+                        return transform_func
+
+                    transform_func = create_mac_transform(mac_config)
                     transformations.setdefault(field_name, []).append(transform_func)
 
-    def process_batch(self, batch: pa.RecordBatch) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+    def process_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Apply schema-based transformations to batch columns.
 
         Args:
@@ -189,11 +240,14 @@ class SchemaBasedTransformer(BaseProcessor):
                     batch = batch.set_column(column_index, column_name, transformed_column)
 
                 except Exception as e:
-                    validation_results.append(ValidationResult(
-                        is_valid=False,
-                        error_message=f"Schema-based transformation failed for column '{column_name}': {str(e)}",
-                        error_code="SCHEMA_TRANSFORMATION_ERROR",
-                        column_name=column_name
-                    ))
+                    validation_results.append(
+                        ValidationResult(
+                            is_valid=False,
+                            error_message=f"Schema-based transformation failed for column "
+                            f"'{column_name}': {str(e)}",
+                            error_code="SCHEMA_TRANSFORMATION_ERROR",
+                            column_name=column_name,
+                        )
+                    )
 
         return batch, validation_results

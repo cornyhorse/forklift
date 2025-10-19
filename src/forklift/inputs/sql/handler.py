@@ -1,15 +1,17 @@
 """Main SQL input handler that orchestrates all SQL input components."""
 
 from __future__ import annotations
-from typing import List, Optional, Iterator, Tuple
-import pyarrow as pa
-import logging
 
-from .connection import SqlConnectionManager
-from .schema import SqlSchemaManager
-from .reader import SqlDataReader
-from ..config import SqlInputConfig
+import logging
+from typing import Iterator, List, Optional, Tuple
+
+import pyarrow as pa
+
 from ...schema.sql_schema_importer import SqlSchemaImporter
+from ..config import SqlInputConfig
+from .connection import SqlConnectionManager
+from .reader import SqlDataReader
+from .schema import SqlSchemaManager
 
 logger = logging.getLogger(__name__)
 
@@ -85,8 +87,9 @@ class SqlInputHandler:
         """
         return self.data_reader.type_converter.odbc_type_to_string(odbc_type)
 
-    def _sql_type_to_pyarrow(self, sql_type: str, size: Optional[int] = None,
-                           decimal_digits: Optional[int] = None) -> pa.DataType:
+    def _sql_type_to_pyarrow(
+        self, sql_type: str, size: Optional[int] = None, decimal_digits: Optional[int] = None
+    ) -> pa.DataType:
         """Convert SQL data type to PyArrow data type.
 
         Backward compatibility method that delegates to type converter.

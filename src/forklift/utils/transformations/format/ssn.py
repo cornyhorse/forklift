@@ -14,7 +14,8 @@ class SSNFormatter(BaseFormatter, ValidationMixin):
 
     def format_value(self, value: str) -> str:
         """Format a single SSN value to XXX-XX-XXXX format."""
-        original_value = value.strip()
+        # "123456789.0" (an integer column that went through float) is 123456789, not 1234567890
+        original_value = self.strip_float_suffix(value.strip())
 
         if not original_value:
             raise ValueError("Empty SSN value")
@@ -30,13 +31,13 @@ class SSNFormatter(BaseFormatter, ValidationMixin):
         if self.config.validate and self.has_letters(original_value):
             raise ValueError("SSN contains letters")
 
-        # Validate length before zero padding
-        if self.config.validate and len(digits_only) != 9:
-            raise ValueError(f"SSN must have exactly 9 digits, got {len(digits_only)}")
-
-        # Handle zero padding
+        # Zero padding comes first, so that zero_pad=True actually restores leading zeros that a
+        # numeric column dropped; validation then checks the padded result.
         if self.config.zero_pad and len(digits_only) < 9:
             digits_only = digits_only.zfill(9)
+
+        if self.config.validate and len(digits_only) != 9:
+            raise ValueError(f"SSN must have exactly 9 digits, got {len(digits_only)}")
 
         # Format with dashes
         if self.config.format_with_dashes:

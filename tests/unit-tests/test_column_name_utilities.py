@@ -286,8 +286,8 @@ class TestStandardizePostgresColumnName:
     def test_unicode_characters(self):
         """Test handling of unicode characters."""
         result = standardize_postgres_column_name("Café_Naïve")
-        # Unicode characters should be replaced with underscores
-        assert result == "caf_na_ve"
+        # Accented letters are transliterated instead of being replaced by underscores
+        assert result == "cafe_naive"
 
     def test_tabs_and_newlines(self):
         """Test handling of tabs and newlines."""

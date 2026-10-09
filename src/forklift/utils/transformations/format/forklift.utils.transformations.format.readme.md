@@ -39,9 +39,9 @@ Provides the foundational `BaseFormatter` abstract base class that all format tr
 
 Handles email address standardization and validation:
 - **Normalization**: Case normalization (lowercase)
-- **Whitespace Handling**: Strips leading/trailing whitespace
+- **Whitespace Handling**: Strips leading/trailing whitespace (only when `strip_whitespace=True`)
 - **Domain Cleaning**: Removes trailing dots from domains
-- **Validation**: Optional email format validation
+- **Validation**: Optional email format validation; rejects doubled/leading/trailing dots in the local part and empty or hyphen-edged domain labels
 - **Use Cases**: User data processing, contact information standardization
 
 ### `network.py`
@@ -49,7 +49,7 @@ Handles email address standardization and validation:
 
 Provides formatters for network-related identifiers:
 - **IP Address Formatting**: IPv4 and IPv6 address standardization
-- **MAC Address Formatting**: Hardware address normalization
+- **MAC Address Formatting**: Hardware address normalization; exactly 12 hex digits are required (unpadded octets such as `0:1a:2b:3:4:5` are padded per octet when `zero_pad=True`, short or long input is rejected, never padded or truncated)
 - **Validation**: Network address format validation
 - **Use Cases**: Network logs, device inventories, security data
 
@@ -59,7 +59,8 @@ Provides formatters for network-related identifiers:
 Standardizes phone number formats across different input styles:
 - **Digit Extraction**: Removes non-numeric characters except plus signs
 - **Format Styles**: Multiple output formats (e.g., (XXX) XXX-XXXX, XXX-XXX-XXXX)
-- **International Support**: Handles country codes and international formats
+- **International Support**: A `+` country code other than `+1` is validated against E.164 length limits (7-15 digits) and written as `+<digits>`; `+1` is never added to it
+- **Separators**: `use_dots` / `use_dashes` choose the group separator of the `us-standard` style
 - **Validation**: Configurable validation for letter detection and format compliance
 - **Use Cases**: Customer data, contact information, telecommunications data
 
@@ -70,7 +71,7 @@ Handles postal and ZIP code standardization:
 - **ZIP Code Formatting**: US ZIP and ZIP+4 code standardization
 - **International Support**: Postal code formats for various countries
 - **Validation**: Format compliance checking
-- **Padding**: Zero-padding for numeric postal codes
+- **Padding**: Zero-padding for numeric postal codes (applied *before* validation, so `zero_pad=True` restores dropped leading zeros); `"2134.0"` is read as `2134`
 - **Use Cases**: Address data, shipping information, geographic analysis
 
 ### `ssn.py`

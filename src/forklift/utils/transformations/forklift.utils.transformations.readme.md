@@ -88,14 +88,20 @@ Numeric cleaning, formatting, and validation operations:
 - **Statistical Operations**: Basic statistical transformations and aggregations
 
 ### `html_xml_transformations.py`
-**Markup Processing**
+**Markup Processing (text extraction)**
 
 Specialized handling for HTML and XML content:
-- **Tag Removal**: Strip HTML/XML tags while preserving content
-- **Entity Decoding**: Convert HTML entities to proper characters
-- **Content Extraction**: Extract specific content from markup
-- **Validation**: Ensure markup is well-formed
-- **Sanitization**: Remove potentially harmful markup content
+- **Tag Removal**: Tags are stripped first with the standard library's `html.parser` tokenizer
+  (quoted `>` in attributes, comments, doctypes and processing instructions are handled like a
+  browser would); `<script>`/`<style>` content is dropped; a `<` that does not start a tag
+  (`a < b`) stays text; a tag or comment still open at the end of the value is dropped
+- **Entity Decoding**: Entities are decoded *after* tag removal, exactly once, and the decoded text
+  is never re-interpreted as markup (`a &lt; b and c &gt; d` keeps all its words)
+- **CDATA**: `<![CDATA[...]]>` content is kept as literal text
+
+> **This is text extraction, not a security sanitizer.** The result is plain text that can still
+> contain `<`, `>` and `&` (for example `5 &lt; 6` becomes `5 < 6`). Escape it for the target
+> context (HTML, SQL, shell) before using it anywhere that interprets markup.
 
 ### `format_transformations.py`
 **Legacy Format Support**
@@ -189,6 +195,28 @@ All transformations use a consistent configuration system:
 - **Documentation**: Self-documenting with clear defaults
 - **Composition**: Configurations can be composed and reused
 - **Serialization**: Configurations can be serialized for persistence
+
+## Behaviour Notes
+
+- **Arrow types are preserved**: every string transformer accepts `string` and `large_string`
+  and returns the input column's type (also for all-null results), so transformations chain.
+- **No pandas**: transformers work on Arrow data; nulls are `None`, never `NaN`.
+- **Unknown options fail**: `create_transformation_from_config` raises `ValueError` listing the
+  valid keys instead of silently dropping a misspelled option such as `zeropad`.
+- **Numeric/money separators**: setting only `decimal_separator=","` implies
+  `thousands_separator="."` (and vice versa); both set to the same value raises `ValueError`.
+  Integer targets (`int8`..`uint64`) only accept integral values (`"3.9"` becomes NULL) and
+  produce exactly the requested Arrow type; NaN/Infinity text and overflow become NULL.
+- **Regular expressions**: `regex_replace` patterns are compiled when the configuration is
+  created (bad patterns raise `ValueError`). They run on stdlib `re`, which has no timeout: only
+  use patterns from trusted schemas.
+- **Lossy defaults**: `unicode_normalize="NFKC"` and `ascii_only=True` are lossy; set
+  `unicode_normalize=None` to keep the original characters.
+- **Mojibake repair** (`fix_encoding_errors`): text with typical cp1252/latin-1 mojibake markers is
+  re-decoded as UTF-8 only if that round trip succeeds; otherwise it is left unchanged.
+- **Datetime**: `timezone` is validated when the configuration is created (IANA names via
+  `zoneinfo`, falling back to `pytz` if installed); unparseable cells become NULL, anything else
+  raises. `dayfirst` (default `True`) resolves dates such as `03-04-2024`.
 
 ## Error Handling
 

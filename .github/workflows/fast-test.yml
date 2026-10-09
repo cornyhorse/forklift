@@ -1,4 +1,11 @@
-name: Auto-Format and Test
+# Fast checks: formatting and lint. The full test suite lives in test.yml.
+#
+#   * Pull requests (including ones from forks) and pushes to the default branch only CHECK
+#     formatting (black --check / isort --check) and lint; the token is read-only.
+#   * Pushes to other branches of this repository are auto-formatted and the result is committed
+#     back to that branch. Only that job gets `contents: write`; pull_request events never do.
+#     (Commits made with GITHUB_TOKEN do not trigger further workflow runs.)
+name: Format and Lint
 
 on:
   push:
@@ -6,48 +13,90 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Least privilege by default; the autoformat job below opts in to write access for itself only.
+permissions:
+  contents: read
+
+concurrency:
+  group: format-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  format-and-test:
+  format-check:
+    # Read-only: never modifies the repository.
+    if: github.event_name == 'pull_request' || github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    timeout-minutes: 15
 
     steps:
     - uses: actions/checkout@v4
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        fetch-depth: 0
+        persist-credentials: false
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.12'
 
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
+        key: ${{ runner.os }}-pip-lint-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
         restore-keys: |
-          ${{ runner.os }}-pip-
+          ${{ runner.os }}-pip-lint-
 
-    - name: Install dependencies
+    - name: Install tools
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-cov black isort flake8
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        if [ -f pyproject.toml ]; then pip install -e .[all]; fi
+        pip install "black>=23.12" "isort>=5.13" "flake8>=6.0"
+
+    - name: Check formatting with Black
+      run: black --check --diff --line-length 99 src/ tests/
+
+    - name: Check import order with isort
+      run: isort --check-only --diff --profile black --line-length 99 src/ tests/
+
+    - name: Lint with flake8 (src only, excluding tests)
+      run: flake8 src/ --max-line-length=99 --extend-ignore=E203,W503
+
+  autoformat:
+    # Pushes to non-default branches of this repository only (a push event always runs in the
+    # repository that received the push, so this never runs for fork pull requests).
+    if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-lint-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-lint-
+
+    - name: Install tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install "black>=23.12" "isort>=5.13"
 
     - name: Auto-format code with Black
-      run: |
-        black --line-length 99 src/ tests/
+      run: black --line-length 99 src/ tests/
 
     - name: Auto-sort imports with isort
-      run: |
-        isort --line-length 99 src/ tests/
+      run: isort --profile black --line-length 99 src/ tests/
 
-    - name: Check for formatting changes and commit
+    - name: Commit formatting changes
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: '🤖 Auto-format code with Black and isort'
@@ -55,92 +104,3 @@ jobs:
         commit_user_name: 'github-actions[bot]'
         commit_user_email: 'github-actions[bot]@users.noreply.github.com'
         commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'
-        skip_dirty_check: false
-        skip_fetch: false
-        skip_checkout: false
-        disable_globbing: false
-
-    - name: Lint with flake8 (src only, excluding tests)
-      run: |
-        flake8 src/ --max-line-length=99 --extend-ignore=E203,W503
-
-    - name: Run full test suite with coverage
-      run: |
-        python -m pytest tests/ --cov=src/forklift/ --cov-report=term-missing --cov-report=html -v
-
-    - name: Upload coverage report
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: coverage-report
-        path: htmlcov/
-
-    - name: Check coverage threshold
-      run: |
-        COVERAGE=$(python -m coverage report | grep TOTAL | awk '{print $4}' | sed 's/%//')
-        echo "Current coverage: $COVERAGE%"
-        if [ $COVERAGE -lt 95 ]; then
-          echo "::warning::Coverage ($COVERAGE%) is below 95% threshold"
-        else
-          echo "::notice::Excellent coverage: $COVERAGE%"
-        fi
-
-  # s3-integration:
-  #   runs-on: ubuntu-latest
-  #   # Only run if S3 credentials are available (not on forks)
-  #   if: github.repository == 'cornyhorse/forklift' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-  #
-  #   steps:
-  #   - uses: actions/checkout@v4
-  #
-  #   - name: Set up Python 3.12
-  #     uses: actions/setup-python@v4
-  #     with:
-  #       python-version: '3.12'
-  #
-  #   - name: Cache pip dependencies
-  #     uses: actions/cache@v3
-  #     with:
-  #       path: ~/.cache/pip
-  #       key: ${{ runner.os }}-pip-s3-${{ hashFiles('**/requirements.txt', '**/pyproject.toml') }}
-  #       restore-keys: |
-  #         ${{ runner.os }}-pip-s3-
-  #         ${{ runner.os }}-pip-
-  #
-  #   - name: Install dependencies
-  #     run: |
-  #       python -m pip install --upgrade pip
-  #       pip install pytest pytest-cov
-  #       if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-  #       if [ -f pyproject.toml ]; then pip install -e .[all]; fi
-  #
-  #   - name: Run S3 streaming tests (no mock)
-  #     env:
-  #       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-  #       S3_TEST_BUCKET: ${{ secrets.S3_TEST_BUCKET }}
-  #       S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
-  #       FORKLIFT_CI_MODE: "true"
-  #     run: |
-  #       python -m pytest tests/unit-tests/test_s3_streaming.py --no-s3-mock -v --tb=short
-  #
-  #   - name: Run integration tests with real S3
-  #     env:
-  #       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
-  #       S3_TEST_BUCKET: ${{ secrets.S3_TEST_BUCKET }}
-  #       S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
-  #       FORKLIFT_CI_MODE: "true"
-  #     run: |
-  #       python -m pytest tests/ --integration --no-s3-mock -v --tb=short -k "s3"
-  #
-  #   - name: Upload S3 test results
-  #     uses: actions/upload-artifact@v4
-  #     if: always()
-  #     with:
-  #       name: s3-test-results-py3.12
-  #       path: |
-  #         *.xml
-  #         htmlcov/

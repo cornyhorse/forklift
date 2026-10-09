@@ -418,9 +418,11 @@ class TestSqlSchemaImporter:
             "x-sql": "invalid_type",  # Should be dict
         }
 
-        # This will cause an AttributeError when trying to call .get() on a string
-        with pytest.raises(AttributeError):
-            SqlSchemaImporter(schema, validate=False)
+        # A malformed x-sql must be reported, never crash with an AttributeError
+        importer = SqlSchemaImporter(schema, validate=False)
+        assert importer.sql_ext == {}
+        with pytest.raises(SchemaValidationError, match="x-sql must be an object"):
+            SqlSchemaImporter(schema)
 
     def test_missing_tables_in_x_sql(self):
         """Test validation when tables are missing from x-sql."""
@@ -520,9 +522,8 @@ class TestSqlSchemaImporterComprehensiveCoverage:
             {"select": {"name": "test_table"}, "columns": "not_a_dict"}  # Line 172
         ]
 
-        # This will cause an AttributeError in _validate_parquet_types before reaching the validation check
-        # Let's test this with validation disabled to isolate the validation logic
-        with pytest.raises(AttributeError):
+        # Used to crash with an AttributeError in _validate_parquet_types
+        with pytest.raises(SchemaValidationError, match="Table 0 columns must be an object"):
             SqlSchemaImporter(schema)
 
     def test_table_columns_validation_isolated(self):
@@ -631,7 +632,7 @@ class TestSqlSchemaImporterComprehensiveCoverage:
 
         # Test timestamp validation (Line 342)
         assert importer._is_valid_parquet_type("timestamp[us]")
-        assert importer._is_valid_parquet_type("timestamp[ms,UTC]")
+        assert importer._is_valid_parquet_type("timestamp[ms,tz=UTC]")
 
         # Test duration validation (Line 346)
         assert importer._is_valid_parquet_type("duration[s]")
@@ -735,8 +736,11 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         assert mapping["BOOLEAN"] == "bool"
         assert mapping["DATE"] == "date32"
         assert mapping["TIMESTAMP"] == "timestamp[us]"
-        assert mapping["DECIMAL"] == "decimal128(10,2)"
-        assert mapping["FLOAT"] == "float32"
+        assert mapping["DECIMAL"] == "decimal128(38,9)"  # wide fallback, see the class docs
+        assert mapping["FLOAT"] == "double"  # FLOAT is double precision
+        assert mapping["REAL"] == "float32"
+        assert mapping["SMALLINT"] == "int16"
+        assert mapping["TIME"] == "time64[us]"
         assert mapping["DOUBLE"] == "double"
         assert mapping["ARRAY"] == "list<string>"
         assert mapping["JSON"] == "struct"

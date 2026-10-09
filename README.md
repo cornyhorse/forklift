@@ -40,17 +40,46 @@ Forklift is a comprehensive data processing tool that provides:
 ## Installation
 
 ```bash
-pip install forklift
+pip install forklift-etl
 ```
 
-### Optional Dependencies
+The core install is lean: it depends on `pyarrow` (>= 15, no upper cap, so current Python releases
+including 3.13 work), `jsonschema`, `boto3`/`botocore`, `python-dateutil`, `pytz` and `chardet`.
+
+### Optional Dependencies (extras)
+
+Input and output formats that need extra packages are installed as extras:
 
 ```bash
-# For Excel support
-pip install openpyxl
+# Excel (.xlsx via openpyxl, legacy .xls via xlrd)
+pip install "forklift-etl[excel]"
 
-# For clipboard functionality
-pip install pyperclip
+# SQL sources (pyodbc; also needs the unixODBC runtime library on your system)
+pip install "forklift-etl[sql]"
+
+# DataFrame hand-off formats
+pip install "forklift-etl[pandas]"
+pip install "forklift-etl[polars]"
+
+# Copy generated schemas to the clipboard
+pip install "forklift-etl[clipboard]"
+
+# Several at once, or everything
+pip install "forklift-etl[excel,sql,pandas,polars]"
+pip install "forklift-etl[all]"
+```
+
+> **pandas and polars are optional output formats only.** Forklift processes all data with PyArrow;
+> `pandas`/`polars` are imported lazily, only when you ask a reader result for a DataFrame
+> (`as_pandas()` / `as_polars()`), and an `ImportError` tells you what to install if it is missing.
+
+### Development
+
+```bash
+git clone https://github.com/cornyhorse/forklift.git
+cd forklift
+pip install -e ".[all,dev]"      # or: pip install -r requirements-dev.txt
+pre-commit install               # hooks are configured in .pre-commit-config.yaml
 ```
 
 ## Quick Start

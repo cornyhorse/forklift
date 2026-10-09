@@ -47,8 +47,13 @@ class PositionCalculator:
             flag_length = flag_column.get("length", 1)
             positions.append((flag_start - 1, flag_start + flag_length - 1))
 
-        # Add variant-specific field positions
+        # Add variant-specific field positions. A variant may repeat the flag column as one
+        # of its own fields; it is already listed above (and the column-name helper skips it by
+        # name), so skip it here to keep names and positions aligned.
+        flag_name = flag_column.get("name") if flag_column else None
         for field in variant_fields:
+            if flag_name and field.get("name") == flag_name:
+                continue
             start = field.get("start", 1)
             length = field.get("length", 1)
             end = start + length - 1
@@ -70,7 +75,9 @@ class PositionCalculator:
         flag_start = flag_column.get("start", 1) - 1  # Convert to 0-based
         flag_length = flag_column.get("length", 1)
 
-        if len(row_data) > flag_start + flag_length:
+        # >= : a flag that ends exactly at the end of the row (e.g. a one-character row, or a
+        # flag in the last column) is still present
+        if len(row_data) >= flag_start + flag_length:
             return row_data[flag_start : flag_start + flag_length].strip()
 
         return None

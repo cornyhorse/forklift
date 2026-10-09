@@ -26,7 +26,18 @@ class TestFwfExtensionValidator:
 
     def test_validate_encoding_valid(self):
         """Test validation with valid encoding values."""
-        valid_encodings = ["utf-8", "utf-8-sig", "latin-1", "cp1252", "ascii"]
+        valid_encodings = [
+            "utf-8",
+            "utf-8-sig",
+            "latin-1",
+            "cp1252",
+            "ascii",
+            "iso-8859-1",
+            "windows-1252",
+            "cp1250",
+            "utf-16",
+            "cp037",  # EBCDIC
+        ]
 
         for encoding in valid_encodings:
             fwf_ext = {"encoding": encoding}
@@ -35,7 +46,7 @@ class TestFwfExtensionValidator:
 
     def test_validate_encoding_invalid(self):
         """Test validation with invalid encoding values."""
-        invalid_encodings = ["invalid-encoding", "utf-16", "iso-8859-1", "windows-1252"]
+        invalid_encodings = ["invalid-encoding", "not-a-codec", "hex", ""]
 
         for encoding in invalid_encodings:
             fwf_ext = {"encoding": encoding}

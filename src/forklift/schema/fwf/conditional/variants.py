@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+
+from ..fields.parser import FieldParser
+from ..fields.positions import PositionCalculator
 
 
 class VariantManager:
@@ -59,6 +62,45 @@ class VariantManager:
         if variant:
             return variant.get("fields", [])
         return []
+
+    def get_field_positions_for_flag_value(self, flag_value: str) -> List[Tuple[int, int]]:
+        """Get the field positions (flag column first) for a specific variant.
+
+        Args:
+            flag_value: The flag value to get positions for
+
+        Returns:
+            List of (start, end) tuples using 0-based indexing; empty for an unknown flag value
+        """
+        variant = self.get_variant_by_flag_value(flag_value)
+        if variant is None:
+            return []
+        return PositionCalculator.get_field_positions_for_flag_value(
+            self.flag_column_info, variant.get("fields", [])
+        )
+
+    def get_column_names_for_flag_value(
+        self,
+        flag_value: str,
+        standardize_names: Optional[str] = None,
+        dedupe_names: Optional[str] = None,
+    ) -> List[str]:
+        """Get the column names (flag column first) for a specific variant.
+
+        Args:
+            flag_value: The flag value to get column names for
+            standardize_names: Name standardization method (postgres, snake_case, camelCase)
+            dedupe_names: Name deduplication method (suffix, prefix, error)
+
+        Returns:
+            List of column names; empty for an unknown flag value
+        """
+        variant = self.get_variant_by_flag_value(flag_value)
+        if variant is None:
+            return []
+        return FieldParser.get_column_names_for_flag_value(
+            self.flag_column_info, variant.get("fields", []), standardize_names, dedupe_names
+        )
 
     def has_variants(self) -> bool:
         """Check if any variants are defined.

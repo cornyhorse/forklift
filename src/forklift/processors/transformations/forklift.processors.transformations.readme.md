@@ -208,7 +208,15 @@ The package provides comprehensive error handling:
 - **Validation Results**: Each processor returns `ValidationResult` objects
 - **Error Codes**: Standardized error codes for different failure types
 - **Column-Level Errors**: Errors are isolated to specific columns
-- **Graceful Degradation**: Processing continues even when some transformations fail
+- **Fail closed (`SchemaBasedTransformer`)**: an invalid transformation configuration raises
+  `ValueError` when the transformer is created, and a transformation that fails raises `ValueError`
+  from `process_batch` - a column is never passed on untransformed
+- **Order**: per column, the explicit `x-transformations` run first (in configured order), then the
+  automatic `x-special-type` step, so e.g. a `regex_replace` can strip `"SSN: "` before the value is
+  validated as an SSN
+- **Invalid special values**: a value the `x-special-type` step rejects becomes NULL and is reported as
+  an `INVALID_SPECIAL_VALUE` result (with `row_index` and `column_name`)
+- **Ambiguous columns**: a configured column name that appears twice in a batch raises `ValueError`
 
 ## Dependencies
 

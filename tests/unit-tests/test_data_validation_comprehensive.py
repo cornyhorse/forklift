@@ -8,6 +8,10 @@ import pyarrow as pa
 import pytest
 
 from forklift.processors.base import ValidationResult
+from forklift.processors.data_validation.data_validation_processor import (
+    BadRowsThresholdExceededError,
+    ValidationProcessingError,
+)
 from forklift.processors.data_validation import (
     BadRowsConfig,
     DataValidationProcessor,
@@ -335,12 +339,10 @@ class TestDataValidationProcessor:
         data = {"age": [25, None, 35, None], "name": ["Alice", "Bob", "Charlie", "Dave"]}
         batch = pa.RecordBatch.from_pydict(data)
 
-        clean_batch, validation_results = processor.process_batch(batch)
-
-        # Should have validation errors for the bad rows plus threshold exceeded error
-        threshold_errors = [r for r in validation_results if "exceed threshold" in r.error_message]
-        assert len(threshold_errors) == 1
-        assert "Bad rows (50.0%) exceed threshold (20.0%)" in threshold_errors[0].error_message
+        # fail_on_exceed_threshold=True stops processing: the batch is not emitted
+        with pytest.raises(BadRowsThresholdExceededError) as exc_info:
+            processor.process_batch(batch)
+        assert "Bad rows (50.0%) exceed threshold (20.0%)" in str(exc_info.value)
 
     def test_process_batch_exception_handling(self):
         """Test exception handling in process_batch."""
@@ -355,12 +357,9 @@ class TestDataValidationProcessor:
             data = {"age": [25], "name": ["Alice"]}
             batch = pa.RecordBatch.from_pydict(data)
 
-            clean_batch, validation_results = processor.process_batch(batch)
-
-            assert len(validation_results) == 1
-            assert validation_results[0].is_valid is False
-            assert "Validation processing failed" in validation_results[0].error_message
-            assert validation_results[0].error_code == "VALIDATION_PROCESSOR_ERROR"
+            # Fail closed: the unvalidated batch is not handed back
+            with pytest.raises(ValidationProcessingError, match="Validation processing failed"):
+                processor.process_batch(batch)
 
     def test_validate_row_required_field_missing(self):
         """Test _validate_row with required field missing."""
@@ -438,9 +437,17 @@ class TestDataValidationProcessor:
 
         is_valid, errors = processor._validate_row(batch, 0)
 
-        # Should be valid because field is not in schema (skipped)
+        # A required rule for a column the batch does not have is an error
+        assert is_valid is False
+        assert len(errors) == 1
+        assert "required" in errors[0] and "missing" in errors[0]
+
+        # A rule that does not require the column is skipped
+        optional = FieldValidationRule(field_name="missing_field")
+        config = ValidationConfig(field_validations=[optional], bad_rows_config=bad_rows_config)
+        is_valid, errors = DataValidationProcessor(config)._validate_row(batch, 0)
         assert is_valid is True
-        assert len(errors) == 0
+        assert errors == []
 
     def test_is_null_or_empty(self):
         """Test _is_null_or_empty method."""
@@ -530,8 +537,11 @@ class TestDataValidationProcessor:
         # Create a range validation that will cause an exception
         range_val = RangeValidation(min_value=10, max_value=100)
 
-        # Mock a comparison that raises an exception
-        with patch("builtins.float", side_effect=Exception("Conversion error")):
+        # Mock the conversion so that it raises an unexpected exception
+        with patch(
+            "forklift.processors.data_validation.validation_rules.to_decimal",
+            side_effect=Exception("Conversion error"),
+        ):
             error = processor._validate_range("test", "10.5", range_val)
             assert error is not None
             assert "range validation error" in error
@@ -610,11 +620,9 @@ class TestDataValidationProcessor:
 
         processor = DataValidationProcessor(config)
 
-        string_val = StringValidation(pattern="[invalid_regex")
-
-        error = processor._validate_string("test", "hello", string_val)
-        assert error is not None
-        assert "pattern validation error" in error
+        # Invalid patterns are rejected when the configuration is created
+        with pytest.raises(ValueError, match="Invalid regular expression"):
+            StringValidation(pattern="[invalid_regex")
 
     def test_validate_string_non_string_value(self):
         """Test _validate_string with non-string value."""
@@ -930,7 +938,7 @@ class TestDataValidationProcessor:
             FieldValidationRule(field_name="email", unique=True),
         ]
 
-        bad_rows_config = BadRowsConfig()
+        bad_rows_config = BadRowsConfig(fail_on_exceed_threshold=False)
         config = ValidationConfig(field_validations=rules, bad_rows_config=bad_rows_config)
 
         processor = DataValidationProcessor(config)
@@ -1026,7 +1034,7 @@ class TestDataValidationIntegration:
             enabled=True,
             include_validation_errors=True,
             max_bad_rows_percent=25.0,
-            fail_on_exceed_threshold=True,
+            fail_on_exceed_threshold=False,  # most of this fixture is deliberately bad
         )
 
         config = ValidationConfig(

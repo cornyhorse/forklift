@@ -22,7 +22,10 @@ class ColumnMappingConfig:
         custom_transform: Custom function to transform column names
         case_sensitive: Whether mappings are case sensitive
         allow_unmapped: Whether to keep columns that don't have explicit mappings
-        drop_unmapped: Whether to drop columns that don't have mappings (overrides allow_unmapped)
+        drop_unmapped: Whether to drop columns that don't have an explicit mapping
+            (overrides allow_unmapped). A column counts as mapped when it matches an entry of
+            ``explicit_mappings`` - even an identity mapping such as ``"A": "A"`` - and is
+            unmapped otherwise, whether or not a naming convention would rename it.
     """
 
     explicit_mappings: Optional[Dict[str, str]] = None
@@ -92,24 +95,25 @@ class ColumnMapper(BaseProcessor):
         """
         validation_results = []
 
+        # Get current column names and work out the output names. A mapping that produces two
+        # columns with the same name is a configuration error and always raises.
+        current_columns = batch.schema.names
+        new_column_names = []
+        columns_to_keep = []
+
+        for i, col_name in enumerate(current_columns):
+            mapped_name = self._map_column_name(col_name)
+
+            if mapped_name is None:
+                # Column should be dropped
+                continue
+
+            new_column_names.append(mapped_name)
+            columns_to_keep.append(i)
+
+        self._check_output_names([current_columns[i] for i in columns_to_keep], new_column_names)
+
         try:
-            # Get current column names
-            current_columns = batch.schema.names
-
-            # Apply column mappings
-            new_column_names = []
-            columns_to_keep = []
-
-            for i, col_name in enumerate(current_columns):
-                mapped_name = self._map_column_name(col_name)
-
-                if mapped_name is None:
-                    # Column should be dropped
-                    continue
-
-                new_column_names.append(mapped_name)
-                columns_to_keep.append(i)
-
             # Create new batch with mapped columns
             if columns_to_keep:
                 # Select only the columns we want to keep
@@ -162,6 +166,9 @@ class ColumnMapper(BaseProcessor):
 
         Returns:
             Mapped column name, or None if column should be dropped
+
+        Raises:
+            ValueError: If a custom transform returns something that is not a usable name.
         """
         # Step 1: Check explicit mappings
         mapped_name = self._apply_explicit_mapping(column_name)
@@ -173,16 +180,41 @@ class ColumnMapper(BaseProcessor):
         # Step 3: Apply custom transform if specified
         if self.config.custom_transform:
             mapped_name = self.config.custom_transform(mapped_name)
+            if not isinstance(mapped_name, str) or mapped_name == "":
+                raise ValueError(
+                    f"custom_transform must return a non-empty string "
+                    f"(column '{column_name}' gave {type(mapped_name).__name__})"
+                )
 
-        # Step 4: Check if we should keep unmapped columns
-        if (
-            mapped_name == column_name
-            and not self.config.allow_unmapped
-            and self.config.drop_unmapped
-        ):
+        # Step 4: Drop columns without an explicit mapping if requested
+        if self.config.drop_unmapped and not self._is_explicitly_mapped(column_name):
             return None
 
         return mapped_name
+
+    def _is_explicitly_mapped(self, column_name: str) -> bool:
+        """Whether ``column_name`` matches an entry of ``explicit_mappings``."""
+        mappings = self.config.explicit_mappings
+        if not mappings:
+            return False
+        if self.config.case_sensitive:
+            return column_name in mappings
+        lowered = column_name.lower()
+        return any(source.lower() == lowered for source in mappings)
+
+    @staticmethod
+    def _check_output_names(source_names: List[str], output_names: List[str]) -> None:
+        """Raise ``ValueError`` if two source columns map to the same output name."""
+        sources_by_output: Dict[str, List[str]] = {}
+        for source, output in zip(source_names, output_names):
+            sources_by_output.setdefault(output, []).append(source)
+
+        collisions = {out: srcs for out, srcs in sources_by_output.items() if len(srcs) > 1}
+        if collisions:
+            details = "; ".join(
+                f"'{output}' <- {sorted(sources)}" for output, sources in collisions.items()
+            )
+            raise ValueError(f"Column mapping creates duplicate output column names: {details}")
 
     def _apply_explicit_mapping(self, column_name: str) -> str:
         """Apply explicit column mappings.
@@ -231,38 +263,53 @@ class ColumnMapper(BaseProcessor):
 
         return column_name
 
+    @staticmethod
+    def _split_words(name: str) -> List[str]:
+        """Split a column name into lower-case words.
+
+        Separators are anything that is not a letter or digit; camelCase boundaries are
+        ``aB``/``1B`` and the end of an acronym (``XMLParser`` -> ``xml``, ``parser``).
+        """
+        words: List[str] = []
+        for chunk in re.split(r"[^0-9A-Za-z]+", name):
+            if not chunk:
+                continue
+            chunk = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", chunk)
+            chunk = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", chunk)
+            words.extend(word.lower() for word in chunk.split(" ") if word)
+        return words
+
     def _to_snake_case(self, name: str) -> str:
         """Convert name to snake_case.
+
+        Leading and trailing underscores are kept (``_rownum`` stays ``_rownum``).
 
         Examples:
             StateID -> state_id
             firstName -> first_name
             XMLParser -> xml_parser
+            First Name -> first_name
         """
-        # Insert underscore before uppercase letters that follow lowercase letters
-        s1 = re.sub("([a-z0-9])([A-Z])", r"\1_\2", name)
-        # Insert underscore before uppercase letters that are followed by lowercase letters
-        s2 = re.sub("([A-Z])([A-Z][a-z])", r"\1_\2", s1)
-        return s2.lower()
+        words = self._split_words(name)
+        if not words:
+            return name.lower()
+        leading = len(name) - len(name.lstrip("_"))
+        trailing = len(name) - len(name.rstrip("_")) if name.strip("_") else 0
+        return "_" * leading + "_".join(words) + "_" * trailing
 
     def _to_camel_case(self, name: str) -> str:
         """Convert name to camelCase.
 
         Examples:
             state_id -> stateId
-            StateID -> stateID
+            StateID -> stateId
+            firstName -> firstName
+            First Name -> firstName
         """
-        components = re.split("[_\\s-]+", name)
-        if not components:
+        words = self._split_words(name)
+        if not words:
             return name
-
-        # First component stays lowercase, rest are capitalized
-        result = components[0].lower()
-        for component in components[1:]:
-            if component:
-                result += component.capitalize()
-
-        return result
+        return words[0] + "".join(word.capitalize() for word in words[1:])
 
     def _to_pascal_case(self, name: str) -> str:
         """Convert name to PascalCase.
@@ -270,9 +317,9 @@ class ColumnMapper(BaseProcessor):
         Examples:
             state_id -> StateId
             firstName -> FirstName
+            First Name -> FirstName
         """
-        components = re.split("[_\\s-]+", name)
-        return "".join(component.capitalize() for component in components if component)
+        return "".join(word.capitalize() for word in self._split_words(name))
 
 
 def create_postgres_mapper() -> ColumnMapper:

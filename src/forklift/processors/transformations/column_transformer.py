@@ -6,6 +6,7 @@ from typing import Callable, Dict, List, Tuple
 
 import pyarrow as pa
 
+from .._columns import column_index
 from ..base import BaseProcessor, ValidationResult
 
 
@@ -47,18 +48,23 @@ class ColumnTransformer(BaseProcessor):
             Tuple of (transformed_batch, validation_results) where transformed_batch
             contains the data with transformations applied and validation_results
             contains any transformation errors
+
+        Raises:
+            ValueError: If a configured column name appears more than once in the batch.
         """
         validation_results = []
 
         # Apply transformations to each configured column
         for column_name, transforms in self.transformations.items():
-            if column_name in batch.schema.names:
-                column_index = batch.schema.get_field_index(column_name)
-                column = batch.column(column_index)
+            # Checked lookup: raises ValueError when the name occurs more than once (the plain
+            # get_field_index returns -1 there and would silently pick the last column)
+            col_idx = column_index(batch.schema, column_name)
+            if col_idx is not None:
+                column = batch.column(col_idx)
 
                 try:
                     transformed_column = self._apply_transforms(column, transforms)
-                    batch = batch.set_column(column_index, column_name, transformed_column)
+                    batch = batch.set_column(col_idx, column_name, transformed_column)
                 except Exception as e:
                     validation_results.append(
                         ValidationResult(

@@ -181,8 +181,8 @@ class TestColumnMapper:
         assert "firstName" in column_names
         assert "someHyphenatedName" in column_names
         assert "upperCase" in column_names
-        # Fix: Implementation converts to lowercase and then camelizes
-        assert "alreadyCamelcase" in column_names
+        # Existing camelCase humps are kept
+        assert "alreadyCamelCase" in column_names
 
     def test_pascal_case_naming_convention(self):
         """Test PascalCase naming convention transformation."""
@@ -205,8 +205,8 @@ class TestColumnMapper:
         assert "StateId" in column_names
         assert "FirstName" in column_names
         assert "SomeHyphenated" in column_names
-        # Fix: Implementation capitalizes each component separately
-        assert "Camelcase" in column_names
+        # Existing camelCase humps are kept
+        assert "CamelCase" in column_names
 
     def test_lowercase_naming_convention(self):
         """Test lowercase naming convention transformation."""
@@ -451,8 +451,7 @@ class TestNamingConventionHelpers:
             ("already_camel", "alreadyCamel"),
             ("some-hyphen-name", "someHyphenName"),
             ("space separated", "spaceSeparated"),
-            # Fix: Leading underscore behavior - actual implementation capitalizes first component
-            ("_leading_underscore", "LeadingUnderscore"),
+            ("_leading_underscore", "leadingUnderscore"),
             ("trailing_underscore_", "trailingUnderscore"),
             ("", ""),
             ("single", "single"),
@@ -584,12 +583,9 @@ class TestEdgeCases:
         data = {"col1": [1, 2], "col2": [3, 4]}
         batch = self.create_test_batch(data)
 
-        # This should not crash, but the behavior might be undefined
-        # We're mainly testing that it doesn't throw an exception
-        result_batch, validation_results = mapper.process_batch(batch)
-
-        # The exact behavior is implementation-dependent, but it shouldn't crash
-        assert isinstance(result_batch, pa.RecordBatch)
+        # Two source columns must not collapse into one output name
+        with pytest.raises(ValueError, match="same_name"):
+            mapper.process_batch(batch)
 
     def test_special_characters_in_column_names(self):
         """Test handling of special characters in column names."""

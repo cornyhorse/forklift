@@ -260,11 +260,10 @@ class TestCreateConstraintConfigFromSchema:
         assert config.error_mode == ErrorMode.FAIL_FAST
 
     def test_create_config_with_invalid_error_mode(self):
-        """Test creating config with invalid error mode falls back to BAD_ROWS."""
+        """A mistyped errorMode is an error, not a silent fallback to BAD_ROWS."""
         schema_dict = {"x-constraintHandling": {"errorMode": "invalid_mode"}}
-        config = create_constraint_config_from_schema(schema_dict)
-
-        assert config.error_mode == ErrorMode.BAD_ROWS
+        with pytest.raises(ValueError, match="invalid_mode"):
+            create_constraint_config_from_schema(schema_dict)
 
     def test_create_config_with_range_constraints(self):
         """Test creating config with minimum/maximum constraints."""

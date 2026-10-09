@@ -433,12 +433,9 @@ class TestCalculatedColumnsProcessor:
         config = CalculatedColumnsConfig(columns=columns, fail_on_error=True)
         processor = CalculatedColumnsProcessor(config)
 
-        result_batch, validation_results = processor.process_batch(batch)
-
-        assert result_batch == batch  # Original batch returned on error
-        assert len(validation_results) == 1
-        assert validation_results[0].is_valid is False
-        assert validation_results[0].error_code == "CALCULATION_ERROR"
+        # Fail closed: the error is raised instead of returning the unmodified batch
+        with pytest.raises(ValueError, match="Failed to calculate column 'error_col'"):
+            processor.process_batch(batch)
 
     def test_process_batch_with_error_fail_on_error_false(self):
         """Test processing batch with calculation error and fail_on_error=False."""
@@ -469,6 +466,15 @@ class TestCalculatedColumnsProcessor:
         processor = CalculatedColumnsProcessor(config)
 
         # Mock _sort_columns_by_dependencies to raise an exception
+        with patch.object(
+            processor, "_sort_columns_by_dependencies", side_effect=Exception("Test error")
+        ):
+            # fail_on_error=True (default): the failure is raised, not swallowed
+            with pytest.raises(Exception, match="Test error"):
+                processor.process_batch(batch)
+
+        config = CalculatedColumnsConfig(columns=columns, fail_on_error=False)
+        processor = CalculatedColumnsProcessor(config)
         with patch.object(
             processor, "_sort_columns_by_dependencies", side_effect=Exception("Test error")
         ):

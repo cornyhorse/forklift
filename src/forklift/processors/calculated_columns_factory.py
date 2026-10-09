@@ -13,16 +13,24 @@ from .calculated_columns import (
     ConstantColumn,
     ExpressionColumn,
 )
+from .schema_validator.type_converter import parse_arrow_type
 
 
 def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
     """Parse data type string to PyArrow data type.
+
+    Accepts the usual aliases (``int``, ``integer``, ``decimal(10,2)``, ``date``, ``double``,
+    ``timestamp[us]``, ``list<string>``, ...).
 
     Args:
         data_type_str: String representation of data type
 
     Returns:
         PyArrow DataType or None if input is None/empty
+
+    Raises:
+        ValueError: If the type string is not recognised (unknown types are never silently
+            mapped to string).
     """
     if data_type_str is None:
         return None
@@ -35,52 +43,14 @@ def _parse_data_type(data_type_str: Optional[str]) -> Optional[pa.DataType]:
     if not stripped:
         return pa.string()
 
-    data_type_str = stripped.lower()
+    # Bare "timestamp" has always meant nanosecond precision for calculated columns
+    if stripped.lower() == "timestamp":
+        return pa.timestamp("ns")
 
-    # Handle simple types
-    type_mapping = {
-        "string": pa.string(),
-        "int64": pa.int64(),
-        "int32": pa.int32(),
-        "float64": pa.float64(),
-        "float32": pa.float32(),
-        "double": pa.float64(),  # alias for float64
-        "bool": pa.bool_(),
-        "boolean": pa.bool_(),
-        "date32": pa.date32(),
-        "date64": pa.date64(),
-        "timestamp": pa.timestamp("ns"),
-        "binary": pa.binary(),
-    }
-
-    # Handle simple mapped types first
-    if data_type_str in type_mapping:
-        return type_mapping[data_type_str]
-
-    # Handle complex types with parameters
-    if data_type_str.startswith("timestamp[") and data_type_str.endswith("]"):
-        # Extract unit from timestamp[unit]
-        unit = data_type_str[10:-1]  # Remove 'timestamp[' and ']'
-        return pa.timestamp(unit)
-
-    if data_type_str.startswith("decimal128(") and data_type_str.endswith(")"):
-        # Extract precision and scale from decimal128(precision,scale)
-        params = data_type_str[11:-1]  # Remove 'decimal128(' and ')'
-        try:
-            precision, scale = map(int, params.split(","))
-            return pa.decimal128(precision, scale)
-        except (ValueError, TypeError):
-            pass
-
-    if data_type_str.startswith("list<") and data_type_str.endswith(">"):
-        # Extract inner type from list<type>
-        inner_type_str = data_type_str[5:-1]  # Remove 'list<' and '>'
-        inner_type = _parse_data_type(inner_type_str)
-        if inner_type:
-            return pa.list_(inner_type)
-
-    # Default to string for unknown types
-    return pa.string()
+    try:
+        return parse_arrow_type(stripped)
+    except ValueError as exc:
+        raise ValueError(f"Invalid dataType for calculated column: {exc}") from None
 
 
 def create_calculated_columns_processor_from_schema(

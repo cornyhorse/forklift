@@ -120,7 +120,7 @@ class TestRowHashProcessor:
         algorithms = ["md5", "sha1", "sha256", "sha384", "sha512"]
 
         for algo in algorithms:
-            config = RowHashConfig(enabled=True, algorithm=algo)
+            config = RowHashConfig(enabled=True, algorithm=algo, allow_weak_hash=True)
             assert config.algorithm == algo
 
     def test_config_validation_invalid_algorithm(self):
@@ -276,7 +276,7 @@ class TestRowHashProcessor:
         hash_lengths = {"md5": 32, "sha1": 40, "sha256": 64, "sha384": 96, "sha512": 128}
 
         for algo in algorithms:
-            config = RowHashConfig(enabled=True, algorithm=algo)
+            config = RowHashConfig(enabled=True, algorithm=algo, allow_weak_hash=True)
             processor = RowHashProcessor(config)
 
             result_batch, validation_results = processor.process_batch(batch)
@@ -300,16 +300,13 @@ class TestRowHashProcessor:
         data = {"id": [1]}
         batch = pa.RecordBatch.from_pydict(data)
 
-        result_batch, validation_results = processor.process_batch(batch)
-
-        # Restore original method
-        processor._get_hash_columns = original_method
-
-        assert len(validation_results) == 1
-        assert not validation_results[0].is_valid
-        assert "Row metadata processing failed" in validation_results[0].error_message
-        assert validation_results[0].error_code == "ROW_METADATA_ERROR"
-        assert result_batch == batch  # Should return original batch on error
+        try:
+            # Fail closed: the error propagates instead of returning a batch without the hash
+            with pytest.raises(RuntimeError, match="Test error"):
+                processor.process_batch(batch)
+        finally:
+            # Restore original method
+            processor._get_hash_columns = original_method
 
     def test_get_output_schema_disabled(self):
         """Test get_output_schema when hash is disabled."""
@@ -532,8 +529,9 @@ class TestCalculatedColumnsFactory:
         assert _parse_data_type(None) is None
         assert _parse_data_type("") is None
 
-        # Test unknown type (should default to string)
-        assert _parse_data_type("unknown_type") == pa.string()
+        # Unknown types are rejected rather than silently mapped to string
+        with pytest.raises(ValueError, match="Unknown data type"):
+            _parse_data_type("unknown_type")
 
 
 class TestValidationFactory:

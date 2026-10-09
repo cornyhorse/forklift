@@ -10,7 +10,7 @@ class SchemaValidationMode(Enum):
 
     STRICT = "strict"  # All columns must match schema exactly
     PERMISSIVE = "permissive"  # Allow extra columns not in schema
-    COERCE = "coerce"  # Attempt to coerce types when possible
+    COERCE = "coerce"  # Cast mismatching columns to the schema type (failures are violations)
 
 
 class NullabilityMode(Enum):
@@ -29,8 +29,9 @@ class SchemaValidatorConfig:
     nullability_mode: NullabilityMode = NullabilityMode.ERROR
     allow_type_coercion: bool = False
     check_column_order: bool = False
-    case_sensitive: bool = True
+    case_sensitive: bool = True  # False: batch columns are matched to the schema ignoring case
     extra_columns_allowed: bool = False
+    allow_unsafe_regex: bool = False  # accept ReDoS-prone ``pattern`` constraints
 
     # Validation thresholds
     max_null_percentage: Optional[float] = None

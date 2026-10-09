@@ -48,7 +48,9 @@ def test_different_algorithms():
     expected_lengths = {"md5": 32, "sha1": 40, "sha256": 64, "sha384": 96, "sha512": 128}
 
     for algo in algorithms:
-        config = RowHashConfig(enabled=True, column_name=f"{algo}_hash", algorithm=algo)
+        config = RowHashConfig(
+            enabled=True, column_name=f"{algo}_hash", algorithm=algo, allow_weak_hash=True
+        )
         processor = RowHashProcessor(config)
         processed_batch, _ = processor.process_batch(batch)
 
@@ -103,6 +105,7 @@ def test_schema_integration():
         "enabled": True,
         "columnName": "row_signature",
         "algorithm": "md5",
+        "allowWeakHash": True,
         "excludeColumns": ["internal_id"],
         "nullValue": "MISSING",
         "separator": "|",

@@ -29,17 +29,17 @@ jobs:
     timeout-minutes: 15
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
 
     - name: Cache pip dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-lint-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
@@ -70,15 +70,15 @@ jobs:
       contents: write
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
 
     - name: Cache pip dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-lint-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
@@ -97,7 +97,7 @@ jobs:
       run: isort --profile black --line-length 99 src/ tests/
 
     - name: Commit formatting changes
-      uses: stefanzweifel/git-auto-commit-action@v5
+      uses: stefanzweifel/git-auto-commit-action@v7
       with:
         commit_message: '🤖 Auto-format code with Black and isort'
         file_pattern: 'src/ tests/'

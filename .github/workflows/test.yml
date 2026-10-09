@@ -26,12 +26,12 @@ jobs:
         python-version: ['3.12', '3.13', '3.14']
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
 
@@ -41,7 +41,7 @@ jobs:
         sudo apt-get install -y --no-install-recommends unixodbc
 
     - name: Cache pip dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-py${{ matrix.python-version }}-pip-${{ hashFiles('pyproject.toml', 'requirements*.txt') }}
@@ -59,14 +59,14 @@ jobs:
 
     - name: Upload coverage report
       if: always() && matrix.python-version == '3.12'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: coverage-report
         path: htmlcov/
 
     - name: Upload coverage to Codecov
       if: matrix.python-version == '3.12'
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v7
       with:
         files: ./coverage.xml
         flags: unittests
@@ -92,12 +92,12 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
 
@@ -121,12 +121,12 @@ jobs:
     timeout-minutes: 15
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         persist-credentials: false
 
     - name: Set up Python 3.13
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.13'
 
@@ -148,10 +148,10 @@ jobs:
   # s3-integration:
   #   runs-on: ubuntu-latest
   #   steps:
-  #   - uses: actions/checkout@v4
+  #   - uses: actions/checkout@v7
   #     with:
   #       persist-credentials: false
-  #   - uses: actions/setup-python@v5
+  #   - uses: actions/setup-python@v7
   #     with:
   #       python-version: '3.12'
   #   - run: pip install -e ".[all,dev]"

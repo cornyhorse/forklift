@@ -18,6 +18,17 @@ class BadRowsThresholdExceededError(ValidationProcessingError):
     """More rows were rejected than ``BadRowsConfig.max_bad_rows_percent`` allows."""
 
 
+class _RuleError(str):
+    """An error message (a plain ``str``) that remembers the column it is about."""
+
+    column: Optional[str]
+
+    def __new__(cls, message: str, column: Optional[str] = None) -> "_RuleError":
+        error = super().__new__(cls, message)
+        error.column = column
+        return error
+
+
 def _hashable(value: Any) -> Any:
     try:
         hash(value)
@@ -53,6 +64,15 @@ class DataValidationProcessor(BaseProcessor):
       (or whose key was already emitted or already marked) is rejected, the first one included.
     A row only claims its keys when it passes *all* rules, so a row rejected for another reason
     never causes a later valid row to be rejected as a duplicate.
+
+    Every error of a rejected row becomes a ``ValidationResult`` with ``row_index`` (position in
+    the batch passed in), ``error_code`` ``VALIDATION_ERROR`` and ``column_name`` (the field the
+    rule belongs to). Messages do not contain cell values unless
+    ``ValidationConfig.include_values_in_errors`` is set.
+
+    Rejected rows are kept in ``bad_rows_handler`` only when ``BadRowsConfig.enabled`` is true;
+    with ``enabled=False`` they are only counted (the percentage threshold keeps working), which
+    keeps memory bounded when the caller writes the rejected rows itself.
     """
 
     def __init__(self, config: ValidationConfig):
@@ -123,6 +143,7 @@ class DataValidationProcessor(BaseProcessor):
                             error_message=error,
                             error_code="VALIDATION_ERROR",
                             row_index=row_idx,
+                            column_name=getattr(error, "column", None),
                         )
                     )
 
@@ -204,7 +225,10 @@ class DataValidationProcessor(BaseProcessor):
             if rule.field_name not in names:
                 if rule.required:
                     errors.append(
-                        f"Field '{rule.field_name}' is required but the column is missing"
+                        _RuleError(
+                            f"Field '{rule.field_name}' is required but the column is missing",
+                            rule.field_name,
+                        )
                     )
                 continue
 
@@ -215,6 +239,9 @@ class DataValidationProcessor(BaseProcessor):
 
     def _field_errors(self, rule: FieldValidationRule, value: Any) -> List[str]:
         """Errors for one value against the non-uniqueness rules of a field."""
+        return [_RuleError(error, rule.field_name) for error in self._field_messages(rule, value)]
+
+    def _field_messages(self, rule: FieldValidationRule, value: Any) -> List[str]:
         include_values = self.config.include_values_in_errors
 
         # Required validation
@@ -278,10 +305,12 @@ class DataValidationProcessor(BaseProcessor):
 
     def _duplicate_message(self, field_name: str, detail: Optional[str] = None) -> str:
         if detail:
-            return f"Field '{field_name}' {detail}"
-        if self.config.uniqueness_strategy == "fail_on_duplicate":
-            return f"Field '{field_name}' value violates uniqueness constraint"
-        return f"Field '{field_name}' value is not unique (duplicate found)"
+            message = f"Field '{field_name}' {detail}"
+        elif self.config.uniqueness_strategy == "fail_on_duplicate":
+            message = f"Field '{field_name}' value violates uniqueness constraint"
+        else:
+            message = f"Field '{field_name}' value is not unique (duplicate found)"
+        return _RuleError(message, field_name)
 
     def _apply_uniqueness(self, batch: pa.RecordBatch, row_errors: List[List[str]]) -> None:
         """Batch-level uniqueness for ``last_wins`` and ``mark_all_duplicates``.

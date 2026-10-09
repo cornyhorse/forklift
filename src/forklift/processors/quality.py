@@ -24,23 +24,37 @@ class DataQualityProcessor(BaseProcessor):
     pattern, or one with nested unbounded quantifiers such as ``(a+)+``, raises ``ValueError``
     unless ``allow_unsafe_regex`` is true (per column rule, in ``rules``, or as the argument).
 
+    The processor only reports: every violation is a ``ValidationResult`` with ``row_index``
+    (position in the batch), ``error_code`` and ``column_name``; the batch is returned unchanged.
+
     Args:
         rules: Dictionary containing quality rules organized by column name
         allow_unsafe_regex: Accept patterns flagged as prone to catastrophic backtracking
+        include_values: Put the offending cell value into the pattern and range messages
+            (default, for backward compatibility). Pass ``False`` to keep cell values (possibly
+            personal data) out of messages and logs.
 
     Attributes:
         rules: Dictionary of data quality rules to apply
     """
 
-    def __init__(self, rules: Dict[str, Any], allow_unsafe_regex: bool = False):
+    def __init__(
+        self,
+        rules: Dict[str, Any],
+        allow_unsafe_regex: bool = False,
+        *,
+        include_values: bool = True,
+    ):
         """Initialize the data quality processor.
 
         Args:
             rules: Dictionary containing quality rules organized by column name.
                    Each column can have rules like min_length, max_length, pattern, etc.
             allow_unsafe_regex: Accept regular expressions flagged as ReDoS-prone
+            include_values: Include cell values in the messages (see the class docstring)
         """
         self.rules = rules
+        self.include_values = include_values
         self.allow_unsafe_regex = allow_unsafe_regex or bool(
             rules.get("allow_unsafe_regex", False)
         )
@@ -206,7 +220,11 @@ class DataQualityProcessor(BaseProcessor):
                 validation_results.append(
                     ValidationResult(
                         is_valid=False,
-                        error_message=f"Value '{value}' does not match pattern '{pattern}'",
+                        error_message=(
+                            f"Value '{value}' does not match pattern '{pattern}'"
+                            if self.include_values
+                            else f"Value does not match pattern '{pattern}'"
+                        ),
                         error_code="PATTERN_VIOLATION",
                         row_index=i,
                         column_name=column_name,
@@ -253,7 +271,11 @@ class DataQualityProcessor(BaseProcessor):
                 validation_results.append(
                     ValidationResult(
                         is_valid=False,
-                        error_message=f"Value {value} below minimum {min_val}",
+                        error_message=(
+                            f"Value {value} below minimum {min_val}"
+                            if self.include_values
+                            else f"Value below minimum {min_val}"
+                        ),
                         error_code="MIN_VALUE_VIOLATION",
                         row_index=i,
                         column_name=column_name,
@@ -264,7 +286,11 @@ class DataQualityProcessor(BaseProcessor):
                 validation_results.append(
                     ValidationResult(
                         is_valid=False,
-                        error_message=f"Value {value} exceeds maximum {max_val}",
+                        error_message=(
+                            f"Value {value} exceeds maximum {max_val}"
+                            if self.include_values
+                            else f"Value exceeds maximum {max_val}"
+                        ),
                         error_code="MAX_VALUE_VIOLATION",
                         row_index=i,
                         column_name=column_name,

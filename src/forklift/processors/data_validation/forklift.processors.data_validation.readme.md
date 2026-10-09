@@ -225,6 +225,55 @@ The package fails closed:
    (`"Email"` does not silently match `"email"`)
 5. **Detailed Error Reporting**: Each validation failure includes the field and rule. Messages do
    **not** contain the offending value unless `ValidationConfig.include_values_in_errors=True`
+6. **Attribution**: every error of a rejected row is a `ValidationResult` with `row_index` (position of
+   the row in the batch passed to `process_batch`), `error_code` (`VALIDATION_ERROR`) and `column_name`
+   (the field whose rule failed)
+
+## Building the processor from `x-validation`
+
+`forklift.processors.schema_extensions.build_data_validator(schema, *, resolve_column=identity)` turns the
+`x-validation` extension of a schema dictionary into a `DataValidationProcessor` (or `None` when no field
+has a rule). Supported shape (the one in `schema-standards/20250826-csv.json`):
+
+```json
+{
+  "x-validation": {
+    "badRowsHandling": {"maxBadRowsPercent": 10.0, "failOnExceedThreshold": true},
+    "uniquenessHandling": {"strategy": "first_wins"},
+    "fieldValidations": {
+      "age": {
+        "required": false,
+        "unique": false,
+        "range": {"min": 0, "max": 150, "inclusive": true},
+        "stringValidation": {"minLength": 1, "maxLength": 100, "pattern": "^[A-Za-z]+$", "allowEmpty": false},
+        "enumValidation": {"allowedValues": ["A", "B"], "caseSensitive": true},
+        "dateValidation": {"minDate": "1900-01-01", "maxDate": "2100-12-31", "format": ["%Y-%m-%d"]}
+      }
+    }
+  }
+}
+```
+
+| `x-validation` | Python |
+|---|---|
+| `fieldValidations.<f>.required` / `unique` | `FieldValidationRule.required` / `.unique` |
+| `range {min, max, inclusive}` | `RangeValidation(min_value, max_value, inclusive)` (`range_validation`) |
+| `stringValidation {minLength, maxLength, pattern, allowEmpty}` | `StringValidation(min_length, max_length, pattern, allow_empty)` |
+| `enumValidation {allowedValues, caseSensitive}` | `EnumValidation(allowed_values, case_sensitive)` |
+| `dateValidation {minDate, maxDate, format}` | `DateValidation(min_date, max_date, formats)` (`format` is a string or a list) |
+| `uniquenessHandling.strategy` | `ValidationConfig.uniqueness_strategy` (`first_wins`, `last_wins`, `fail_on_duplicate`, `mark_all_duplicates`) |
+| `badRowsHandling.maxBadRowsPercent` / `failOnExceedThreshold` | `BadRowsConfig.max_bad_rows_percent` / `.fail_on_exceed_threshold` (defaults 10.0 / true) |
+
+The processor that is built **does not write files and does not keep the rejected rows**
+(`BadRowsConfig(enabled=False)`): the caller removes/writes the rejected rows itself using the
+`ValidationResult`s, and the handler only counts them, so memory stays constant however many rows are
+rejected while the `maxBadRowsPercent` threshold keeps working. `badRowsHandling.outputPath`,
+`fileFormat`, `includeOriginalRow` and `includeValidationErrors` are ignored, as are
+`fieldValidations.<f>.onViolation` (a violation always rejects the row), `crossFieldValidations` and
+`globalValidations`; `unsupported_extension_keys(schema)` lists them (they do not raise, the shipped
+standard contains them). Invalid configuration (wrong types, `min` greater than `max`, an unknown
+strategy, an invalid or unsafe regular expression, ...) raises `ValueError("x-validation....: ...")`.
+Field names go through `resolve_column` (header name -> output name).
 
 ## Validation semantics
 
@@ -263,6 +312,7 @@ The package fails closed:
 - **Type Safety**: Uses PyArrow's typed arrays for performance
 - **Minimal Copying**: Efficient row filtering without full data copying
 - **Configurable**: Validation overhead scales with number of active rules
-- **Memory Management**: Bad row collection respects configured limits
+- **Memory Management**: Bad row collection respects configured limits; with
+  `BadRowsConfig(enabled=False)` rejected rows are only counted
 
 This package provides the foundation for robust data validation in Forklift's data processing pipeline, ensuring data quality while maintaining high performance and flexibility.

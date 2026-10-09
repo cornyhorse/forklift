@@ -12,7 +12,8 @@ A comprehensive formatting utility that handles the presentation and structure o
 - **Metadata Integration**: Adds generation timestamps, version information, and processing metadata
 - **Format Standardization**: Ensures consistent formatting across different schema outputs
 - **Extension Handling**: Manages custom schema extensions and x-prefixed properties
-- **Output Formatting**: Provides multiple output formats (JSON, YAML, pretty-printed JSON)
+- **Output Formatting**: Pretty-printed strict JSON (`allow_nan=False`; non-finite floats are written as `null`)
+- **Source Attribution**: `x-generation.source_file` holds the file name only, never the directory
 
 ### SchemaValidationError
 Custom exception class for schema-related validation errors:
@@ -23,6 +24,14 @@ Custom exception class for schema-related validation errors:
 - **Error Aggregation**: Supports collecting multiple validation errors in a single exception
 
 ## Utility Functions
+
+### Type String Helpers (helpers.py)
+- **`get_parquet_type_string(arrow_type)`**: converts an Arrow type to the type string used in generated schemas (`x-csv.dataTypes`, metadata `parquet_type`). Precision, scale, unit and time zone are preserved (`decimal128(18,4)`, `timestamp[us, tz=UTC]`, `duration[ns]`, `list<decimal128(5,2)>`, `dictionary<values=string, indices=int8>`). Types the schema importers cannot express map to the closest accepted type: `float16` -> `float32`, `fixed_size_list`/`large_list` -> `list<T>`, `map` -> `list<struct>`, and `time32`/`time64`/`decimal256` -> `string`
+- **`parquet_type_string_to_arrow(type_string)`**: the inverse, used for round-trip checks
+- **`validate_quantiles`**, **`quantile_label`**: quantiles must be within 0..1; labels are exact (`0.29` -> `29`, `0.995` -> `99_5`)
+- **`split_name_tokens`**: splits column names into lower-case word tokens (snake_case, camelCase, digits) for whole-word name matching
+- **`to_json_safe`**: converts values to strict-JSON-safe ones (NaN/infinity -> `null`, dates -> ISO strings, decimals -> strings, bytes -> base64)
+- **`source_basename`**: reduces a local, Windows or `s3://` path to its file name
 
 ### Schema Structure Helpers
 - **Base Schema Templates**: Pre-configured schema templates for different file types

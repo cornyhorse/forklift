@@ -12,18 +12,21 @@ The core processor responsible for converting PyArrow table structures into JSON
 - **Required Field Detection**: Analyzes data to determine which fields should be required based on null value presence
 - **Type Mapping**: Handles complex type conversions including nested structures, dates, and custom formats
 - **Schema Extensions**: Generates file-format specific extensions (x-csv, x-excel)
-- **Sample Data Integration**: Embeds representative data samples in schema definitions
+- **Sample Data Integration**: Embeds the first rows as JSON-safe samples (dates and timestamps as ISO strings, decimals as strings, NaN/infinity as null) when `include_sample_data` is set
 
 ### ConfigurationParser
 Generates configuration objects and extensions for data processing pipelines:
-- **Primary Key Configuration**: Analyzes data uniqueness and cardinality to suggest primary key candidates
+- **Primary Key Configuration**: Infers a primary key only from columns that are exactly unique and null-free in the analysed rows (the key is written with `enforceUniqueness: true`) and whose name contains a whole `id`, `key`, `pk`, `uuid` or `guid` token (`user_id`, `userId`, not `width` or `paid`)
 - **Transformation Extensions**: Creates transformation rule templates based on data characteristics
 - **Processing Hints**: Generates optimization suggestions for large datasets
 - **Validation Rules**: Constructs field-level validation constraints
 - **Column Analysis**: Provides detailed column-level processing recommendations
 
 ### MetadataGenerator
-Extracts and formats comprehensive metadata from data sources:
+Extracts and formats metadata from data sources using `pyarrow.compute` (no pandas):
+- **Privacy**: raw cell values are only embedded when the caller sets `include_value_statistics=True` (`top_values`, `bottom_values`, `suggested_enum_values`, `min_value`, `max_value`, `median`, `range`, `quantiles`). Without it the metadata keeps counts, null/NaN statistics, type information, distinct counts, mean/standard deviation/variance, outlier counts and string-length statistics. Only the source file name is recorded
+- **Robustness**: list, struct, map and other unhashable columns get null/type statistics but no distinct-value statistics; dictionary columns are analysed on their decoded values; undefined statistics (such as the standard deviation of one row) are `null` and the result is strict JSON
+- **Quantiles**: configured quantiles must be within 0..1 (`ValueError` otherwise) and are keyed by their percentage, for example `quantile_29` and `quantile_99_5`
 - **Statistical Analysis**: Calculates distributions, quartiles, and data quality metrics
 - **Data Profiling**: Generates column profiles including uniqueness, null rates, and value distributions
 - **Type Confidence**: Provides confidence scores for type inference decisions
@@ -107,8 +110,10 @@ transformation_config = parser.generate_transformation_extension(table)
 from forklift.schema.processors import MetadataGenerator
 
 generator = MetadataGenerator()
-metadata = generator.generate_metadata(table, config)
-profile = generator.generate_column_profiles(table)
+metadata = generator.generate_metadata(
+    table,
+    {"enum_threshold": 0.1, "quantiles": [0.25, 0.5, 0.75], "include_value_statistics": False},
+)
 ```
 
 ## Integration Points
@@ -120,8 +125,7 @@ profile = generator.generate_column_profiles(table)
 
 ### External Dependencies
 - **PyArrow**: Core data processing and type system
-- **Pandas**: Statistical analysis and data manipulation
-- **NumPy**: Numerical computations and array operations
+- **PyArrow compute**: Statistical analysis (no pandas or NumPy required)
 
 ## Performance Optimizations
 

@@ -16,11 +16,12 @@ The main orchestrator class that coordinates the entire schema generation proces
 - Generate metadata and validation rules
 
 ### DataTypeInferrer
-Handles the core data type inference logic for different file formats:
-- **CSV Support**: Custom delimiters, encodings, and sampling strategies
-- **Excel Support**: Sheet selection, row limits, and format detection
-- **Parquet Support**: Efficient columnar format processing with built-in schema information
-- **S3 Integration**: Seamless handling of cloud-stored files
+Handles the core data type inference logic for different file formats (PyArrow and openpyxl only, no pandas):
+- **CSV Support**: Custom delimiters and encodings. The file (local or S3) is streamed with `pyarrow.csv.open_csv` as all-string columns and reading stops after `nrows` rows; Forklift's own inference then assigns the types, so `nrows=None` and a large `nrows` agree and identifiers with leading zeros (`02134`) stay strings. Integers must match `^-?(0|[1-9]\d*)$`; booleans are `true`/`false`; `YYYY-MM-DD` dates and `YYYY-MM-DD[T ]HH:MM[:SS[.f]]` timestamps are detected; null tokens are the empty string, `NULL`, `null`, `N/A`, `n/a`, `#N/A`, `NaN` and `nan` (`NA` is a value, not a null)
+- **Excel Support**: `openpyxl.load_workbook(read_only=True, data_only=True)`, reading at most `nrows + 1` rows of the chosen sheet; cells keep their Excel types and the workbook is closed afterwards. Legacy `.xls` is not supported
+- **Parquet Support**: Only the row groups needed for `nrows` rows are read; the file's own types are kept
+- **S3 Integration**: Objects are opened as binary streams through `UnifiedIOHandler.open_for_read(path, encoding="binary")`
+- **Input guard**: only local paths and `s3://` URIs are accepted. URL-like inputs (`http://`, `https://`, `ftp://`, `file://` ...) raise `ValueError`
 
 ### SchemaValidator
 Provides comprehensive validation capabilities for:
@@ -40,15 +41,15 @@ The subpackage supports extensive configuration through `SchemaGenerationConfig`
 - Sheet selection for Excel files
 
 ### Processing Configuration
-- Sample size for analysis (nrows parameter)
+- Sample size for analysis (`nrows`; `None` analyses the whole file). The `SchemaGenerationConfig` default is 1000 rows, the `generate_schema_from_csv` and `generate_schema_from_parquet` API functions default to `None`
 - Enum detection thresholds
 - Uniqueness analysis parameters
-- Quantile calculations for numeric data
+- Quantile calculations for numeric data (each quantile must be within 0..1, otherwise `ValueError`)
 
 ### Output Configuration
 - Multiple output targets (stdout, file, clipboard)
-- Sample data inclusion options
-- Metadata generation controls
+- Sample data inclusion options (`include_sample_data`, off by default)
+- Metadata generation controls, including `include_value_statistics` (off by default): top/bottom values, enum value lists, min/max/median and quantiles copy raw cell values into the schema and are only produced when enabled
 - Primary key inference settings
 
 ## File Format Support
@@ -89,10 +90,10 @@ The subpackage supports extensive configuration through `SchemaGenerationConfig`
 - **x-primaryKey**: Primary key configurations
 
 ### Analysis Metadata
-- Column statistics and distributions
+- Column statistics (counts, null statistics, distinct counts, string lengths; value statistics only with `include_value_statistics=True`)
 - Data quality metrics
-- Type inference confidence scores
-- Sample data representations
+- The source file is recorded by file name only, never by absolute path
+- Sample data representations (only with `include_sample_data=True`)
 
 ## Usage Patterns
 
@@ -132,7 +133,7 @@ config = SchemaGenerationConfig(
 
 ### External Dependencies
 - **PyArrow**: High-performance data processing
-- **Pandas**: Data manipulation and analysis
+- **openpyxl**: Excel sampling
 - **pyperclip**: Clipboard integration (optional)
 
 ## Error Handling
@@ -148,5 +149,5 @@ The subpackage provides robust error handling for:
 
 - **Sampling Strategy**: Configurable row limits for large files
 - **Memory Management**: Efficient PyArrow-based processing
-- **S3 Optimization**: Streaming and partial reads for cloud files
+- **S3 Optimization**: CSV objects are streamed and closed once `nrows` rows are read; Parquet and Excel need random access, so forward-only streams are buffered in memory
 - **Type Inference**: Optimized algorithms for fast analysis

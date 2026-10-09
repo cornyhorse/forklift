@@ -25,6 +25,7 @@ def generate_schema_from_csv(
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key_from_metadata: bool = False,  # Use metadata-based inference
     user_specified_primary_key: Optional[List[str]] = None,  # Allow manual specification
+    include_value_statistics: bool = False,  # Default to False to avoid sensitive data
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from a CSV file.
 
@@ -36,6 +37,9 @@ def generate_schema_from_csv(
         include_sample_data: Include sample data in the schema (default: False)
         infer_primary_key_from_metadata: Infer primary key from metadata analysis (default: False)
         user_specified_primary_key: Manually specify primary key columns (default: None)
+        include_value_statistics: Include statistics that embed raw cell values in the schema
+            metadata: top/bottom values, enum value lists, min/max/median and quantiles
+            (default: False, because those values can be personal data)
 
     Returns:
         Dictionary containing the generated schema
@@ -70,6 +74,7 @@ def generate_schema_from_csv(
         include_sample_data=include_sample_data,
         infer_primary_key_from_metadata=infer_primary_key_from_metadata,
         user_specified_primary_key=user_specified_primary_key,
+        include_value_statistics=include_value_statistics,
     )
 
     generator = SchemaGenerator(config)
@@ -83,6 +88,7 @@ def generate_schema_from_excel(
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key_from_metadata: bool = False,  # Use metadata-based inference
     user_specified_primary_key: Optional[List[str]] = None,  # Allow manual specification
+    include_value_statistics: bool = False,  # Default to False to avoid sensitive data
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from an Excel file.
 
@@ -93,6 +99,9 @@ def generate_schema_from_excel(
         include_sample_data: Include sample data in the schema (default: False)
         infer_primary_key_from_metadata: Infer primary key from metadata analysis (default: False)
         user_specified_primary_key: Manually specify primary key columns (default: None)
+        include_value_statistics: Include statistics that embed raw cell values in the schema
+            metadata: top/bottom values, enum value lists, min/max/median and quantiles
+            (default: False, because those values can be personal data)
 
     Returns:
         Dictionary containing the generated schema
@@ -125,6 +134,7 @@ def generate_schema_from_excel(
         include_sample_data=include_sample_data,
         infer_primary_key_from_metadata=infer_primary_key_from_metadata,
         user_specified_primary_key=user_specified_primary_key,
+        include_value_statistics=include_value_statistics,
     )
 
     generator = SchemaGenerator(config)
@@ -137,6 +147,7 @@ def generate_schema_from_parquet(
     include_sample_data: bool = False,  # Default to False to avoid sensitive data
     infer_primary_key_from_metadata: bool = False,  # Use metadata-based inference
     user_specified_primary_key: Optional[List[str]] = None,  # Allow manual specification
+    include_value_statistics: bool = False,  # Default to False to avoid sensitive data
 ) -> Dict[str, Any]:
     """Generate a Forklift schema from a Parquet file.
 
@@ -146,6 +157,9 @@ def generate_schema_from_parquet(
         include_sample_data: Include sample data in the schema (default: False)
         infer_primary_key_from_metadata: Infer primary key from metadata analysis (default: False)
         user_specified_primary_key: Manually specify primary key columns (default: None)
+        include_value_statistics: Include statistics that embed raw cell values in the schema
+            metadata: top/bottom values, enum value lists, min/max/median and quantiles
+            (default: False, because those values can be personal data)
 
     Returns:
         Dictionary containing the generated schema
@@ -182,6 +196,7 @@ def generate_schema_from_parquet(
         include_sample_data=include_sample_data,
         infer_primary_key_from_metadata=infer_primary_key_from_metadata,
         user_specified_primary_key=user_specified_primary_key,
+        include_value_statistics=include_value_statistics,
     )
 
     generator = SchemaGenerator(config)
@@ -202,7 +217,8 @@ def generate_and_save_schema(
         output_path: Path where the schema should be saved
         file_type: Type of input file ("csv", "excel", "parquet")
         nrows: Number of rows to analyze
-        **kwargs: Additional arguments passed to the generator
+        **kwargs: Additional arguments passed to the generator (any ``SchemaGenerationConfig``
+            field, for example ``include_value_statistics=True``)
 
     Example:
         >>> generate_and_save_schema(
@@ -235,7 +251,8 @@ def generate_and_copy_schema(
         input_path: Path to the input file
         file_type: Type of input file ("csv", "excel", "parquet")
         nrows: Number of rows to analyze
-        **kwargs: Additional arguments passed to the generator
+        **kwargs: Additional arguments passed to the generator (any ``SchemaGenerationConfig``
+            field, for example ``include_value_statistics=True``)
 
     Returns:
         Dictionary containing the generated schema

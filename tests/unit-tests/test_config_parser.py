@@ -278,7 +278,7 @@ class TestConfigurationParser:
             assert "inference_metadata" in result
 
     def test_infer_primary_key_uniqueness_ratio_099_branch(self, parser, sample_table):
-        """Test inferring primary key with exactly 0.99 uniqueness to cover line 126."""
+        """A column with 0.99 uniqueness (not exactly unique) is not a primary key."""
         with patch(
             "forklift.schema.processors.metadata.MetadataGenerator"
         ) as mock_metadata_gen_class:
@@ -298,12 +298,11 @@ class TestConfigurationParser:
 
             result = parser._infer_primary_key_from_metadata(sample_table)
 
-            assert result is not None
-            assert result["columns"] == ["test_id"]
-            assert result["inference_metadata"]["score"] == 13
+            # Near-unique columns are not primary keys: the inferred key is enforced
+            assert result is None
 
     def test_infer_primary_key_uniqueness_ratio_095_branch(self, parser, sample_table):
-        """Test inferring primary key with exactly 0.95 uniqueness to cover line 128."""
+        """A column with 0.95 uniqueness (not exactly unique) is not a primary key."""
         with patch(
             "forklift.schema.processors.metadata.MetadataGenerator"
         ) as mock_metadata_gen_class:
@@ -323,9 +322,8 @@ class TestConfigurationParser:
 
             result = parser._infer_primary_key_from_metadata(sample_table)
 
-            assert result is not None
-            assert result["columns"] == ["test_id"]
-            assert result["inference_metadata"]["score"] == 10
+            # Near-unique columns are not primary keys: the inferred key is enforced
+            assert result is None
 
     def test_infer_primary_key_key_pk_naming_patterns(self, parser, sample_table):
         """Test inferring primary key with 'key' and 'pk' naming patterns to cover lines 132-133."""
@@ -452,7 +450,7 @@ class TestConfigurationParser:
             assert result is None
 
     def test_infer_primary_key_specific_099_uniqueness_branch(self, parser, sample_table):
-        """Test to specifically hit line 126 (elif uniqueness_ratio >= 0.99)."""
+        """A column with 0.99 uniqueness (not exactly unique) is not a primary key."""
         with patch(
             "forklift.schema.processors.metadata.MetadataGenerator"
         ) as mock_metadata_gen_class:
@@ -471,11 +469,11 @@ class TestConfigurationParser:
 
             result = parser._infer_primary_key_from_metadata(sample_table)
 
-            assert result is not None
-            assert result["inference_metadata"]["score"] == 11
+            # Near-unique columns are not primary keys: the inferred key is enforced
+            assert result is None
 
     def test_infer_primary_key_specific_095_uniqueness_branch(self, parser, sample_table):
-        """Test to specifically hit line 128 (elif uniqueness_ratio >= 0.95)."""
+        """A column with 0.96 uniqueness (not exactly unique) is not a primary key."""
         with patch(
             "forklift.schema.processors.metadata.MetadataGenerator"
         ) as mock_metadata_gen_class:
@@ -494,8 +492,8 @@ class TestConfigurationParser:
 
             result = parser._infer_primary_key_from_metadata(sample_table)
 
-            assert result is not None
-            assert result["inference_metadata"]["score"] == 10
+            # Near-unique columns are not primary keys: the inferred key is enforced
+            assert result is None
 
     def test_infer_primary_key_medium_count_penalty_branch(self, parser, sample_table):
         """Test to specifically hit line 137 (elif distinct_count > 10000)."""
@@ -590,7 +588,7 @@ class TestConfigurationParser:
             assert result["inference_metadata"]["score"] == 13
 
     def test_hit_elif_099_uniqueness_branch_specifically(self, parser, sample_table):
-        """Test to hit the elif uniqueness_ratio >= 0.99 branch when != 1.0."""
+        """A column with 0.995 uniqueness (not exactly unique) is not a primary key."""
         with patch(
             "forklift.schema.processors.metadata.MetadataGenerator"
         ) as mock_metadata_gen_class:
@@ -609,8 +607,8 @@ class TestConfigurationParser:
 
             result = parser._infer_primary_key_from_metadata(sample_table)
 
-            assert result is not None
-            assert result["inference_metadata"]["score"] == 11
+            # Near-unique columns are not primary keys: the inferred key is enforced
+            assert result is None
 
     def test_hit_elif_10000_distinct_count_branch_specifically(self, parser, sample_table):
         """Test to hit the elif distinct_count > 10000 branch when <= 100000."""
@@ -636,7 +634,7 @@ class TestConfigurationParser:
             assert result["inference_metadata"]["score"] == 14
 
     def test_hit_exact_elif_099_branch_when_not_10(self, parser, sample_table):
-        """Test to hit the exact elif uniqueness_ratio >= 0.99 branch when ratio is not 1.0."""
+        """A column with 0.992 uniqueness (not exactly unique) is not a primary key."""
         with patch(
             "forklift.schema.processors.metadata.MetadataGenerator"
         ) as mock_metadata_gen_class:
@@ -655,8 +653,8 @@ class TestConfigurationParser:
 
             result = parser._infer_primary_key_from_metadata(sample_table)
 
-            assert result is not None
-            assert result["inference_metadata"]["score"] == 11
+            # Near-unique columns are not primary keys: the inferred key is enforced
+            assert result is None
 
     def test_hit_exact_elif_10000_branch_when_not_100000(self, parser, sample_table):
         """Test to hit the exact elif distinct_count > 10000 branch when count is not > 100000."""
@@ -682,7 +680,7 @@ class TestConfigurationParser:
             assert result["inference_metadata"]["score"] == 12
 
     def test_final_elif_099_branch_coverage(self, parser, sample_table):
-        """Final test to hit the exact elif uniqueness_ratio >= 0.99 branch."""
+        """A column with 0.991 uniqueness (not exactly unique) is not a primary key."""
         with patch(
             "forklift.schema.processors.metadata.MetadataGenerator"
         ) as mock_metadata_gen_class:
@@ -701,8 +699,8 @@ class TestConfigurationParser:
 
             result = parser._infer_primary_key_from_metadata(sample_table)
 
-            assert result is not None
-            assert result["inference_metadata"]["score"] == 11
+            # Near-unique columns are not primary keys: the inferred key is enforced
+            assert result is None
 
     def test_final_elif_10000_branch_coverage(self, parser, sample_table):
         """Final test to hit the exact elif distinct_count > 10000 branch."""

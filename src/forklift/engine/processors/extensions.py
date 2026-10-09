@@ -426,8 +426,9 @@ def build_extension_pipeline(
     declared_names = set(properties) if isinstance(properties, dict) else set()
     calculated = None
     if schema.get("x-calculatedColumns"):
+        renamed = {src: dst for src, dst in mapping.items() if dst is not None and dst != src}
         calculated_config, skipped = _calculated_columns_for_input(
-            schema["x-calculatedColumns"], output_names, declared_names, resolve
+            schema["x-calculatedColumns"], output_names, declared_names, resolve, renamed
         )
         warnings.extend(skipped)
         calculated = create_calculated_columns_processor_from_schema(calculated_config)
@@ -493,17 +494,38 @@ def _calculated_columns_for_input(
     output_names: Sequence[str],
     declared: set,
     resolve: Callable[[str], str],
+    renamed: Dict[str, str],
 ) -> Tuple[Any, List[str]]:
-    """``x-calculatedColumns`` without the columns whose inputs this file lacks.
+    """``x-calculatedColumns`` checked against the columns of this input.
 
-    A column that lists ``dependencies`` the input does not have is left out with a warning when
-    the schema declares those columns in ``properties`` (a standard describing more columns than
-    the file); the same goes for a column that depends on one that was left out. A dependency that
-    nothing declares is most likely a typo and raises, before any output is written.
+    Every name and function an expression uses is checked here, before anything is written, so a
+    typo is reported with the column it is in and a suggestion instead of failing on the first
+    row. A column that uses (or lists in ``dependencies``) a column the input lacks is left out
+    with a warning when ``properties`` declares that column (a standard describing more columns
+    than the file); the same goes for a column that depends on one that was left out.
+
+    Args:
+        config: The ``x-calculatedColumns`` object
+        output_names: Columns of the data after ``x-columnMapping``
+        declared: Names the schema declares in ``properties``
+        resolve: Maps a header name to its output name
+        renamed: Header name -> new name, for the columns ``x-columnMapping`` renames
 
     Returns:
         ``(config, warnings)``; ``config`` is a copy when something was left out
+
+    Raises:
+        ValueError: An expression calls an unknown function or uses a name that is neither a
+            column, a constant, nor declared in ``properties``
     """
+    from ...processors.calculated_columns.functions import get_available_functions, get_constants
+    from ...processors.calculated_columns.limits import ExpressionError
+    from ...processors.calculated_columns.safe_eval import (
+        compile_expression,
+        unknown_function_message,
+        unknown_name_message,
+    )
+
     if not isinstance(config, dict):
         return config, []
 
@@ -514,28 +536,70 @@ def _calculated_columns_for_input(
     constants = {e.get("name") for e in entries("constants")}
     pending = entries("expressions") + entries("calculated")
     present = set(output_names) | constants
-    dropped: Dict[str, List[str]] = {}
+    functions = set(get_available_functions())
+    builtin = set(get_constants())
 
+    # name -> names the expression uses as values (empty when it does not compile: the
+    # processor reports that, with the expression's own message)
+    uses: Dict[int, List[str]] = {}
+    for entry in pending:
+        source = entry.get("expression", entry.get("function", ""))
+        try:
+            compiled = compile_expression(source) if isinstance(source, str) else None
+        except ExpressionError:
+            compiled = None
+        # ``names`` also lists the targets of calls; those are checked as functions below
+        called = set(compiled.function_names) if compiled else set()
+        uses[id(entry)] = [n for n in compiled.names if n not in called] if compiled else []
+        for function in compiled.function_names if compiled else ():
+            if function not in functions:
+                raise ValueError(
+                    f"x-calculatedColumns column '{entry.get('name')}': "
+                    f"{unknown_function_message(function, functions)}"
+                )
+
+    dropped: Dict[str, List[str]] = {}
     changed = True
     while changed:
         changed = False
         for entry in list(pending):
-            deps = entry.get("dependencies")
-            if not isinstance(deps, list):
-                continue
             kept_names = {e.get("name") for e in pending}
+            satisfied = present | kept_names
+
+            listed = entry.get("dependencies")
             missing = [
                 d
-                for d in deps
-                if isinstance(d, str) and resolve(d) not in present and d not in kept_names
+                for d in (listed if isinstance(listed, list) else [])
+                if isinstance(d, str) and d not in satisfied and resolve(d) not in satisfied
             ]
+            for name in uses[id(entry)]:
+                if name in satisfied or name in builtin:
+                    continue
+                if name in renamed and renamed[name] in satisfied:
+                    raise ValueError(
+                        f"x-calculatedColumns column '{entry.get('name')}' uses '{name}', "
+                        f"which x-columnMapping renames to '{renamed[name]}'; write "
+                        f"'{renamed[name]}' in the expression"
+                    )
+                if name not in missing:
+                    missing.append(name)
             if not missing:
                 continue
+
             unknown = [d for d in missing if d not in declared and d not in dropped]
             if unknown:
+                first = unknown[0]
                 raise ValueError(
-                    f"x-calculatedColumns column '{entry.get('name')}' depends on column(s) "
-                    f"{', '.join(repr(d) for d in unknown)} that are not in the input"
+                    f"x-calculatedColumns column '{entry.get('name')}': "
+                    + unknown_name_message(first, sorted(satisfied - {entry.get("name")}))
+                    + (
+                        f" (also not found: {', '.join(map(repr, unknown[1:]))})"
+                        if unknown[1:]
+                        else ""
+                    )
+                    + " If the column exists only in some files, declare it under 'properties' "
+                    "so that this calculated column is skipped (with a warning) for files "
+                    "that lack it."
                 )
             dropped[entry.get("name")] = missing
             pending.remove(entry)

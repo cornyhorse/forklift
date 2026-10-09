@@ -24,9 +24,11 @@ semantics.
 from __future__ import annotations
 
 import ast
+import difflib
 import functools
 import operator
-from typing import Any, Callable, FrozenSet, Mapping, Tuple
+import re
+from typing import Any, Callable, FrozenSet, Iterable, List, Mapping, Optional, Tuple
 
 from .limits import (
     MAX_CALL_ARGUMENTS,
@@ -127,6 +129,143 @@ def _is_dunder(name: str) -> bool:
     return name.startswith("__")
 
 
+DOCUMENTATION = "docs/schemas/X_CALCULATED_COLUMNS_DOCUMENTATION.md"
+
+_QUOTED = re.compile(r"""('(?:[^']|'')*'|"(?:[^"]|"")*")""")
+_CASE = re.compile(r"^\s*CASE\s+(.*?)\s+END\s*;?\s*$", re.IGNORECASE | re.DOTALL)
+_WHEN_BRANCH = re.compile(
+    r"\s*(?P<condition>.*?)\s+THEN\s+(?P<value>.*?)\s*(?:\bELSE\s+(?P<otherwise>.*?))?\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _outside_quotes(text: str, transform: Callable[[str], str]) -> str:
+    """Apply ``transform`` to the parts of ``text`` that are not inside a string literal."""
+    parts = _QUOTED.split(text)
+    return "".join(part if index % 2 else transform(part) for index, part in enumerate(parts))
+
+
+def _python_operators(text: str) -> str:
+    """Best-effort rewrite of SQL operators (outside string literals) into the supported ones."""
+
+    def convert(code: str) -> str:
+        code = re.sub(r"<>", "!=", code)
+        code = re.sub(r"(?<![=!<>])=(?!=)", "==", code)
+        code = re.sub(r"\bIS\s+NOT\s+NULL\b", "is not None", code, flags=re.IGNORECASE)
+        code = re.sub(r"\bIS\s+NULL\b", "is None", code, flags=re.IGNORECASE)
+        code = re.sub(r"\bAND\b", "and", code)
+        code = re.sub(r"\bOR\b", "or", code)
+        return re.sub(r"\bNOT\b", "not", code)
+
+    return _outside_quotes(text, convert)
+
+
+def _case_when_example(text: str) -> Optional[str]:
+    """The conditional expression that does what a searched ``CASE WHEN`` does, if it parses."""
+    match = _CASE.match(text)
+    if not match:
+        return None
+    pieces = re.split(r"\bWHEN\b", match.group(1), flags=re.IGNORECASE)
+    if pieces[0].strip() or len(pieces) < 2:  # "CASE x WHEN 1 ..." (value form) is not handled
+        return None
+    branches: List[Tuple[str, str]] = []
+    otherwise = "None"
+    for number, piece in enumerate(pieces[1:], start=1):
+        branch = _WHEN_BRANCH.match(piece)
+        if not branch:
+            return None
+        branches.append(
+            (
+                _python_operators(branch.group("condition")),
+                _python_operators(branch.group("value")),
+            )
+        )
+        if branch.group("otherwise") is not None:
+            if number != len(pieces) - 1:
+                return None
+            otherwise = _python_operators(branch.group("otherwise"))
+    result = otherwise
+    for condition, value in reversed(branches):
+        result = (
+            f"{value} if {condition} else ({result})"
+            if result != otherwise
+            else (f"{value} if {condition} else {result}")
+        )
+    return result
+
+
+def syntax_hints(text: str, detail: str = "") -> List[str]:
+    """What to write instead, for the SQL-style mistakes people make in expressions."""
+    hints: List[str] = []
+    code = _QUOTED.sub("''", text)  # the checks below must not look inside string literals
+    if re.search(r"\bCASE\b.*\bWHEN\b", code, re.IGNORECASE | re.DOTALL):
+        example = _case_when_example(text)
+        hints.append(
+            "SQL 'CASE WHEN ... THEN ... ELSE ... END' is not supported. Write a conditional "
+            "expression instead: 'a if condition else b', nested for more branches"
+            + (f". For this expression: {example}" if example else "")
+            + ". The function if_then_else(condition, a, b) does the same for one branch"
+        )
+        if example:  # the rewrite above already uses the supported operators
+            return hints
+    if re.search(r"(?<![<>=!])=(?!=)", code):
+        hints.append("'=' is not a comparison here: write '==' to compare two values")
+    if "<>" in code and "!=" not in detail:
+        hints.append("write '!=' instead of '<>'")
+    if re.search(r"\bIS\s+(NOT\s+)?NULL\b", code, re.IGNORECASE):
+        hints.append(
+            "write 'x is None' / 'x is not None' (or isnull(x) / isnotnull(x)) instead of "
+            "'IS NULL' / 'IS NOT NULL'"
+        )
+    if re.search(r"\b(AND|OR|NOT)\b", code):
+        hints.append("write the boolean operators in lowercase: 'and', 'or', 'not'")
+    if "||" in code:
+        hints.append("'||' does not join strings: use concat(a, b, ...)")
+    return hints
+
+
+def _closest(name: str, candidates: Iterable[str]) -> List[str]:
+    pool = sorted({c for c in candidates if isinstance(c, str)})
+    close = difflib.get_close_matches(name, pool, n=3, cutoff=0.6)
+    same_letters = [c for c in pool if c.lower() == name.lower() and c not in close]
+    return same_letters + close
+
+
+def unknown_name_message(name: str, columns: Optional[Iterable[str]] = None) -> str:
+    """Message for a name that is neither a column nor a constant.
+
+    Args:
+        name: The unknown name
+        columns: All columns the expression could use, when the caller knows them (the import
+            does; the row interpreter only sees the columns the expression asked for)
+    """
+    message = f"Unknown name '{name}': it is neither a column of the data nor a constant"
+    if columns is not None:
+        columns = sorted({c for c in columns if isinstance(c, str)})
+        close = _closest(name, columns)
+        message += "."
+        if close:
+            message += f" Did you mean {' or '.join(repr(c) for c in close)}?"
+        if columns:
+            shown = ", ".join(repr(c) for c in columns[:30])
+            message += f" Columns available here: {shown}{' ...' if len(columns) > 30 else ''}."
+    return message + (
+        ". Columns renamed by x-columnMapping are called by their new name in expressions."
+        if columns is None
+        else " Columns renamed by x-columnMapping are called by their new name in expressions."
+    )
+
+
+def unknown_function_message(name: str, functions: Iterable[str]) -> str:
+    """Message for a call to a function that is not on the whitelist."""
+    functions = sorted(set(functions))
+    message = f"Unknown function '{name}'."
+    close = _closest(name, functions)
+    if close:
+        message += f" Did you mean {' or '.join(f'{c}(...)' for c in close)}?"
+    return message + f" Available functions: {', '.join(functions)}. See {DOCUMENTATION}."
+
+
 class CompiledExpression:
     """A validated expression tree plus the names it references.
 
@@ -201,7 +340,19 @@ def _compile_cached(source: str, max_length: int, max_nodes: int) -> CompiledExp
         tree = ast.parse(text, mode="eval")
     except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
         detail = getattr(exc, "msg", None) or type(exc).__name__
-        raise ExpressionError(f"Expression is not valid: {detail}") from None
+        if not isinstance(exc, SyntaxError):
+            raise ExpressionError(f"Expression is not valid: {detail}") from None
+        hints = syntax_hints(text, detail)
+        if not hints and "Maybe you meant" not in detail:
+            hints = [
+                "expressions use Python-like syntax: 'a if condition else b', 'and' / 'or' / "
+                "'not', '==', 'x is None', string literals in quotes and calls such as "
+                "coalesce(a, b), concat(a, b), length(x) or isnull(x)"
+            ]
+        advice = f". {'; '.join(hints)}" if hints else ""
+        raise ExpressionError(
+            f"Expression is not valid: {detail.strip()}{advice}. See {DOCUMENTATION}"
+        ) from None
 
     names = []
     function_names = []
@@ -295,7 +446,7 @@ class _Interpreter:
             return self._variables[name]
         if name in self._functions:
             raise ExpressionError(f"Function '{name}' must be called with parentheses")
-        raise ExpressionError(f"Unknown name '{name}'")
+        raise ExpressionError(unknown_name_message(name))
 
     def _visit_Tuple(self, node: ast.Tuple) -> Any:
         return tuple(self.visit(element) for element in node.elts)
@@ -390,7 +541,7 @@ class _Interpreter:
         name = node.func.id  # type: ignore[attr-defined]  # validated to be a Name
         function = self._functions.get(name)
         if function is None:
-            raise ExpressionError(f"Unknown function '{name}'")
+            raise ExpressionError(unknown_function_message(name, self._functions))
 
         args = [self.visit(arg) for arg in node.args]
         kwargs = {keyword.arg: self.visit(keyword.value) for keyword in node.keywords}

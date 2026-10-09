@@ -215,8 +215,14 @@ class ExpressionEvaluator:
                         return text.cast(pa.timestamp(data_type.unit, tz="UTC")).cast(data_type)
                 raise
         except (pa.ArrowException, TypeError, ValueError, OverflowError):
-            # The Arrow message quotes the offending value; report only the target type.
+            # The Arrow message quotes the offending value; report only the types involved.
+            produced = sorted({type(v).__name__ for v in values if v is not None})[:4]
             raise ValueError(
                 f"Expression result for column '{column_config.name}' "
                 f"cannot be converted to {column_config.data_type}"
+                + (f": the expression produced {', '.join(produced)} values" if produced else "")
+                + ". Set dataType to the type the expression returns (for example 'bool' for "
+                "isnull(x) or a comparison, 'int64' for whole numbers, 'double' for decimals, "
+                "'string' for text) or convert the value in the expression with to_string(), "
+                "to_int() or to_float()"
             ) from None

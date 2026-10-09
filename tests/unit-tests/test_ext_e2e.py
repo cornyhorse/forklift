@@ -278,6 +278,64 @@ class TestCalculatedColumns:
             run(tmp_path, "age,source\n30,x\n", self.SCHEMA)
 
 
+class TestExpressionMistakes:
+    """Mistakes in expressions are reported before anything is written, with what to do."""
+
+    @staticmethod
+    def schema(expression, dependencies=None, properties=None):
+        entry = {"name": "c", "expression": expression, "dataType": "string"}
+        if dependencies is not None:
+            entry["dependencies"] = dependencies
+        return schema_of(
+            properties or {"age": {"type": "integer"}, "name": {"type": "string"}},
+            **{"x-calculatedColumns": {"expressions": [entry]}},
+        )
+
+    def test_case_when_is_explained_with_the_equivalent_expression(self, tmp_path):
+        schema = self.schema("CASE WHEN age < 18 THEN 'minor' ELSE 'adult' END", ["age"])
+
+        with pytest.raises(ValueError) as error:
+            run(tmp_path, "age,name\n30,a\n", schema)
+
+        assert "'minor' if age < 18 else 'adult'" in str(error.value)
+        assert not (tmp_path / "out" / "data.parquet").exists()
+
+    def test_a_misspelt_column_in_an_expression_is_found_before_row_zero(self, tmp_path):
+        schema = self.schema("'a' if agee > 1 else 'b'", dependencies=[])
+
+        with pytest.raises(ValueError) as error:
+            run(tmp_path, "age,name\n30,a\n", schema)
+
+        text = str(error.value)
+        assert "column 'c'" in text and "Unknown name 'agee'" in text
+        assert "Did you mean 'age'?" in text and "declare it under 'properties'" in text
+        assert not (tmp_path / "out" / "data.parquet").exists()
+
+    def test_an_unknown_function_is_found_before_row_zero(self, tmp_path):
+        with pytest.raises(ValueError, match="Did you mean upper\\(\\.\\.\\.\\)"):
+            run(tmp_path, "age,name\n30,a\n", self.schema("UPPER(name)", ["name"]))
+
+    def test_a_renamed_column_must_be_called_by_its_new_name(self, tmp_path):
+        schema = self.schema("upper(Name)", ["Name"], {"Name": {"type": "string"}})
+        schema["x-columnMapping"] = {"explicitMappings": {"Name": "full_name"}}
+
+        with pytest.raises(ValueError, match="renames to 'full_name'"):
+            run(tmp_path, "Name\na\n", schema)
+
+    def test_a_column_used_but_not_listed_is_still_checked_and_may_be_skipped(self, tmp_path):
+        # 'salary' is declared in properties but this file has none: the column is left out
+        schema = self.schema(
+            "'high' if salary > 1 else 'low'",
+            dependencies=[],
+            properties={"age": {"type": "integer"}, "salary": {"type": "number"}},
+        )
+
+        results, out = run(tmp_path, "age\n30\n", schema)
+
+        assert data(out).schema.names == ["age"]
+        assert any("'c' is not added" in w and "'salary'" in w for w in results.warnings)
+
+
 class TestCalculatedColumnsOnNarrowerFiles:
     """A standard may describe more columns than a file has."""
 

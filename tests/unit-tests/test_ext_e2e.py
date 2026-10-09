@@ -130,6 +130,23 @@ class TestTransformations:
         assert data(out).column("name").to_pylist() == ["ANN"]
         assert any("nickname" in w and "not in the input" in w for w in results.warnings)
 
+    def test_a_step_without_enabled_is_reported_not_silently_skipped(self, tmp_path):
+        schema = schema_of(
+            {"name": {"type": "string"}},
+            **{
+                "x-transformations": {
+                    "column_transformations": {
+                        "name": {"string_cleaning": {"case_transform": "upper"}}
+                    }
+                }
+            },
+        )
+
+        results, out = run(tmp_path, "name\nann\n", schema)
+
+        assert data(out).column("name").to_pylist() == ["ann"]
+        assert any("name.string_cleaning" in w and "enabled" in w for w in results.warnings)
+
     def test_an_invalid_transformation_fails_before_any_output_is_written(self, tmp_path):
         schema = schema_of(
             {"name": {"type": "string"}},
@@ -246,6 +263,75 @@ class TestCalculatedColumns:
     def test_a_calculated_column_cannot_overwrite_a_column_of_the_file(self, tmp_path):
         with pytest.raises(ValueError, match="overwrite"):
             run(tmp_path, "age,source\n30,x\n", self.SCHEMA)
+
+
+class TestCalculatedColumnsOnNarrowerFiles:
+    """A standard may describe more columns than a file has."""
+
+    @staticmethod
+    def schema(**expressions):
+        return schema_of(
+            {"age": {"type": "integer"}, "salary": {"type": "number"}},
+            **{
+                "x-calculatedColumns": {
+                    "constants": [{"name": "source", "value": "csv"}],
+                    "expressions": [
+                        {
+                            "name": name,
+                            "expression": expression,
+                            "dataType": "string",
+                            "dependencies": dependencies,
+                        }
+                        for name, (expression, dependencies) in expressions.items()
+                    ],
+                }
+            },
+        )
+
+    def test_a_column_whose_input_is_missing_is_left_out_with_a_warning(self, tmp_path):
+        schema = self.schema(
+            tier=("'high' if salary > 10 else 'low'", ["salary"]),
+            group=("'old' if age > 40 else 'young'", ["age"]),
+        )
+
+        results, out = run(tmp_path, "age\n30\n50\n", schema)
+
+        table = data(out)
+        assert table.schema.names == ["age", "source", "group"]
+        assert table.column("group").to_pylist() == ["young", "old"]
+        assert any("'tier'" in w and "'salary'" in w for w in results.warnings)
+
+    def test_columns_that_depend_on_a_left_out_column_are_left_out_too(self, tmp_path):
+        schema = self.schema(
+            tier=("'high' if salary > 10 else 'low'", ["salary"]),
+            label=("tier + '!'", ["tier"]),
+        )
+
+        results, out = run(tmp_path, "age\n30\n", schema)
+
+        assert data(out).schema.names == ["age", "source"]
+        assert {w.split("'")[1] for w in results.warnings if "x-calculatedColumns" in w} == {
+            "tier",
+            "label",
+        }
+
+    def test_a_dependency_nothing_declares_is_an_error(self, tmp_path):
+        schema = self.schema(tier=("'x' if sallary > 10 else 'y'", ["sallary"]))
+
+        with pytest.raises(ValueError, match="sallary"):
+            run(tmp_path, "age,salary\n30,1\n", schema)
+
+        assert not (tmp_path / "out" / "data.parquet").exists()
+
+    def test_a_calculated_column_may_depend_on_another(self, tmp_path):
+        schema = self.schema(
+            tier=("'high' if salary > 10 else 'low'", ["salary"]),
+            label=("tier + '!'", ["tier"]),
+        )
+
+        _, out = run(tmp_path, "age,salary\n30,50\n", schema)
+
+        assert data(out).column("label").to_pylist() == ["high!"]
 
 
 # --------------------------------------------------------------------------------- x-validation

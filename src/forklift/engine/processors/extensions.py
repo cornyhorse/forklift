@@ -422,9 +422,15 @@ def build_extension_pipeline(
             )
 
     # --- post stage
+    properties = schema.get("properties")
+    declared_names = set(properties) if isinstance(properties, dict) else set()
     calculated = None
     if schema.get("x-calculatedColumns"):
-        calculated = create_calculated_columns_processor_from_schema(schema["x-calculatedColumns"])
+        calculated_config, skipped = _calculated_columns_for_input(
+            schema["x-calculatedColumns"], output_names, declared_names, resolve
+        )
+        warnings.extend(skipped)
+        calculated = create_calculated_columns_processor_from_schema(calculated_config)
     calculated_names = [c.name for c in calculated.config.columns] if calculated else []
     clashes = sorted(set(calculated_names) & set(output_names))
     if clashes:
@@ -447,8 +453,7 @@ def build_extension_pipeline(
                     "change its column names (columnName, ...)"
                 )
 
-    properties = schema.get("properties")
-    declared = set(properties) if isinstance(properties, dict) else set()
+    declared = declared_names
     warnings.extend(_renamed_onto_property_warnings(mapping, declared))
     reference_warnings, absent = _check_references(
         referenced_columns(schema), available, declared=declared, resolve=resolve
@@ -481,6 +486,74 @@ def build_extension_pipeline(
     for message in warnings:
         log(message)
     return pipeline if (pipeline.is_active or warnings) else None
+
+
+def _calculated_columns_for_input(
+    config: Any,
+    output_names: Sequence[str],
+    declared: set,
+    resolve: Callable[[str], str],
+) -> Tuple[Any, List[str]]:
+    """``x-calculatedColumns`` without the columns whose inputs this file lacks.
+
+    A column that lists ``dependencies`` the input does not have is left out with a warning when
+    the schema declares those columns in ``properties`` (a standard describing more columns than
+    the file); the same goes for a column that depends on one that was left out. A dependency that
+    nothing declares is most likely a typo and raises, before any output is written.
+
+    Returns:
+        ``(config, warnings)``; ``config`` is a copy when something was left out
+    """
+    if not isinstance(config, dict):
+        return config, []
+
+    def entries(key: str) -> List[Any]:
+        value = config.get(key)
+        return [e for e in value if isinstance(e, dict)] if isinstance(value, list) else []
+
+    constants = {e.get("name") for e in entries("constants")}
+    pending = entries("expressions") + entries("calculated")
+    present = set(output_names) | constants
+    dropped: Dict[str, List[str]] = {}
+
+    changed = True
+    while changed:
+        changed = False
+        for entry in list(pending):
+            deps = entry.get("dependencies")
+            if not isinstance(deps, list):
+                continue
+            kept_names = {e.get("name") for e in pending}
+            missing = [
+                d
+                for d in deps
+                if isinstance(d, str) and resolve(d) not in present and d not in kept_names
+            ]
+            if not missing:
+                continue
+            unknown = [d for d in missing if d not in declared and d not in dropped]
+            if unknown:
+                raise ValueError(
+                    f"x-calculatedColumns column '{entry.get('name')}' depends on column(s) "
+                    f"{', '.join(repr(d) for d in unknown)} that are not in the input"
+                )
+            dropped[entry.get("name")] = missing
+            pending.remove(entry)
+            changed = True
+
+    if not dropped:
+        return config, []
+    kept = {id(e) for e in pending}
+    pruned = dict(config)
+    for key in ("expressions", "calculated"):
+        if isinstance(config.get(key), list):
+            pruned[key] = [e for e in config[key] if not isinstance(e, dict) or id(e) in kept]
+    notes = [
+        f"x-calculatedColumns column '{name}' is not added: "
+        f"{', '.join(repr(d) for d in missing)} not in the input"
+        for name, missing in dropped.items()
+    ]
+    return pruned, notes
 
 
 def _renamed_onto_property_warnings(mapping: Dict[str, Optional[str]], declared: set) -> List[str]:

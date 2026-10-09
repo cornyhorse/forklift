@@ -849,7 +849,7 @@ def build_quality_processor(
     return DataQualityProcessor({"column_rules": column_rules}, include_values=False)
 
 
-# -------------------------------------------------------------------------------- referenced columns
+# ----------------------------------------------------------------------- referenced columns
 
 
 def _names(value: Any) -> List[str]:
@@ -1032,6 +1032,18 @@ def unsupported_extension_keys(schema: Dict[str, Any]) -> List[str]:
 def _transformation_warnings(section: Any, warnings: List[str]) -> None:
     if not isinstance(section, dict):
         return
+    columns = section.get("column_transformations")
+    if isinstance(columns, dict):
+        for column, steps in columns.items():
+            if not isinstance(steps, dict):
+                continue
+            for step, options in steps.items():
+                # A step runs only with "enabled": true; leaving the key out is an easy mistake
+                if isinstance(options, dict) and "enabled" not in options:
+                    warnings.append(
+                        f"x-transformations.column_transformations.{column}.{step} is skipped: "
+                        'it has no "enabled": true'
+                    )
     for key, value in section.items():
         if key == "column_transformations" or key in _DOC_KEYS or not _block_is_active(value):
             continue

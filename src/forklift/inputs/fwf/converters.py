@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import pyarrow as pa
 
 from ..config import FwfFieldSpec
+
+# Tokens accepted for boolean fields (compared case-insensitively, after trimming).
+# Anything else is an invalid value rather than a silent False.
+TRUE_TOKENS = frozenset({"true", "1", "yes", "y", "t"})
+FALSE_TOKENS = frozenset({"false", "0", "no", "n", "f"})
+
+_INT_BOUNDS = {
+    "int8": (-(2**7), 2**7 - 1),
+    "int16": (-(2**15), 2**15 - 1),
+    "int32": (-(2**31), 2**31 - 1),
+    "int64": (-(2**63), 2**63 - 1),
+    "uint8": (0, 2**8 - 1),
+    "uint16": (0, 2**16 - 1),
+    "uint32": (0, 2**32 - 1),
+    "uint64": (0, 2**64 - 1),
+}
 
 
 class FwfTypeConverter:
@@ -75,6 +91,45 @@ class FwfTypeConverter:
         return type_mapping.get(parquet_type, pa.string())
 
     @staticmethod
+    def convert_value_checked(value: str, parquet_type: str) -> Tuple[Any, bool]:
+        """Convert a string value and report whether the conversion was valid.
+
+        Args:
+            value: String value to convert
+            parquet_type: Target Parquet data type
+
+        Returns:
+            ``(converted, ok)``. Blank input is ``(None, True)``; a value that is not valid
+            for the type (``12A`` as an int, ``maybe`` as a bool, an out-of-range integer)
+            is ``(None, False)``.
+        """
+        if not value:
+            return None, True
+
+        try:
+            if parquet_type in _INT_BOUNDS:
+                number = int(value)
+                low, high = _INT_BOUNDS[parquet_type]
+                if not low <= number <= high:
+                    return None, False
+                return number, True
+            elif parquet_type in ["float32", "float64", "double"]:  # Add double support
+                return float(value), True
+            elif parquet_type.startswith("decimal"):
+                return float(value), True  # Convert to float for testing purposes
+            elif parquet_type == "bool":
+                token = value.strip().lower()
+                if token in TRUE_TOKENS:
+                    return True, True
+                if token in FALSE_TOKENS:
+                    return False, True
+                return None, False
+            else:  # string or other types
+                return value, True
+        except (ValueError, TypeError):
+            return None, False
+
+    @staticmethod
     def convert_value(value: str, parquet_type: str) -> Any:
         """Convert string value to appropriate Python type.
 
@@ -83,26 +138,10 @@ class FwfTypeConverter:
             parquet_type: Target Parquet data type
 
         Returns:
-            Converted value
+            Converted value, or None for blank or invalid input (use
+            :meth:`convert_value_checked` to tell those apart)
         """
-        if not value:
-            return None
-
-        try:
-            if parquet_type in ["int8", "int16", "int32", "int64"]:
-                return int(value)
-            elif parquet_type in ["uint8", "uint16", "uint32", "uint64"]:
-                return int(value)
-            elif parquet_type in ["float32", "float64", "double"]:  # Add double support
-                return float(value)
-            elif parquet_type.startswith("decimal"):
-                return float(value)  # Convert to float for testing purposes
-            elif parquet_type == "bool":
-                return value.lower() in ("true", "1", "yes", "y", "t")  # Add "t" for true
-            else:  # string or other types
-                return value
-        except (ValueError, TypeError):
-            return value  # Return original value if conversion fails
+        return FwfTypeConverter.convert_value_checked(value, parquet_type)[0]
 
     @staticmethod
     def convert_field_value(value: str, field: FwfFieldSpec) -> Any:

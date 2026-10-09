@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import re
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Pattern, Tuple
 
 import pyarrow.csv as pv_csv
 
+from ..utils.detect_encoding import detect_encoding as _detect_file_encoding
 from .config import CsvInputConfig
 
 
@@ -33,33 +34,50 @@ class CsvInputHandler:
             config: Configuration object containing CSV processing parameters
         """
         self.config = config
+        self._regex_cache: Dict[str, Pattern[str]] = {}
+        # Compile now so a malformed pattern is a configuration error, not a per-row failure
+        for pattern in config.comment_patterns or []:
+            self._compile(pattern)
+
+    def _compile(self, pattern: str) -> Pattern[str]:
+        """Compile (and cache) a configured comment regex.
+
+        Raises:
+            ValueError: If the pattern is not a valid regular expression
+        """
+        compiled = self._regex_cache.get(pattern)
+        if compiled is None:
+            try:
+                compiled = re.compile(pattern)
+            except (re.error, TypeError) as e:
+                raise ValueError(
+                    f"Invalid regular expression in comment_patterns: {pattern!r} ({e})"
+                )
+            self._regex_cache[pattern] = compiled
+        return compiled
 
     def detect_encoding(self, file_path: Path) -> str:
-        """Detect file encoding using chardet library.
+        """Detect file encoding.
 
-        Reads the first 10KB of the file to detect the most likely encoding.
+        Uses chardet (or charset_normalizer) when installed, then confirms the guess by
+        decoding the whole file; without either library utf-8, cp1252 and latin-1 are tried.
 
         Args:
             file_path: Path to the CSV file to analyze
 
         Returns:
             Detected encoding string (defaults to utf-8 if detection fails)
-
-        Note:
-            Requires the chardet library to be installed for encoding detection.
         """
-        import chardet
-
-        with open(file_path, "rb") as f:
-            raw_data = f.read(10000)  # Read first 10KB
-            result = chardet.detect(raw_data)
-            return result.get("encoding", "utf-8")
+        return _detect_file_encoding(file_path)
 
     def find_header_row(self, file_path: Path) -> Tuple[int, List[str]]:
         """Find the header row and extract column names.
 
-        Searches through the file to locate the header row based on the
-        configured header mode and comment patterns.
+        Honours ``header_mode``: ``absent`` returns ``(-1, [])`` (there is no header); with
+        ``present`` the header is the first row that is neither a comment nor blank; with
+        ``auto`` the first rows (up to ``header_search_rows``) are scanned for one that looks
+        like a header (mostly text), falling back to the first candidate row. Quote and
+        escape characters from the configuration are used when splitting rows.
 
         Args:
             file_path: Path to the CSV file to process
@@ -70,22 +88,62 @@ class CsvInputHandler:
         Raises:
             ValueError: If no valid header row can be found
         """
-        with open(file_path, "r", encoding=self.config.encoding) as f:
-            reader = csv.reader(f, delimiter=self.config.delimiter)
+        if self.config.header_mode == "absent":
+            return -1, []
 
-            for idx, row in enumerate(reader):
+        # utf-8-sig drops a byte order mark, which would otherwise end up in the first name
+        encoding = self.config.encoding
+        if encoding and encoding.lower().replace("_", "-") in ("utf-8", "utf8"):
+            encoding = "utf-8-sig"
+
+        reader_kwargs = {"delimiter": self.config.delimiter}
+        if self.config.quote_char:
+            reader_kwargs["quotechar"] = self.config.quote_char
+        else:
+            reader_kwargs["quoting"] = csv.QUOTE_NONE
+        if self.config.escape_char:
+            reader_kwargs["escapechar"] = self.config.escape_char
+
+        candidates: List[Tuple[int, List[str]]] = []
+        with open(file_path, "r", encoding=encoding, newline="") as f:
+            for idx, row in enumerate(csv.reader(f, **reader_kwargs)):
                 if idx >= self.config.header_search_rows:
                     break
 
                 if self._is_comment_row(row):
                     continue
 
-                if self.config.skip_blank_lines and not any(cell.strip() for cell in row):
+                # A row without any content cannot be a header, whatever skip_blank_lines
+                # (which concerns data rows) says
+                if not any(cell.strip() for cell in row):
                     continue
 
-                return idx, [col.strip() for col in row]
+                names = [col.strip() for col in row]
+                if self.config.header_mode != "auto":
+                    return idx, names
+                candidates.append((idx, names))
+
+        for idx, names in candidates:
+            if self._looks_like_header(names):
+                return idx, names
+        if candidates:
+            return candidates[0]
 
         raise ValueError("No valid header row found")
+
+    @staticmethod
+    def _looks_like_header(cells: List[str]) -> bool:
+        """True when a row has more text cells than numeric ones."""
+        text = numbers = 0
+        for cell in cells:
+            if not cell:
+                continue
+            try:
+                float(cell)
+                numbers += 1
+            except ValueError:
+                text += 1
+        return text > numbers
 
     def _is_comment_row(self, row: List[str]) -> bool:
         """Check if row should be treated as a comment.
@@ -105,7 +163,7 @@ class CsvInputHandler:
         first_cell = row[0].strip() if row else ""
 
         for pattern in self.config.comment_patterns:
-            if re.match(pattern, first_cell):
+            if self._compile(pattern).match(first_cell):
                 return True
 
         return False

@@ -9,6 +9,28 @@ from ..config import SqlInputConfig
 logger = logging.getLogger(__name__)
 
 
+def _format_connection_params(params) -> str:
+    """Render extra connection parameters as ``key=value;`` pairs without injection.
+
+    Values containing ``;``, ``{``, ``}``, ``=`` or surrounding whitespace are wrapped in
+    braces with ``}`` doubled (the ODBC escaping rule), so a value can never add or
+    override other connection attributes. Keys that could do the same are rejected.
+
+    Raises:
+        ValueError: If a key is empty or contains ``;``, ``=``, ``{`` or ``}``
+    """
+    parts = []
+    for key, value in params.items():
+        key = str(key)
+        if not key.strip() or any(ch in key for ch in ";={}"):
+            raise ValueError("Invalid connection parameter name")
+        text = str(value)
+        if text == "" or text != text.strip() or any(ch in text for ch in ";={}"):
+            text = "{" + text.replace("}", "}}") + "}"
+        parts.append(f"{key}={text}")
+    return ";".join(parts)
+
+
 class SqlConnectionManager:
     """Manages database connections using pyodbc.
 
@@ -40,17 +62,23 @@ class SqlConnectionManager:
                 "Install it with: pip install pyodbc"
             )
 
+        # Build connection string with additional parameters (a bad parameter is a
+        # configuration error, not a connection failure)
+        conn_str = self.config.connection_string
+        if self.config.connection_params:
+            params = _format_connection_params(self.config.connection_params)
+            conn_str = f"{conn_str};{params}"
+
         try:
             # Set connection timeout
             pyodbc.pooling = False
 
-            # Build connection string with additional parameters
-            conn_str = self.config.connection_string
-            if self.config.connection_params:
-                params = ";".join(f"{k}={v}" for k, v in self.config.connection_params.items())
-                conn_str = f"{conn_str};{params}"
-
-            self.connection = pyodbc.connect(conn_str, timeout=self.config.connection_timeout)
+            connect_kwargs = {"timeout": self.config.connection_timeout}
+            if self.config.read_only:
+                # Ask the driver for a read-only session (SQL_ATTR_ACCESS_MODE); drivers that
+                # cannot honour it ignore or reject it - set read_only=False for those.
+                connect_kwargs["readonly"] = True
+            self.connection = pyodbc.connect(conn_str, **connect_kwargs)
 
             # Set query timeout
             self.connection.timeout = self.config.query_timeout

@@ -43,6 +43,16 @@ class FwfInputHandler:
         self.schema_detector = FwfSchemaDetector(config)
         self.field_extractor = FwfFieldExtractor()
 
+    @property
+    def errors(self) -> List[Dict[str, Any]]:
+        """Field values that failed type conversion while reading (line number + field only)."""
+        return self.line_parser.errors
+
+    @property
+    def rejected_lines(self) -> List[Dict[str, Any]]:
+        """Lines dropped for matching no conditional schema or lacking a required field."""
+        return self.line_parser.rejected
+
     # Backward compatibility methods - delegate to appropriate components
 
     def extract_field_value(self, line: str, field: FwfFieldSpec) -> str:
@@ -55,18 +65,19 @@ class FwfInputHandler:
         Returns:
             Processed field value as string
         """
-        return self.field_extractor.extract_field_value(line, field)
+        return self.field_extractor.extract_field_value(line, field, self.config.trim_whitespace)
 
-    def parse_line(self, line: str) -> Optional[Dict[str, Any]]:
+    def parse_line(self, line: str, line_number: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Parse a single line according to the FWF configuration.
 
         Args:
             line: Line to parse
+            line_number: 1-based line number, recorded with any conversion error
 
         Returns:
             Dictionary of field values or None if line should be skipped
         """
-        return self.line_parser.parse_line(line)
+        return self.line_parser.parse_line(line, line_number)
 
     def convert_value(self, value: str, parquet_type: str) -> Any:
         """Convert string value to appropriate Python type.
@@ -105,7 +116,7 @@ class FwfInputHandler:
         return FwfValueProcessor.process_null_values(value, field_name, self.config.null_values)
 
     def detect_encoding(self, file_path: Path) -> str:
-        """Detect file encoding using chardet library.
+        """Detect file encoding (verified against the whole file).
 
         Args:
             file_path: Path to file to analyze
@@ -233,7 +244,8 @@ class FwfInputHandler:
             file_path: Path to the FWF file
 
         Returns:
-            List of parsed records
+            List of parsed records. Values that cannot be converted become null and are listed
+            in :attr:`errors`; rejected lines are listed in :attr:`rejected_lines`.
 
         Raises:
             FileNotFoundError: If file doesn't exist
@@ -248,22 +260,25 @@ class FwfInputHandler:
             encoding = FwfEncodingDetector.detect_encoding(file_path)
 
         records = []
+        self.line_parser.reset()
 
         with open(file_path, "r", encoding=encoding) as f:
             for line_num, line in enumerate(f, 1):
                 # Remove newline characters
                 line = line.rstrip("\r\n")
 
-                try:
-                    parsed_record = self.line_parser.parse_line(line)
-                    if parsed_record is not None:
-                        # Add metadata fields
-                        parsed_record["__line_number__"] = line_num
-                        parsed_record["__source_file__"] = str(file_path)
-                        records.append(parsed_record)
-                except Exception:
-                    # Handle parsing exceptions gracefully - continue processing
-                    continue
+                # A byte order mark would shift every column of the first record by one
+                if line_num == 1 and line.startswith("\ufeff"):
+                    line = line[1:]
+
+                # Conversion problems are recorded (see ``errors``/``rejected_lines``);
+                # anything else is a real fault and must not be swallowed.
+                parsed_record = self.line_parser.parse_line(line, line_num)
+                if parsed_record is not None:
+                    # Add metadata fields
+                    parsed_record["__line_number__"] = line_num
+                    parsed_record["__source_file__"] = str(file_path)
+                    records.append(parsed_record)
 
         return records
 

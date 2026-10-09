@@ -25,8 +25,7 @@ def sqlite_db():
     cursor = conn.cursor()
 
     # Create test tables
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
@@ -35,25 +34,20 @@ def sqlite_db():
             hire_date TEXT,
             active BOOLEAN
         )
-    """
-    )
+    """)
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE departments (
             dept_id INTEGER PRIMARY KEY,
             dept_name TEXT NOT NULL,
             budget REAL
         )
-    """
-    )
+    """)
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE VIEW employee_view AS 
         SELECT id, name, age FROM employees WHERE active = 1
-    """
-    )
+    """)
 
     # Insert test data
     employees_data = [
@@ -131,7 +125,9 @@ class TestSqlInputHandler:
 
         assert handler.connection == mock_connection
         mock_connect.assert_called_once_with(
-            basic_config.connection_string, timeout=basic_config.connection_timeout
+            basic_config.connection_string,
+            timeout=basic_config.connection_timeout,
+            readonly=True,
         )
         assert mock_connection.timeout == basic_config.query_timeout
 
@@ -151,7 +147,9 @@ class TestSqlInputHandler:
         expected_conn_str = (
             "DRIVER={SQLite3 ODBC Driver};Database=test.db;;Timeout=30;ReadOnly=Yes"
         )
-        mock_connect.assert_called_once_with(expected_conn_str, timeout=config.connection_timeout)
+        mock_connect.assert_called_once_with(
+            expected_conn_str, timeout=config.connection_timeout, readonly=True
+        )
 
     def test_connect_pyodbc_not_installed(self, basic_config):
         """Test ImportError when pyodbc is not installed."""
@@ -266,13 +264,11 @@ class TestSqlInputHandler:
         assert tables == expected
 
         # Verify SQLite fallback query was executed
-        mock_cursor.execute.assert_called_with(
-            """
+        mock_cursor.execute.assert_called_with("""
                     SELECT 'main' as schema_name, name as table_name
                     FROM sqlite_master
                     WHERE type IN ('table', 'view')
-                """
-        )
+                """)
 
     def test_parse_table_specification(self, basic_config):
         """Test parsing table specifications."""
@@ -347,10 +343,10 @@ class TestSqlInputHandler:
         """Test identifier quoting."""
         handler = SqlInputHandler(basic_config)
 
-        # Test with use_quoted_identifiers=False (default)
-        assert handler._quote_identifier("employees") == "employees"
+        # Identifiers are always quoted, even with use_quoted_identifiers=False (default)
+        assert handler._quote_identifier("employees") == '"employees"'
 
-        # Test with use_quoted_identifiers=True
+        # use_quoted_identifiers=True behaves the same
         config_with_quotes = SqlInputConfig(connection_string="test", use_quoted_identifiers=True)
         handler_with_quotes = SqlInputHandler(config_with_quotes)
         assert handler_with_quotes._quote_identifier("employees") == '"employees"'
@@ -389,7 +385,7 @@ class TestSqlInputHandler:
 
         # Test numeric types
         assert handler._sql_type_to_pyarrow("REAL") == pa.float32()  # REAL maps to float32
-        assert handler._sql_type_to_pyarrow("FLOAT") == pa.float32()
+        assert handler._sql_type_to_pyarrow("FLOAT") == pa.float64()  # FLOAT is a double
         assert handler._sql_type_to_pyarrow("DOUBLE") == pa.float64()
 
         # Test decimal with precision
@@ -455,8 +451,17 @@ class TestSqlInputHandler:
         mock_connection.cursor.return_value = mock_cursor
         mock_connect.return_value = mock_connection
 
+        # The catalog knows the table
+        mock_table = MagicMock()
+        mock_table.table_schem = "main"
+        mock_table.table_name = "employees"
+        mock_table.table_type = "TABLE"
+        mock_cursor.tables.return_value = [mock_table]
+
         # Mock ODBC columns() method response
         mock_column1 = MagicMock()
+        mock_column1.table_schem = "main"
+        mock_column1.table_name = "employees"
         mock_column1.column_name = "id"
         mock_column1.type_name = "INTEGER"
         mock_column1.column_size = 10
@@ -464,6 +469,8 @@ class TestSqlInputHandler:
         mock_column1.nullable = False
 
         mock_column2 = MagicMock()
+        mock_column2.table_schem = "main"
+        mock_column2.table_name = "employees"
         mock_column2.column_name = "name"
         mock_column2.type_name = "VARCHAR"
         mock_column2.column_size = 255
@@ -490,7 +497,12 @@ class TestSqlInputHandler:
         mock_connection.cursor.return_value = mock_cursor
         mock_connect.return_value = mock_connection
 
-        # Mock columns() method failure
+        # The catalog knows the table, but columns() is not supported
+        mock_table = MagicMock()
+        mock_table.table_schem = "main"
+        mock_table.table_name = "employees"
+        mock_table.table_type = "TABLE"
+        mock_cursor.tables.return_value = [mock_table]
         mock_cursor.columns.side_effect = Exception("columns() not supported")
 
         # Mock cursor description from SELECT query
@@ -508,6 +520,7 @@ class TestSqlInputHandler:
         assert schema.field("id").type == pa.int32()
         assert schema.field("name").type == pa.string()
         assert schema.field("salary").type == pa.float64()
+        mock_cursor.execute.assert_called_once_with('SELECT * FROM "main"."employees" WHERE 1=0')
 
     @patch("pyodbc.connect")
     def test_read_table_data_success(self, mock_connect, basic_config):
@@ -558,7 +571,7 @@ class TestSqlInputHandler:
         assert handler._sql_type_to_pyarrow("TINYINT") == pa.int8()
 
         # Test float types
-        assert handler._sql_type_to_pyarrow("FLOAT") == pa.float32()
+        assert handler._sql_type_to_pyarrow("FLOAT") == pa.float64()
         assert handler._sql_type_to_pyarrow("DOUBLE") == pa.float64()
         assert handler._sql_type_to_pyarrow("REAL") == pa.float32()
 
@@ -597,19 +610,21 @@ class TestSqlInputHandler:
         assert array.to_pylist() == expected_data
 
     def test_convert_column_data_type_conversion_failure(self, basic_config):
-        """Test column data conversion with type conversion failure fallback."""
+        """A failed conversion must not return an array that contradicts the declared type."""
         handler = SqlInputHandler(basic_config)
 
-        # Try to convert non-numeric data to int32 - should fallback to string
+        # Non-numeric data cannot become int32; a string array would contradict the schema
         column_data = ("not_a_number", "also_not_a_number")
 
-        with patch("forklift.inputs.sql.types.logger") as mock_logger:
-            array = handler._convert_column_data(column_data, pa.int32())
+        with pytest.raises(ValueError, match="declared type int32") as excinfo:
+            handler._convert_column_data(column_data, pa.int32())
 
-            # Should fallback to string type
-            assert array.type == pa.string()
-            assert array.to_pylist() == ["not_a_number", "also_not_a_number"]
-            mock_logger.warning.assert_called_once()
+        assert "not_a_number" not in str(excinfo.value)  # no data values in messages
+
+        # String columns can always take the text fallback
+        array = handler._convert_column_data((1, "x"), pa.string())
+        assert array.type == pa.string()
+        assert array.to_pylist() == ["1", "x"]
 
     def test_quote_identifier_enabled(self, basic_config):
         """Test identifier quoting when enabled."""
@@ -620,12 +635,12 @@ class TestSqlInputHandler:
         assert handler._quote_identifier("column_name") == '"column_name"'
 
     def test_quote_identifier_disabled(self, basic_config):
-        """Test identifier quoting when disabled."""
+        """Quoting is always applied: use_quoted_identifiers=False no longer disables it."""
         basic_config.use_quoted_identifiers = False
         handler = SqlInputHandler(basic_config)
 
-        assert handler._quote_identifier("table_name") == "table_name"
-        assert handler._quote_identifier("column_name") == "column_name"
+        assert handler._quote_identifier("table_name") == '"table_name"'
+        assert handler._quote_identifier("column_name") == '"column_name"'
 
     def test_odbc_type_to_string_mapping(self, basic_config):
         """Test ODBC type constant to string mapping."""
@@ -694,17 +709,27 @@ class TestSqlInputHandler:
         mock_connection.cursor.return_value = mock_cursor
         mock_connect.return_value = mock_connection
 
-        schema = pa.schema([pa.field("id", pa.int32())])
+        mock_table = MagicMock()
+        mock_table.table_schem = "main"
+        mock_table.table_name = "employees"
+        mock_table.table_type = "TABLE"
+        mock_cursor.tables.return_value = [mock_table]
+        mock_column = MagicMock()
+        mock_column.table_schem = "main"
+        mock_column.table_name = "employees"
+        mock_column.column_name = "id"
+        mock_column.type_name = "INTEGER"
+        mock_cursor.columns.return_value = [mock_column]
         mock_cursor.fetchmany.return_value = []
 
         handler = SqlInputHandler(basic_config)
         handler.connect()
 
-        with patch.object(handler, "get_table_schema", return_value=schema):
-            list(handler.read_table_data("main", "employees"))
+        list(handler.read_table_data("main", "employees"))
 
-        # Verify fetch size was set
+        # Verify fetch size was set and the query uses catalog-verified, quoted names
         assert mock_cursor.arraysize == 500
+        mock_cursor.execute.assert_called_once_with('SELECT * FROM "main"."employees"')
 
     def test_get_tables_to_process_with_schema_importer_patterns(self, basic_config):
         """Test get_tables_to_process with schema importer using complex patterns."""
@@ -947,10 +972,14 @@ class TestSqlInputHandlerIntegration:
 
         # Mock schema discovery
         mock_column1 = MagicMock()
+        mock_column1.table_schem = "main"
+        mock_column1.table_name = "employees"
         mock_column1.column_name = "id"
         mock_column1.type_name = "INTEGER"
         mock_column1.nullable = False
         mock_column2 = MagicMock()
+        mock_column2.table_schem = "main"
+        mock_column2.table_name = "employees"
         mock_column2.column_name = "name"
         mock_column2.type_name = "VARCHAR"
         mock_column2.nullable = True

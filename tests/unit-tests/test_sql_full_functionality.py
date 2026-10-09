@@ -50,7 +50,7 @@ class TestSqlInputHandlerComplete:
                 sql_handler.connect()
 
             expected_conn_str = "Driver={SQLite3};Database=test.db;timeout=30"
-            mock_connect.assert_called_once_with(expected_conn_str, timeout=30)
+            mock_connect.assert_called_once_with(expected_conn_str, timeout=30, readonly=True)
             assert sql_handler.connection.timeout == 60
 
     def test_connect_pyodbc_import_error(self, sql_handler):
@@ -148,13 +148,11 @@ class TestSqlInputHandlerComplete:
 
         expected = [("main", "users"), ("main", "orders")]
         assert tables == expected
-        mock_cursor.execute.assert_called_once_with(
-            """
+        mock_cursor.execute.assert_called_once_with("""
                     SELECT 'main' as schema_name, name as table_name
                     FROM sqlite_master
                     WHERE type IN ('table', 'view')
-                """
-        )
+                """)
 
     def test_get_table_list_all_fallbacks_fail(self, sql_handler):
         """Test table list retrieval when all methods fail."""
@@ -162,15 +160,15 @@ class TestSqlInputHandlerComplete:
         mock_cursor = Mock()
         mock_connection.cursor.return_value = mock_cursor
 
-        # Both ODBC and SQLite fallback fail
+        # Both ODBC and SQLite fallback fail: an unreadable catalog must not look like "no tables"
         mock_cursor.tables.side_effect = Exception("ODBC error")
         mock_cursor.execute.side_effect = Exception("SQLite error")
 
         sql_handler.connection = mock_connection
 
-        tables = sql_handler.get_table_list()
+        with pytest.raises(RuntimeError, match="Could not retrieve the table list"):
+            sql_handler.get_table_list()
 
-        assert tables == []
         mock_cursor.close.assert_called_once()
 
     def test_get_specified_tables_not_connected(self, sql_handler):
@@ -230,14 +228,25 @@ class TestSqlInputHandlerComplete:
         with pytest.raises(ConnectionError, match="Not connected to database"):
             sql_handler.get_table_schema("public", "users")
 
+    @staticmethod
+    def _catalog_row(schema, table, ttype="TABLE"):
+        row = Mock()
+        row.table_schem = schema
+        row.table_name = table
+        row.table_type = ttype
+        return row
+
     def test_get_table_schema_columns_method_success(self, sql_handler):
         """Test get_table_schema using ODBC columns method."""
         mock_connection = Mock()
         mock_cursor = Mock()
         mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.tables.return_value = [self._catalog_row("public", "users")]
 
         # Mock column info
         mock_col1 = Mock()
+        mock_col1.table_schem = "public"
+        mock_col1.table_name = "users"
         mock_col1.column_name = "id"
         mock_col1.type_name = "INTEGER"
         mock_col1.column_size = None
@@ -245,32 +254,41 @@ class TestSqlInputHandlerComplete:
         mock_col1.nullable = False
 
         mock_col2 = Mock()
+        mock_col2.table_schem = "public"
+        mock_col2.table_name = "users"
         mock_col2.column_name = "name"
         mock_col2.type_name = "VARCHAR"
         mock_col2.column_size = 255
         mock_col2.decimal_digits = None
         mock_col2.nullable = True
 
-        mock_cursor.columns.return_value = [mock_col1, mock_col2]
+        # columns() treats "_" and "%" as patterns: rows of other tables must be ignored
+        mock_other = Mock()
+        mock_other.table_schem = "public"
+        mock_other.table_name = "userX"
+        mock_other.column_name = "intruder"
+        mock_other.type_name = "INTEGER"
+
+        mock_cursor.columns.return_value = [mock_col1, mock_col2, mock_other]
         sql_handler.connection = mock_connection
 
-        with patch.object(sql_handler, "_quote_identifier", side_effect=lambda x: f'"{x}"'):
-            with patch.object(sql_handler, "_sql_type_to_pyarrow") as mock_convert:
-                mock_convert.side_effect = [pa.int32(), pa.string()]
+        with patch.object(sql_handler, "_sql_type_to_pyarrow") as mock_convert:
+            mock_convert.side_effect = [pa.int32(), pa.string()]
 
-                schema = sql_handler.get_table_schema("public", "users")
+            schema = sql_handler.get_table_schema("public", "users")
 
-                assert len(schema) == 2
-                assert schema.field(0).name == "id"
-                assert schema.field(0).nullable == False
-                assert schema.field(1).name == "name"
-                assert schema.field(1).nullable == True
+            assert len(schema) == 2
+            assert schema.field(0).name == "id"
+            assert schema.field(0).nullable == False
+            assert schema.field(1).name == "name"
+            assert schema.field(1).nullable == True
 
     def test_get_table_schema_fallback_method(self, sql_handler):
         """Test get_table_schema using fallback SELECT method."""
         mock_connection = Mock()
         mock_cursor = Mock()
         mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.tables.return_value = [self._catalog_row("public", "users")]
 
         # columns() method fails
         mock_cursor.columns.side_effect = Exception("ODBC error")
@@ -283,43 +301,34 @@ class TestSqlInputHandlerComplete:
 
         sql_handler.connection = mock_connection
 
-        with patch.object(sql_handler, "_quote_identifier", side_effect=lambda x: f'"{x}"'):
-            with patch.object(
-                sql_handler, "_odbc_type_to_string", side_effect=["INTEGER", "VARCHAR"]
-            ):
-                with patch.object(
-                    sql_handler, "_sql_type_to_pyarrow", side_effect=[pa.int32(), pa.string()]
-                ):
-                    schema = sql_handler.get_table_schema("public", "users")
+        schema = sql_handler.get_table_schema("public", "users")
 
-                    assert len(schema) == 2
-                    mock_cursor.execute.assert_called_once_with(
-                        'SELECT * FROM "public"."users" LIMIT 1'
-                    )
+        assert [f.name for f in schema] == ["id", "name"]
+        # Names are quoted and WHERE 1=0 (not LIMIT) works on every dialect
+        mock_cursor.execute.assert_called_once_with('SELECT * FROM "public"."users" WHERE 1=0')
 
     def test_get_table_schema_default_schema(self, sql_handler):
         """Test get_table_schema with default schema."""
         mock_connection = Mock()
         mock_cursor = Mock()
         mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.tables.return_value = [self._catalog_row(None, "users")]
 
         mock_cursor.columns.side_effect = Exception("ODBC error")
         mock_cursor.description = [("id", 4, None, None, None, None, None)]
 
         sql_handler.connection = mock_connection
 
-        with patch.object(sql_handler, "_quote_identifier", side_effect=lambda x: f'"{x}"'):
-            with patch.object(sql_handler, "_odbc_type_to_string", return_value="INTEGER"):
-                with patch.object(sql_handler, "_sql_type_to_pyarrow", return_value=pa.int32()):
-                    sql_handler.get_table_schema("default", "users")
+        sql_handler.get_table_schema("default", "users")
 
-                    mock_cursor.execute.assert_called_once_with('SELECT * FROM "users" LIMIT 1')
+        mock_cursor.execute.assert_called_once_with('SELECT * FROM "users" WHERE 1=0')
 
     def test_get_table_schema_all_methods_fail(self, sql_handler):
         """Test get_table_schema when all methods fail."""
         mock_connection = Mock()
         mock_cursor = Mock()
         mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.tables.return_value = [self._catalog_row("public", "users")]
 
         mock_cursor.columns.side_effect = Exception("ODBC error")
         mock_cursor.execute.side_effect = Exception("SELECT error")
@@ -336,10 +345,10 @@ class TestSqlInputHandlerComplete:
         assert result == '"table_name"'
 
     def test_quote_identifier_disabled(self, sql_handler):
-        """Test identifier quoting when disabled."""
+        """Identifiers are always quoted, whatever use_quoted_identifiers says."""
         sql_handler.config.use_quoted_identifiers = False
         result = sql_handler._quote_identifier("table_name")
-        assert result == "table_name"
+        assert result == '"table_name"'
 
     def test_odbc_type_to_string_with_pyodbc(self, sql_handler):
         """Test ODBC type conversion with pyodbc available."""
@@ -370,7 +379,7 @@ class TestSqlInputHandlerComplete:
 
     def test_sql_type_to_pyarrow_float_types(self, sql_handler):
         """Test SQL to PyArrow type conversion for float types."""
-        assert sql_handler._sql_type_to_pyarrow("FLOAT") == pa.float32()
+        assert sql_handler._sql_type_to_pyarrow("FLOAT") == pa.float64()
         assert sql_handler._sql_type_to_pyarrow("DOUBLE") == pa.float64()
         assert sql_handler._sql_type_to_pyarrow("REAL") == pa.float32()
 
@@ -486,10 +495,9 @@ class TestSqlInputHandlerComplete:
         """Test converting column data with type conversion error."""
         column_data = ("invalid", "data")
 
-        # This should fallback to string type
-        result = sql_handler._convert_column_data(column_data, pa.int32())
-
-        assert result.to_pylist() == ["invalid", "data"]
+        # A string fallback would contradict the declared int32 type, so this raises
+        with pytest.raises(ValueError, match="declared type int32"):
+            sql_handler._convert_column_data(column_data, pa.int32())
 
     def test_get_tables_to_process_with_schema_importer(self, sql_handler):
         """Test getting tables to process from schema importer."""
@@ -514,4 +522,6 @@ class TestSqlInputHandlerComplete:
             sql_handler.connect()
 
             # Should use connection string as-is without additional params
-            mock_connect.assert_called_once_with("Driver={SQLite3};Database=test.db", timeout=30)
+            mock_connect.assert_called_once_with(
+                "Driver={SQLite3};Database=test.db", timeout=30, readonly=True
+            )

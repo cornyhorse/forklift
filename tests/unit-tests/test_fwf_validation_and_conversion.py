@@ -8,7 +8,7 @@ import pyarrow as pa
 import pytest
 
 from forklift.inputs.config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
-from forklift.inputs.fwf import FwfInputHandler
+from forklift.inputs.fwf import FwfInputHandler, FwfTypeConverter
 
 
 class TestFwfFinalCoverage:
@@ -63,11 +63,14 @@ class TestFwfFinalCoverage:
 
     def test_convert_value_unknown_type(self):
         """Test convert_value with unknown/unsupported type."""
-        config = FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="unknown_type")])
-        handler = FwfInputHandler(config)
+        # A config with an unknown type is rejected up front, simple fields included
+        with pytest.raises(ValueError, match="Invalid data type"):
+            FwfInputHandler(
+                FwfInputConfig(fields=[FwfFieldSpec("test", 1, 5, parquet_type="unknown_type")])
+            )
 
-        # Test conversion with unknown type - should return original value
-        result = handler.convert_value("test_value", "unknown_type")
+        # The bare converter still passes unknown types through as text
+        result = FwfTypeConverter.convert_value("test_value", "unknown_type")
         assert result == "test_value"
 
     def test_conditional_schema_without_matching_flag(self):
@@ -196,6 +199,6 @@ class TestFwfFinalCoverage:
             result = handler.convert_value(value, "bool")
             assert result is False, f"Value '{value}' should convert to False"
 
-        # Test value not in true list
-        result = handler.convert_value("maybe", "bool")
-        assert result is False
+        # A token that is neither a known true nor false value is invalid, not False
+        for value in ["maybe", "xyz", "N/A"]:
+            assert handler.convert_value(value, "bool") is None

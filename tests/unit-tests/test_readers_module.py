@@ -237,15 +237,25 @@ class TestDataFrameReader:
         mock_rmtree.assert_not_called()
 
     @patch("forklift.readers.shutil.rmtree")
-    def test_del_cleanup(self, mock_rmtree):
-        """Test that __del__ triggers cleanup."""
-        files = ["/path/to/file.parquet"]
-        temp_dir = "/tmp/test_dir"
+    def test_del_does_not_cleanup(self, mock_rmtree):
+        """Garbage collection must not delete the files: lazy frames still read them."""
+        temp_dir = "/tmp/test_dir_gc"
 
-        reader = DataFrameReader(files, temp_dir)
+        reader = DataFrameReader(["/path/to/file.parquet"], temp_dir)
+        assert not hasattr(DataFrameReader, "__del__")
+        del reader
 
-        # Manually call __del__ to simulate object deletion
-        reader.__del__()
+        mock_rmtree.assert_not_called()
+        assert temp_dir in _temp_dirs
+        _temp_dirs.discard(temp_dir)
+
+    @patch("forklift.readers.shutil.rmtree")
+    def test_close_cleanup(self, mock_rmtree):
+        """Test that close() triggers cleanup."""
+        temp_dir = "/tmp/test_dir_close"
+
+        reader = DataFrameReader(["/path/to/file.parquet"], temp_dir)
+        reader.close()
 
         mock_rmtree.assert_called_once_with(temp_dir, ignore_errors=True)
         assert temp_dir not in _temp_dirs

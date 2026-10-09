@@ -28,8 +28,8 @@ The primary configuration class that controls all aspects of data import process
 ### ProcessingResults
 
 Tracks the outcomes of data processing operations, including:
-- Row counts (total, valid, invalid)
-- Generated file paths
+- Row counts (total, valid, invalid, truncated)
+- Generated file paths (`output_files`, plus `bad_rows_file` for rejected rows)
 - Execution metrics
 - Error collection
 
@@ -137,17 +137,18 @@ print(f"Success rate: {results.valid_rows / results.total_rows * 100:.2f}%")
 - `skip_blank_lines`: Skip empty rows (default: True)
 
 ### Header Processing
-- `header_mode`: Header detection strategy
-- `header_search_rows`: Max rows to scan for headers (default: 10)
-- `comment_rows`: Regex patterns for comment detection
+- `header_mode`: Header detection strategy (enum member or case-insensitive string such as `"absent"`)
+- `header_search_rows`: Max rows to scan for headers (default: 10); no header inside the window is an error
+- `comment_rows`: Regex patterns for comment detection (only applied above the header)
 
 ### Validation & Error Handling
-- `validate_schema`: Enable schema validation (default: True)
-- `max_validation_errors`: Error threshold before stopping (default: 1000)
-- `excess_column_mode`: Strategy for extra columns
+- `validate_schema`: Enforce the schema's required columns (default: True)
+- `max_validation_errors`: Reserved, not enforced: every invalid row goes to `bad_rows.parquet`
+- `excess_column_mode`: Strategy for extra columns (enum member or string)
 
 ### Output Options
-- `batch_size`: Rows per processing batch (default: 10000)
+- `batch_size`: Upper bound on rows per batch written (default: 10000)
+- `include_value_statistics`: Allow value-bearing statistics in metadata (default: False)
 - `create_manifest`: Generate manifest file (default: True)
 - `create_metadata`: Generate metadata file (default: True)
 - `compression`: Output compression type (default: snappy)

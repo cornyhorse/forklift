@@ -54,8 +54,8 @@ class ForkliftCore:
             ProcessingResults object containing processing statistics and output paths
 
         Raises:
-            Exception: Various exceptions may be raised during processing,
-                      all are captured in the results.errors list
+            Exception: Processing errors are recorded in ``results.errors`` and re-raised;
+                      no partial output files are left behind
         """
         return self.csv_processor.process(self.config)
 
@@ -78,7 +78,8 @@ def import_csv(
         input_path: Path to input CSV file to process (local or S3 URI)
         output_path: Directory where output files will be created (local or S3 URI)
         schema_file: Optional path to JSON schema file for validation (local or S3 URI)
-        **kwargs: Additional configuration options passed to ImportConfig
+        **kwargs: Additional configuration options passed to ImportConfig (``header_mode`` and
+            ``excess_column_mode`` accept the enum or a string such as ``"absent"``)
 
     Returns:
         ProcessingResults object containing statistics and output file paths

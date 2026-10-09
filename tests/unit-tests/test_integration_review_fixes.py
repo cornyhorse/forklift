@@ -181,8 +181,8 @@ class TestShortIdentifiersAreNotFabricated:
             SSNFormatter(SSNConfig()).format_value(garbage)
 
     def test_special_type_pipeline_reports_them_as_invalid(self):
-        from forklift.utils.transformations.configs import SSNConfig
         from forklift.utils.transformations.base import DataTransformer
+        from forklift.utils.transformations.configs import SSNConfig
 
         column = pa.array(["123-45-6789", "garbage", None, "SSN: 000"])
         out = DataTransformer().apply_ssn_formatting(column, SSNConfig())

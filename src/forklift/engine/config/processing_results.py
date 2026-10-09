@@ -1,7 +1,7 @@
 """Processing results class for Forklift engine."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -23,6 +23,12 @@ class ProcessingResults:
             rejected). Rejected rows are stored as strings in the shape of the input columns.
         truncated_rows: Number of rows that had more fields than the header and were cut
             to the header width (ExcessColumnMode.TRUNCATE)
+        warnings: Notes that do not stop the import, such as schema extensions that are not
+            supported and were ignored
+        validation_summary: Number of problems found by the schema extensions, by
+            ``CODE`` or ``CODE:column`` (rows rejected by validation or constraints, values
+            nulled by transformations, quality findings, ...). Never contains cell values.
+        schema_extensions: Names of the schema extensions that were applied
     """
 
     total_rows: int = 0
@@ -35,3 +41,6 @@ class ProcessingResults:
     errors: List[str] = field(default_factory=list)
     bad_rows_file: Optional[str] = None
     truncated_rows: int = 0
+    warnings: List[str] = field(default_factory=list)
+    validation_summary: Dict[str, int] = field(default_factory=dict)
+    schema_extensions: List[str] = field(default_factory=list)

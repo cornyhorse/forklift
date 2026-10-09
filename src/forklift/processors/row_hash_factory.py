@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .row_hash import RowHashConfig, RowHashProcessor
+from .row_hash import (
+    HASH_VERSION_CURRENT,
+    HASH_VERSION_LEGACY,
+    RowHashConfig,
+    RowHashProcessor,
+)
 
 
 def create_row_hash_processor_from_schema(
@@ -21,6 +26,21 @@ def create_row_hash_processor_from_schema(
     if not schema_config:
         return None
 
+    # "hashVersion" selects the encoding: 2 = injective (default), 1 = legacy (verify old hashes)
+    legacy_encoding = bool(schema_config.get("legacyEncoding", False))
+    hash_version = schema_config.get("hashVersion")
+    if hash_version is not None:
+        if hash_version not in (HASH_VERSION_LEGACY, HASH_VERSION_CURRENT):
+            raise ValueError(
+                f"Unsupported hashVersion: {hash_version!r} "
+                f"(supported: {HASH_VERSION_LEGACY}, {HASH_VERSION_CURRENT})"
+            )
+        if "legacyEncoding" in schema_config and legacy_encoding != (
+            hash_version == HASH_VERSION_LEGACY
+        ):
+            raise ValueError("hashVersion and legacyEncoding contradict each other")
+        legacy_encoding = hash_version == HASH_VERSION_LEGACY
+
     # Create configuration from schema
     config = RowHashConfig(
         enabled=schema_config.get("enabled", False),
@@ -30,6 +50,8 @@ def create_row_hash_processor_from_schema(
         exclude_columns=schema_config.get("excludeColumns", []),
         null_value=schema_config.get("nullValue", "NULL"),
         separator=schema_config.get("separator", "||"),
+        allow_weak_hash=schema_config.get("allowWeakHash", False),
+        legacy_encoding=legacy_encoding,
         # New metadata options
         input_hash_enabled=schema_config.get("inputHashEnabled", False),
         input_hash_column_name=schema_config.get("inputHashColumnName", "_input_hash"),

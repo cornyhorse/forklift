@@ -46,6 +46,44 @@ The calculated columns processor typically runs after initial schema validation 
 - **Logical Operations**: AND, OR, NOT
 - **Utility Functions**: Min, max, sum, average, coalesce
 
+### Expression Language and Safety
+
+Expressions are **not** passed to Python's `eval`. Each expression is parsed once with `ast`,
+validated against a whitelist and interpreted node by node (the compiled form is cached).
+
+Allowed syntax: literals (`'text'`, `42`, `1.5`, `True`, `None`), column names, the constants
+`PI`, `E`, `TRUE`, `FALSE`, `NULL`, the operators `+ - * / // % **`, comparisons
+(`== != < <= > >= in not in is None`), `and` / `or` / `not`, `a if cond else b`, and calls to the
+built-in functions (positional or keyword arguments). Anything else - attribute access
+(`x.__class__`), subscripts, lambdas, comprehensions, f-strings, `*args`, `:=`, `__dunder__`
+names, calls to anything but a bare built-in function name - is rejected with a `ValueError`
+when the processor is created (even with `fail_on_error=False`).
+
+Limits (see `limits.py`): 4096 characters / 512 AST nodes per expression, 64 call arguments,
+`|exponent| <= 10000` and `2**65536` for `**`/`power()`, 1,000,000 characters for strings produced by
+repetition, concatenation or `replace()` (plus the size of the inputs, so large cell values keep
+working). `'text' % x` string formatting is not supported.
+
+Name resolution: constants (`PI`, `NULL`, ...) first, then columns, so a column called `sum` or
+`day` can be used as a value while `sum(...)` / `day(...)` still call the function.
+
+**Null semantics (SQL-like)**: arithmetic (`+ - * / // % **`, unary `-`) and ordering comparisons
+(`< <= > >=`) with a NULL operand give NULL, whatever the column names are called. `==` / `!=`,
+`and` / `or` / `not` and `is None` keep Python semantics; functions handle NULL as documented
+(`coalesce`, `isnull`, ...).
+
+**Constants** (`ConstantColumn`) are never turned into expression source: the value is carried on the
+`CalculatedColumn` (`constant_value`) and returned as-is, so quotes, backslashes and dates are safe.
+`ConstantColumn.to_calculated_column().expression` is only a `repr`-based rendering of the value.
+
+**Errors**: with `fail_on_error=True` (default) a failing column raises `ValueError`; the processor
+never returns the unmodified batch together with an error result. With `fail_on_error=False` a row
+that fails becomes NULL. A calculated column named like an input column (or another calculated
+column) raises `ValueError`. Error messages never contain cell values.
+
+**`now()` / `today()`** return one snapshot per `process_batch` call (every row and every column of
+a batch sees the same timestamp).
+
 ### Built-in Functions Library
 
 The processor includes 40+ built-in functions covering:
@@ -55,6 +93,16 @@ The processor includes 40+ built-in functions covering:
 - Conditional logic (if_then_else, coalesce, nullif)
 - Type conversions (to_string, to_int, to_float)
 - Null handling with automatic propagation in arithmetic operations
+
+Behaviour worth knowing:
+- `round(x, n)` is Python's `round`: ties go to the even neighbour (banker's rounding), e.g.
+  `round(0.5) == 0`, `round(1.5) == 2`, `round(2.5) == 2`. Use `floor`/`ceil` for other behaviour.
+- `to_bool` parses strings: `true/t/yes/y/1/on` -> True, `false/f/no/n/0/off` -> False, blank -> NULL,
+  anything else is an error. Numbers use Python truthiness.
+- `substring(x, start, length=None)` is 0-based like a Python slice; NULL `x` or `start` gives NULL.
+- `left(x, n)` / `right(x, n)` return `''` for `n <= 0`.
+- `sum`, `min`, `max`, `avg` skip NULLs and return NULL when every argument is NULL.
+- `power` / `multiply` / `replace` / `concat` refuse results above the size limits.
 
 ## Python Files Documentation
 
@@ -92,14 +140,14 @@ The processor includes 40+ built-in functions covering:
 - `ExpressionEvaluator`: Core expression evaluation logic
 
 **Key Features**:
-- Safe expression evaluation with restricted builtins
+- Safe expression evaluation with an AST whitelist (no `eval`), parsed once per expression
 - Automatic null propagation in arithmetic operations
 - Function library integration
 - Expression validation against sample data
 - Row-by-row evaluation with context building
 - Error handling with configurable fail-on-error behavior
 
-**Security**: Uses restricted evaluation context to prevent code injection while allowing mathematical and business logic expressions.
+**Security**: Expressions are interpreted from a validated AST whitelist (`safe_eval.py`, limits in `limits.py`); `eval` is not used anywhere.
 
 ### 4. `functions.py`
 **Purpose**: Built-in function library for expressions

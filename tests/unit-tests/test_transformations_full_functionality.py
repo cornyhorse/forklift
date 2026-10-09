@@ -202,11 +202,9 @@ class TestSchemaBasedTransformer:
             }
         }
 
-        with patch("builtins.print") as mock_print:
-            transformer = SchemaBasedTransformer(schema)
-
-            assert transformer.column_transformations == {}
-            assert mock_print.called
+        # Configuration errors raise instead of being printed and ignored
+        with pytest.raises(ValueError, match="invalid_transform"):
+            SchemaBasedTransformer(schema)
 
     def test_parse_transformation_config_non_dict_config(self):
         """Test handling of non-dictionary transformation config."""
@@ -290,16 +288,10 @@ class TestSchemaBasedTransformer:
             failing_mock_create,
         ):
             transformer = SchemaBasedTransformer(schema_dict)
-            result_batch, validation_results = transformer.process_batch(batch)
-
-            assert len(validation_results) == 1
-            assert not validation_results[0].is_valid
-            assert (
-                "Schema-based transformation failed for column 'col1'"
-                in validation_results[0].error_message
-            )
-            assert validation_results[0].error_code == "SCHEMA_TRANSFORMATION_ERROR"
-            assert validation_results[0].column_name == "col1"
+            with pytest.raises(
+                ValueError, match="Schema-based transformation failed for column 'col1'"
+            ):
+                transformer.process_batch(batch)
 
 
 class TestTransformationFunctions:

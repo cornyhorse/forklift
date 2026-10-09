@@ -3,6 +3,7 @@ constraint checking, and bad rows handling."""
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -14,6 +15,7 @@ from .base import BaseProcessor, ValidationResult
 from .constraint_validator import (
     ConstraintConfig,
     ConstraintValidator,
+    ConstraintViolation,
     create_constraint_config_from_schema,
 )
 from .schema_validator import SchemaValidator
@@ -69,18 +71,29 @@ class EnhancedDataProcessor(BaseProcessor):
         # Extract error handling mode from schema
         self.error_mode = self._extract_error_handling_mode()
 
+        # Bookkeeping: violations already attributed to batches, row-level schema failures
+        self._violations_attributed = 0
+        self._schema_row_errors = 0
+
     def process_batch(
         self, batch: pa.RecordBatch
     ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process batch with comprehensive validation.
 
+        In ``bad_rows`` mode (the default) rows that fail schema or constraint validation are
+        removed from the returned batch and routed to the bad rows handler (with their position
+        in the whole input). ``fail_fast`` raises on the first violation; ``fail_complete``
+        keeps all rows and raises from ``finalize()``.
+
         Args:
             batch: PyArrow RecordBatch to process
 
         Returns:
-            Tuple of (valid_batch, validation_results)
+            Tuple of (valid_batch, validation_results). ``row_index`` of every result is the
+            position of the row in ``batch``.
         """
         all_validation_results = []
+        mode = self._error_mode_value()
 
         # Track original batch for bad rows
         original_batch = batch
@@ -89,72 +102,126 @@ class EnhancedDataProcessor(BaseProcessor):
         schema_valid_batch, schema_validation_results = self.schema_validator.process_batch(batch)
         all_validation_results.extend(schema_validation_results)
 
+        schema_bad_rows = self._row_level_failures(schema_validation_results, batch.num_rows)
+        if schema_bad_rows:
+            self._schema_row_errors += len(schema_bad_rows)
+            if mode == "fail_fast":
+                raise ValueError(f"Schema validation failed for {len(schema_bad_rows)} row(s)")
+
+        # Rows that failed schema validation must not take part in constraint checks (a rejected
+        # row must not claim a unique key), so they are removed first in bad_rows mode.
+        keep_idx: Optional[List[int]] = None
+        working_batch = schema_valid_batch
+        if (
+            schema_bad_rows
+            and mode == "bad_rows"
+            and schema_valid_batch.num_rows == batch.num_rows
+        ):
+            rejected = set(schema_bad_rows)
+            keep_idx = [i for i in range(batch.num_rows) if i not in rejected]
+            working_batch = schema_valid_batch.take(pa.array(keep_idx, type=pa.int64()))
+
         # Step 2: Constraint validation on schema-valid data
+        already_attributed = self._violations_attributed
         constraint_valid_batch, constraint_validation_results = (
-            self.constraint_validator.process_batch(schema_valid_batch)
+            self.constraint_validator.process_batch(working_batch)
         )
+        violations = self.constraint_validator.get_all_violations()
+        new_violations = list(violations[already_attributed:])
+        self._violations_attributed = len(violations)
+
+        # Report positions relative to the batch that was passed in
+        if keep_idx is not None:
+            for violation in new_violations:
+                violation.row_index = self._original_index(violation.row_index, keep_idx)
+            constraint_validation_results = [
+                dataclasses.replace(
+                    result, row_index=self._original_index(result.row_index, keep_idx)
+                )
+                for result in constraint_validation_results
+            ]
         all_validation_results.extend(constraint_validation_results)
 
         # Step 3: Handle bad rows
-        self._handle_bad_rows(original_batch, constraint_valid_batch, all_validation_results)
+        self._handle_bad_rows(
+            original_batch, constraint_valid_batch, all_validation_results, new_violations
+        )
 
         # Update row count
         self.bad_rows_handler.increment_row_count(batch.num_rows)
 
         return constraint_valid_batch, all_validation_results
 
+    @staticmethod
+    def _original_index(row_index: Any, keep_idx: List[int]) -> Any:
+        if isinstance(row_index, int) and 0 <= row_index < len(keep_idx):
+            return keep_idx[row_index]
+        return row_index
+
+    @staticmethod
+    def _as_row_index(value: Any) -> Optional[int]:
+        """Row index as int, or None when the value is not a usable index."""
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+
+    def _row_level_failures(
+        self, validation_results: List[ValidationResult], num_rows: int
+    ) -> List[int]:
+        """Sorted indices of rows that have at least one failed, row-attributed result."""
+        rows = set()
+        for result in validation_results:
+            row_idx = self._as_row_index(result.row_index)
+            if not result.is_valid and row_idx is not None and 0 <= row_idx < num_rows:
+                rows.add(row_idx)
+        return sorted(rows)
+
+    def _error_mode_value(self) -> str:
+        """Effective error mode: the constraint configuration's, else the schema's."""
+        mode = getattr(getattr(self.constraint_config, "error_mode", None), "value", None)
+        return mode if isinstance(mode, str) else self.error_mode
+
     def _handle_bad_rows(
         self,
         original_batch: pa.RecordBatch,
         valid_batch: pa.RecordBatch,
         validation_results: List[ValidationResult],
+        constraint_violations: Optional[List[ConstraintViolation]] = None,
     ):
-        """Handle bad rows collection and processing."""
-        # Determine which rows are invalid
-        if valid_batch.num_rows > 0:
-            # This is a simplified approach - in practice, we'd need to track
-            # the mapping between original and valid rows more precisely
-            pass
+        """Handle bad rows collection and processing.
+
+        Args:
+            original_batch: The batch as it was passed to ``process_batch``
+            valid_batch: The rows that passed validation
+            validation_results: Results whose ``row_index`` refers to ``original_batch``
+            constraint_violations: Violations of this batch (``row_index`` relative to
+                ``original_batch``); defaults to everything the constraint validator holds
+        """
+        if constraint_violations is None:
+            constraint_violations = self.constraint_validator.get_all_violations()
 
         # Collect validation errors by row
-        validation_by_row = {}
+        validation_by_row: Dict[int, List[ValidationResult]] = {}
         for result in validation_results:
-            if result.row_index is not None and not result.is_valid:
-                if result.row_index not in validation_by_row:
-                    validation_by_row[result.row_index] = []
-                validation_by_row[result.row_index].append(result)
+            row_idx = self._as_row_index(result.row_index)
+            if row_idx is not None and not result.is_valid:
+                validation_by_row.setdefault(row_idx, []).append(result)
 
-        # Collect constraint violations by row
-        constraint_violations_by_row = {}
-        for violation in self.constraint_validator.get_all_violations():
-            if (
-                violation.row_index is not None
-                and violation.row_index not in constraint_violations_by_row
-            ):
-                constraint_violations_by_row[violation.row_index] = []
-                constraint_violations_by_row[violation.row_index].append(violation)
+        # Collect every constraint violation of a row (not just the first)
+        constraint_violations_by_row: Dict[int, List[ConstraintViolation]] = {}
+        for violation in constraint_violations:
+            row_idx = self._as_row_index(violation.row_index)
+            if row_idx is not None:
+                constraint_violations_by_row.setdefault(row_idx, []).append(violation)
 
         # Add bad rows to handler
-        invalid_row_indices = set(validation_by_row.keys()) | set(
-            constraint_violations_by_row.keys()
-        )
+        invalid_row_indices = sorted(set(validation_by_row) | set(constraint_violations_by_row))
+        first_row_of_batch = self.bad_rows_handler.row_count
 
         for row_idx in invalid_row_indices:
-            # Ensure row_idx is an integer - handle various types
-            original_row_idx = row_idx
-            if isinstance(row_idx, str):
-                try:
-                    row_idx = int(row_idx)
-                except (ValueError, TypeError):
-                    continue
-            elif row_idx is None:
-                continue
-            elif not isinstance(row_idx, int):
-                try:
-                    row_idx = int(row_idx)
-                except (ValueError, TypeError):
-                    continue
-
             if row_idx < 0 or row_idx >= original_batch.num_rows:
                 continue
 
@@ -165,12 +232,12 @@ class EnhancedDataProcessor(BaseProcessor):
                     value = original_batch.column(i)[row_idx]
                     row_data[field.name] = value.as_py() if value.is_valid else None
 
-            # Add to bad rows handler
+            # Add to bad rows handler; the index is the position in the whole input
             self.bad_rows_handler.add_bad_row(
                 row_data=row_data,
-                row_index=row_idx,
-                validation_results=validation_by_row.get(original_row_idx, []),
-                constraint_violations=constraint_violations_by_row.get(original_row_idx, []),
+                row_index=first_row_of_batch + row_idx,
+                validation_results=validation_by_row.get(row_idx, []),
+                constraint_violations=constraint_violations_by_row.get(row_idx, []),
             )
 
     def _extract_error_handling_mode(self) -> str:
@@ -202,6 +269,14 @@ class EnhancedDataProcessor(BaseProcessor):
             # Re-raise if we're supposed to fail
             if self.constraint_config.error_mode.value in ["fail_fast", "fail_complete"]:
                 raise
+
+        # In the fail modes, row-level schema failures fail the run as well
+        if self._schema_row_errors and self._error_mode_value() in ["fail_fast", "fail_complete"]:
+            results["constraint_validation_passed"] = False
+            raise ValueError(
+                f"Schema validation failed for {self._schema_row_errors} row(s) "
+                f"({self._error_mode_value()} mode)"
+            )
 
         # Write bad rows if any exist
         if self.bad_rows_handler.has_bad_rows():

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any, List, Optional, Set, Tuple
 
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from ._columns import column_index
 from .base import BaseProcessor, ValidationResult
 
 
@@ -28,10 +30,14 @@ class WriteTimeConfig:
 
     # Primary key configuration
     primary_key_columns: List[str] = None
+    # Duplicate detection remembers every primary key it has seen (memory grows with the number
+    # of distinct keys). With hash_primary_keys a fixed 16-byte digest is stored per key instead
+    # of the key values themselves (bounded per key; collisions are negligible at 128 bits).
+    hash_primary_keys: bool = False
 
     # Thresholds
     max_null_percentage: float = 50.0
-    min_row_count: int = 1
+    min_row_count: int = 1  # total over all batches, checked in finalize()
 
     def __post_init__(self):
         if self.primary_key_columns is None:
@@ -39,12 +45,20 @@ class WriteTimeConfig:
 
 
 class WriteTimeValidator(BaseProcessor):
-    """Processor for validating data quality before writing."""
+    """Processor for validating data quality before writing.
+
+    Per-batch checks run in ``process_batch``. Checks that concern the whole output - the
+    empty-table check and ``min_row_count`` - need the total row count, so they run in
+    ``finalize()``, which the caller invokes once after the last batch (a short final batch is
+    therefore fine). Duplicate detection keeps every primary key seen so far in memory (see
+    ``WriteTimeConfig.hash_primary_keys``).
+    """
 
     def __init__(self, config: WriteTimeConfig):
         super().__init__()
         self.config = config
-        self._seen_primary_keys: Set[Tuple[Any, ...]] = set()
+        self._seen_primary_keys: Set[Any] = set()
+        self._total_rows = 0
 
     def process_batch(
         self, batch: pa.RecordBatch
@@ -53,10 +67,9 @@ class WriteTimeValidator(BaseProcessor):
         all_results = []
 
         try:
-            # Run all configured validations
-            if self.config.check_empty_tables:
-                all_results.extend(self._validate_not_empty(batch))
+            self._total_rows += batch.num_rows
 
+            # Run all configured validations (empty-table / min_row_count: see finalize())
             if self.config.expected_schema:
                 all_results.extend(self._validate_schema_compliance(batch))
 
@@ -87,21 +100,35 @@ class WriteTimeValidator(BaseProcessor):
 
         return batch, all_results
 
+    def finalize(self) -> List[ValidationResult]:
+        """Checks on the whole output; call once after the last batch.
+
+        Returns:
+            ``EMPTY_TABLE`` / ``INSUFFICIENT_ROWS`` results based on the total number of rows
+            seen over all batches (only when ``check_empty_tables`` is enabled).
+        """
+        if not self.config.check_empty_tables:
+            return []
+        return self._row_count_results(self._total_rows)
+
     def _validate_not_empty(self, batch: pa.RecordBatch) -> List[ValidationResult]:
-        """Validate that the batch is not empty."""
+        """Validate that a table of ``batch.num_rows`` rows is not empty / large enough."""
+        return self._row_count_results(batch.num_rows)
+
+    def _row_count_results(self, num_rows: int) -> List[ValidationResult]:
         results = []
 
-        if batch.num_rows == 0:
+        if num_rows == 0:
             results.append(
                 ValidationResult(
                     is_valid=False, error_message="Empty table detected", error_code="EMPTY_TABLE"
                 )
             )
-        elif batch.num_rows < self.config.min_row_count:
+        elif num_rows < self.config.min_row_count:
             results.append(
                 ValidationResult(
                     is_valid=False,
-                    error_message=f"Table has {batch.num_rows} rows, "
+                    error_message=f"Table has {num_rows} rows, "
                     f"minimum required: {self.config.min_row_count}",
                     error_code="INSUFFICIENT_ROWS",
                 )
@@ -205,8 +232,7 @@ class WriteTimeValidator(BaseProcessor):
                 )
                 continue
 
-            column_index = schema_names.index(pk_column)
-            column = batch.column(column_index)
+            column = batch.column(column_index(batch.schema, pk_column))
             null_count = pc.sum(pc.is_null(column)).as_py()
 
             if null_count > 0:
@@ -243,34 +269,21 @@ class WriteTimeValidator(BaseProcessor):
             )
             return results
 
-        # Extract primary key values
-        pk_indices = [schema_names.index(col) for col in self.config.primary_key_columns]
+        # Extract primary key values (checked lookup: a duplicated column name is an error)
+        pk_values_by_column = [
+            batch.column(column_index(batch.schema, col)).to_pylist()
+            for col in self.config.primary_key_columns
+        ]
 
+        # A row is a duplicate when its key was seen before - in an earlier batch or earlier in
+        # this one - and is reported once.
         duplicate_rows = []
-        current_batch_keys = set()
-
         for row_idx in range(batch.num_rows):
-            # Create primary key tuple for this row
-            pk_values = tuple(
-                (
-                    batch.column(col_idx)[row_idx].as_py()
-                    if batch.column(col_idx)[row_idx].is_valid
-                    else None
-                )
-                for col_idx in pk_indices
-            )
-
-            # Check for duplicates within this batch
-            if pk_values in current_batch_keys:
+            token = self._key_token(tuple(values[row_idx] for values in pk_values_by_column))
+            if token in self._seen_primary_keys:
                 duplicate_rows.append(row_idx)
             else:
-                current_batch_keys.add(pk_values)
-
-            # Check for duplicates across batches
-            if pk_values in self._seen_primary_keys:
-                duplicate_rows.append(row_idx)
-            else:
-                self._seen_primary_keys.add(pk_values)
+                self._seen_primary_keys.add(token)
 
         if duplicate_rows:
             results.append(
@@ -284,6 +297,12 @@ class WriteTimeValidator(BaseProcessor):
             )
 
         return results
+
+    def _key_token(self, key: Tuple[Any, ...]) -> Any:
+        """What is remembered for a primary key: the key itself, or its 16-byte digest."""
+        if not self.config.hash_primary_keys:
+            return key
+        return hashlib.blake2b(repr(key).encode("utf-8"), digest_size=16).digest()
 
     def _validate_write_readiness(self, batch: pa.RecordBatch) -> List[ValidationResult]:
         """Validate that data is ready for writing (general checks)."""
@@ -328,6 +347,7 @@ class WriteTimeValidator(BaseProcessor):
     def reset_state(self):
         """Reset internal state for processing new datasets."""
         self._seen_primary_keys.clear()
+        self._total_rows = 0
 
 
 def create_basic_write_validator(

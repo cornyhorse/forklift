@@ -63,7 +63,8 @@ schema_validator/
 
 ### 2. `base_local.py` - Base Classes
 
-**Purpose**: Provides foundational classes for validation operations.
+**Purpose**: Provides foundational classes for validation operations. They are re-exported from
+`forklift.processors.base`, so `ValidationResult` and `BaseProcessor` are the same classes everywhere.
 
 **Key Classes**:
 - **`ValidationResult`**: Data class representing the outcome of a validation operation
@@ -123,12 +124,19 @@ schema_validator/
 - **`is_type_compatible()`**: Validates type compatibility
 - **`can_coerce_type()`**: Determines if type coercion is possible
 
-**Supported Type Mappings**:
-- Integer types: `int`, `integer`, `int64`, `int32`
-- Float types: `float`, `double`, `float64`, `float32`
-- String types: `string`, `str`, `text`
+**Supported Type Mappings** (`parse_arrow_type`, case-insensitive; unknown strings raise `ValueError`
+and are never silently mapped to string):
+- Integer types: `int`, `integer`, `long`, `bigint`, `int64`, `int32`, `int16`, `smallint`, `int8`,
+  `tinyint`, `uint8`..`uint64`
+- Float types: `float` / `double` / `float64` (64-bit), `real` / `float32`, `float16`, `number`, `numeric`
+- Decimal: `decimal(p,s)`, `decimal128(p, s)`, `numeric(p,s)`
+- String types: `string`, `str`, `text`, `varchar(n)`, `large_string`
 - Boolean: `bool`, `boolean`
-- Temporal: `date`, `datetime`, `timestamp`
+- Temporal: `date`, `datetime`, `timestamp`, `timestamp[us]`, `timestamp[ms, tz=UTC]`, `date32`, `date64`
+- Nested: `list<string>`, `list<item: int64>`
+
+`is_type_compatible()` accepts any member of a *family* name (`int`, `float`, `string`, `number`, `date`)
+and requires an exact match for specific names (`int16`, `decimal(18,2)`, `timestamp[ms]`).
 
 ### 6. `core.py` - Main Validation Engine
 
@@ -155,6 +163,19 @@ schema_validator/
 - **`reset_cache()`**: Clears internal validation cache for performance
 
 ### 7. `constraints.py` - Constraint Validation
+
+**Behaviour notes**:
+- `pattern` is an **unanchored search** (JSON Schema semantics); anchor with `^...$` for a whole-value match.
+  A trailing `$` rejects a value that ends with a newline. Patterns are compiled when the `SchemaValidator`
+  is created; invalid patterns and patterns with nested unbounded quantifiers (`(a+)+`) raise
+  `ValueError` unless `SchemaValidatorConfig.allow_unsafe_regex` (or the column constraint
+  `allow_unsafe_regex`) is set.
+- `min` / `max` work for integers, floats, decimals (compared exactly), dates and timestamps
+  (bounds may be ISO strings); `pattern`, `minLength` and `maxLength` cover `string` and `large_string`.
+- `SchemaValidatorConfig.allow_type_coercion` (or `SchemaValidationMode.COERCE`) really casts a column
+  to the schema type before validating it (safe casts only: no truncation or overflow). Values that
+  cannot be converted become NULL and are reported as `COERCION_FAILED` with their row index.
+- `case_sensitive=False` matches batch columns to schema columns ignoring case.
 
 **Purpose**: Implements specific constraint validation logic.
 
@@ -278,6 +299,8 @@ The package provides detailed error reporting through `ValidationResult` objects
 - `ENUM_VIOLATION`: Value not in allowed enumeration
 - `PATTERN_VIOLATION`: String doesn't match regex pattern
 - `MIN_LENGTH_VIOLATION`, `MAX_LENGTH_VIOLATION`: Length constraint violations
+- `COERCION_FAILED`: Value could not be cast to the schema type (coercion enabled)
+- `TYPE_MISMATCH_NO_COERCION`: Column type differs and cannot be cast
 
 ### Integration with Forklift Error Handling
 

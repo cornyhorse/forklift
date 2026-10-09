@@ -39,9 +39,24 @@ OutputMetadataCollector(
     enum_threshold: float = 0.1,             # Uniqueness ratio threshold for categorical detection
     uniqueness_threshold: float = 0.95,      # Threshold for detecting too-unique columns
     top_n_values: int = 10,                  # Number of top values to track for categorical columns
-    quantiles: List[float] = [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]  # Quantiles for numeric analysis
+    quantiles: List[float] = [0.25, 0.5, 0.75, 0.9, 0.95, 0.99],  # Each in [0, 1], else ValueError
+    include_value_statistics: bool = False,  # Opt in to statistics that expose real cell values
+    max_distinct_tracked: int = 10_000,      # Per-column cap for exact distinct tracking
+    sample_size: int = 10_000,               # Reservoir size used for quantiles
 )
 ```
+
+**Privacy:** by default the metadata contains no cell values: only counts, null counts, distinct
+counts, types, string length statistics and the aggregate mean / standard deviation / variance of
+numeric columns. `top_values`, numeric/temporal `min_value`/`max_value`, `median`, `mode` and
+`quantiles` are only written with `include_value_statistics=True`.
+
+**Statistics honesty:** distinct values are tracked exactly up to `max_distinct_tracked`; beyond
+that `distinct_count_is_lower_bound` is `true` and `uniqueness_ratio`, `likely_categorical` and
+`too_unique` are `null`. Count/min/max/mean/variance are exact (finite values only; NaN/inf are
+counted in `non_finite_count`). Median and quantiles come from a seeded reservoir sample of
+`sample_size` values (exact while the column has no more values than that, otherwise
+`quantiles_are_estimated` is `true`). NaN/inf never appear in the JSON.
 
 #### Data Collection Process
 
@@ -57,9 +72,9 @@ OutputMetadataCollector(
 - Data type and nullability information
 - Null counts and percentages
 - Unique value counts and uniqueness ratios
-- Min/max values (numeric, temporal, string length)
-- Top N most frequent values for categorical columns
-- Comprehensive numeric statistics (mean, median, mode, std dev, quantiles)
+- Min/max values (numeric, temporal; opt-in) and string length (`min_length`/`max_length`)
+- Top N most frequent values for categorical columns (opt-in)
+- Numeric statistics: mean, std dev, variance; median, mode and quantiles (opt-in)
 
 **Dataset Level:**
 - Total row and column counts
@@ -197,7 +212,7 @@ When metadata collection is enabled, the following files are generated:
 
 - **Sampling Limits**: Limits unique value tracking to prevent memory exhaustion
 - **Batch Processing**: Processes data in streaming batches rather than loading entire datasets
-- **Value Limits**: Caps numeric value collection for quantile calculation
+- **Reservoir Sampling**: Quantiles use a fixed-size, seeded reservoir sample (`sample_size`)
 
 ### Processing Overhead
 
@@ -229,7 +244,9 @@ When metadata collection is enabled, the following files are generated:
 
 The metadata collector is designed to be resilient:
 
-- **Graceful Degradation**: Continues processing even if metadata collection encounters errors
+- **Graceful Degradation**: Per-column statistic errors are skipped (and logged at debug level) without aborting collection
+- **Write Failures Are Raised**: `save_metadata` raises `MetadataWriteError` (logged, not printed) when the file cannot be written; `s3://` destinations are written through the S3 I/O handler. The caller decides whether that is fatal
+- **Config Validation**: Quantiles outside [0, 1] raise `ValueError` when the collector is created
 - **Type Safety**: Handles type conversion errors gracefully
 - **Memory Protection**: Implements safeguards against excessive memory usage
 - **Validation**: Validates generated metadata before serialization

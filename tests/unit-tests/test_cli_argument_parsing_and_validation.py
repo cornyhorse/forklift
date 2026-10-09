@@ -80,7 +80,7 @@ class TestCLI100PercentCoverage:
 
         # Mock methods - metadata generation returns None
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_csv_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = None
 
         test_args = [
@@ -97,7 +97,7 @@ class TestCLI100PercentCoverage:
             with patch("builtins.print") as mock_print:
                 main()
                 # Should call the metadata methods but not print success message
-                mock_generator._read_csv_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
 
                 # Should not print metadata file message when None is returned
@@ -143,7 +143,7 @@ class TestCLI100PercentCoverage:
 
         # Mock methods - metadata generation returns a file path
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_parquet_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
 
         test_args = [
@@ -160,7 +160,7 @@ class TestCLI100PercentCoverage:
             with patch("builtins.print") as mock_print:
                 main()
                 # Should call the metadata methods and print success message
-                mock_generator._read_parquet_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
 
                 # Should print metadata file message when file is returned
@@ -180,15 +180,10 @@ class TestCLI100PercentCoverage:
         ]
 
         with patch("sys.argv", test_args):
-            with patch("builtins.print") as mock_print:
-                # The function should return early without proceeding further
-                result = main()
-                # Verify the error message is printed
-                mock_print.assert_called_with(
-                    "Error: --output-path is required when --output=file"
-                )
-                # The function should return None (early return)
-                assert result is None
+            # A usage error must exit with status 2 instead of silently returning 0
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 2
 
     @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_processing_falsy_output_files(self, mock_forklift):

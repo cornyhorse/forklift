@@ -10,7 +10,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 
-from forklift.metadata.output_metadata_collector import OutputMetadataCollector
+from forklift.metadata.output_metadata_collector import MetadataWriteError, OutputMetadataCollector
 
 
 class TestOutputMetadataCollectorInitialization:
@@ -358,7 +358,7 @@ class TestMetadataGeneration:
 
     def test_column_statistics_generation(self):
         """Test detailed column statistics generation."""
-        collector = OutputMetadataCollector(top_n_values=3)
+        collector = OutputMetadataCollector(top_n_values=3, include_value_statistics=True)
 
         batch = pa.record_batch(
             [pa.array(["a", "b", "a", "c", "a", "b"]), pa.array([1, 2, 3, None, 5, 6])],
@@ -493,7 +493,7 @@ class TestMetadataSaving:
 
     @patch("builtins.open", side_effect=IOError("Disk full"))
     def test_save_metadata_io_error(self, mock_open):
-        """Test metadata saving handles IO errors gracefully."""
+        """Test metadata saving surfaces IO errors instead of swallowing them."""
         collector = OutputMetadataCollector()
 
         batch = pa.record_batch([pa.array([1, 2, 3])], names=["numbers"])
@@ -501,9 +501,8 @@ class TestMetadataSaving:
         collector.add_batch(batch)
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            result_path = collector.save_metadata(temp_dir)
-
-            assert result_path is None
+            with pytest.raises(MetadataWriteError):
+                collector.save_metadata(temp_dir)
 
 
 class TestCollectorReset:
@@ -572,8 +571,8 @@ class TestEdgeCases:
         assert len(stats["unique_values"]) <= 10000
 
     def test_numeric_values_sampling(self):
-        """Test that numeric values are sampled to prevent memory issues."""
-        collector = OutputMetadataCollector()
+        """Test that the quantile sample is bounded by sample_size to prevent memory issues."""
+        collector = OutputMetadataCollector(include_value_statistics=True, sample_size=500)
 
         # Create large batch
         large_values = list(range(2000))
@@ -583,8 +582,8 @@ class TestEdgeCases:
 
         collector.add_batch(batch)
 
-        # Should be limited per batch
-        assert len(collector._numeric_values["many_numbers"]) <= 1000
+        # The reservoir never grows beyond sample_size
+        assert len(collector._numeric_values["many_numbers"]) == 500
 
     def test_schema_consistency_across_batches(self):
         """Test that schema is preserved across batches."""
@@ -634,6 +633,7 @@ class TestIntegrationScenarios:
             enum_threshold=0.3,  # Changed from 0.1 to 0.3 so that 0.2 ratio is categorical
             uniqueness_threshold=0.9,
             top_n_values=5,
+            include_value_statistics=True,
         )
 
         # Simulate processing customer data
@@ -714,7 +714,8 @@ class TestIntegrationScenarios:
     def test_time_series_data_scenario(self):
         """Test processing time series data with temporal columns."""
         collector = OutputMetadataCollector(
-            enum_threshold=0.5  # Changed from default 0.1 to 0.5 so that device_id with ratio 0.2 is categorical
+            enum_threshold=0.5,  # Changed from default 0.1 to 0.5 so that device_id with ratio 0.2 is categorical
+            include_value_statistics=True,  # min/max of temporal columns are value statistics
         )
 
         # Simulate time series data

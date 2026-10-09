@@ -24,16 +24,10 @@ class TestCLIPreciseBranches:
         ]
 
         with patch("sys.argv", test_args):
-            with patch("builtins.print") as mock_print:
-                # Call main and capture the result
-                result = main()
-
-                # Verify error message and early return
-                mock_print.assert_called_with(
-                    "Error: --output-path is required when --output=file"
-                )
-                # This should hit the return statement at line 101
-                assert result is None
+            # Missing --output-path is a usage error: exit status 2, not a silent return
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 2
 
     @patch("forklift.cli.SchemaGenerator")
     def test_metadata_file_conditional_branch_141_144(self, mock_schema_gen):
@@ -44,7 +38,7 @@ class TestCLIPreciseBranches:
         # Test the NEGATIVE branch (metadata_file is falsy)
         mock_generator.generate_schema.return_value = {"schema": "data"}
         mock_generator.output_schema.return_value = None
-        mock_generator._read_csv_sample.return_value = "table_data"
+        mock_generator._read_sample_data.return_value = "table_data"
         mock_generator.generate_and_save_metadata.return_value = ""  # Empty string (falsy)
 
         test_args = [
@@ -62,7 +56,7 @@ class TestCLIPreciseBranches:
                 main()
 
                 # Verify metadata methods were called
-                mock_generator._read_csv_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once()
 
                 # The key test: NO success message should be printed (falsy branch)
@@ -83,7 +77,7 @@ class TestCLIPreciseBranches:
         # Test the POSITIVE branch (metadata_file is truthy)
         mock_generator.generate_schema.return_value = {"schema": "data"}
         mock_generator.output_schema.return_value = None
-        mock_generator._read_excel_sample.return_value = "table_data"
+        mock_generator._read_sample_data.return_value = "table_data"
         mock_generator.generate_and_save_metadata.return_value = "actual_file.json"  # Truthy value
 
         test_args = [
@@ -101,7 +95,7 @@ class TestCLIPreciseBranches:
                 main()
 
                 # Verify metadata methods were called
-                mock_generator._read_excel_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once()
 
                 # The key test: success message SHOULD be printed (truthy branch)
@@ -116,7 +110,7 @@ class TestCLIPreciseBranches:
         # Test with explicit None (falsy)
         mock_generator.generate_schema.return_value = {"schema": "data"}
         mock_generator.output_schema.return_value = None
-        mock_generator._read_parquet_sample.return_value = "table_data"
+        mock_generator._read_sample_data.return_value = "table_data"
         mock_generator.generate_and_save_metadata.return_value = None  # Explicit None
 
         test_args = [
@@ -134,7 +128,7 @@ class TestCLIPreciseBranches:
                 main()
 
                 # Verify metadata methods were called
-                mock_generator._read_parquet_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once()
 
                 # The key test: NO success message should be printed (None/falsy branch)

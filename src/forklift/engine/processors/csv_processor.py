@@ -9,7 +9,7 @@ import os
 import time
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Union
+from typing import Any, Callable, List, Optional, Sequence, Union
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -275,7 +275,9 @@ class CSVProcessor(BaseProcessor):
             # Schema extensions (x-transformations, x-columnMapping, x-calculatedColumns,
             # x-validation, x-primaryKey, x-rowHash, ...). Misconfiguration fails here, before
             # any output is written.
-            pipeline = self._build_extension_pipeline(config, column_names, results)
+            pipeline = self._build_extension_pipeline(
+                config, column_names, results, mark_nulls=converter.mark_nulls
+            )
 
             # Prepare output paths - support both local and S3 outputs
             good_file, bad_file, use_s3_output = self._prepare_output_paths(config)
@@ -408,14 +410,21 @@ class CSVProcessor(BaseProcessor):
         return results
 
     def _build_extension_pipeline(
-        self, config: ImportConfig, column_names: Sequence[str], results: ProcessingResults
+        self,
+        config: ImportConfig,
+        column_names: Sequence[str],
+        results: ProcessingResults,
+        mark_nulls: Optional[Callable[[pa.RecordBatch], pa.RecordBatch]] = None,
     ) -> Optional[ExtensionPipeline]:
         """Create the schema extension pipeline (None when nothing is to be applied)."""
         schema_dict = self.schema_processor.schema_dict
         if not config.apply_schema_extensions or not schema_dict or not column_names:
             return None
         pipeline = build_extension_pipeline(
-            schema_dict, column_names, source_uri=str(config.input_path)
+            schema_dict,
+            column_names,
+            source_uri=str(config.input_path),
+            mark_nulls=mark_nulls,
         )
         if pipeline is not None:
             results.warnings.extend(pipeline.warnings)

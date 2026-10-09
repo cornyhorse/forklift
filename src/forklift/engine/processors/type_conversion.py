@@ -237,6 +237,22 @@ class ColumnConverter:
         rejected = to_string_batch(batch.take(pa.array(sorted(failed), type=pa.int64())))
         return converted.filter(keep), rejected
 
+    def mark_nulls(self, batch: pa.RecordBatch) -> pa.RecordBatch:
+        """Replace the schema's null markers by real nulls in the text columns of ``batch``.
+
+        ``convert`` does this too; calling it first lets a step that rewrites the text (a
+        transformation) see NULL where the file said ``NA``, ``-`` or ``0.00``.
+        """
+        arrays = [
+            (
+                self._apply_nulls(column, name, self.column_types.get(name))
+                if _is_text(column.type)
+                else column
+            )
+            for name, column in zip(batch.schema.names, batch.columns)
+        ]
+        return pa.RecordBatch.from_arrays(arrays, schema=batch.schema)
+
     def _apply_nulls(self, column: pa.Array, name: str, target: Optional[pa.DataType]):
         """Replace the schema's null markers by real nulls in a text column."""
         values = self.null_policy.values_for(name)

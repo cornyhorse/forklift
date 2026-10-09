@@ -192,8 +192,20 @@ class ExpressionEvaluator:
 
     @staticmethod
     def _to_array(values: List[Any], column_config: CalculatedColumn) -> pa.Array:
+        data_type = column_config.data_type
         try:
-            return pa.array(values, type=column_config.data_type)
+            try:
+                return pa.array(values, type=data_type)
+            except (pa.ArrowException, TypeError, ValueError, OverflowError):
+                # A constant such as "2024-08-26" for a date32 column: ISO text is read as the
+                # temporal type (other conversions from text stay errors)
+                if (
+                    data_type is not None
+                    and (pa.types.is_temporal(data_type) and not pa.types.is_duration(data_type))
+                    and all(v is None or isinstance(v, str) for v in values)
+                ):
+                    return pa.array(values, type=pa.string()).cast(data_type)
+                raise
         except (pa.ArrowException, TypeError, ValueError, OverflowError):
             # The Arrow message quotes the offending value; report only the target type.
             raise ValueError(

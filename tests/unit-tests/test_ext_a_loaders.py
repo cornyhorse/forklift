@@ -1769,8 +1769,8 @@ class TestReferencedColumns:
         found = referenced_columns(schema)
         assert found["x-primaryKey"] == ["id"]
         assert found["x-uniqueConstraints"] == ["name", "birth_date"]
-        assert "email" in found["x-validation"] and "zip_9" in found["x-validation"]
-        assert found["x-dataQuality"] == ["age", "salary", "email", "phone"]
+        assert "email_address" in found["x-validation"] and "zip_9" in found["x-validation"]
+        assert found["x-dataQuality"] == ["age", "salary", "email_address", "phone_number"]
         assert "id" in found["properties"] and "name" in found["properties"]
 
 
@@ -2159,8 +2159,34 @@ class TestUnsupportedExtensionKeys:
             "x-dataQuality",
         ]
 
-    def test_shipped_standard(self):
+    def test_shipped_standard_only_reports_pii(self):
         schema = json.loads(STANDARD_CSV.read_text())
+
+        # Everything else the standard contains is applied by the import
+        assert unsupported_extension_keys(schema) == [
+            "x-pii is documentation only: no masking is applied"
+        ]
+
+    def test_content_of_older_standards_is_reported(self):
+        # Keys the shipped standard used to contain and that no processor ever read
+        schema = {
+            "x-pii": {"fields": {"name": {"isPII": True}}},
+            "x-transformations": {"moneyType": {"currencySymbols": ["$"]}},
+            "x-calculatedColumns": {
+                "constants": [],
+                "partitionColumns": ["data_source"],
+                "options": {"skipIfExists": False},
+            },
+            "x-columnMapping": {"standardizationRules": {"maxLength": 64}},
+            "x-constraintHandling": {"errorMode": "bad_rows", "badRowsOutput": {"enabled": True}},
+            "x-validation": {
+                "badRowsHandling": {"outputPath": "bad_rows"},
+                "crossFieldValidations": [{"name": "n", "rule": "r"}],
+                "globalValidations": [{"name": "n"}],
+            },
+            "x-dataQuality": {"completeness": {"enabled": True, "minimumFillRate": 0.9}},
+        }
+
         warnings = unsupported_extension_keys(schema)
 
         assert len(warnings) == len(set(warnings))
@@ -2179,7 +2205,6 @@ class TestUnsupportedExtensionKeys:
         )
         assert any(w.startswith("x-dataQuality.completeness ") for w in warnings)
         # what the loaders do apply is not reported
-        assert not any(".onViolation" in w for w in warnings)  # all "bad_rows" = what happens
         assert not any(w.startswith("x-primaryKey") for w in warnings)
         assert not any(w.startswith("x-uniqueConstraints") for w in warnings)
         assert not any("explicitMappings" in w for w in warnings)
@@ -2203,7 +2228,11 @@ class TestShippedStandard:
             ("name", "birth_date"),
         ]
         validator = build_data_validator(schema)
-        assert {r.field_name for r in validator.config.field_validations} >= {"id", "email", "ssn"}
+        assert {r.field_name for r in validator.config.field_validations} >= {
+            "id",
+            "email_address",
+            "ssn",
+        }
         assert build_quality_processor(schema).rules["column_rules"]["age"] == {
             "min_value": 0,
             "max_value": 150,

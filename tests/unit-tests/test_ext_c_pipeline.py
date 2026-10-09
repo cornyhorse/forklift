@@ -249,12 +249,16 @@ class TestBookkeeping:
 class TestEnhancedProcessorWithBoundedViolations:
     """The constraint validator keeps only some violations; the totals must stay exact."""
 
-    def test_totals_and_per_batch_attribution_do_not_depend_on_the_cap(self):
+    def test_totals_and_per_batch_attribution_do_not_depend_on_the_cap(self, tmp_path):
+        from forklift.processors.bad_rows_handler import BadRowsConfig as HandlerConfig
         from forklift.processors.enhanced_processor import EnhancedDataProcessor
 
         config = ConstraintConfig(unique_constraints=["id"], max_retained_violations=3)
         processor = EnhancedDataProcessor(
-            pa.schema([pa.field("id", pa.int64())]), constraint_config=config, strict_mode=False
+            pa.schema([pa.field("id", pa.int64())]),
+            constraint_config=config,
+            bad_rows_config=HandlerConfig(output_path=str(tmp_path) + "/"),  # not the cwd
+            strict_mode=False,
         )
         batch = pa.RecordBatch.from_pydict({"id": [1] * 20})  # 19 duplicates of the first row
 
@@ -265,3 +269,35 @@ class TestEnhancedProcessorWithBoundedViolations:
         summary = processor.get_constraint_violations_summary()
         assert summary["total_violations"] == 19 and summary["retained_violations"] == 3
         assert processor.bad_rows_handler.bad_row_count == 19
+
+
+class TestTemporalConstants:
+    """``"2024-08-26"`` is a fine value for a date32 constant (the shipped standard has one)."""
+
+    @staticmethod
+    def constants(data_type, value):
+        return create_calculated_columns_processor_from_schema(
+            {"constants": [{"name": "c", "value": value, "dataType": data_type}]}
+        )
+
+    def test_iso_text_becomes_a_date(self):
+        out, _ = self.constants("date32", "2024-08-26").process_batch(people())
+
+        assert out.schema.field("c").type == pa.date32()
+        assert out.column("c").to_pylist()[0].isoformat() == "2024-08-26"
+
+    def test_iso_text_becomes_a_timestamp(self):
+        out, _ = self.constants("timestamp[us]", "2024-08-26T10:30:00").process_batch(people())
+
+        assert out.schema.field("c").type == pa.timestamp("us")
+        assert out.column("c").to_pylist()[0].hour == 10
+
+    def test_text_that_is_not_a_date_still_fails_without_echoing_the_value(self):
+        with pytest.raises(ValueError) as error:
+            self.constants("date32", "not-a-date-SECRET").process_batch(people())
+
+        assert "SECRET" not in str(error.value) and "date32" in str(error.value)
+
+    def test_text_is_not_turned_into_numbers(self):
+        with pytest.raises(ValueError):
+            self.constants("int32", "12").process_batch(people())

@@ -17,9 +17,9 @@ Per batch the stages run in this order::
             ``x-constraintHandling``  rejects rows
             ``x-rowHash``             appends hash and metadata columns
 
-Names: ``properties``, ``required``, ``x-csv`` and ``x-transformations`` use the column names of the
-file header; every extension after the mapping step uses the output names (a header name that was
-renamed is accepted there too and resolved to its output name).
+Names: ``properties``, ``required``, ``x-csv`` and ``x-transformations`` use the column names of
+the file header; every extension after the mapping step uses the output names (a header name that
+was renamed is accepted there too and resolved to its output name).
 
 Rows rejected by the validation and constraint stages are returned to the caller, which writes them
 to ``bad_rows.parquet`` (in the shape of the input columns, with a reason per row).
@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import pyarrow as pa
 
@@ -45,6 +45,10 @@ POSITION_COLUMN = f"{HIDDEN_PREFIX}pos"
 
 #: Name of the column that explains why a row is in bad_rows.parquet (see ``rejects_rows``).
 REASON_COLUMN = "_rejection_reason"
+
+#: Extensions whose rules for a column the input lacks (but ``properties`` declares) only warn;
+#: a column missing from the input is always an error for the key extensions.
+LENIENT_EXTENSIONS = frozenset({"properties", "x-validation", "x-dataQuality"})
 
 #: At most this many distinct "CODE:column" keys are counted in ``summary``; the rest is "OTHER".
 _MAX_SUMMARY_KEYS = 200
@@ -126,7 +130,9 @@ class ExtensionPipeline:
         row_hash: Any = None,
         source_uri: Optional[str] = None,
         warnings: Optional[List[str]] = None,
+        mark_nulls: Optional[Callable[[pa.RecordBatch], pa.RecordBatch]] = None,
     ):
+        self.mark_nulls = mark_nulls
         self.transformer = transformer
         self.mapper = mapper
         self.calculated = calculated
@@ -213,6 +219,9 @@ class ExtensionPipeline:
         self._rows_seen += count
 
         if self.transformer is not None:
+            if self.mark_nulls is not None:
+                # x-csv.nulls describe the text of the file, so they apply before it is rewritten
+                batch = self.mark_nulls(batch)
             batch, results = self.transformer.process_batch(batch)
             self.record(results)
 
@@ -352,6 +361,7 @@ def build_extension_pipeline(
     header_names: Sequence[str],
     *,
     source_uri: Optional[str] = None,
+    mark_nulls: Optional[Callable[[pa.RecordBatch], pa.RecordBatch]] = None,
     log: Callable[[str], None] = logger.warning,
 ) -> Optional[ExtensionPipeline]:
     """Create the pipeline for ``schema``, or None if the schema asks for nothing.
@@ -360,6 +370,8 @@ def build_extension_pipeline(
         schema: The loaded JSON schema
         header_names: Column names of the input file (as the reader will deliver them)
         source_uri: Where the data comes from (recorded by ``x-rowHash`` source columns)
+        mark_nulls: Applies the schema's null markers to a raw batch (see
+            ``ColumnConverter.mark_nulls``); run before ``x-transformations``
         log: Called once per warning
 
     Raises:
@@ -401,11 +413,13 @@ def build_extension_pipeline(
     if not transformer.column_transformations:
         transformer = None  # nothing configured (also: no x-special-type columns)
     if transformer is not None:
-        for column in transformer.column_transformations:
-            if column not in header:
-                warnings.append(
-                    f"x-transformations refers to column '{column}', which is not in the input"
-                )
+        skipped = [c for c in transformer.column_transformations if c not in header]
+        if skipped:
+            warnings.append(
+                "x-transformations (and x-special-type) steps for column(s) "
+                f"{', '.join(repr(c) for c in skipped)} are not applied: "
+                "the columns are not in the input"
+            )
 
     # --- post stage
     calculated = None
@@ -420,10 +434,6 @@ def build_extension_pipeline(
         )
     available = output_names + calculated_names
 
-    quality = build_quality_processor(schema, resolve_column=resolve)
-    validator = build_data_validator(schema, resolve_column=resolve)
-    constraints = build_constraint_validator(schema, resolve_column=resolve)
-
     row_hash = None
     hash_columns: List[str] = []
     if schema.get("x-rowHash"):
@@ -437,7 +447,19 @@ def build_extension_pipeline(
                     "change its column names (columnName, ...)"
                 )
 
-    warnings.extend(_check_references(referenced_columns(schema), available, resolve=resolve))
+    properties = schema.get("properties")
+    declared = set(properties) if isinstance(properties, dict) else set()
+    warnings.extend(_renamed_onto_property_warnings(mapping, declared))
+    reference_warnings, absent = _check_references(
+        referenced_columns(schema), available, declared=declared, resolve=resolve
+    )
+    warnings.extend(reference_warnings)
+
+    # Rules for columns this input lacks are left out (they were reported above)
+    rules_schema = _without_columns(schema, absent)
+    quality = build_quality_processor(rules_schema, resolve_column=resolve)
+    validator = build_data_validator(rules_schema, resolve_column=resolve)
+    constraints = build_constraint_validator(rules_schema, resolve_column=resolve)
 
     if any(name.startswith(HIDDEN_PREFIX) for name in header) and (
         row_hash is not None or transformer is not None
@@ -454,38 +476,110 @@ def build_extension_pipeline(
         row_hash=row_hash,
         source_uri=source_uri,
         warnings=warnings,
+        mark_nulls=mark_nulls,
     )
     for message in warnings:
         log(message)
     return pipeline if (pipeline.is_active or warnings) else None
 
 
-def _check_references(
-    references: Dict[str, List[str]], available: Sequence[str], *, resolve: Callable[[str], str]
-) -> List[str]:
-    """Fail early when an extension refers to a column that will not exist.
+def _renamed_onto_property_warnings(mapping: Dict[str, Optional[str]], declared: set) -> List[str]:
+    """Warn for a column renamed to the name of a property that is meant for another column.
 
-    A schema may describe more columns than a given file has, so constraints declared on plain
-    ``properties`` only produce a warning; the explicit key/validation extensions raise.
+    ``properties`` (types, ``required``, constraints, ``x-csv.nulls``) are matched by the names
+    in the file, before ``x-columnMapping`` renames anything. A property declared under the new
+    name therefore does not apply to the renamed column.
+    """
+    warnings: List[str] = []
+    for source, target in mapping.items():
+        if (
+            target is not None
+            and target != source
+            and target in declared
+            and source not in declared
+        ):
+            warnings.append(
+                f"column '{source}' is renamed to '{target}' by x-columnMapping, but the "
+                f"schema properties are matched by the names in the file: the definition of "
+                f"'{target}' is not applied to it (declare the property as '{source}')"
+            )
+    return warnings
+
+
+def _check_references(
+    references: Dict[str, List[str]],
+    available: Sequence[str],
+    *,
+    declared: set,
+    resolve: Callable[[str], str],
+) -> Tuple[List[str], Dict[str, List[str]]]:
+    """Fail early when an extension refers to a column that cannot exist.
+
+    A schema may describe more columns than a given file has, so a name that is declared in
+    ``properties`` but missing from the file only produces a warning. A name that is neither in
+    the file nor declared is most likely a typo, and so is an error: otherwise the rule that
+    mentions it would silently check nothing.
 
     Returns:
-        Warnings for the lenient cases
+        ``(warnings, absent)``: the warnings for the lenient cases and, per extension, the
+        declared names the input lacks (as written in the schema)
+
+    Raises:
+        ValueError: An extension names a column that is in neither the input nor ``properties``
+            (or, for the key extensions, in the input)
     """
     known = set(available)
     warnings: List[str] = []
+    absent: Dict[str, List[str]] = {}
     for extension, columns in references.items():
         missing = sorted({c for c in columns if resolve(c) not in known})
         if not missing:
             continue
-        shown = ", ".join(repr(c) for c in missing)
-        if extension == "properties":
-            warnings.append(
-                f"constraints declared on column(s) {shown} are not checked: "
-                "the columns are not in the input"
+        lenient = extension in LENIENT_EXTENSIONS
+        typos = [c for c in missing if not (lenient and c in declared)]
+        if typos:
+            shown = ", ".join(repr(c) for c in typos)
+            raise ValueError(
+                f"{extension} refers to column(s) {shown} that are not in the input "
+                f"(columns after mapping: {', '.join(sorted(known))})"
             )
-            continue
-        raise ValueError(
-            f"{extension} refers to column(s) {shown} that are not in the input "
-            f"(columns after mapping: {', '.join(sorted(known))})"
+        shown = ", ".join(repr(c) for c in missing)
+        warnings.append(
+            f"{extension} rules for column(s) {shown} are not checked: "
+            "the columns are not in the input"
         )
-    return warnings
+        absent[extension] = missing
+    return warnings, absent
+
+
+def _without_columns(schema: Dict[str, Any], absent: Dict[str, List[str]]) -> Dict[str, Any]:
+    """A copy of ``schema`` without the rules the input has no column for.
+
+    Only the sections the rule loaders read are copied; the original is not modified.
+    """
+    if not absent:
+        return schema
+    view = dict(schema)
+
+    def pruned(section: Any, key: Optional[str], names: Sequence[str]) -> Any:
+        if not isinstance(section, dict):
+            return section
+        if key is None:
+            return {k: v for k, v in section.items() if k not in names}
+        copy = dict(section)
+        if isinstance(copy.get(key), dict):
+            copy[key] = {k: v for k, v in copy[key].items() if k not in names}
+        return copy
+
+    if "x-validation" in absent:
+        view["x-validation"] = pruned(
+            schema.get("x-validation"), "fieldValidations", absent["x-validation"]
+        )
+    if "x-dataQuality" in absent:
+        quality = pruned(
+            schema.get("x-dataQuality"), "fieldSpecificRules", absent["x-dataQuality"]
+        )
+        view["x-dataQuality"] = pruned(quality, "fieldQualityRules", absent["x-dataQuality"])
+    if "properties" in absent:
+        view["properties"] = pruned(schema.get("properties"), None, absent["properties"])
+    return view

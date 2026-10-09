@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .row_hash import (
     HASH_VERSION_CURRENT,
@@ -12,20 +12,8 @@ from .row_hash import (
 )
 
 
-def create_row_hash_processor_from_schema(
-    schema_config: Dict[str, Any],
-) -> Optional[RowHashProcessor]:
-    """Create a RowHashProcessor from schema configuration.
-
-    Args:
-        schema_config: Dictionary containing the x-rowHash configuration
-
-    Returns:
-        RowHashProcessor instance or None if disabled or no configuration found
-    """
-    if not schema_config:
-        return None
-
+def _config_from_schema(schema_config: Dict[str, Any]) -> RowHashConfig:
+    """Build (and validate) the RowHashConfig for an x-rowHash dictionary."""
     # "hashVersion" selects the encoding: 2 = injective (default), 1 = legacy (verify old hashes)
     legacy_encoding = bool(schema_config.get("legacyEncoding", False))
     hash_version = schema_config.get("hashVersion")
@@ -41,8 +29,7 @@ def create_row_hash_processor_from_schema(
             raise ValueError("hashVersion and legacyEncoding contradict each other")
         legacy_encoding = hash_version == HASH_VERSION_LEGACY
 
-    # Create configuration from schema
-    config = RowHashConfig(
+    return RowHashConfig(
         enabled=schema_config.get("enabled", False),
         column_name=schema_config.get("columnName", "row_hash"),
         algorithm=schema_config.get("algorithm", "sha256"),
@@ -68,14 +55,60 @@ def create_row_hash_processor_from_schema(
         ),
     )
 
-    # Only create processor if at least one feature is enabled
-    if not (
+
+def _any_feature_enabled(config: RowHashConfig) -> bool:
+    return bool(
         config.enabled
         or config.input_hash_enabled
         or config.source_uri_enabled
         or config.ingested_at_enabled
         or config.row_number_enabled
-    ):
+    )
+
+
+def create_row_hash_processor_from_schema(
+    schema_config: Dict[str, Any],
+) -> Optional[RowHashProcessor]:
+    """Create a RowHashProcessor from schema configuration.
+
+    Args:
+        schema_config: Dictionary containing the x-rowHash configuration
+
+    Returns:
+        RowHashProcessor instance or None if disabled or no configuration found
+    """
+    if not schema_config:
+        return None
+
+    config = _config_from_schema(schema_config)
+
+    # Only create processor if at least one feature is enabled
+    if not _any_feature_enabled(config):
         return None
 
     return RowHashProcessor(config)
+
+
+def row_hash_output_columns(schema_config: Optional[Dict[str, Any]]) -> List[str]:
+    """Names of the columns the row hash processor adds, in the order it adds them.
+
+    Lets a caller compute the final output schema, and detect name collisions with the data
+    columns, before any batch is processed. ``schema_config`` is the inner ``x-rowHash``
+    dictionary (camelCase keys, defaults as in ``create_row_hash_processor_from_schema``); the
+    result is exactly the columns ``process_batch`` of the processor created from the same
+    dictionary appends: the output hash (``columnName``, default ``row_hash``), the input hash
+    (``inputHashColumnName``), the source URI (``sourceUriColumnName``), the ingestion timestamp
+    (``ingestedAtColumnName``) and, with ``rowNumberEnabled``, the source row number
+    (``sourceRowNumberColumnName``) followed by the processing row number
+    (``processingRowNumberColumnName``). Empty if no processor would be created.
+
+    Raises:
+        ValueError: For the same invalid configuration the factory rejects.
+    """
+    if not schema_config:
+        return []
+
+    config = _config_from_schema(schema_config)
+    if not _any_feature_enabled(config):
+        return []
+    return config.output_column_names()

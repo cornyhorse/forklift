@@ -106,6 +106,7 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
 - **Description**: Generate hash of original input row before transformations
 - **Default**: `false`
 - **Use Cases**: Track changes made during processing, detect transformation impacts
+- **Implementation**: The hash covers *every* column of the input batch (in its schema order, under its own name), with the same algorithm and encoding version as the row hash. The processor needs that batch: pass `input_batch` (it must have exactly the rows of the batch being processed) or, when rows were dropped since, a precomputed `input_hash` array (see [Pipelines that drop rows](#pipelines-that-drop-rows-and-rename-columns)). Enabling it and supplying neither raises `ValueError` (the column is never silently left out).
 
 #### `inputHashColumnName`
 - **Type**: String
@@ -148,15 +149,15 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
 
 #### `sourceRowNumberColumnName`
 - **Type**: String
-- **Description**: Column name for original source file row number
+- **Description**: Column name for the source row number: the **1-based position of the row among the data rows of the source** (the header line is not a data row)
 - **Default**: `"_rownum_in_source_file"`
-- **Implementation**: 1-based numbering from source file
+- **Implementation**: Without further input the processor counts the rows it receives, starting at `source_row_offset` + 1 (`set_source_context(uri, source_row_offset)`; the offset is 0 unless you want to count e.g. the header line). That equals the position in the source only while no row was dropped before the processor; otherwise pass `source_row_numbers` to `process_batch` (see [Pipelines that drop rows](#pipelines-that-drop-rows-and-rename-columns)). Supplied positions are written as given; `source_row_offset` is not added to them.
 
 #### `processingRowNumberColumnName`
 - **Type**: String
-- **Description**: Column name for processing order row number
+- **Description**: Column name for processing order row number: the 1-based count of the rows this processor has emitted
 - **Default**: `"_rownum"`
-- **Implementation**: Sequential numbering during processing; both row-number columns restart at 1 whenever a new source is started (`set_source_context`)
+- **Implementation**: Sequential numbering of the rows the processor receives, continuing across batches (an empty batch consumes no numbers); it is independent of `source_row_numbers`. Both row-number columns restart at 1 whenever a new source is started (`set_source_context`)
 
 ## Implementation Details
 
@@ -194,10 +195,72 @@ Known weaknesses: values containing the separator collide, `"NULL"` equals NULL,
 hash as NULL, column names and types are not part of the preimage.
 
 #### Failure behaviour
-The processor fails closed: if hashing or adding a metadata column fails, or if a metadata column
-(`row_hash`, `_input_hash`, `_source_uri`, ...) already exists in the batch, it raises `ValueError`
-instead of returning the batch without the column. `inputHashEnabled` needs the batch as it entered the
-pipeline; `ProcessorPipeline` passes it to processors that accept an `input_batch` argument.
+The processor fails closed: it never returns a batch without a requested column. It raises
+`ValueError` when
+
+- hashing or adding a metadata column fails, or a metadata column (`row_hash`, `_input_hash`,
+  `_source_uri`, ...) already exists in the batch;
+- `inputHashEnabled` is on but neither `input_batch` nor `input_hash` was given, or they do not match
+  the rows of the batch;
+- `sourceUriEnabled` / `ingestedAtEnabled` is on but `set_source_context` was not called;
+- `enabled` is on but no column is left to hash (`includeColumns` names no column of the batch, or
+  `excludeColumns` removes all of them). `includeColumns` entries that are not in the batch are
+  otherwise ignored.
+
+`ProcessorPipeline` passes the batch as it entered the pipeline to processors that accept an
+`input_batch` argument.
+
+### Pipelines that drop rows and rename columns
+
+The input hash and the source row number describe the row *as it entered the pipeline*. When the
+processor runs last in a per-batch pipeline in which rows were dropped (type conversion, validation,
+uniqueness) and columns were renamed or added, the caller computes both up front and carries them
+along, aligned with the surviving rows:
+
+```python
+processor = create_row_hash_processor_from_schema(config)       # the inner x-rowHash dict
+processor.set_source_context("file:///data/in.csv")
+
+input_hash = processor.compute_input_hash(raw_batch)             # before any row is dropped
+positions = pa.array(range(first, first + raw_batch.num_rows), pa.int64())  # 1-based, per source
+...                                                              # drop rows: filter both the same way
+out, _ = processor.process_batch(
+    final_batch,
+    input_hash=input_hash.filter(keep_mask),
+    source_row_numbers=positions.filter(keep_mask),
+)
+```
+
+- `compute_input_hash(input_batch) -> pa.Array`: one hash per row (string array); exactly the value
+  `process_batch` stores in the input-hash column for that row when given the same batch as
+  `input_batch` (same algorithm, encoding version and column selection: all columns of the batch).
+  It needs no source context and changes no processor state.
+- `process_batch(batch, input_batch=None, *, input_hash=None, source_row_numbers=None)`:
+  - `input_hash`: precomputed string array with one non-null hash per row of `batch` (a length
+    mismatch raises `ValueError`). It is used instead of computing from `input_batch`, which may
+    then be omitted or have a different length.
+  - `source_row_numbers`: integer array (stored as `int64`) with one non-null value >= 1 per row of
+    `batch`: the 1-based position of each row among the data rows of the source. It is used for the
+    source row number column instead of the internal counter. The processing sequence column keeps
+    counting the rows the processor receives.
+  - Both arguments may be `pa.Array` or `pa.ChunkedArray`, and are validated even if the matching
+    option is off (then they are ignored).
+- Existing calls (`process_batch(batch)`, `process_batch(batch, input_batch=...)`,
+  `set_source_context`) behave as before.
+- Empty batches: `process_batch` on a batch with 0 rows returns the same columns, types and field
+  metadata (hash version and algorithm) as for a non-empty batch, so an empty output can be given its
+  schema by processing an empty batch; `get_output_schema(input_schema)` returns that schema without
+  a batch. A batch with 0 rows consumes no row numbers.
+- `row_hash_output_columns(config_dict)` (in `forklift.processors.row_hash_factory`) returns the
+  names of the columns the processor adds for an `x-rowHash` dictionary, in order (`columnName`,
+  `inputHashColumnName`, `sourceUriColumnName`, `ingestedAtColumnName`, then
+  `sourceRowNumberColumnName` and `processingRowNumberColumnName`, each only when its option is on;
+  an empty list when the factory would create no processor). The processor's `output_columns()` gives
+  the same list. Use it to compute the final output schema and to detect name collisions with the data
+  columns before processing; invalid configuration raises the same `ValueError` as the factory.
+- The row hash covers every column of the batch it receives (except its own metadata columns and
+  `excludeColumns`); a caller that carries helper columns in the batch has to remove them first or
+  list them in `excludeColumns`.
 
 #### Migrating
 Hashes are only comparable within one version. When switching an existing change-detection pipeline
@@ -329,8 +392,12 @@ With full metadata enabled:
 
 | customer_id | name | email | row_hash | _input_hash | _source_uri | _ingested_at_utc | _rownum_in_source_file | _rownum |
 |-------------|------|-------|----------|-------------|-------------|------------------|------------------------|---------|
-| 1 | John Doe | john@example.com | a1b2c3d4... | x9y8z7w6... | file:///data/customers.csv | 2024-08-26T10:30:00Z | 2 | 1 |
-| 2 | Jane Smith | jane@example.com | e5f6g7h8... | v5u4t3s2... | file:///data/customers.csv | 2024-08-26T10:30:00Z | 3 | 2 |
+| 1 | John Doe | john@example.com | a1b2c3d4... | x9y8z7w6... | file:///data/customers.csv | 2024-08-26T10:30:00Z | 1 | 1 |
+| 3 | Jim Roe | jim@example.com | e5f6g7h8... | v5u4t3s2... | file:///data/customers.csv | 2024-08-26T10:30:00Z | 3 | 2 |
+
+The second source row (customer 2) was dropped before the hash step: `_rownum_in_source_file` is the
+position among the source's data rows (1, 3) while `_rownum` counts the rows the processor emitted
+(1, 2). Without `source_row_numbers` the two columns would both read 1, 2.
 
 ## Best Practices
 

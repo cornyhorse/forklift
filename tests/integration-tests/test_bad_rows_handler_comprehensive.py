@@ -468,9 +468,12 @@ class TestBadRowsHandler:
             assert nested_path.exists()
             assert nested_path.parent.exists()
 
-    def test_write_error_handling(self):
+    def test_write_error_handling(self, tmp_path):
         """Test error handling during write operations."""
-        config = BadRowsConfig(output_path="/invalid/path/bad_rows.json", output_format="json")
+        # A path below a regular file cannot be created - not even by root, unlike "/invalid/..."
+        blocker = tmp_path / "not_a_directory"
+        blocker.write_text("occupied")
+        config = BadRowsConfig(output_path=str(blocker / "bad_rows.json"), output_format="json")
         handler = BadRowsHandler(config)
 
         handler.add_bad_row({"id": 1}, 0)

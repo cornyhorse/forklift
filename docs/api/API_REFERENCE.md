@@ -32,18 +32,20 @@ def import_csv(
 - `input_path`: Path to CSV file (local or S3 URI)
 - `output_path`: Output directory path (local or S3 URI)
 - `schema_file`: Optional path to JSON schema file (local or S3 URI)
-- `**kwargs`: Any other [`ImportConfig`](#importconfig) field, for example `delimiter`, `encoding`, `header_mode`, `excess_column_mode`, `batch_size`, `footer_detection`, `include_value_statistics`. `header_mode` and `excess_column_mode` accept the enum member or a case-insensitive string (`"absent"`); an unknown value raises `ValueError`
+- `**kwargs`: Any other [`ImportConfig`](#importconfig) field, for example `delimiter`, `encoding`, `header_mode`, `excess_column_mode`, `batch_size`, `footer_detection`, `include_value_statistics`, `apply_schema_extensions`. `header_mode` and `excess_column_mode` accept the enum member or a case-insensitive string (`"absent"`); an unknown value raises `ValueError`
 
 **Returns:** [`ProcessingResults`](#processingresults) object with processing statistics
 
 **What is written to `output_path`:**
 - `data.parquet`: the accepted rows (an input with only a header row yields an empty file that carries the schema)
-- `bad_rows.parquet`: rejected rows, only when there are some; all columns are strings, in the shape of the input columns
-- `manifest.json`, `metadata.json` and `output_data_metadata.json` (see `create_manifest` / `create_metadata`)
+- `bad_rows.parquet`: rejected rows, only when there are some; all columns are strings, in the shape of the input columns. When the schema configures `x-validation` or a constraint it has an extra last column `_rejection_reason` (`CODE` or `CODE:column`, several joined by `; `, never a cell value; rows rejected by type conversion, `required` or excess fields get `type_conversion_failed`, `required_value_missing` or `too_many_fields`)
+- `manifest.json`, `metadata.json` (which also records `schema_extensions`, `validation_summary` and `warnings`) and `output_data_metadata.json` (see `create_manifest` / `create_metadata`)
 
 Files with these names left by an earlier run are removed when a run starts. If the run fails, the exception is re-raised and no partial `data.parquet` / `bad_rows.parquet` remains.
 
-**How a schema is applied:** the schema's types are applied to the output (`x-csv.parquetTypeMapping` first, otherwise the JSON `type`/`format`), so a `string` column keeps `00123` as written. A row whose value cannot be converted goes to `bad_rows.parquet`. `required` columns are matched by column name; a null or an empty string in one sends the row to `bad_rows.parquet`. Blank lines are skipped. The other `x-` extensions (`x-transformations`, `x-calculatedColumns`, `x-rowHash`, `x-columnMapping`, `x-primaryKey`, ...) are not executed by `import_csv`.
+**How a schema is applied:** the schema's types are applied to the output (`x-csv.parquetTypeMapping` first, otherwise the JSON `type`/`format`), so a `string` column keeps `00123` as written. A row whose value cannot be converted goes to `bad_rows.parquet`. `required` columns are matched by column name; a null or an empty string in one sends the row to `bad_rows.parquet`. Blank lines are skipped.
+
+**Schema extensions:** unless `apply_schema_extensions=False`, `import_csv` also runs `x-transformations` (and the automatic `x-special-type` formatting), `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality` (findings only), `x-validation`, `x-primaryKey`, `x-uniqueConstraints`, the per-property constraints (`minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `enum`, `x-unique`), `x-constraintHandling.errorMode` and `x-rowHash` on every batch. They apply to CSV only: `import_excel`, `import_sql` and `import_fwf` apply none, and `x-pii` is not acted on. Stage order, the supported keys and a worked example are in [Applying Schema Extensions](../guides/USAGE.md#applying-schema-extensions); the key tables are in [docs/schemas](../schemas/README.md). Extension content that no processor reads is returned in `ProcessingResults.warnings`; an extension that is configured incorrectly or names a column that does not exist raises `ValueError` before any output is written (the guide has the exact rules).
 
 **Example:**
 ```python
@@ -78,7 +80,7 @@ def import_excel(
 
 Sheets are read with openpyxl in read-only streaming mode (`.xlsx`) or xlrd (`.xls`). `.xlsx` archives are checked against size and compression-ratio limits and sheets against row/cell caps before they are read (`ExcelInputConfig`: `max_uncompressed_bytes`, `max_compression_ratio`, `max_rows`, `max_cells`); exceeding one raises `ValueError`. A sheet name or index that does not exist raises `ValueError`. Only empty and whitespace-only cells are null by default. See the [importers readme](../../src/forklift/engine/importers/forklift.engine.importers.readme.md) for the sheet settings (`header.row` is 0-based, `dataStartRow` / `dataEndRow` are 1-based and inclusive).
 
-**Returns:** `ProcessingResults` (`invalid_rows` is always 0; there is no bad rows file, manifest or output-metadata file)
+**Returns:** `ProcessingResults` (`invalid_rows` is always 0; there is no bad rows file, manifest or output-metadata file). The schema's `x-...` extensions that `import_csv` runs (transformations, mapping, validation, constraints, ...) are not applied here, and `schema_extensions`, `validation_summary` and `warnings` stay empty
 
 ### `import_fwf()`
 
@@ -373,6 +375,7 @@ class ImportConfig:
     create_metadata: bool = True
     compression: str = "snappy"
     include_value_statistics: bool = False
+    apply_schema_extensions: bool = True
 ```
 
 **Attributes:**
@@ -388,6 +391,7 @@ class ImportConfig:
 - `create_manifest` / `create_metadata`: Write `manifest.json` / `metadata.json` and `output_data_metadata.json`
 - `compression`: Parquet compression codec
 - `include_value_statistics`: Let `output_data_metadata.json` contain statistics that expose cell values (`top_values`, numeric/temporal `min_value`/`max_value`, `median`, `mode`, `quantiles`). Off by default
+- `apply_schema_extensions`: Run the schema's `x-...` extensions (`x-transformations`, `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality`, `x-validation`, `x-primaryKey`, `x-uniqueConstraints`, per-property constraints, `x-constraintHandling`, `x-rowHash`) on every batch. On by default; `False` (CLI: `--no-schema-extensions`) ignores them, while types, null markers and `required` still apply. CSV imports only
 
 ### `HeaderMode`
 
@@ -420,7 +424,7 @@ Lower-level configuration for `forklift.inputs.sql.SqlInputHandler` and `forklif
 
 ### `ConstraintConfig`
 
-Configuration for the constraint validator class (`forklift.processors.constraint_validator`). It is used by calling the validator directly; `import_csv()` does not take it.
+Configuration for the constraint validator class (`forklift.processors.constraint_validator`). You use it by calling the validator directly. `import_csv()` takes no `ConstraintConfig`: it builds its validator from the schema (`x-primaryKey`, `x-uniqueConstraints`, the per-property constraints and `x-constraintHandling.errorMode`) with `forklift.processors.schema_extensions.build_constraint_validator`.
 
 ```python
 @dataclass
@@ -456,7 +460,12 @@ class ProcessingResults:
     errors: List[str] = []            # Error messages
     bad_rows_file: Optional[str] = None   # Rejected rows (None if nothing was rejected)
     truncated_rows: int = 0           # Rows cut to the header width (TRUNCATE)
+    warnings: List[str] = []          # Notes that do not stop the import (ignored schema content, ...)
+    validation_summary: Dict[str, int] = {}   # Findings of the schema extensions per CODE or CODE:column
+    schema_extensions: List[str] = [] # Extensions that were applied
 ```
+
+`warnings`, `validation_summary` and `schema_extensions` are filled by `import_csv` when the schema has extensions to apply. `validation_summary` counts rejected rows, values nulled by `x-special-type`, `x-dataQuality` findings and so on, per `CODE` or `CODE:column` (for example `UNIQUE_VIOLATION:id`, `INVALID_SPECIAL_VALUE:ssn`); it never contains cell values. The CLI prints all three, and `metadata.json` records them.
 
 `errors` also records a failure to write `output_data_metadata.json`: the data files are already complete at that point, so the run does not raise. For `import_sql(..., continue_on_error=True)` it lists the failed tables.
 
@@ -467,6 +476,10 @@ Forklift raises standard exceptions (`ValueError` for invalid configuration or i
 ### `ProcessingError`
 
 `forklift.engine.exceptions.ProcessingError` (also importable from `forklift.engine`). Raised by the Excel and SQL importers for invalid schemas and failed tables. `import_sql` attaches the partial `ProcessingResults` as `error.results`.
+
+### Errors from the schema extensions
+
+`import_csv` raises `ValueError` for an extension that is configured incorrectly (wrong type, unknown `errorMode`, invalid regular expression, a column name that exists neither in the file nor in `properties`, a calculated or hash column that would replace an existing column, ...) before any output is written, and for a violation under `x-constraintHandling.errorMode` `fail_fast` / `fail_complete`. `BadRowsThresholdExceededError` (`forklift.processors.data_validation.data_validation_processor`, a `RuntimeError`) is raised when `x-validation` rejects more than `badRowsHandling.maxBadRowsPercent` of the rows it has seen and `failOnExceedThreshold` is true. In all these cases no `data.parquet` / `bad_rows.parquet` is left behind.
 
 ### `SchemaValidationError`
 

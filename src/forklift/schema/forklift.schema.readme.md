@@ -155,7 +155,7 @@ Generated schemas include a format-specific extension (`x-csv`, `x-excel`) that 
 }
 ```
 
-`forklift.import_csv()` takes its read settings (`delimiter`, `encoding`, `header_mode`, ...) from `ImportConfig`, not from `x-csv`; from a schema file it uses the column types (`x-csv.parquetTypeMapping`, otherwise each property's JSON `type`/`format`), `x-csv.nulls`, `required` and `x-metadata-generation`. The generated `nulls.global` list is a suggestion: it includes `NA`, which the sampler itself does not treat as null.
+`forklift.import_csv()` takes its read settings (`delimiter`, `encoding`, `header_mode`, ...) from `ImportConfig`, not from `x-csv`; from a schema file it uses the column types (`x-csv.parquetTypeMapping`, otherwise each property's JSON `type`/`format`), `x-csv.nulls`, `required`, `x-metadata-generation` and, unless `apply_schema_extensions=False`, the processing extensions (`x-transformations`, `x-special-type`, `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality`, `x-validation`, `x-primaryKey`, `x-uniqueConstraints`, per-property constraints, `x-constraintHandling.errorMode`, `x-rowHash`); see the [usage guide](../../../docs/guides/USAGE.md#applying-schema-extensions). The generated `nulls.global` list is a suggestion: it includes `NA`, which the sampler itself does not treat as null.
 
 ### Validation Framework
 
@@ -181,7 +181,7 @@ Custom `x-` prefixed properties provide Forklift-specific functionality:
 - **x-primaryKey**: Primary key definitions and constraints (user-specified or inferred)
 - **x-metadata**: Statistical metadata for each field (value statistics only with `include_value_statistics`)
 - **x-csv/x-excel**: Format-specific processing configurations
-- **x-transformations**: Suggested cleaning steps per column (`column_transformations`)
+- **x-transformations**: Suggested cleaning steps per column (`column_transformations`, every step written with `"enabled": false`)
 - **x-generation**: When and from which file (name only) the schema was generated
 - **x-sample**: Sample rows, only with `include_sample_data`
 

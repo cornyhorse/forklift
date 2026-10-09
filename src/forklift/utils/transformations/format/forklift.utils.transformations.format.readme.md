@@ -134,7 +134,7 @@ print(phones.to_pylist())   # ['(555) 123-4567', None]
 ## Integration with Forklift
 
 Format transformers integrate with Forklift's main processing pipeline through:
-1. **Processor Configuration**: Specified in processing schemas and configurations
+1. **Processor Configuration**: Specified in processing schemas and configurations. `import_csv` formats a CSV column automatically when its property has an `x-special-type` (`ssn`, `zip-5`, `zip-9`, `zip-permissive`, `phone`, `email`, `ipv4`, `ipv6`, `ip`, `mac-address`) or an enabled step of `x-transformations.column_transformations.<column>` named `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting` or `mac_address_formatting`; an invalid value becomes NULL
 2. **DataTransformer**: Used by the main DataTransformer class
 3. **Pipeline Stages**: Applied during data cleaning and standardization phases
 4. **Schema Validation**: Ensure outputs match expected schema formats

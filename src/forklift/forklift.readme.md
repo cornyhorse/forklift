@@ -69,11 +69,13 @@ The `cli.py` module provides a comprehensive command-line interface with two pri
 
 The ingest command handles data processing and conversion:
 - **Input kinds**: `csv`, `excel` and `fwf` (`fwf` is not implemented yet and exits with status 2)
-- **Validation**: JSON Schema types and `required` columns for CSV; bad rows go to `bad_rows.parquet`
+- **Validation**: JSON Schema types and `required` columns for CSV, plus the schema's `x-...` extensions (transformations, column mapping, calculated columns, validation, keys and constraints, row hash); bad rows go to `bad_rows.parquet`
 - **Output**: High-performance Parquet files with manifest and metadata files
 - **Cloud support**: Native S3 streaming for both input and output
 - **Exit codes**: `0` success, `1` processing failed (or the run reported errors), `2` usage errors and not-implemented input kinds
 - `--include-value-stats` adds value-bearing statistics (top values, min/max, quantiles) to the CSV output metadata; `--sheet` (Excel) takes a sheet name or a 0-based index; `--encoding-priority` accepts several encodings but only the first is used; `--pre` (preprocessors) only prints a warning
+- `--no-schema-extensions` (CSV only; a warning is printed for other input kinds) sets `ImportConfig(apply_schema_extensions=False)`: the schema's `x-...` extensions are ignored, while column types, null markers and `required` still apply
+- After a CSV import the summary lists `Schema extensions applied: ...` and, under `Findings by the schema extensions:`, one `CODE[:column]: count` line per finding (most frequent first); the results' `warnings` (schema content that nothing reads, rules skipped because the file lacks a column) go to stderr as `Warning: ...`
 
 ```bash
 # Basic CSV ingestion with validation
@@ -156,6 +158,7 @@ The forklift package fits into a comprehensive data processing ecosystem:
 
 2. **Data Validation & Processing** (`cli.py`, `engine/`)
    - Apply the schema's types and required columns, setting rejected rows aside
+   - For CSV, run the schema's `x-...` extensions as well (see the [engine readme](engine/forklift.engine.readme.md#schema-extensions-csv)); Excel and SQL imports apply none of them
    - Stream processing for memory efficiency
 
 3. **Data Analysis** (`readers.py`)
@@ -192,7 +195,8 @@ The forklift package fits into a comprehensive data processing ecosystem:
 # 1. Generate schema from sample data
 schema = forklift.generate_schema_from_csv("sample.csv", nrows=10000)
 
-# 2. Refine schema as needed (manually edit JSON)
+# 2. Refine schema as needed (manually edit JSON). import_csv enforces an inferred x-primaryKey
+#    and applies any x-transformations step you set to "enabled": true
 # 3. Process full dataset with validated schema
 import json
 with open("schema.json", "w") as f:

@@ -275,6 +275,20 @@ standard contains them). Invalid configuration (wrong types, `min` greater than 
 strategy, an invalid or unsafe regular expression, ...) raises `ValueError("x-validation....: ...")`.
 Field names go through `resolve_column` (header name -> output name).
 
+### Use by `import_csv`
+
+`import_csv` (CSV only) builds this processor with `build_data_validator` and runs it on every batch after
+`x-columnMapping`, `x-calculatedColumns` and `x-dataQuality` and before the key and constraint checks, so the
+rules use the *output* column names and can name calculated columns. The rows it rejects are written by the
+engine to `bad_rows.parquet` (the input's column names, all strings) with the reason
+`VALIDATION_ERROR:<column>` in the `_rejection_reason` column, and counted in
+`ProcessingResults.validation_summary`; the processor writes no file. Percentages are checked after every
+batch against **all rows that reached the validator so far** (rows already rejected by type conversion or
+`required` never get here): with the default `maxBadRowsPercent` 10 and `failOnExceedThreshold` true,
+the import raises `BadRowsThresholdExceededError` (a `RuntimeError`) as soon as more than 10 % of those rows
+were rejected, and leaves no output behind. A rule for a column that is declared in `properties` but absent
+from the file is skipped with a warning; a rule for a name that is nowhere raises `ValueError`.
+
 ## Validation semantics
 
 - **Regular expressions** (`StringValidation.pattern`) are *unanchored searches* (JSON Schema

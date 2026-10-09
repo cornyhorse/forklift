@@ -15,8 +15,34 @@ Data Source → Schema Validation → [Calculated Columns] → Quality Validatio
 The calculated columns processor typically runs after initial schema validation but before final quality checks, allowing:
 - Addition of derived fields needed for validation rules
 - Business logic implementation during data ingestion
-- Partition key generation for optimized storage
+- Constant columns (for example a data source or load date) that downstream tools can partition on (`partitionColumns` is recorded only; the output is not partitioned)
 - Data quality metrics calculation
+
+In `import_csv` the order is: type conversion and the `required` check, then `x-columnMapping`, then
+**`x-calculatedColumns`**, then `x-dataQuality`, `x-validation`, the constraints and finally `x-rowHash`. So
+an expression sees the typed values and the *output* column names (after the mapping), and `x-validation`,
+the constraints and `x-rowHash` can use the calculated columns.
+
+### Use by `import_csv`
+
+`import_csv` builds the processor with `create_calculated_columns_processor_from_schema` and appends the
+columns to every batch (CSV imports only; `import_excel`, `import_sql` and `import_fwf` do not). The keys that
+are read:
+
+| `x-calculatedColumns` key | Meaning |
+|---|---|
+| `constants[]` | `name`, `value`, optional `dataType` |
+| `expressions[]` | `name`, `expression`, optional `dataType` and `dependencies` |
+| `calculated[]` | `name`, `expression` (the old `function` key is only an alias for it), optional `dataType` and `dependencies` |
+| `failOnError`, `addMetadata`, `validateDependencies` | processor options (`failOnError` defaults to true) |
+
+A constant or expression whose `dataType` is a date or timestamp accepts ISO text (`"2024-08-26"`).
+Expressions use the safe expression syntax described below (`x if cond else y`, `if_then_else`, `coalesce`,
+`isnull`, `length`, `year`, `today`, ...), **not** SQL: `CASE WHEN` is a syntax error, and there is no
+`years_from_timestamp` or `string_length` function. A calculated column that has the name of an existing
+column raises `ValueError` before any output is written, and an expression that names a column the file lacks
+fails the import (`ValueError: ... Unknown name ...`). `x-calculatedColumns.partitionColumns` is recorded
+only and `indexColumns` / `options` are not read; the import warns about them.
 
 ### Integration with Other Processors
 
@@ -39,7 +65,7 @@ The calculated columns processor typically runs after initial schema validation 
 - **Arithmetic Operations**: `+`, `-`, `*`, `/`, `%`, `**`
 - **String Operations**: Concatenation, case conversion, substring extraction
 - **Date/Time Operations**: Date arithmetic, formatting, component extraction
-- **Conditional Logic**: If-then-else, case statements, null handling
+- **Conditional Logic**: `a if cond else b`, `if_then_else()`, `coalesce()`, `nullif()`, null handling (there is no SQL `CASE WHEN`)
 - **Mathematical Functions**: Round, abs, sqrt, trigonometric functions
 - **Type Conversions**: String, integer, float, boolean conversions
 - **Comparison Operations**: Equality, inequality, greater/less than
@@ -241,7 +267,7 @@ config = CalculatedColumnsConfig(
 - `fail_on_error`: Stop processing on first error (default: True)
 - `add_metadata`: Include processing metadata in validation results
 - `validate_dependencies`: Check for circular dependencies at initialization
-- `partition_columns`: Specify columns for partitioned output optimization
+- `partition_columns`: Names of columns meant for partitioning; recorded on the config only, nothing partitions the output
 
 ## Error Handling
 
@@ -266,8 +292,7 @@ The package integrates with Forklift's schema system to support:
 - Automatic dependency resolution from schema metadata
 
 ### Pipeline Integration
-- Compatible with all Forklift data sources (CSV, Excel, FWF, SQL)
-- Works with S3 streaming for cloud-native processing
+- Run by `import_csv` for CSV inputs (local and S3) from the schema's `x-calculatedColumns`; `import_excel`, `import_sql` and `import_fwf` do not run it, but the processor works on any PyArrow batch
 - Integrates with quality validation and constraint checking
 
 This calculated columns processor provides a powerful, flexible foundation for data transformation within the Forklift ecosystem, enabling complex business logic while maintaining high performance and type safety.

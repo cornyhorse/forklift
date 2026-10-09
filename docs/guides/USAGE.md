@@ -6,6 +6,7 @@ This guide provides comprehensive examples and workflows for using Forklift effe
 
 - [Installation](#installation)
 - [Data Import Workflows](#data-import-workflows)
+  - [Applying Schema Extensions](#applying-schema-extensions)
 - [Schema Generation](#schema-generation)
 - [Data Reading and Analysis](#data-reading-and-analysis)
 - [Validation and Error Handling](#validation-and-error-handling)
@@ -71,7 +72,123 @@ What a schema does during `import_csv`:
 - **Values that do not convert go to `bad_rows.parquet`.** The whole row is rejected, and the file stores every column as a string in the shape of the input, so you can see what the original text was.
 - **`required` is matched by column name**, and an empty string counts as missing. A required column that is not in the file at all raises `ValueError` before any row is read.
 - **Nulls** can be configured with `x-csv.nulls`.
-- Other extensions (`x-transformations`, `x-calculatedColumns`, `x-rowHash`, `x-columnMapping`, `x-primaryKey`, ...) are documented in the schema docs, but `import_csv` does not execute them; the classes that implement them live in `forklift.processors` and `forklift.utils.transformations`.
+- **The `x-...` extensions run as well** (`x-transformations`, `x-columnMapping`, `x-calculatedColumns`, `x-validation`, `x-primaryKey`, `x-uniqueConstraints`, per-property constraints such as `minimum` and `pattern`, `x-rowHash`, ...): see [Applying Schema Extensions](#applying-schema-extensions). Pass `apply_schema_extensions=False` to ignore them.
+
+### Applying Schema Extensions
+
+For CSV files, `import_csv` (and `forklift ingest --input-kind csv`) runs the schema's `x-...` extensions on every batch. Excel, SQL and fixed-width imports apply none of them, and `x-pii` is documentation only: no masking is applied. The pages in [docs/schemas](../schemas/README.md) describe each extension; this is the summary of what is applied.
+
+| Extension | Keys that are applied | Effect |
+|---|---|---|
+| `x-csv` | `nulls` (`global`, `perColumn`), `parquetTypeMapping` | null markers become NULL; Parquet types |
+| `x-transformations` | `column_transformations.<column>.<step>`, with steps such as `string_cleaning`, `money_conversion`, `numeric_cleaning`, `regex_replace`, `string_replace`, `string_trimming`, `string_padding`, `html_xml_cleaning`, `datetime` and the `*_formatting` steps; a step only runs with `"enabled": true` (without it the step is skipped, silently) | cleans the text of a column before its type is applied |
+| `x-special-type` (on a property) | `ssn`, `zip-5`, `zip-9`, `zip-permissive`, `phone`, `email`, `ipv4`, `ipv6`, `ip`, `mac-address` | formats the value; an invalid value becomes NULL (counted as `INVALID_SPECIAL_VALUE:<column>`) and the row is kept |
+| `x-columnMapping` | `explicitMappings`, `namingConvention`, `caseSensitive`, `allowUnmapped`, `dropUnmapped` | renames columns; `allowUnmapped: false` (like `dropUnmapped: true`) drops the unmapped ones |
+| `x-calculatedColumns` | `constants`, `expressions`, `calculated` (each with `name`, `dataType` and a `value` or `expression`), `failOnError`, `addMetadata`, `validateDependencies` | appends columns |
+| `x-dataQuality` | `fieldSpecificRules` (`min`, `max`, `pattern`), `fieldQualityRules.<column>.parameters` (`min_length`, `max_length`, `pattern`, `min_value`, `max_value`), `enabled` | report only: findings are counted, no row is dropped |
+| `x-validation` | `fieldValidations.<column>` (`required`, `unique`, `range`, `stringValidation`, `enumValidation`, `dateValidation`), `uniquenessHandling.strategy`, `badRowsHandling.maxBadRowsPercent` / `failOnExceedThreshold` | rejects rows |
+| `x-primaryKey`, `x-uniqueConstraints` | `columns`, `type`, `enforceUniqueness`, `allowNulls`; `name`, `columns` | rejects duplicate rows (and rows with a NULL primary key); the first row of a key wins |
+| per-property constraints | `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `enum`, `x-unique` | rejects rows (other keywords such as `exclusiveMinimum` or `multipleOf` are not enforced) |
+| `x-constraintHandling` | `errorMode` | what happens to a violation: `bad_rows` (default), `fail_fast`, `fail_complete` |
+| `x-rowHash` | see [X_ROW_HASH_DOCUMENTATION](../schemas/X_ROW_HASH_DOCUMENTATION.md) | appends hash and metadata columns, last |
+
+Each batch passes through the stages in this order:
+
+```text
+header names   x-rowHash input hash and row numbers (only if x-rowHash asks for them; the hash covers the raw text)
+               x-csv null markers -> NULL
+               x-transformations, then the automatic x-special-type formatting
+               type conversion (properties, x-csv.parquetTypeMapping)    rows that do not convert -> bad rows
+               required                                                  rows with a missing value -> bad rows
+output names   x-columnMapping          renames columns
+               x-calculatedColumns      appends columns
+               x-dataQuality            findings only
+               x-validation             rows -> bad rows
+               x-primaryKey, x-uniqueConstraints, property constraints, x-constraintHandling   rows -> bad rows
+               x-rowHash                appends the hash and metadata columns
+```
+
+**Names.** `properties`, `required`, `x-csv` and `x-transformations` use the column names exactly as they are in the file header, because they run before anything is renamed. Every stage from `x-columnMapping` on uses the *output* names (a header name that was renamed is accepted there too). A `properties` entry declared under the *new* name of a renamed column is not applied to it; the import adds a warning.
+
+**Rejected rows.** `bad_rows.parquet` has all-string columns named like the input file's columns, with the values as the stage saw them (after transformations and type conversion). When the schema configures `x-validation` or any constraint, it gets an extra last column `_rejection_reason`: the reason is `CODE` or `CODE:column` (for example `UNIQUE_VIOLATION:id`, `VALIDATION_ERROR:age`, `NULL_VIOLATION:id`, `RANGE_VIOLATION:age`), several joined by `; `, and never contains a cell value. Rows rejected by type conversion, by `required` or (with `excess_column_mode="reject"`) for excess fields carry `type_conversion_failed`, `required_value_missing` or `too_many_fields` in that column. Without `x-validation` and constraints the file has no reason column.
+
+**Results.** `ProcessingResults` reports what happened in three fields: `schema_extensions` (the extensions that were applied), `validation_summary` (counts per `CODE` or `CODE:column`; never values) and `warnings`. The CLI prints them (`Schema extensions applied: ...`, `Findings by the schema extensions:`, warnings on stderr) and `metadata.json` records them.
+
+**Violation handling.** `x-constraintHandling.errorMode` is case-insensitive and any other value raises `ValueError`. `bad_rows` (default) rejects the violating rows, and for a duplicate key the first row wins. `fail_fast` raises `ValueError` at the first violation, `fail_complete` checks everything and raises at the end; in both no output file is left behind. `x-validation.badRowsHandling.maxBadRowsPercent` (default 10) with `failOnExceedThreshold` (default true) raises `BadRowsThresholdExceededError` (a `RuntimeError`) as soon as more than that percentage of the rows that reached `x-validation` so far was rejected by it, so small test files need a higher value.
+
+**Columns the file lacks.** `x-primaryKey` and `x-uniqueConstraints` naming a column that is not in the file raise `ValueError` before anything is written. For `x-validation` and `x-dataQuality`, a name that is neither in the file nor in `properties` (a typo) raises `ValueError`, while a name declared in `properties` that this file lacks only adds a warning and the rules for that column (its per-property constraints included) are skipped, so a wide standard can be used with narrower files. A calculated-column expression that uses a column the file lacks is not skipped: it fails the import with `ValueError` while the first batch is processed (no output is left). A calculated column or a hash column that would replace an existing column raises `ValueError`, and header names starting with `__forklift_` are reserved when `x-rowHash` or `x-transformations` is used. Calculated-column expressions use the safe expression syntax (`x if cond else y`, `coalesce`, `isnull`, `length`, `year`, `today`, ...), not SQL `CASE WHEN`; a date or timestamp `dataType` accepts ISO text such as `"2024-08-26"`.
+
+**Warnings instead of errors.** Content that no processor reads does not stop the import; it is added to `results.warnings` (and logged). That covers `x-pii`, the `x-transformations` blocks other than `column_transformations` (`stringCleaning`, `moneyType`, ...; write `x-transformations.column_transformations.<column>.<step>` instead), `x-calculatedColumns.indexColumns` / `partitionColumns` / `options`, `x-columnMapping.standardizationRules`, `x-constraintHandling` keys other than `errorMode`, `x-validation` `crossFieldValidations` / `globalValidations`, `x-uniqueConstraints` `condition`, and more. `forklift.processors.schema_extensions.unsupported_extension_keys(schema)` lists everything it recognises.
+
+**Switching it off.** `import_csv(..., apply_schema_extensions=False)`, `ImportConfig(apply_schema_extensions=False)` or `forklift ingest --no-schema-extensions` ignore all of the above; column types, null markers and `required` still apply.
+
+A worked example. `people.csv` has a padded name, a duplicate id and a bad age:
+
+```text
+id,name,age
+1,  ann ,34
+2,bob,70
+2,carol,41
+3,dave,x
+4,erin,29
+```
+
+`people_schema.json` title-cases and trims the names, adds a constant and a calculated column, and makes `id` the primary key:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id":   {"type": "integer"},
+    "name": {"type": "string"},
+    "age":  {"type": "integer"}
+  },
+  "x-transformations": {
+    "column_transformations": {
+      "name": {"string_cleaning": {"enabled": true, "strip_whitespace": true, "case_transform": "title"}}
+    }
+  },
+  "x-calculatedColumns": {
+    "constants": [{"name": "source", "value": "people.csv", "dataType": "string"}],
+    "expressions": [
+      {"name": "age_band", "expression": "'senior' if age >= 65 else 'adult'", "dataType": "string"}
+    ]
+  },
+  "x-primaryKey": {"columns": ["id"]}
+}
+```
+
+```python
+import pyarrow.parquet as pq
+
+import forklift
+
+results = forklift.import_csv("people.csv", "out", schema_file="people_schema.json")
+
+print(results.total_rows, results.valid_rows, results.invalid_rows)
+print(results.schema_extensions)
+print(results.validation_summary)
+print(results.warnings)
+
+for row in pq.read_table("out/data.parquet").to_pylist():
+    print(row)
+for row in pq.read_table(results.bad_rows_file).to_pylist():
+    print(row)
+```
+
+```text
+5 3 2
+['x-transformations', 'x-calculatedColumns', 'x-primaryKey/x-uniqueConstraints/constraints']
+{'UNIQUE_VIOLATION:id': 1}
+[]
+{'id': 1, 'name': 'Ann', 'age': 34, 'source': 'people.csv', 'age_band': 'adult'}
+{'id': 2, 'name': 'Bob', 'age': 70, 'source': 'people.csv', 'age_band': 'senior'}
+{'id': 4, 'name': 'Erin', 'age': 29, 'source': 'people.csv', 'age_band': 'adult'}
+{'id': '3', 'name': 'Dave', 'age': 'x', '_rejection_reason': 'type_conversion_failed'}
+{'id': '2', 'name': 'Carol', 'age': '41', '_rejection_reason': 'UNIQUE_VIOLATION:id'}
+```
+
+The names were cleaned before the types were applied (the rejected rows show `Dave` and `Carol`, not `dave` and `carol`), the first row with `id` 2 won, and `age` `x` failed type conversion. The same run from the command line prints `Schema extensions applied: x-transformations, x-calculatedColumns, x-primaryKey/x-uniqueConstraints/constraints` and, under `Findings by the schema extensions:`, `UNIQUE_VIOLATION:id: 1`.
 
 ### Header, Comment and Footer Handling
 
@@ -107,7 +224,7 @@ The metadata records base file names (no directories) as provenance. `distinct_c
 
 ### What `import_csv` Does Not Do
 
-`import_csv` has no `preprocessors` argument (the CLI's `--pre` only prints a warning). Fixed-width import (`import_fwf`) raises `NotImplementedError`.
+`import_csv` has no `preprocessors` argument (the CLI's `--pre` only prints a warning). Fixed-width import (`import_fwf`) raises `NotImplementedError`. The schema extensions are CSV-only (`import_excel` and `import_sql` ignore them), `x-pii` is not acted on (no masking), and the options that [Applying Schema Extensions](#applying-schema-extensions) lists as warnings are not implemented.
 
 ## Schema Generation
 
@@ -193,6 +310,10 @@ forklift.generate_and_save_schema(
 
 By default the generated `x-metadata` contains **no raw cell values**: it has row/null counts, distinct counts, uniqueness ratios, type information, mean/standard deviation/variance, outlier counts, string-length statistics and `enum_suggestions` that say a column *looks* categorical (`is_enum_candidate`, `confidence`, `distinct_count`, ...). Set `include_value_statistics=True` (CLI: `--include-value-stats`) to add `top_values`, `bottom_values`, `suggested_enum_values`, `min_value`, `max_value`, `median`, `range` and `quantiles` (keys like `quantile_25` and `quantile_99_5`). Sample rows (`x-sample`) are a separate opt-in (`include_sample_data`). `x-generation.source_file` holds the file name only.
 
+### Using a Generated Schema for an Import
+
+A generated schema can be passed straight to `import_csv`, but two things now matter because `import_csv` applies the schema's extensions. The suggested `x-transformations.column_transformations` steps are all written with `"enabled": false`, so they change nothing until you enable them. An inferred `x-primaryKey` is enforced: a later file with a duplicate or NULL key has those rows rejected (`UNIQUE_VIOLATION:<column>`, `NULL_VIOLATION:<column>`). The keys the generator adds for documentation only (`x-transformations.version`, `global_settings` and `transformation_types`, `x-primaryKey.inference_metadata`) are not read; the import reports them in `results.warnings`.
+
 ### CLI Schema Generation to Different Outputs
 
 ```bash
@@ -257,7 +378,7 @@ df = forklift.read_csv("legacy_data.csv", encoding="latin-1").as_pandas()
 df = forklift.read_csv("pipe_delimited.txt", delimiter="|").as_pandas()
 ```
 
-Only the accepted rows are returned. Rows that went to `bad_rows.parquet` (values that did not convert, empty required columns, ...) are not in the DataFrame; call `forklift.import_csv(...)` and read `results.bad_rows_file` if you need them. A file that has a header but no data rows gives an empty DataFrame with the header's columns.
+Only the accepted rows are returned. Rows that went to `bad_rows.parquet` (values that did not convert, empty required columns, rows rejected by the schema extensions, ...) are not in the DataFrame; call `forklift.import_csv(...)` and read `results.bad_rows_file` if you need them. `read_csv` applies the schema extensions like `import_csv` does, so the DataFrame has the renamed and calculated columns (with the `people_schema.json` example: `id`, `name`, `age`, `source`, `age_band` and 3 rows); pass `apply_schema_extensions=False` to get the file as it is. A file that has a header but no data rows gives an empty DataFrame with the header's columns.
 
 ### Cleaning Up
 
@@ -544,10 +665,13 @@ if results.invalid_rows > 0:
 A row is rejected when
 
 - a value cannot be converted to the type the schema declares for its column (for example `"Yes"` in a `boolean` column, or `"abc"` in an `integer` column),
-- a column listed under `required` is null or an empty string, or
-- it has more fields than the header and `excess_column_mode` is `REJECT`.
+- a column listed under `required` is null or an empty string,
+- it has more fields than the header and `excess_column_mode` is `REJECT`, or
+- a schema extension rejects it: `x-validation`, `x-primaryKey` / `x-uniqueConstraints` (duplicate or NULL key) or a per-property constraint (`minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `enum`, `x-unique`). See [Applying Schema Extensions](#applying-schema-extensions).
 
-The run itself only stops (an exception is raised and `data.parquet` / `bad_rows.parquet` are not left behind) for problems with the input as a whole: a file that cannot be decoded with the configured `encoding`, no header found, a required column that is missing from the file, an unreadable schema, or an I/O error. `max_validation_errors` is reserved and not enforced, so there is no "stop after N bad rows" mode.
+When the schema configures `x-validation` or a constraint, `bad_rows.parquet` has a last column `_rejection_reason` that says which rule rejected each row (`type_conversion_failed`, `required_value_missing`, `too_many_fields`, `UNIQUE_VIOLATION:id`, ...); the reason never contains the cell value. `results.validation_summary` counts the findings per reason.
+
+The run itself only stops (an exception is raised and `data.parquet` / `bad_rows.parquet` are not left behind) for problems with the input as a whole: a file that cannot be decoded with the configured `encoding`, no header found, a required column that is missing from the file, an unreadable schema, an extension that is configured incorrectly or names a column that does not exist (`ValueError`, before any output is written), `x-constraintHandling.errorMode` `fail_fast` / `fail_complete` with a violation, `x-validation` rejecting more rows than `maxBadRowsPercent`, or an I/O error. `max_validation_errors` is reserved and not enforced, so there is no "stop after N bad rows" mode.
 
 ### Excess Column Handling
 
@@ -594,6 +718,8 @@ All fields are kept, and the extra ones are named `col_4`, `col_5`, ... after th
 - Output columns: `Name,Age,City,col_4,col_5`
 
 ## Excel and SQL Sources
+
+`import_excel` and `import_sql` do not apply the schema extensions that `import_csv` runs (`x-transformations`, `x-columnMapping`, `x-calculatedColumns`, `x-validation`, `x-primaryKey`, `x-uniqueConstraints`, constraints, `x-rowHash`), and they write no `bad_rows.parquet`.
 
 ### Excel Import
 
@@ -665,6 +791,11 @@ forklift ingest book.xlsx --dest ./output/ --input-kind excel --sheet "Q4_Result
 
 # Header handling
 forklift ingest data.csv --dest ./output/ --input-kind csv --header-mode auto
+
+# Ignore the schema's x-... extensions (types, null markers and `required` still apply); CSV only
+forklift ingest data.csv --dest ./output/ --input-kind csv --schema schema.json --no-schema-extensions
 ```
+
+For a CSV import the summary also lists the schema extensions that were applied, the findings they counted (`Findings by the schema extensions:`, one `CODE:column: count` line each) and, on stderr, the warnings (see [Applying Schema Extensions](#applying-schema-extensions)).
 
 Exit codes: `0` success, `1` processing failed (or the run reported errors), `2` usage errors and input kinds that are not implemented (`--input-kind fwf`). `--encoding-priority` accepts several encodings but only the first one is used; the engine does not fall back to the others.

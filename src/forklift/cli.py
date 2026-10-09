@@ -7,9 +7,11 @@ are not implemented (argparse itself also exits with 2 for invalid arguments).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
+import logging
 import sys
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Iterator, Optional, Sequence
 
 from .engine.forklift_core import (
     ForkliftCore,
@@ -32,6 +34,22 @@ EXIT_USAGE = 2
 
 def _warn(message: str) -> None:
     print(f"Warning: {message}", file=sys.stderr)
+
+
+@contextlib.contextmanager
+def _reported_by_cli(logger_name: str) -> Iterator[None]:
+    """Keep a library logger quiet while the CLI prints the same messages itself.
+
+    The import logs the warnings it collects (library users read the log) and also returns them in
+    ``results.warnings``, which ``_print_results`` prints; without this each line appeared twice.
+    """
+    target = logging.getLogger(logger_name)
+    previous = target.level
+    target.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        target.setLevel(previous)
 
 
 def _fail(message: str, code: int = EXIT_FAILURE) -> None:
@@ -240,7 +258,8 @@ def _run_ingest(args: argparse.Namespace) -> None:
             apply_schema_extensions=not args.no_schema_extensions,
             **_value_statistics_kwargs(ImportConfig, args.include_value_stats),
         )
-        results = ForkliftCore(config).process_csv()
+        with _reported_by_cli("forklift.engine.processors.extensions"):
+            results = ForkliftCore(config).process_csv()
     elif args.input_kind == "excel":
         excel_kwargs = {"sheet": args.sheet} if args.sheet else {}
         results = import_excel(args.source, args.dest, args.schema, **excel_kwargs)

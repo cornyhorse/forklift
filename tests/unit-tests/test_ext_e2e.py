@@ -691,7 +691,7 @@ class TestWarnings:
             ]
         )
 
-        assert "x-pii" in capsys.readouterr().err
+        assert capsys.readouterr().err.count("x-pii") == 1  # not once more from the log
 
     def test_a_value_is_never_part_of_a_finding(self, tmp_path):
         schema = schema_of(

@@ -15,9 +15,9 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 - **Calculated-column expressions no longer use `eval`.** A schema-supplied expression could run
   arbitrary code (`abs.__globals__['__builtins__']['__import__']('os')...`). Expressions are now
   parsed and run by a whitelist interpreter with length, node, exponent and result-size limits.
-  Reachable only through `forklift.processors.CalculatedColumnsProcessor` (the `import_csv`
-  pipeline and CLI do not run it), but any caller feeding it untrusted schemas was exposed.
-  A `ConstantColumn` value can no longer be turned into code either.
+  Any caller feeding `forklift.processors.CalculatedColumnsProcessor` an untrusted schema was
+  exposed, and `import_csv` now runs calculated columns (see "Changed"). A `ConstantColumn` value
+  can no longer be turned into code either.
 - **Database passwords are no longer written to disk.** The SQL importer wrote the full ODBC
   connection string, including `PWD=`, to `metadata.json`. Secrets are redacted there and in logs;
   `SqlInputConfig.__repr__` redacts them as well.
@@ -48,6 +48,35 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Changed
 
+- **Breaking - `import_csv` applies the schema extensions.** Until now the CSV engine ignored every
+  `x-...` block except `x-csv`; the processors in `forklift.processors` were library code that
+  nothing called. Each batch now goes through: `x-csv` null markers and `x-transformations`
+  (including the automatic `x-special-type` formatting) on the text of the file, type conversion,
+  `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality`, `x-validation`, the constraints
+  (`x-primaryKey`, `x-uniqueConstraints`, per-property `minimum`/`maximum`/`minLength`/`maxLength`/
+  `pattern`/`enum`/`x-unique`, `x-constraintHandling.errorMode`) and `x-rowHash`. What this means
+  for existing schemas:
+  - Rows that break a validation rule or a constraint now go to `bad_rows.parquet`, which then has a
+    last column `_rejection_reason` (`CODE` or `CODE:column`, never a cell value). `errorMode`
+    `fail_fast` / `fail_complete` raise instead and leave no output behind.
+  - Output columns change: renamed (`x-columnMapping`), appended (`x-calculatedColumns`,
+    `x-rowHash`), reformatted (`x-special-type` columns such as SSN, ZIP, phone) or set to NULL
+    when invalid.
+  - Configuration is checked before anything is written: invalid options, a key or unique
+    constraint on a column that is not in the file, a name no `properties` entry declares in
+    `x-validation`/`x-dataQuality`, a calculated or hash column that would overwrite a data column,
+    or a header starting with `__forklift_` raise `ValueError`.
+  - Content that no processor reads (for example `x-pii`, or `x-transformations.stringCleaning`)
+    is reported in `ProcessingResults.warnings`, logged and printed by the CLI instead of failing.
+    `x-pii` masking is not implemented.
+  - `ImportConfig(apply_schema_extensions=False)` / `--no-schema-extensions` restores the old
+    behaviour (types, null markers and `required` still apply). CSV only: the Excel, SQL and
+    fixed-width importers do not apply extensions yet.
+  - `schema-standards/20250826-csv.json` was rewritten to what is applied: expressions in the
+    supported syntax (not `CASE WHEN`), `x-transformations.column_transformations`, `email_address`
+    and `phone_number` instead of the misspelt `email` / `phone`, and every key no processor reads
+    was removed (`x-dataQuality.completeness` ..., `x-validation.crossFieldValidations`, ...). It
+    now runs without warnings except `x-pii`.
 - **Breaking - pandas is no longer a dependency.** Nothing in processing uses pandas or polars.
   They are optional output formats: `pip install forklift-etl[pandas]` /
   `forklift-etl[polars]` for `DataFrameReader.as_pandas()` / `as_polars()`. The install name is
@@ -114,6 +143,18 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Added
 
+- `ImportConfig.apply_schema_extensions` (default on) and CLI flag `--no-schema-extensions`;
+  `ProcessingResults.warnings`, `validation_summary` (counts per `CODE` / `CODE:column`) and
+  `schema_extensions`; the CLI prints them. Run metadata (S3) records them as well.
+- `forklift.processors.schema_extensions`: `build_column_mapper`, `build_constraint_validator`,
+  `build_data_validator`, `build_quality_processor`, `referenced_columns` and
+  `unsupported_extension_keys` turn the schema blocks into processors (documented formats, clear
+  errors, no cell values in messages). `ColumnMapper.output_names`, `row_hash_output_columns`,
+  `RowHashProcessor.compute_input_hash` and the `input_hash=` / `source_row_numbers=` arguments
+  let a pipeline that drops rows keep hashes and row numbers aligned with the source file.
+- `ConstraintConfig.max_retained_violations` / `include_values`: violations kept in memory are
+  bounded (counts stay exact), and messages carry no values by default.
+- `docs/schemas/X_VALIDATION_DOCUMENTATION.md`; the other `X_*` pages now say what is applied.
 - `include_value_statistics` option (default off) for schema generation, `ImportConfig` and the
   metadata collector; CLI flag `--include-value-stats`.
 - `ProcessingResults.bad_rows_file` and `truncated_rows`; `DataFrameReader.close()` and context
@@ -133,6 +174,17 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Fixed
 
+- **Wrong data for sliced string columns on pyarrow 16 - 22.** `pc.if_else(mask, <null scalar>,
+  array)` returns `'\x00'` strings for a sliced array on these versions, and the engine cuts
+  Arrow's blocks into `batch_size` rows. With a schema or null markers, an input with more rows than
+  `batch_size` per block lost values silently (strings) or had whole rows sent to `bad_rows`
+  (numbers); pyarrow 25 was not affected. `set_null_where` (`forklift.utils.arrow_compat`) is used
+  by the converter, schema inference and the schema validator; tests cover several batch sizes and
+  run in the minimum-versions CI job.
+- Calculated-column constants of a date or timestamp type accept ISO text (`"2024-08-26"`);
+  building the result no longer triggers pyarrow's `names=` deprecation warning.
+- `ColumnMapper` ignored `allowUnmapped: false`; `DataValidationProcessor` results did not carry
+  the column; `EnhancedDataProcessor` miscounted violations once the validator bounded them.
 - `read_csv(...).as_pandas()/as_polars()` returned rejected rows; `read_sql` always raised
   `TypeError`; `as_polars(lazy=True)` returned frames whose files were already deleted.
 - Mid-file ragged rows could emit earlier rows twice and then crash on a schema mismatch; partial
@@ -161,8 +213,17 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Known limitations
 
-- `forklift.processors` (calculated columns, validation, row hash, column mapping) is library API
-  and is not wired into `import_csv` or the CLI.
+- Schema extensions are applied by the CSV engine only; the Excel, SQL and fixed-width importers
+  ignore them. `x-pii` is documentation (no masking). Not implemented, and reported as warnings:
+  cross-field and global validations, `x-dataQuality` completeness/uniqueness/consistency/accuracy
+  blocks, `x-uniqueConstraints` `condition` / `ignoreNulls: false` / case-insensitive keys, partition
+  and index columns, `x-columnMapping.standardizationRules`.
+- `bad_rows.parquet` shows values as the stage that rejected the row saw them (after
+  transformations and type conversion) under the input file's column names; its row order depends
+  on `batch_size` (type failures of a batch are written before the batch's other rejects).
+- `properties` (types, `required`, constraints, `x-csv.nulls`) are matched by the column names of
+  the file, before `x-columnMapping` renames; a property declared under a rename's new name is not
+  applied to the renamed column (the import warns).
 - `max_validation_errors` is reserved and not enforced; foreign-key constraints have no format.
 - `ColumnTransformer` still reports a failing transform as an error result and passes the batch
   through; `ColumnMapper` returns an error result with the original batch if building the output

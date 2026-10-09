@@ -92,9 +92,9 @@ class TestSpecialTypeDetector:
         )
         assert result == "ssn"
 
-        # Test SSN without dashes
+        # Bare 9-digit strings are ambiguous (ids, counters): content alone must not say "ssn"
         result = SpecialTypeDetector.detect_special_type("test_col", ["123456789", "987654321"])
-        assert result == "ssn"
+        assert result is None
 
     def test_detect_special_type_phone_from_content(self):
         """Test phone detection from content patterns."""
@@ -110,11 +110,9 @@ class TestSpecialTypeDetector:
         )
         assert result == "phone"
 
-        # Test phone without formatting - use strings with word boundaries
-        result = SpecialTypeDetector.detect_special_type(
-            "test_col", [" 1234567890 ", " 9876543210 "]
-        )
-        assert result == "phone"
+        # Bare 10-digit strings are ambiguous (epoch seconds, ids): separators are required
+        result = SpecialTypeDetector.detect_special_type("test_col", ["1234567890", "9876543210"])
+        assert result is None
 
     def test_detect_special_type_email_from_content(self):
         """Test email detection from content patterns."""
@@ -128,8 +126,10 @@ class TestSpecialTypeDetector:
 
     def test_detect_special_type_zip_from_content(self):
         """Test zip code detection from content patterns."""
-        # Test 5-digit zip codes
+        # Bare 5-digit numbers are ambiguous: they need a ZIP-like column name
         result = SpecialTypeDetector.detect_special_type("test_col", ["12345", "67890"])
+        assert result is None
+        result = SpecialTypeDetector.detect_special_type("zip", ["12345", "67890"])
         assert result == "zip_code"
 
         # Test zip+4 format
@@ -306,11 +306,11 @@ class TestSpecialTypeDetector:
 
     def test_edge_case_mixed_data_types(self):
         """Test detection with mixed data types in sample values."""
-        # Use phone patterns that will match after string conversion
+        # Padded values and non-string values are converted/stripped before matching
         mixed_values = [
-            " 1234567890 ",
+            " 123-456-7890 ",
             "(123) 456-7890",
-            " 9876543210 ",
-        ]  # Mix with proper word boundaries
+            " 987.654.3210 ",
+        ]
         result = SpecialTypeDetector.detect_special_type("test_col", mixed_values)
         assert result == "phone"  # Should handle type conversion gracefully

@@ -5,7 +5,7 @@ from typing import Any, Dict
 import pyarrow as pa
 
 from ..types.data_types import DataTypeConverter
-from ..utils.helpers import get_parquet_type_string
+from ..utils.helpers import get_parquet_type_string, to_json_safe
 
 
 class JSONSchemaProcessor:
@@ -103,6 +103,10 @@ class JSONSchemaProcessor:
     def generate_sample_data(self, table: pa.Table) -> Dict[str, Any]:
         """Generate sample data from the table.
 
+        The rows are raw cell values: this is only called when the caller opted in with
+        ``include_sample_data``. Values are made JSON-safe (dates and timestamps become ISO
+        strings, decimals become strings, NaN/infinity become null).
+
         Args:
             table: PyArrow table
 
@@ -113,10 +117,6 @@ class JSONSchemaProcessor:
         sample_size = min(3, table.num_rows)
         sample_table = table.slice(0, sample_size)
 
-        # Convert to pandas for easier JSON serialization
-        df = sample_table.to_pandas()
-
-        # Convert to records format
-        records = df.to_dict("records")
+        records = [to_json_safe(row) for row in sample_table.to_pylist()]
 
         return {"description": f"Sample data from first {sample_size} rows", "rows": records}

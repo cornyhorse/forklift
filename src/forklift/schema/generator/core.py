@@ -13,6 +13,7 @@ from ..processors.json_schema import JSONSchemaProcessor
 from ..processors.metadata import MetadataGenerator
 from ..types.special_types import SpecialTypeDetector
 from ..utils.formatters import SchemaFormatter
+from ..utils.helpers import source_basename, validate_quantiles
 from .inference import DataTypeInferrer
 from .validation import SchemaValidator
 
@@ -44,7 +45,14 @@ class FileType(Enum):
 
 @dataclass
 class SchemaGenerationConfig:
-    """Configuration for schema generation."""
+    """Configuration for schema generation.
+
+    ``include_value_statistics`` controls whether raw cell values may appear in the generated
+    metadata (top/bottom values, enum value lists, min/max/median/quantiles). It is off by
+    default because those values can be personal data; counts, null statistics, type
+    information, distinct counts and string-length statistics are always included.
+    ``include_sample_data`` is a separate opt-in for the ``x-sample`` rows.
+    """
 
     input_path: Union[str, Path]
     file_type: FileType
@@ -63,10 +71,11 @@ class SchemaGenerationConfig:
     top_n_values: int = 10
     quantiles: Optional[list] = None
     infer_primary_key_from_metadata: bool = False
+    include_value_statistics: bool = False
 
     def __post_init__(self):
-        if self.quantiles is None:
-            self.quantiles = [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]
+        # None selects the default list; anything else must be numbers within [0, 1]
+        self.quantiles = validate_quantiles(self.quantiles)
 
 
 class SchemaGenerator:
@@ -147,39 +156,36 @@ class SchemaGenerator:
         if self.config.include_sample_data:
             schema["x-sample"] = self.json_processor.generate_sample_data(table)
 
-        # Add generation metadata
+        # Add generation metadata (only the file name of the source is recorded)
         schema = self.formatter.add_generation_metadata(
-            schema, str(self.config.input_path), table.num_rows
+            schema, source_basename(self.config.input_path), table.num_rows
         )
 
         # Add metadata if requested
         if self.config.generate_metadata:
-            metadata_config = {
-                "enum_threshold": self.config.enum_threshold,
-                "uniqueness_threshold": self.config.uniqueness_threshold,
-                "top_n_values": self.config.top_n_values,
-                "quantiles": self.config.quantiles,
-                "source_file": str(self.config.input_path),
-            }
-            metadata = self.metadata_generator.generate_metadata(table, metadata_config)
+            metadata = self.metadata_generator.generate_metadata(table, self._metadata_config())
             if metadata:
                 schema["x-metadata"] = metadata
 
         return schema
+
+    def _metadata_config(self) -> Dict[str, Any]:
+        """Settings handed to the metadata generator."""
+        return {
+            "enum_threshold": self.config.enum_threshold,
+            "uniqueness_threshold": self.config.uniqueness_threshold,
+            "top_n_values": self.config.top_n_values,
+            "quantiles": self.config.quantiles,
+            "source_file": source_basename(self.config.input_path),
+            "include_value_statistics": self.config.include_value_statistics,
+        }
 
     def generate_and_save_metadata(self, table: pa.Table) -> Optional[str]:
         """Generate metadata and save to separate file if configured."""
         if not self.config.generate_metadata:
             return None
 
-        metadata_config = {
-            "enum_threshold": self.config.enum_threshold,
-            "uniqueness_threshold": self.config.uniqueness_threshold,
-            "top_n_values": self.config.top_n_values,
-            "quantiles": self.config.quantiles,
-            "source_file": str(self.config.input_path),
-        }
-        metadata = self.metadata_generator.generate_metadata(table, metadata_config)
+        metadata = self.metadata_generator.generate_metadata(table, self._metadata_config())
 
         if self.config.metadata_output_path:
             metadata_json = self.formatter.format_schema_json(metadata)

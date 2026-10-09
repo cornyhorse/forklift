@@ -5,6 +5,11 @@ from typing import Any, Dict, Optional
 import pyarrow as pa
 
 from ..types.transformations import TransformationAnalyzer
+from ..utils.helpers import split_name_tokens
+
+# Whole name tokens that mark a column as a likely primary key (``user_id``, ``userId``,
+# ``id_code``, ``uuid`` ...). Substring matching would also hit ``width``, ``paid``, ``monkey``.
+_PK_NAME_TOKENS = ("id", "key", "pk", "uuid", "guid")
 
 
 class ConfigurationParser:
@@ -127,37 +132,35 @@ class ConfigurationParser:
 
         # Analyze each column's metadata for primary key characteristics
         for column_name, col_meta in metadata["column_metadata"].items():
-            is_not_null = col_meta.get("null_percentage", 100) == 0.0
+            is_not_null = col_meta.get("null_percentage", 100) == 0.0 and not col_meta.get(
+                "nan_count", 0
+            )
             uniqueness_ratio = col_meta.get("uniqueness_ratio", 0.0)
-            is_highly_unique = uniqueness_ratio >= 0.95
+            # The inferred key is written with enforceUniqueness=True, so a column that is only
+            # "mostly unique" (for example 95%) must not qualify: every value in the analysed
+            # rows has to be distinct.
+            is_fully_unique = uniqueness_ratio >= 1.0
             distinct_count = col_meta.get("distinct_count", 0)
 
-            # Check for typical primary key naming patterns
-            has_pk_name_pattern = any(
-                pattern in column_name.lower() for pattern in ["id", "key", "pk", "uuid", "guid"]
-            )
+            # Check for typical primary key naming patterns (whole name tokens only)
+            name_tokens = set(split_name_tokens(column_name))
+            has_pk_name_pattern = any(token in name_tokens for token in _PK_NAME_TOKENS)
 
             if (
                 is_not_null
-                and is_highly_unique
+                and is_fully_unique
                 and has_pk_name_pattern
                 and distinct_count <= 1000000
             ):
                 # Calculate a score for ranking candidates
-                score = 0
-                if uniqueness_ratio == 1.0:
-                    score += 10
-                elif uniqueness_ratio >= 0.99:
-                    score += 8
-                elif uniqueness_ratio >= 0.95:
-                    score += 5
+                score = 10
 
                 # Bonus for good naming patterns - check specific patterns first
-                if any(pattern in column_name.lower() for pattern in ["uuid", "guid"]):
+                if name_tokens & {"uuid", "guid"}:
                     score += 4
-                elif any(pattern in column_name.lower() for pattern in ["key", "pk"]):
+                elif name_tokens & {"key", "pk"}:
                     score += 3
-                elif "id" in column_name.lower():
+                elif "id" in name_tokens:
                     score += 5
 
                 # Penalty for very large distinct counts
@@ -199,6 +202,7 @@ class ConfigurationParser:
                     "score": best_candidate["score"],
                     "uniqueness_ratio": best_candidate["uniqueness_ratio"],
                     "distinct_count": best_candidate["distinct_count"],
+                    "rows_analyzed": table.num_rows,
                     "alternative_candidates": [c["column"] for c in candidates[1:3]],
                 },
             }

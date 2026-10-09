@@ -31,7 +31,9 @@ HTML_REPORT=true
 SPECIFIC_MODULE=""
 VERBOSE=false
 S3_TEST_BUCKET=""
-PROJECT_ROOT="/Users/matt/PycharmProjects/forklift"
+# Locate the repository from this script's own location (works from any checkout/directory)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/.." && pwd))"
 
 # Function to show help
 show_help() {

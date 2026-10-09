@@ -10,7 +10,7 @@ from .api import (
 from .engine.forklift_core import import_csv, import_excel, import_fwf, import_sql
 from .readers import DataFrameReader, read_csv, read_excel, read_fwf, read_sql
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
 
 __all__ = [
     # Primary ETL pipeline functions (write to Parquet files)

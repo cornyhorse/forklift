@@ -368,33 +368,35 @@ class TestFwfUtilsIntegration:
     def test_with_actual_schema_files(self):
         """Test with actual schema files from the project."""
         # Test with the standard FWF schema
-        schema_path = Path(
-            "/Users/matt/PycharmProjects/forklift/schema-standards/20250826-fwf.json"
+        schema_path = (
+            Path(__file__).resolve().parents[2] / "schema-standards" / "20250826-fwf.json"
         )
+        assert schema_path.exists(), "the shipped FWF standard must exist"
 
-        if schema_path.exists():
-            config = create_fwf_config_from_schema(schema_path)
-            assert isinstance(config, FwfInputConfig)
-            assert config.fields is not None
-            assert len(config.fields) > 0
+        config = create_fwf_config_from_schema(schema_path)
+        assert isinstance(config, FwfInputConfig)
+        assert config.fields is not None
+        assert len(config.fields) > 0
 
-            # Should have standard fields like id, name, etc.
-            field_names = [field.name for field in config.fields]
-            assert "id" in field_names
-            assert "name" in field_names
+        # Should have standard fields like id, name, etc.
+        field_names = [field.name for field in config.fields]
+        assert "id" in field_names
+        assert "name" in field_names
 
     def test_with_conditional_schema_file(self):
         """Test with the conditional FWF schema."""
-        schema_path = Path(
-            "/Users/matt/PycharmProjects/forklift/schema-standards/20250826-fwf-conditional.json"
+        schema_path = (
+            Path(__file__).resolve().parents[2]
+            / "schema-standards"
+            / "20250826-fwf-conditional.json"
         )
+        assert schema_path.exists(), "the shipped conditional FWF standard must exist"
 
-        if schema_path.exists():
-            config = create_fwf_config_from_schema(schema_path)
-            assert isinstance(config, FwfInputConfig)
-            assert config.conditional_schemas is not None
-            assert config.flag_column is not None
-            assert len(config.conditional_schemas) > 0
+        config = create_fwf_config_from_schema(schema_path)
+        assert isinstance(config, FwfInputConfig)
+        assert config.conditional_schemas is not None
+        assert config.flag_column is not None
+        assert len(config.conditional_schemas) > 0
 
-            # Should have flag column for record type
-            assert config.flag_column.name == "record_type"
+        # Should have flag column for record type
+        assert config.flag_column.name == "record_type"

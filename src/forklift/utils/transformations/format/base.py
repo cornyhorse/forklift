@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from typing import Any
 
-import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
+
+from .._arrow_utils import is_string_like, string_array
 
 
 class BaseFormatter(ABC):
@@ -40,27 +43,27 @@ class BaseFormatter(ABC):
         Returns:
             A new PyArrow array with formatted values
         """
-        if not pa.types.is_string(column.type):
-            column = pa.compute.cast(column, pa.string())
+        if not is_string_like(column.type):
+            column = pc.cast(column, pa.string())
 
-        pandas_series = column.to_pandas()
         formatted_values = []
 
-        for value in pandas_series:
-            if pd.isna(value) or value is None:
+        for value in column.to_pylist():
+            if value is None:
                 formatted_values.append(None)
                 continue
 
             try:
-                formatted_value = self.format_value(str(value))
+                formatted_value = self.format_value(value)
                 formatted_values.append(formatted_value)
             except ValueError:
                 if getattr(self.config, "allow_invalid", False):
-                    formatted_values.append(str(value))
+                    formatted_values.append(value)
                 else:
                     formatted_values.append(None)
 
-        return pa.array(formatted_values)
+        # Explicit type: an all-invalid column must stay a string column, not become ``null``
+        return string_array(formatted_values, column.type)
 
 
 class ValidationMixin:
@@ -69,16 +72,21 @@ class ValidationMixin:
     @staticmethod
     def has_letters(value: str) -> bool:
         """Check if value contains letters."""
-        import re
-
         return bool(re.search(r"[a-zA-Z]", value))
 
     @staticmethod
     def extract_digits(value: str) -> str:
         """Extract only digits from a value."""
-        import re
-
         return re.sub(r"\D", "", value)
+
+    @staticmethod
+    def strip_float_suffix(value: str) -> str:
+        """Turn ``"2134.0"`` (an integer that went through a float column) into ``"2134"``.
+
+        Without this the ``.0`` would be read as a digit and ``"2134.0"`` would become 21340.
+        """
+        match = re.fullmatch(r"\s*(\d+)\.0+\s*", value)
+        return match.group(1) if match else value
 
     @staticmethod
     def validate_length(value: str, expected_length: int, allow_shorter: bool = False) -> bool:

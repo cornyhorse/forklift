@@ -198,7 +198,7 @@ class TestPositionCalculator:
         flag_column = {"name": "flag", "start": 4, "length": 2}  # Positions 4-5
 
         result = PositionCalculator.extract_flag_value_from_row(row_data, flag_column)
-        assert result is None  # Row length equals start + length
+        assert result == "DE"  # The flag ends exactly at the end of the row: it is present
 
     def test_extract_flag_value_from_row_empty_row(self):
         """Test flag value extraction from empty row."""
@@ -238,4 +238,4 @@ class TestPositionCalculator:
         flag_column = {"name": "flag", "start": 6, "length": 1}  # Last character
 
         result = PositionCalculator.extract_flag_value_from_row(row_data, flag_column)
-        assert result is None  # Row length = 6, but need position 6 + length 1 = 7
+        assert result == "F"  # A flag in the last column of the row is present

@@ -8,20 +8,20 @@ The `forklift.schema.types` subpackage provides comprehensive data type detectio
 
 ### DataTypeConverter
 The core type conversion engine that handles mapping between different type systems:
-- **PyArrow to JSON Schema**: Converts PyArrow data types to JSON Schema type definitions with appropriate formats
-- **Type Enhancement**: Adds format constraints, patterns, and validation rules based on data analysis
+- **PyArrow to JSON Schema**: Converts PyArrow data types to JSON Schema type definitions with appropriate formats (`date32` -> `{"type": "string", "format": "date"}`, `timestamp` -> `format: date-time`, decimals -> `number`)
+- **PyArrow to `parquetType` strings**: `arrow_to_parquet_type_string()` is lossless: decimal precision/scale, timestamp unit and time zone, duration unit and list/dictionary nesting are kept (`decimal128(10,2)`, `timestamp[us, tz=UTC]`)
+- **Strict `parquetType` grammar**: `parse_parquet_type()` / `is_valid_parquet_type()` parse the strings the CSV, Excel, SQL and FWF schema importers accept: `int8`..`int64`, `uint8`..`uint64`, `float32`, `double`, `bool`, `string`, `binary`, `date32`, `date64`, `time32[s|ms]`, `time64[us|ns]`, `timestamp[unit]` / `timestamp[unit, tz=ZONE]`, `duration[unit]`, `decimal128(p,s)` / `decimal256(p,s)`, `list<T>`, `dictionary<values=T, indices=INT>` and `struct`. Units are `s|ms|us|ns`; precision, scale and nesting depth are range-checked and a malformed string is invalid rather than prefix-matched
+- **Unification**: `unify_parquet_types()` returns the narrowest type that holds several declarations of one field (used for conditional FWF variants), or `None` when they cannot be combined
 - **Complex Type Handling**: Processes nested structures, arrays, and object types
-- **Precision Mapping**: Maintains type precision information across conversions
-- **Format Detection**: Identifies specific formats like dates, times, emails, and URIs
 
 ### SpecialTypeDetector
 Advanced pattern recognition system for detecting domain-specific data types:
-- **Email Detection**: Identifies email addresses using pattern matching and validation
-- **Phone Number Recognition**: Detects various phone number formats and international patterns
-- **SSN/Tax ID Detection**: Recognizes social security numbers and tax identification formats
-- **Geographic Data**: Identifies ZIP codes, postal codes, and geographic coordinates
-- **Financial Data**: Detects currency amounts, account numbers, and financial identifiers
-- **Custom Pattern Support**: Extensible framework for adding domain-specific type detection
+- **Email Detection**: Identifies email addresses using pattern matching
+- **Phone Number Recognition**: Detects US-style phone numbers with separators (`(123) 456-7890`, `123-456-7890`)
+- **SSN Detection**: Recognizes `123-45-6789`
+- **ZIP codes**: `12345-6789` from content; a plain 5-digit ZIP is only recognised through the column name
+- **IP and MAC addresses**: IPv4/IPv6 and the usual MAC notations
+- Column names are matched on whole word tokens (`client_ip`, `zipCode` match; `tip`, `description` do not)
 
 ## Type Detection Capabilities
 
@@ -95,18 +95,20 @@ json_schema_type = converter.arrow_to_json_schema_type(arrow_type)
 ```python
 from forklift.schema.types import SpecialTypeDetector
 
-detector = SpecialTypeDetector()
 sample_data = ["john@example.com", "jane@company.org"]
-is_email = detector.is_email_field(sample_data)
-# Returns: True
+special_type = SpecialTypeDetector.detect_special_type("contact", sample_data)
+# Returns: "email"
+config = SpecialTypeDetector.get_transformation_config(special_type)
+# Returns the default email formatting options (normalize_case, validate_format, ...)
 ```
 
 ### Pattern Analysis
 ```python
 # Detect numeric patterns in string data
-sample_values = ["123.45", "67.89", "100.00"]
+sample_values = ["$1,234.50", "(67.89)", "100.00"]
 patterns = converter.detect_numeric_patterns(sample_values)
-# Returns: {"is_currency": True, "decimal_places": 2}
+# Returns: {"has_thousands_separator": True, "has_decimal_separator": True,
+#           "has_currency_symbols": True, "has_parentheses_negative": True}
 ```
 
 ## Integration Points
@@ -114,13 +116,11 @@ patterns = converter.detect_numeric_patterns(sample_values)
 ### Internal Dependencies
 - `forklift.schema.processors.*` - Schema processing and generation
 - `forklift.schema.utils.*` - Utility functions and helpers
-- `forklift.transformations.*` - Data transformation engine
+- `forklift.utils.transformations.*` - Data transformation engine
 
 ### External Dependencies
 - **PyArrow**: Core type system and data processing
-- **Pandas**: Data analysis and type inference
-- **NumPy**: Numerical computing and array operations
-- **regex**: Advanced pattern matching capabilities
+- Standard library `re` and `ipaddress` for pattern matching (no pandas or NumPy)
 
 ## Type System Mapping
 
@@ -133,16 +133,16 @@ patterns = converter.detect_numeric_patterns(sample_values)
 - `"uuid"` - RFC 4122 UUID format
 
 ### Custom Format Extensions
+These are the `x-special-type` markers a property can carry (see the special type documentation):
+
 - `"ssn"` - Social Security Number format
 - `"phone"` - Phone number format
-- `"zip-code"` - ZIP/postal code format
-- `"currency"` - Monetary amount format
-- `"percentage"` - Percentage value format
+- `"email"` - Email address
+- `"zip-permissive"`, `"zip-5"`, `"zip-9"` - ZIP code formats
+- `"ipv4"`, `"ipv6"`, `"ip"` - IP addresses
+- `"mac-address"` - MAC address
 
 ## Performance Considerations
 
-- **Sampling Strategy**: Efficient analysis of large datasets through statistical sampling
-- **Pattern Caching**: Caches compiled regex patterns for performance
-- **Lazy Evaluation**: Defers expensive type analysis until needed
-- **Memory Optimization**: Minimizes memory usage during type detection
-- **Parallel Processing**: Supports parallel analysis of independent columns
+- **Sampling Strategy**: Analysis runs on the sampled rows (`nrows`); pattern detection looks at the first values only
+- **Pattern Caching**: Compiled regex patterns are cached at class level

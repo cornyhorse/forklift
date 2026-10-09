@@ -211,12 +211,43 @@ processed_batch, all_results = pipeline.process_batch(batch)
 
 ## Error Handling Strategies
 
-The package supports multiple error handling strategies:
+The package fails closed:
 
 1. **Bad Row Collection**: Invalid rows are separated and collected for inspection
-2. **Threshold Management**: Processing can fail if bad row percentage exceeds limits
-3. **Detailed Error Reporting**: Each validation failure includes specific error messages
-4. **Graceful Degradation**: Processing continues even with validation failures
+   (`BadRowsConfig.include_original_row=False` keeps the original data out of that output; original
+   columns whose names start with `_` are kept, and renamed `original_<name>` if they would clash with
+   the `_validation_errors` / `_error_count` / `_processed_timestamp` / `_row_number` columns)
+2. **Threshold Management**: with `fail_on_exceed_threshold=True` (default) exceeding
+   `max_bad_rows_percent` raises `BadRowsThresholdExceededError`; the batch is not emitted. Rejected
+   rows are counted even when `BadRowsConfig.enabled=False`
+3. **Internal errors raise** `ValidationProcessingError`; an unvalidated batch is never returned
+4. **Required columns**: a `required=True` rule for a column the batch does not have raises
+   (`"Email"` does not silently match `"email"`)
+5. **Detailed Error Reporting**: Each validation failure includes the field and rule. Messages do
+   **not** contain the offending value unless `ValidationConfig.include_values_in_errors=True`
+
+## Validation semantics
+
+- **Regular expressions** (`StringValidation.pattern`) are *unanchored searches* (JSON Schema
+  semantics): anchor with `^...$` to require the whole value to match. A trailing `$` does not accept a
+  trailing newline. Patterns are compiled when `StringValidation` is created; invalid patterns, patterns
+  longer than 2000 characters, and patterns with nested unbounded quantifiers such as `(a+)+`
+  (catastrophic backtracking) raise `ValueError` unless `allow_unsafe_regex=True`.
+- **NULL and empty values**: `None` skips every rule except `required`. Empty and whitespace-only
+  strings are values: `min_length`, `pattern`, enum, range and date rules apply to them, and
+  `StringValidation(allow_empty=False)` rejects them. `required=True` rejects both `None` and blanks.
+- **Uniqueness** (`uniqueness_strategy`): `first_wins` keeps the first row of a key; `fail_on_duplicate`
+  does the same with a "violates uniqueness constraint" message; `last_wins` keeps the *last* valid row of
+  a key within a batch; `mark_all_duplicates` rejects every row of a key that occurs more than once. Rows
+  already emitted by earlier batches cannot be retracted, so a later duplicate of such a key is rejected
+  under every strategy. A row claims its keys only when it passes all rules, so a row rejected for another
+  reason never makes a later valid row look like a duplicate. NULL/blank values are not keys.
+- **Range rules** compare exact decimals (`min_value=0.01` accepts `Decimal("0.01")`; numeric strings keep
+  their precision), reject NaN, and also work for dates: bounds and values may be `date`, `datetime` or
+  ISO strings (a date-only bound compares calendar dates). Invalid bounds raise `ValueError` when the
+  processor is created.
+- **Date rules** parse strings with `DateValidation.formats` (default `["%Y-%m-%d"]`; when `formats` is
+  given only those formats are accepted). `min_date` / `max_date` are ISO dates (or any of `formats`).
 
 ## Integration Points
 

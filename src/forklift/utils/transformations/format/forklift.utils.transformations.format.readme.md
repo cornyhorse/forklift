@@ -39,9 +39,9 @@ Provides the foundational `BaseFormatter` abstract base class that all format tr
 
 Handles email address standardization and validation:
 - **Normalization**: Case normalization (lowercase)
-- **Whitespace Handling**: Strips leading/trailing whitespace
+- **Whitespace Handling**: Strips leading/trailing whitespace (only when `strip_whitespace=True`)
 - **Domain Cleaning**: Removes trailing dots from domains
-- **Validation**: Optional email format validation
+- **Validation**: Optional email format validation; rejects doubled/leading/trailing dots in the local part and empty or hyphen-edged domain labels
 - **Use Cases**: User data processing, contact information standardization
 
 ### `network.py`
@@ -49,7 +49,7 @@ Handles email address standardization and validation:
 
 Provides formatters for network-related identifiers:
 - **IP Address Formatting**: IPv4 and IPv6 address standardization
-- **MAC Address Formatting**: Hardware address normalization
+- **MAC Address Formatting**: Hardware address normalization; exactly 12 hex digits are required (unpadded octets such as `0:1a:2b:3:4:5` are padded per octet when `zero_pad=True`, short or long input is rejected, never padded or truncated)
 - **Validation**: Network address format validation
 - **Use Cases**: Network logs, device inventories, security data
 
@@ -59,7 +59,8 @@ Provides formatters for network-related identifiers:
 Standardizes phone number formats across different input styles:
 - **Digit Extraction**: Removes non-numeric characters except plus signs
 - **Format Styles**: Multiple output formats (e.g., (XXX) XXX-XXXX, XXX-XXX-XXXX)
-- **International Support**: Handles country codes and international formats
+- **International Support**: A `+` country code other than `+1` is validated against E.164 length limits (7-15 digits) and written as `+<digits>`; `+1` is never added to it
+- **Separators**: `use_dots` / `use_dashes` choose the group separator of the `us-standard` style
 - **Validation**: Configurable validation for letter detection and format compliance
 - **Use Cases**: Customer data, contact information, telecommunications data
 
@@ -68,19 +69,19 @@ Standardizes phone number formats across different input styles:
 
 Handles postal and ZIP code standardization:
 - **ZIP Code Formatting**: US ZIP and ZIP+4 code standardization
-- **International Support**: Postal code formats for various countries
+- **Types**: `zip-5` (cuts longer values to the first 5 digits), `zip-9` (`XXXXX-XXXX`, or 9 digits with `format_with_dash=False`) and `zip-permissive` (5 or 9 digits); US formats only
 - **Validation**: Format compliance checking
-- **Padding**: Zero-padding for numeric postal codes
+- **Padding**: Zero-padding for numeric postal codes (applied *before* validation, so `zero_pad=True` restores dropped leading zeros); `"2134.0"` is read as `2134`
 - **Use Cases**: Address data, shipping information, geographic analysis
 
 ### `ssn.py`
 **Social Security Number Formatting**
 
 Provides secure SSN formatting capabilities:
-- **Format Standardization**: XXX-XX-XXXX format
-- **Masking Options**: Partial masking for privacy (XXX-XX-1234)
-- **Validation**: SSN format and basic validity checks
-- **Security Considerations**: Designed with privacy and security in mind
+- **Format Standardization**: XXX-XX-XXXX format (`format_with_dashes=False` gives the 9 digits only)
+- **Zero padding**: `zero_pad=True` pads short digit strings to 9 digits *before* validation
+- **Validation**: Exactly 9 digits and no letters; invalid values become NULL unless `allow_invalid=True`
+- There is no masking option: the formatter standardizes, it does not hide digits
 - **Use Cases**: HR systems, financial data, identity verification
 
 ### `transformer.py`
@@ -110,23 +111,24 @@ result = formatter.format_value("  User@EXAMPLE.COM  ")  # Returns "user@example
 from forklift.utils.transformations.format.phone import PhoneNumberFormatter
 from forklift.utils.transformations.configs import PhoneNumberConfig
 
-config = PhoneNumberConfig(format_style="standard")
+config = PhoneNumberConfig(format_style="us-standard")   # or "international", "digits-only", "preserve"
 formatter = PhoneNumberFormatter(config)
-result = formatter.format_value("(555) 123-4567")  # Returns standardized format
+result = formatter.format_value("5551234567")  # Returns "(555) 123-4567"
 ```
 
 ### Batch Processing with Transformer
 ```python
+import pyarrow as pa
+from forklift.utils.transformations.configs import EmailConfig, PhoneNumberConfig
 from forklift.utils.transformations.format.transformer import FormatTransformer
 
-# Configure multiple format transformations
-configs = {
-    'email_column': EmailConfig(normalize_case=True),
-    'phone_column': PhoneNumberConfig(format_style="standard")
-}
-
-transformer = FormatTransformer(configs)
-# Apply to PyArrow table columns
+transformer = FormatTransformer()
+emails = transformer.apply_email_formatting(pa.array(["A@B.COM", "bad"]), EmailConfig())
+phones = transformer.apply_phone_number_formatting(
+    pa.array(["5551234567", "x"]), PhoneNumberConfig(format_style="us-standard")
+)
+print(emails.to_pylist())   # ['a@b.com', None]  - invalid values become NULL
+print(phones.to_pylist())   # ['(555) 123-4567', None]
 ```
 
 ## Integration with Forklift

@@ -4,6 +4,8 @@ import json
 from datetime import datetime
 from typing import Any, Dict
 
+from .helpers import source_basename, to_json_safe
+
 
 class SchemaFormatter:
     """Handles formatting and output of schema objects."""
@@ -17,9 +19,9 @@ class SchemaFormatter:
             indent: JSON indentation level
 
         Returns:
-            str: Formatted JSON string
+            str: Formatted JSON string (strict JSON: non-finite floats are written as null)
         """
-        return json.dumps(schema, indent=indent, default=str)
+        return json.dumps(to_json_safe(schema), indent=indent, default=str, allow_nan=False)
 
     @staticmethod
     def add_generation_metadata(
@@ -29,7 +31,7 @@ class SchemaFormatter:
 
         Args:
             schema: Schema dictionary to modify
-            source_file: Source file path
+            source_file: Source file path; only its file name is recorded
             rows_analyzed: Number of rows analyzed
 
         Returns:
@@ -37,7 +39,7 @@ class SchemaFormatter:
         """
         schema["x-generation"] = {
             "generated_at": datetime.now().isoformat(),
-            "source_file": str(source_file),
+            "source_file": source_basename(source_file),
             "rows_analyzed": rows_analyzed,
             "generator_version": "1.0.0",
         }

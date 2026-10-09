@@ -88,8 +88,8 @@ class TestSSNFormatter:
     def test_format_value_wrong_length_validation_enabled(self, default_config):
         """Test formatting SSN with wrong length when validation is enabled."""
         formatter = SSNFormatter(default_config)
-        with pytest.raises(ValueError, match="SSN must have exactly 9 digits, got 8"):
-            formatter.format_value("12345678")
+        with pytest.raises(ValueError, match="SSN must have exactly 9 digits, got 10"):
+            formatter.format_value("1234567890")
 
     def test_format_value_wrong_length_validation_disabled(self, permissive_config):
         """Test formatting SSN with wrong length when validation is disabled."""

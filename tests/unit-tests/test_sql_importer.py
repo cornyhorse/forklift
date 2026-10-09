@@ -286,18 +286,22 @@ class TestSqlImporter:
                     mock_writer_instance = Mock()
                     mock_writer.return_value = mock_writer_instance
 
-                    # The SQL importer should handle the error gracefully and continue
-                    result = SqlImporter.import_sql(
-                        connection_string=connection_string,
-                        output_path=output_directory,
-                        schema_file=sample_schema_file,
-                    )
+                    # A failed table must not be reported as success: the remaining tables
+                    # are still processed, then the import raises
+                    with pytest.raises(ProcessingError, match="1 of 2 tables failed") as exc_info:
+                        SqlImporter.import_sql(
+                            connection_string=connection_string,
+                            output_path=output_directory,
+                            schema_file=sample_schema_file,
+                        )
 
-                    # Verify error handling - first table processed, second failed
-                    assert result.total_rows == 2  # Only successful table
+                    # The partial results are attached: only the successful table counts
+                    result = exc_info.value.results
+                    assert result.total_rows == 2
                     assert result.valid_rows == 2
-                    assert result.invalid_rows == 1  # One table failed
+                    assert result.invalid_rows == 0  # a failed table is not an invalid row
                     assert len(result.output_files) == 1  # Only one file created
+                    assert result.errors == ["public.orders: Exception"]
 
     def test_import_sql_connection_error(self, sample_schema_file, output_directory):
         """Test SQL import with database connection error."""
@@ -438,12 +442,14 @@ class TestSqlImporter:
                         connection_string=connection_string,
                         output_path=output_directory,
                         schema_file=sample_schema_file,
+                        continue_on_error=True,
                     )
 
                     # Verify error handling - first table processed, second failed
                     assert result.total_rows == 2  # Only successful table
                     assert result.valid_rows == 2
-                    assert result.invalid_rows == 1  # One table failed
+                    assert result.invalid_rows == 0  # failures go to errors, not invalid rows
+                    assert len(result.errors) == 1
                     assert len(result.output_files) == 1  # Only one file created
 
     def test_import_sql_string_and_path_inputs(self, output_directory):

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pyarrow as pa
 
 from ...io import UnifiedIOHandler
 from ..config import ImportConfig
+from .type_conversion import ColumnConverter, NullPolicy, csv_target_type, parse_arrow_type
 
 
 class SchemaProcessor:
@@ -25,6 +26,7 @@ class SchemaProcessor:
         self.io_handler = io_handler
         self.schema: Optional[pa.Schema] = None
         self.schema_dict: Optional[Dict[str, Any]] = None
+        self._csv_importer = None
 
     def load_schema(self) -> Optional[pa.Schema]:
         """Load and parse schema from file.
@@ -47,6 +49,13 @@ class SchemaProcessor:
 
         # Convert JSON schema to PyArrow schema
         self.schema = self._json_schema_to_pyarrow(self.schema_dict)
+
+        # Read-only view for per-column type mapping and null markers. Imported lazily because
+        # the schema package pulls in the schema generator. Structural validation is left to
+        # the schema tooling: the engine accepts any JSON schema with "properties".
+        from ...schema.csv_schema_importer import CsvSchemaImporter
+
+        self._csv_importer = CsvSchemaImporter(self.schema_dict, validate=False)
         return self.schema
 
     def _json_schema_to_pyarrow(self, schema_dict: Dict[str, Any]) -> pa.Schema:
@@ -78,6 +87,9 @@ class SchemaProcessor:
             PyArrow data type corresponding to the JSON schema type
         """
         json_type = field_def.get("type", "string")
+        if isinstance(json_type, list):
+            # JSON schema allows ["integer", "null"]; the non-null entry decides the type
+            json_type = next((t for t in json_type if t != "null"), "string")
         format_hint = field_def.get("format", "")
 
         type_mapping = {
@@ -94,6 +106,56 @@ class SchemaProcessor:
             return pa.timestamp("us")
 
         return type_mapping.get(json_type, pa.string())
+
+    def get_column_types(self) -> Dict[str, pa.DataType]:
+        """Target Arrow type for every schema column that CSV text can be converted to.
+
+        ``x-csv.parquetTypeMapping`` wins over the JSON ``type``/``format``. Nested types
+        (arrays/objects) and types that cannot be built from text stay ``string``.
+
+        Returns:
+            Column name to Arrow type; empty when no schema is loaded
+        """
+        if not self.schema_dict or self._csv_importer is None:
+            return {}
+
+        mapping = self._csv_importer.get_parquet_type_mapping() or {}
+        column_types: Dict[str, pa.DataType] = {}
+        for name, field_def in self._csv_importer.get_field_map().items():
+            arrow_type = parse_arrow_type(mapping[name]) if name in mapping else None
+            if arrow_type is None:
+                arrow_type = self._json_type_to_pyarrow(
+                    field_def if isinstance(field_def, dict) else {}
+                )
+            column_types[name] = csv_target_type(arrow_type)
+        return column_types
+
+    def get_null_policy(self) -> NullPolicy:
+        """Null markers from ``x-csv.nulls`` (an unconfigured policy when absent)."""
+        if self._csv_importer is None:
+            return NullPolicy()
+        nulls = self._csv_importer.get_csv_extension().get("nulls")
+        if not isinstance(nulls, dict) or not nulls:
+            return NullPolicy()
+        per_column = nulls.get("perColumn")
+        return NullPolicy(
+            global_values=self._csv_importer.get_null_values(),
+            per_column={
+                name: values
+                for name, values in (per_column.items() if isinstance(per_column, dict) else [])
+                if isinstance(values, list)
+            },
+        )
+
+    def get_required_columns(self) -> List[str]:
+        """Names of the schema's required columns."""
+        if not self.schema_dict:
+            return []
+        return list(self.schema_dict.get("required", []))
+
+    def build_converter(self) -> ColumnConverter:
+        """Column converter implementing the loaded schema (a no-op one without schema)."""
+        return ColumnConverter(self.get_column_types(), self.get_null_policy())
 
     def get_column_names_from_schema(self) -> Optional[list[str]]:
         """Get column names from loaded schema.

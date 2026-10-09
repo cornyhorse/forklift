@@ -19,16 +19,18 @@ from ...utils.transformations import (
 
 def apply_money_conversion(
     currency_symbols: List[str] = None,
-    thousands_separator: str = ",",
-    decimal_separator: str = ".",
+    thousands_separator: Optional[str] = None,
+    decimal_separator: Optional[str] = None,
     parentheses_negative: bool = True,
 ) -> Callable[[pa.Array], pa.Array]:
     """Create a money conversion transformation function.
 
     Args:
         currency_symbols: List of currency symbols to remove
-        thousands_separator: Thousands separator character
-        decimal_separator: Decimal separator character
+        thousands_separator: Thousands separator character (default ",", or "." when only
+            decimal_separator is ",")
+        decimal_separator: Decimal separator character (default ".", or "," when only
+            thousands_separator is ".")
         parentheses_negative: Whether to treat parentheses as negative
 
     Returns:
@@ -45,16 +47,18 @@ def apply_money_conversion(
 
 
 def apply_numeric_cleaning(
-    thousands_separator: str = ",",
-    decimal_separator: str = ".",
+    thousands_separator: Optional[str] = None,
+    decimal_separator: Optional[str] = None,
     allow_nan: bool = True,
     target_type: str = "double",
 ) -> Callable[[pa.Array], pa.Array]:
     """Create a numeric cleaning transformation function.
 
     Args:
-        thousands_separator: Thousands separator to remove
-        decimal_separator: Decimal separator to normalize
+        thousands_separator: Thousands separator to remove (derived from decimal_separator
+            when only that one is given)
+        decimal_separator: Decimal separator to normalize (derived from thousands_separator
+            when only that one is given)
         allow_nan: Whether to allow NaN values instead of errors
         target_type: Target numeric type (int64, double, etc.)
 

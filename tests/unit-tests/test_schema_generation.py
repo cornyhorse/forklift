@@ -658,7 +658,7 @@ Bob,Yet another person"""
         assert "x-generation" in schema
         generation = schema["x-generation"]
         assert "generated_at" in generation
-        assert generation["source_file"] == csv_file
+        assert generation["source_file"] == Path(csv_file).name  # basename only, no directories
         assert "rows_analyzed" in generation
         assert generation["generator_version"] == "1.0.0"
 
@@ -680,6 +680,7 @@ Bob,Yet another person"""
             file_type=FileType.CSV,
             enum_threshold=0.7,  # Higher threshold to catch enum candidates with 60% uniqueness
             top_n_values=3,
+            include_value_statistics=True,  # top_values / enum value lists are opt-in
         )
 
         generator = SchemaGenerator(config)
@@ -699,7 +700,6 @@ Bob,Yet another person"""
         # Check table metadata - expect 7 columns from the CSV
         table_meta = metadata["table_metadata"]
         assert table_meta["row_count"] == 5
-        # pandas.read_csv may create 7 columns from the CSV data
         assert table_meta["column_count"] == 7  # Exact count expected now
 
         # Check column metadata exists for all columns
@@ -743,6 +743,7 @@ inactive,low,south"""
             file_type=FileType.CSV,
             enum_threshold=0.8,  # High threshold - should still catch these
             uniqueness_threshold=0.95,
+            include_value_statistics=True,  # enum value lists are opt-in
         )
 
         generator = SchemaGenerator(config)
@@ -777,7 +778,10 @@ inactive,low,south"""
         csv_file.write_text(csv_content)
 
         config = SchemaGenerationConfig(
-            input_path=str(csv_file), file_type=FileType.CSV, quantiles=[0.25, 0.5, 0.75, 0.9]
+            input_path=str(csv_file),
+            file_type=FileType.CSV,
+            quantiles=[0.25, 0.5, 0.75, 0.9],
+            include_value_statistics=True,  # min/max/median/quantiles are opt-in
         )
 
         generator = SchemaGenerator(config)
@@ -1031,19 +1035,22 @@ true,true,true"""
 
         generator = SchemaGenerator(config)
 
-        # Mock the io_handler
-        mock_file = StringIO(csv_content)
+        # Mock the io_handler: S3 objects are read as binary streams
+        mock_file = BytesIO(csv_content.encode("utf-8"))
         with patch.object(generator.inferrer.io_handler, "open_for_read") as mock_open:
             mock_open.return_value.__enter__.return_value = mock_file
 
             schema = generator.generate_schema()
 
             # Verify S3 path was handled
-            mock_open.assert_called_once_with("s3://bucket/file.csv", encoding="utf-8")
+            mock_open.assert_called_once_with(
+                "s3://bucket/file.csv", encoding="binary", seekable=False
+            )
 
-            # Check schema was generated
+            # Check schema was generated from the first nrows rows only
             assert "properties" in schema
             assert "id" in schema["properties"]
+            assert schema["x-generation"]["rows_analyzed"] == 3
 
     @patch("forklift.schema.generator.inference.is_s3_path")
     def test_s3_csv_reading_without_nrows(self, mock_is_s3_path, tmp_path):
@@ -1061,14 +1068,17 @@ true,true,true"""
         generator = SchemaGenerator(config)
 
         # Mock the io_handler
-        mock_file = StringIO(csv_content)
+        mock_file = BytesIO(csv_content.encode("utf-8"))
         with patch.object(generator.inferrer.io_handler, "open_for_read") as mock_open:
             mock_open.return_value.__enter__.return_value = mock_file
 
             schema = generator.generate_schema()
 
             # Verify S3 path was handled
-            mock_open.assert_called_once_with("s3://bucket/file.csv", encoding="utf-8")
+            mock_open.assert_called_once_with(
+                "s3://bucket/file.csv", encoding="binary", seekable=False
+            )
+            assert schema["x-generation"]["rows_analyzed"] == 2
 
     @patch("forklift.schema.generator.inference.is_s3_path")
     def test_s3_excel_reading(self, mock_is_s3_path, tmp_path):
@@ -1088,17 +1098,15 @@ true,true,true"""
 
         generator = SchemaGenerator(config)
 
-        with patch.object(generator.inferrer.io_handler, "open_for_read") as mock_open, patch(
-            "pandas.read_excel"
-        ) as mock_read_excel:
+        with patch.object(generator.inferrer.io_handler, "open_for_read") as mock_open:
             mock_open.return_value.__enter__.return_value = excel_buffer
-            mock_read_excel.return_value = df
 
             schema = generator.generate_schema()
 
             # Verify S3 path was handled
             mock_open.assert_called_once_with("s3://bucket/file.xlsx", encoding="binary")
-            mock_read_excel.assert_called_once()
+            assert schema["properties"]["id"]["type"] == "integer"
+            assert schema["properties"]["name"]["type"] == "string"
 
     @patch("forklift.schema.generator.inference.is_s3_path")
     def test_s3_parquet_reading(self, mock_is_s3_path, tmp_path):
@@ -1106,9 +1114,10 @@ true,true,true"""
         mock_is_s3_path.return_value = True
 
         # Create test Parquet data
-        data = {"id": [1, 2], "name": ["Alice", "Bob"]}
-        df = pd.DataFrame(data)
-        table = pa.Table.from_pandas(df)
+        table = pa.table({"id": [1, 2], "name": ["Alice", "Bob"]})
+        parquet_buffer = BytesIO()
+        pq.write_table(table, parquet_buffer)
+        parquet_buffer.seek(0)
 
         config = SchemaGenerationConfig(
             input_path="s3://bucket/file.parquet", file_type=FileType.PARQUET, nrows=1
@@ -1116,21 +1125,15 @@ true,true,true"""
 
         generator = SchemaGenerator(config)
 
-        # Create a mock parquet file
-        mock_parquet_file = MagicMock()
-        mock_parquet_file.read.return_value = table
-
-        with patch.object(generator.inferrer.io_handler, "open_for_read") as mock_open, patch(
-            "pyarrow.parquet.ParquetFile", return_value=mock_parquet_file
-        ) as mock_pq_file:
-            mock_file = BytesIO()
-            mock_open.return_value.__enter__.return_value = mock_file
+        with patch.object(generator.inferrer.io_handler, "open_for_read") as mock_open:
+            mock_open.return_value.__enter__.return_value = parquet_buffer
 
             schema = generator.generate_schema()
 
             # Verify S3 path was handled
             mock_open.assert_called_once_with("s3://bucket/file.parquet", encoding="binary")
-            mock_pq_file.assert_called_once_with(mock_file)
+            assert schema["x-generation"]["rows_analyzed"] == 1
+            assert "id" in schema["properties"]
 
     def test_output_to_stdout(self, tmp_path, capsys):
         """Test schema output to stdout."""
@@ -1383,26 +1386,26 @@ true,true,true"""
         """Test error handling in statistics calculation."""
         metadata_generator = MetadataGenerator()
 
-        # Test with empty series
-        empty_series = pd.Series([], dtype=object)
-
-        # Numeric stats with empty series
-        numeric_stats = metadata_generator._calculate_numeric_statistics(empty_series, {})
+        # Test with empty arrays
+        # Numeric stats with empty array
+        numeric_stats = metadata_generator._calculate_numeric_statistics(
+            pa.array([], pa.float64()), {}
+        )
         assert numeric_stats == {}
 
-        # String stats with empty series
-        string_stats = metadata_generator._calculate_string_statistics(empty_series)
+        # String stats with empty array
+        string_stats = metadata_generator._calculate_string_statistics(pa.array([], pa.string()))
         assert string_stats == {}
 
-        # Boolean stats with empty series
-        boolean_stats = metadata_generator._calculate_boolean_statistics(empty_series)
+        # Boolean stats with empty array
+        boolean_stats = metadata_generator._calculate_boolean_statistics(pa.array([], pa.bool_()))
         assert boolean_stats == {}
 
-        # Test with series that causes calculation errors
-        problem_series = pd.Series([float("inf"), float("-inf"), float("nan")])
+        # Test with data that causes calculation errors
+        problem_array = pa.array([float("inf"), float("-inf"), float("nan")])
 
         # This should handle the error gracefully
-        numeric_stats = metadata_generator._calculate_numeric_statistics(problem_series, {})
+        numeric_stats = metadata_generator._calculate_numeric_statistics(problem_array, {})
         # Should either return stats or error info, but not crash
         assert isinstance(numeric_stats, dict)
 

@@ -666,10 +666,10 @@ class TestEdgeCasesAndMissingCoverage:
         schema = {**self.base_schema}
         schema["x-csv"]["parquetTypeMapping"] = {
             "id": "decimal128(10,2)",  # Lines 261, 265, 269, 273, 277
-            "timestamp_field": "timestamp[us,UTC]",
+            "timestamp_field": "timestamp[us,tz=UTC]",
             "duration_field": "duration[ms]",
             "list_field": "list<int32>",
-            "dict_field": "dictionary<values=int32, indices=string>",
+            "dict_field": "dictionary<values=int32, indices=int16>",
         }
         schema["properties"].update(
             {
@@ -722,16 +722,16 @@ class TestEdgeCasesAndMissingCoverage:
         assert result == test_names
 
     def test_standardize_column_names_non_postgres(self):
-        """Test column name standardization with non-postgres method."""
+        """Test column name standardization with the snake_case method."""
         schema = {**self.base_schema}
         schema["x-csv"]["case"] = {"standardizeNames": "snake_case"}  # Line 321
 
         importer = CsvSchemaImporter(schema)
         test_names = ["User ID", "First Name"]
 
-        # Should return unchanged since only postgres is implemented
+        # snake_case is implemented (it used to be a silent no-op)
         result = importer.standardize_column_names(test_names)
-        assert result == test_names
+        assert result == ["user_id", "first_name"]
 
     def test_standardize_column_names_no_dedupe(self):
         """Test column name standardization without deduplication."""
@@ -865,9 +865,7 @@ class TestSpecificCoverageTargets:
         # Test duration validation specifically to hit line 269
         # This should trigger the duration validation check
         assert importer._is_valid_parquet_type("duration[ms]") == True
-        assert (
-            importer._is_valid_parquet_type("duration[invalid]") == True
-        )  # Still returns True due to pattern match
+        assert importer._is_valid_parquet_type("duration[invalid]") == False  # unit is parsed
 
         # Test with schema that uses duration types to ensure validation path is covered
         schema["x-csv"]["parquetTypeMapping"] = {

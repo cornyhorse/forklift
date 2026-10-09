@@ -1,9 +1,31 @@
 """Transformation type definitions and analysis."""
 
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pyarrow as pa
+
+_SAMPLE_SIZE = 10
+_SLICE_SIZE = 256
+
+
+def _sample_values(column_data, limit: int = _SAMPLE_SIZE) -> List[str]:
+    """First ``limit`` non-null values of a column as strings (no pandas, no full conversion).
+
+    Nulls and float NaN are skipped, like ``Series.dropna()`` did.
+    """
+    samples: List[str] = []
+    offset = 0
+    length = len(column_data)
+    while offset < length and len(samples) < limit:
+        for value in column_data.slice(offset, _SLICE_SIZE).to_pylist():
+            if value is None or (isinstance(value, float) and value != value):
+                continue
+            samples.append(str(value))
+            if len(samples) == limit:
+                break
+        offset += _SLICE_SIZE
+    return samples
 
 
 class TransformationAnalyzer:
@@ -25,9 +47,7 @@ class TransformationAnalyzer:
         """
         suggestions = {}
 
-        # Convert to pandas for analysis
-        pandas_series = column_data.to_pandas()
-        sample_values = pandas_series.dropna().head(10).astype(str).tolist()
+        sample_values = _sample_values(column_data)
 
         if not sample_values:
             return None
@@ -56,8 +76,9 @@ class TransformationAnalyzer:
                 "strip_whitespace": True,
             }
 
-        # Check for numeric fields with separators
-        if pa.types.is_string(arrow_type):
+        # Check for numeric fields with separators (string and large_string columns alike)
+        is_string = pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type)
+        if is_string:
             numeric_with_separators = any(
                 re.search(r"\d+[,\.]\d+", str(val)) for val in sample_values[:5]
             )
@@ -93,7 +114,7 @@ class TransformationAnalyzer:
             }
 
         # Add standard string operations for string columns
-        if pa.types.is_string(arrow_type) and len(sample_values) > 0:
+        if is_string and len(sample_values) > 0:
             if "string_trimming" not in suggestions:
                 suggestions["string_trimming"] = {"enabled": False, "side": "both", "chars": None}
 

@@ -26,11 +26,12 @@ class JsonSchemaValidator:
         elif schema["$schema"] != "https://json-schema.org/draft/2020-12/schema":
             errors.append("Schema must reference JSON Schema 2020-12 standard")
 
-        if not schema.get("$id"):
+        schema_id = schema.get("$id")
+        if not schema_id:
             errors.append("Missing required '$id' field")
-        elif not schema["$id"].startswith(
-            "https://github.com/cornyhorse/forklift/schema-standards/"
-        ):
+        elif not isinstance(schema_id, str):
+            errors.append("'$id' must be a string")
+        elif not schema_id.startswith("https://github.com/cornyhorse/forklift/schema-standards/"):
             errors.append("Schema $id must follow the standard GitHub URL pattern")
 
         if not schema.get("title"):

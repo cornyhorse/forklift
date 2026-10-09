@@ -1,5 +1,6 @@
 """Tests for Excel input handler and schema importer."""
 
+import builtins
 import json
 import os
 import sys
@@ -7,7 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
-import pandas as pd
+import pyarrow as pa
 import pytest
 
 from forklift.inputs.config import ExcelInputConfig, ExcelSheetConfig
@@ -78,9 +79,10 @@ class TestExcelInputHandler:
         with pytest.raises(ValueError, match="Unsupported Excel file extension"):
             handler.detect_engine(Path("test.pdf"))
 
+    @patch.object(ExcelInputHandler, "_check_xlsx_archive")
     @patch("openpyxl.load_workbook")
-    def test_open_workbook_openpyxl(self, mock_load_workbook, basic_config):
-        """Test opening workbook with openpyxl engine."""
+    def test_open_workbook_openpyxl(self, mock_load_workbook, mock_check, basic_config):
+        """Test opening workbook with openpyxl engine (read-only streaming mode)."""
         mock_workbook = MagicMock()
         mock_load_workbook.return_value = mock_workbook
 
@@ -89,8 +91,9 @@ class TestExcelInputHandler:
 
         assert handler._engine == "openpyxl"
         assert handler._workbook == mock_workbook
+        mock_check.assert_called_once_with(Path("test.xlsx"))
         mock_load_workbook.assert_called_once_with(
-            Path("test.xlsx"), data_only=basic_config.values_only
+            Path("test.xlsx"), read_only=True, data_only=basic_config.values_only
         )
 
     @patch("xlrd.open_workbook")
@@ -111,7 +114,16 @@ class TestExcelInputHandler:
         """Test ImportError when required library is missing."""
         handler = ExcelInputHandler(basic_config)
 
-        with patch("builtins.__import__", side_effect=ImportError("No module named 'openpyxl'")):
+        real_import = builtins.__import__
+
+        def import_without_openpyxl(name, *args, **kwargs):
+            # Only openpyxl is missing; other imports (also those Python makes internally,
+            # which differ between versions) keep working
+            if name.split(".")[0] == "openpyxl":
+                raise ImportError("No module named 'openpyxl'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=import_without_openpyxl):
             with pytest.raises(
                 ImportError, match="Required library for openpyxl engine not found"
             ):
@@ -144,8 +156,9 @@ class TestExcelInputHandler:
         # Should not raise error
         handler.close_workbook()
 
+    @patch.object(ExcelInputHandler, "_check_xlsx_archive")
     @patch("openpyxl.load_workbook")
-    def test_get_sheet_names_openpyxl(self, mock_load_workbook, basic_config):
+    def test_get_sheet_names_openpyxl(self, mock_load_workbook, mock_check, basic_config):
         """Test getting sheet names with openpyxl."""
         mock_workbook = MagicMock()
         mock_workbook.sheetnames = ["Sheet1", "Sheet2", "Sheet3"]
@@ -180,22 +193,36 @@ class TestExcelInputHandler:
         ):
             handler.get_sheet_names()
 
-    @patch("pandas.read_excel")
-    def test_read_sheet_data_basic(self, mock_read_excel, basic_config):
-        """Test reading a sheet with basic configuration."""
-        mock_df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
-        mock_read_excel.return_value = mock_df
+    @staticmethod
+    def _write_workbook(path, rows, title="employees"):
+        import openpyxl
 
-        handler = ExcelInputHandler(basic_config)
-        handler._workbook = MagicMock()  # Mock workbook as opened
-        handler._engine = "openpyxl"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = title
+        for row in rows:
+            ws.append(row)
+        wb.save(path)
+        return path
 
-        sheet_config = basic_config.sheets[0]
+    def test_read_sheet_data_basic(self, tmp_path):
+        """Reading a sheet returns an Arrow table typed column-wise."""
+        path = self._write_workbook(tmp_path / "book.xlsx", [["col1", "col2"], [1, 3.5], [2, 4.5]])
+        config = ExcelInputConfig(
+            sheets=[ExcelSheetConfig(select={"name": "employees"}, header={"row": 0})]
+        )
 
-        result = handler.read_sheet_data("employees", sheet_config)
+        handler = ExcelInputHandler(config)
+        handler.open_workbook(path)
+        try:
+            result = handler.read_sheet_data("employees", config.sheets[0])
+        finally:
+            handler.close_workbook()
 
-        assert result.equals(mock_df)
-        mock_read_excel.assert_called_once()
+        assert isinstance(result, pa.Table)
+        assert result.to_pydict() == {"col1": [1, 2], "col2": [3.5, 4.5]}
+        assert result.schema.field("col1").type == pa.int64()
+        assert result.schema.field("col2").type == pa.float64()
 
     def test_select_sheets_by_name(self, basic_config):
         """Test selecting sheets by name."""
@@ -269,13 +296,11 @@ class TestExcelInputHandler:
         with pytest.raises(ValueError, match="Unsupported engine: unsupported_engine"):
             handler.get_sheet_names()
 
-    @patch("pandas.read_excel")
-    def test_read_sheet_data_with_na_values(self, mock_read_excel, basic_config):
-        """Test reading sheet data with custom NA values configuration."""
-        mock_df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
-        mock_read_excel.return_value = mock_df
-
-        # Create config with na_values and keep_default_na set
+    def test_read_sheet_data_with_na_values(self, tmp_path):
+        """na_values (and keep_default_na) turn matching text cells into nulls."""
+        path = self._write_workbook(
+            tmp_path / "book.xlsx", [["a", "b"], ["N/A", "x"], ["keep", ""], ["NULL", "y"]]
+        )
         config = ExcelInputConfig(
             sheets=[ExcelSheetConfig(select={"name": "employees"})],
             na_values=["N/A", "NULL", ""],
@@ -283,25 +308,19 @@ class TestExcelInputHandler:
         )
 
         handler = ExcelInputHandler(config)
-        handler._workbook = MagicMock()
-        handler._engine = "openpyxl"
+        handler.open_workbook(path)
+        try:
+            result = handler.read_sheet_data("employees", config.sheets[0])
+        finally:
+            handler.close_workbook()
 
-        result = handler.read_sheet_data("employees", config.sheets[0])
+        assert result.to_pydict() == {"a": [None, "keep", None], "b": ["x", None, "y"]}
 
-        assert result.equals(mock_df)
-        # Verify that na_values and keep_default_na were passed to pandas
-        call_args = mock_read_excel.call_args[1]
-        assert "na_values" in call_args
-        assert call_args["na_values"] == ["N/A", "NULL", ""]
-        assert "keep_default_na" in call_args
-        assert call_args["keep_default_na"] == False
-
-    @patch("pandas.read_excel")
-    def test_read_sheet_data_with_data_end_row(self, mock_read_excel):
-        """Test reading sheet data with data_end_row configuration."""
-        mock_df = pd.DataFrame({"col1": [1, 2], "col2": [3, 4]})
-        mock_read_excel.return_value = mock_df
-
+    def test_read_sheet_data_with_data_end_row(self, tmp_path):
+        """data_start_row/data_end_row are inclusive 1-based sheet rows."""
+        path = self._write_workbook(
+            tmp_path / "book.xlsx", [["n"]] + [[i] for i in range(1, 13)]  # data on rows 2..13
+        )
         config = ExcelInputConfig(
             sheets=[
                 ExcelSheetConfig(select={"name": "employees"}, data_start_row=2, data_end_row=10)
@@ -309,16 +328,13 @@ class TestExcelInputHandler:
         )
 
         handler = ExcelInputHandler(config)
-        handler._workbook = MagicMock()
-        handler._engine = "openpyxl"
+        handler.open_workbook(path)
+        try:
+            result = handler.read_sheet_data("employees", config.sheets[0])
+        finally:
+            handler.close_workbook()
 
-        result = handler.read_sheet_data("employees", config.sheets[0])
-
-        assert result.equals(mock_df)
-        # Verify that nrows was calculated correctly
-        call_args = mock_read_excel.call_args[1]
-        assert "nrows" in call_args
-        assert call_args["nrows"] == 9  # 10 - 2 + 1 = 9
+        assert result["n"].to_pylist() == list(range(1, 10))  # sheet rows 2..10 -> 9 rows
 
     def test_select_sheets_no_workbook(self, basic_config):
         """Test selecting sheets when no workbook is open."""

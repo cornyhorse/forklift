@@ -405,21 +405,23 @@ class TestBadRowsHandler:
         with pytest.raises(ValueError, match="Unsupported output format"):
             handler.write_bad_rows()
 
-    def test_write_bad_rows_default_path(self):
-        """Test writing with default generated path."""
+    def test_write_bad_rows_default_path(self, tmp_path):
+        """Generated file names are unique and honour the configured output directory."""
         config = BadRowsConfig(
-            output_format="json", create_summary=False
-        )  # Disable summary to avoid mock issues
+            output_path=tmp_path, output_format="json", create_summary=False
+        )  # Disable summary to keep the directory listing simple
         handler = BadRowsHandler(config)
 
         handler.add_bad_row({"id": 1}, 0)
 
-        with patch("forklift.processors.bad_rows_handler.datetime") as mock_datetime:
-            mock_datetime.now.return_value.strftime.return_value = "20231201_120000"
-            result_path = handler.write_bad_rows()
+        first = handler.write_bad_rows()
+        second = handler.write_bad_rows()
 
-        expected_path = Path("bad_rows_20231201_120000.json")
-        assert result_path.name == expected_path.name
+        assert first.parent == tmp_path and second.parent == tmp_path
+        assert first.name.startswith("bad_rows_") and first.suffix == ".json"
+        # Two writes in the same second must not overwrite each other
+        assert first != second
+        assert first.exists() and second.exists()
 
     def test_write_bad_rows_override_path(self):
         """Test writing with path override parameter."""
@@ -466,9 +468,12 @@ class TestBadRowsHandler:
             assert nested_path.exists()
             assert nested_path.parent.exists()
 
-    def test_write_error_handling(self):
+    def test_write_error_handling(self, tmp_path):
         """Test error handling during write operations."""
-        config = BadRowsConfig(output_path="/invalid/path/bad_rows.json", output_format="json")
+        # A path below a regular file cannot be created - not even by root, unlike "/invalid/..."
+        blocker = tmp_path / "not_a_directory"
+        blocker.write_text("occupied")
+        config = BadRowsConfig(output_path=str(blocker / "bad_rows.json"), output_format="json")
         handler = BadRowsHandler(config)
 
         handler.add_bad_row({"id": 1}, 0)

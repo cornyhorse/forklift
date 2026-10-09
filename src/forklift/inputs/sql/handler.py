@@ -11,7 +11,7 @@ from ...schema.sql_schema_importer import SqlSchemaImporter
 from ..config import SqlInputConfig
 from .connection import SqlConnectionManager
 from .reader import SqlDataReader
-from .schema import SqlSchemaManager
+from .schema import SqlSchemaManager, resolve_specified_tables
 
 logger = logging.getLogger(__name__)
 
@@ -159,28 +159,13 @@ class SqlInputHandler:
             List of validated (schema_name, table_name) tuples
 
         Raises:
-            ValueError: If table specification format is invalid
+            ValueError: If a bare table name exists in several schemas (ambiguous)
         """
         # Call handler's method instead of schema manager directly for test compatibility
         available_tables = self.get_table_list()
-        specified_tables = []
-
-        for spec in table_specifications:
-            schema_name, table_name = self._parse_table_specification(spec)
-
-            # Validate that the table exists
-            if (schema_name, table_name) in available_tables:
-                specified_tables.append((schema_name, table_name))
-            else:
-                # Try with default schema if not found
-                default_matches = [(s, t) for s, t in available_tables if t == table_name]
-                if default_matches:
-                    specified_tables.append(default_matches[0])
-                    logger.info(f"Using {default_matches[0]} for specification '{spec}'")
-                else:
-                    logger.warning(f"Table not found: {spec}")
-
-        return specified_tables
+        return resolve_specified_tables(
+            available_tables, table_specifications, self._parse_table_specification
+        )
 
     def get_table_schema(self, schema_name: str, table_name: str) -> pa.Schema:
         """Get PyArrow schema for a table.

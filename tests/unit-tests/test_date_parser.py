@@ -76,8 +76,9 @@ class TestParseDate:
         assert parse_date("2025-08-27", formats=formats) == True
         assert parse_date("27/08/2025", formats=formats) == True
         assert parse_date("2025/08/27", formats=formats) == True
-        # This should use dateutil fallback and return True
-        assert parse_date("Aug 27, 2025", formats=formats) == True
+        # A formats list is an allow-list: text that matches none of them is rejected, exactly as
+        # coerce_date raises for it (parse_date used to fall back to dateutil and say True)
+        assert parse_date("Aug 27, 2025", formats=formats) == False
 
     def test_invalid_inputs(self):
         """Test invalid inputs."""

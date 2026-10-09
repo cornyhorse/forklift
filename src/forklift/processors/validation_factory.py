@@ -17,6 +17,7 @@ from .data_validation import (
     ValidationConfig,
 )
 from .schema_validator import SchemaValidator
+from .schema_validator.type_converter import parse_arrow_type
 from .write_time_validator import WriteTimeConfig, WriteTimeValidator
 
 
@@ -96,7 +97,10 @@ class ValidationFactory:
             fields = []
             for name, type_info in schema.items():
                 if isinstance(type_info, str):
-                    pa_type = getattr(pa, type_info)()
+                    try:
+                        pa_type = parse_arrow_type(type_info)
+                    except ValueError as exc:
+                        raise ValueError(f"Invalid type for column '{name}': {exc}") from None
                 else:
                     pa_type = type_info
                 fields.append(pa.field(name, pa_type))
@@ -184,6 +188,9 @@ class ValidationFactory:
             primary_key_columns=config.get(
                 "primary_key_columns", kwargs.get("primary_key_columns", [])
             ),
+            hash_primary_keys=config.get(
+                "hash_primary_keys", kwargs.get("hash_primary_keys", False)
+            ),
             max_null_percentage=config.get(
                 "max_null_percentage", kwargs.get("max_null_percentage", 50.0)
             ),
@@ -270,6 +277,10 @@ def create_validation_processor_from_schema(
 
     Returns:
         Validation processor instance or None if config is empty/None
+
+    Raises:
+        ValueError / TypeError: If the configuration is invalid (an invalid configuration is
+            never turned into "no validation").
     """
     if not schema_config:
         return None
@@ -277,8 +288,4 @@ def create_validation_processor_from_schema(
     # Determine validator type from config
     validator_type = schema_config.get("type", "schema")
 
-    try:
-        return ValidationFactory.create_validator(validator_type, schema_config)
-    except (ValueError, TypeError):
-        # Return None for invalid configurations to match expected behavior
-        return None
+    return ValidationFactory.create_validator(validator_type, schema_config)

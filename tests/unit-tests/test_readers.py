@@ -253,13 +253,22 @@ class TestDataFrameReader:
 
             mock_rmtree.assert_not_called()
 
-    def test_del_calls_cleanup(self):
-        """Test that __del__ calls cleanup."""
+    def test_del_does_not_cleanup(self):
+        """Garbage collection must not delete the files: lazy frames still read them."""
+        reader = DataFrameReader([])
+
+        assert not hasattr(DataFrameReader, "__del__")
+        with patch.object(reader, "cleanup") as mock_cleanup:
+            del reader
+
+            mock_cleanup.assert_not_called()
+
+    def test_close_calls_cleanup(self):
+        """Test that close() performs the cleanup."""
         reader = DataFrameReader([])
 
         with patch.object(reader, "cleanup") as mock_cleanup:
-            # Explicitly call __del__ instead of relying on garbage collection
-            reader.__del__()
+            reader.close()
 
             mock_cleanup.assert_called_once()
 

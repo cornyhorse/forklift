@@ -424,12 +424,16 @@ class TestFwfInputHandler:
 
         try:
             # Mock ImportError when trying to import chardet
-            with patch(
-                "builtins.__import__",
-                side_effect=lambda name, *args: (
-                    exec("raise ImportError()") if name == "chardet" else __import__(name, *args)
-                ),
-            ):
+            import builtins
+
+            real_import = builtins.__import__
+
+            def import_side_effect(name, *args, **kwargs):
+                if name in ("chardet", "charset_normalizer"):
+                    raise ImportError()
+                return real_import(name, *args, **kwargs)
+
+            with patch("builtins.__import__", side_effect=import_side_effect):
                 # Should fall back to utf-8
                 encoding = handler.detect_encoding(temp_path)
                 assert encoding == "utf-8"
@@ -555,9 +559,7 @@ class TestFwfInputHandler:
         assert handler.convert_field_value("FALSE", field_bool) is False
 
         # Test ValueError handling in conversion
-        assert (
-            handler.convert_field_value("invalid", field_int32) == "invalid"
-        )  # Should return raw value on error
+        assert handler.convert_field_value("invalid", field_int32) is None  # Invalid -> None
 
     def test_get_arrow_type_additional_types(self):
         """Test _get_arrow_type with additional types not covered in basic tests."""

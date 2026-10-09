@@ -228,7 +228,8 @@ class TestFwfSchemaImporter:
         importer = FwfSchemaImporter(minimal_valid_schema, validate=False)
         errors = importer._validate_fields()
 
-        mock_validator.assert_called_once_with(importer.fields)
+        # the fixture configures case.dedupeNames, which makes repeated field names acceptable
+        mock_validator.assert_called_once_with(importer.fields, allow_duplicate_names=True)
         assert errors == []
 
     @patch("forklift.schema.fwf.validation.fields.FieldValidator.validate_conditional_fields")
@@ -555,27 +556,23 @@ class TestFwfSchemaImporter:
             assert names == ["id", "name"]
 
     # Test what happens when VariantManager methods don't exist (AttributeError scenarios)
-    def test_get_field_positions_for_flag_value_attribute_error(self, conditional_schema):
-        """Test behavior when VariantManager doesn't have the expected method."""
+    def test_get_field_positions_for_flag_value_conditional(self, conditional_schema):
+        """VariantManager provides the positions (this used to raise AttributeError)."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        # This tests the actual current behavior where the method doesn't exist
-        with pytest.raises(
-            AttributeError,
-            match="'VariantManager' object has no attribute 'get_field_positions_for_flag_value'",
-        ):
-            importer.get_field_positions_for_flag_value("A")
+        positions = importer.get_field_positions_for_flag_value("A")
+        # flag column + "data"; the variant's repeat of the flag column is not listed twice
+        assert len(positions) == 2
+        assert positions == [(-1, 0), (0, 10)]
+        assert importer.get_field_positions_for_flag_value("unknown") == []
 
-    def test_get_column_names_for_flag_value_attribute_error(self, conditional_schema):
-        """Test behavior when VariantManager doesn't have the expected method."""
+    def test_get_column_names_for_flag_value_conditional(self, conditional_schema):
+        """VariantManager provides the names (this used to raise AttributeError)."""
         importer = FwfSchemaImporter(conditional_schema, validate=False)
 
-        # This tests the actual current behavior where the method doesn't exist
-        with pytest.raises(
-            AttributeError,
-            match="'VariantManager' object has no attribute 'get_column_names_for_flag_value'",
-        ):
-            importer.get_column_names_for_flag_value("A")
+        names = importer.get_column_names_for_flag_value("A")
+        assert names[0] == "record_type"  # the flag column comes first
+        assert importer.get_column_names_for_flag_value("unknown") == []
 
     def test_get_all_possible_flag_values_with_conditional(self, conditional_schema):
         """Test getting all possible flag values with conditional schema."""

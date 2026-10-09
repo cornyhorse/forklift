@@ -3,6 +3,14 @@
 ## Overview
 The `x-rowHash` extension provides comprehensive row-level hash generation and metadata column capabilities for change detection, data integrity verification, and audit trail creation. This feature enables tracking of data lineage, detecting changes between processing runs, and adding processing metadata to output files.
 
+> **Breaking change - hash encoding version 2 (default).** Row hashes are now computed from an
+> *injective* encoding of the row (column names, type tags, length-prefixed values, an explicit NULL
+> marker). Hashes produced by earlier releases (the `||`-joined text encoding, now called
+> `hashVersion` 1) will **not** match the new values. To keep verifying or comparing against hashes
+> you stored earlier, set `"legacyEncoding": true` (or `"hashVersion": 1`); new data should use the
+> default. Never compare hashes of different versions. `md5` and `sha1` now require
+> `"allowWeakHash": true`. See [Hash encoding versions](#hash-encoding-versions).
+
 ## Schema Structure
 ```json
 {
@@ -11,6 +19,8 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
     "enabled": false,
     "columnName": "row_hash",
     "algorithm": "sha256",
+    "allowWeakHash": false,
+    "legacyEncoding": false,
     "includeColumns": null,
     "excludeColumns": [],
     "nullValue": "NULL",
@@ -51,6 +61,18 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
 - **Values**: `"md5"`, `"sha1"`, `"sha256"`, `"sha384"`, `"sha512"`
 - **Default**: `"sha256"`
 - **Recommendation**: Use SHA256 or higher for security and collision resistance
+- **Weak algorithms**: `md5` and `sha1` are only accepted together with `"allowWeakHash": true`; without it the configuration is rejected
+
+#### `allowWeakHash`
+- **Type**: Boolean
+- **Description**: Explicit opt-in that permits `md5` / `sha1`
+- **Default**: `false`
+
+#### `legacyEncoding` / `hashVersion`
+- **Type**: Boolean / integer (`1` or `2`)
+- **Description**: `legacyEncoding: true` (equivalently `hashVersion: 1`) reproduces the pre-2.0 preimage byte for byte so previously stored hashes can be verified. The default is `hashVersion` 2.
+- **Default**: `false` / `2`
+- **Recorded in output**: the hash column's Arrow field carries the metadata keys `forklift.row_hash.version` and `forklift.row_hash.algorithm` (they are written to the Parquet schema), and the processor exposes `config.hash_version` and `get_hash_info()`.
 
 #### `includeColumns`
 - **Type**: Array of strings or null
@@ -69,13 +91,13 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
 - **Type**: String
 - **Description**: String representation for null values in hash calculation
 - **Default**: `"NULL"`
-- **Implementation**: Null values converted to this string before hashing
+- **Implementation**: Null values converted to this string before hashing. **Only used with `legacyEncoding`** - hash version 2 has an explicit NULL marker that cannot collide with any value.
 
 #### `separator`
 - **Type**: String
 - **Description**: Separator between field values in hash input
 - **Default**: `"||"`
-- **Implementation**: Fields concatenated with this separator before hashing
+- **Implementation**: Fields concatenated with this separator before hashing. **Only used with `legacyEncoding`** - hash version 2 length-prefixes every field instead.
 
 ### Input Hash Tracking
 
@@ -134,21 +156,52 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
 - **Type**: String
 - **Description**: Column name for processing order row number
 - **Default**: `"_rownum"`
-- **Implementation**: Sequential numbering during processing
+- **Implementation**: Sequential numbering during processing; both row-number columns restart at 1 whenever a new source is started (`set_source_context`)
 
 ## Implementation Details
 
 ### Hash Calculation Process
 1. **Column Selection**: Determine which columns to include based on configuration
-2. **Value Preparation**: Convert values to strings, handle nulls
-3. **Concatenation**: Join values with specified separator
-4. **Hash Generation**: Apply specified algorithm to concatenated string
+2. **Value Preparation**: Encode every value (see below); NULL gets its own marker
+3. **Concatenation**: Build one byte string per row from the encoded fields
+4. **Hash Generation**: Apply specified algorithm to that byte string
 5. **Encoding**: Convert hash to hexadecimal string representation
 
-### Hash Input Format
+### Hash encoding versions
+
+#### Version 2 (default)
+For every hashed column, in schema order, the preimage contains
+
+```
+len(name) | name | type-tag | len(payload) | payload        (NULL: len(name) | name | 0x00)
+```
+
+with 8-byte big-endian lengths, preceded by a fixed header and the column count. Type tags: `s` string,
+`b` binary, `i` integer (decimal text, any width), `o` boolean, `f` float (IEEE-754 bytes, one NaN, no
+negative zero), `d` decimal, `t` date/time/timestamp/duration (storage integer + Arrow type) and `x`
+for nested types (canonical JSON). Consequences:
+- `("Ann", "Lee||X", "111")` and `("Ann||Lee", "X", "111")` no longer collide
+- NULL and the string `"NULL"` differ; empty bytes and NULL differ
+- the integer `1` and the string `"1"` differ
+- the same values under different column names (or in another column order) differ
+
+#### Version 1 (`legacyEncoding: true`)
+The original format, kept so stored hashes can still be verified:
 ```
 column1_value||column2_value||NULL||column4_value
 ```
+Known weaknesses: values containing the separator collide, `"NULL"` equals NULL, empty binary values
+hash as NULL, column names and types are not part of the preimage.
+
+#### Failure behaviour
+The processor fails closed: if hashing or adding a metadata column fails, or if a metadata column
+(`row_hash`, `_input_hash`, `_source_uri`, ...) already exists in the batch, it raises `ValueError`
+instead of returning the batch without the column. `inputHashEnabled` needs the batch as it entered the
+pipeline; `ProcessorPipeline` passes it to processors that accept an `input_batch` argument.
+
+#### Migrating
+Hashes are only comparable within one version. When switching an existing change-detection pipeline
+to version 2, recompute the stored baseline (or keep `legacyEncoding: true` until you can).
 
 ### Change Detection Workflow
 1. **Initial Load**: Generate hashes for all rows
@@ -212,6 +265,7 @@ column1_value||column2_value||NULL||column4_value
   "x-rowHash": {
     "enabled": true,
     "algorithm": "md5",
+    "allowWeakHash": true,
     "includeColumns": ["id", "name", "status", "amount"],
     "ingestedAtEnabled": false,
     "rowNumberEnabled": false
@@ -281,8 +335,8 @@ With full metadata enabled:
 ## Best Practices
 
 ### Algorithm Selection
-- **MD5**: Fast, suitable for change detection in trusted environments
-- **SHA1**: Deprecated for security, avoid for new implementations
+- **MD5**: Fast, suitable for change detection in trusted environments (requires `allowWeakHash: true`)
+- **SHA1**: Deprecated for security, avoid for new implementations (requires `allowWeakHash: true`)
 - **SHA256**: Good balance of security and performance, recommended default
 - **SHA384/SHA512**: Maximum security, use for sensitive data or compliance requirements
 

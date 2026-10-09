@@ -56,12 +56,13 @@ The core engine delegates format-specific processing to specialized components w
 
 The engine exposes high-level functions for different data formats:
 
-- **`import_csv()`**: Streaming CSV processing with PyArrow
-- **`import_excel()`**: Multi-sheet Excel file processing
-- **`import_sql()`**: Database import with ODBC connectivity
-- **`import_fwf()`**: Fixed-width file processing (planned)
+- **`import_csv()`**: Streaming CSV processing with PyArrow (schema typing, bad rows, manifest and metadata)
+- **`import_excel()`**: Multi-sheet Excel file processing (one Parquet file per sheet; local input, local or S3 output)
+- **`import_sql()`**: Database import with ODBC connectivity (one Parquet file per table listed in the schema file)
+- **`import_fwf()`**: Fixed-width file processing (not implemented in the engine yet: it raises `NotImplementedError`, and `forklift ingest --input-kind fwf` exits with status 2)
 
 Each function provides a simplified interface while supporting advanced configuration through keyword arguments.
+They are exported from the top-level package (`from forklift import import_csv, import_excel, import_sql`).
 
 ## Processing Pipeline
 
@@ -121,7 +122,10 @@ results = import_csv(
 
 ### Schema-Driven Validation
 
-Comprehensive validation against JSON schemas with flexible error handling:
+Schema types are applied to the output (`string` columns keep their text, so `00123` stays `00123`).
+A row that has a value which cannot be converted, or an empty/null value in a `required` column
+(matched by column name), is written to `bad_rows.parquet` (all-string columns in the shape of the
+input) instead of stopping the run:
 
 ```python
 # Schema validation with error separation
@@ -129,13 +133,12 @@ results = import_csv(
     input_path="data.csv",
     output_path="output/",
     schema_file="validation_schema.json",
-    max_validation_errors=1000  # Stop after 1000 errors
 )
 
 # Access validation results
 print(f"Valid rows: {results.valid_rows}")
 print(f"Invalid rows: {results.invalid_rows}")
-print(f"Error files: {results.bad_rows_file}")
+print(f"Bad rows file: {results.bad_rows_file}")  # None when nothing was rejected
 ```
 
 ### Multi-Format Support
@@ -149,9 +152,9 @@ csv_results = import_csv("data.csv", "output/")
 # Excel processing with multi-sheet support
 excel_results = import_excel("workbook.xlsx", "output/")
 
-# SQL database import
+# SQL database import (ODBC connection string; the schema file lists the tables)
 sql_results = import_sql(
-    connection_string="DRIVER={SQL Server};SERVER=localhost;...",
+    connection_string="DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;...",
     output_path="output/",
     schema_file="sql_schema.json"
 )
@@ -176,14 +179,17 @@ Flexible configuration system supporting various processing modes:
 
 ```python
 # Advanced CSV configuration
+from forklift.engine import HeaderMode
+from forklift.engine.config import ExcessColumnMode
+
 results = import_csv(
     input_path="complex.csv",
     output_path="output/",
     delimiter="|",
     encoding="latin-1",
-    header_mode=HeaderMode.AUTO,
-    excess_column_mode=ExcessColumnMode.REJECT,
-    footer_detection={"patterns": ["^Total:", "^Summary:"]},
+    header_mode=HeaderMode.AUTO,                  # or "auto"
+    excess_column_mode=ExcessColumnMode.REJECT,   # or "reject"
+    footer_detection={"column_index": 0, "patterns": ["^Total:", "^Summary:"]},
     compression="gzip"
 )
 ```
@@ -194,30 +200,40 @@ The engine uses a comprehensive configuration system through `ImportConfig`:
 
 ### Core Settings
 - **File Paths**: Input/output locations (local or S3)
-- **Processing Options**: Batch sizes, encoding, delimiters
-- **Validation Settings**: Schema files, error thresholds
-- **Output Configuration**: Compression, metadata generation
+- **Processing Options**: Batch size (an upper bound), encoding, delimiters
+- **Validation Settings**: Schema file, `validate_schema`
+- **Output Configuration**: Compression, manifest and metadata generation, `include_value_statistics`
+
+`header_mode` and `excess_column_mode` accept the enum member or a case-insensitive string
+(`"absent"`); an unknown value raises a `ValueError` listing the valid ones. See the
+[configuration readme](config/forklift.engine.config.readme.md) for every option.
 
 ### Header Detection
-- **PRESENT**: Headers expected at specified location
-- **ABSENT**: No headers, use schema or generate names
+- **PRESENT**: First non-blank, non-comment row is the header; no header within `header_search_rows` rows raises `ValueError`
+- **ABSENT**: No headers, use the schema's column names, or generate `col_1`..`col_N`
 - **AUTO**: Automatic header detection using content analysis
 
 ### Error Handling
-- **ExcessColumnMode**: TRUNCATE, REJECT, or PASSTHROUGH extra columns
-- **Validation Limits**: Configurable error thresholds
-- **Bad Data Separation**: Invalid rows written to separate files
+- **ExcessColumnMode**: TRUNCATE (default, counted in `truncated_rows`), REJECT (to `bad_rows.parquet`), or PASSTHROUGH extra fields
+- **Validation Limits**: `max_validation_errors` is reserved and not enforced
+- **Bad Data Separation**: Invalid rows written to `bad_rows.parquet`
 
 ## Output Generation
 
-### Primary Outputs
-- **Parquet Files**: Compressed columnar data files
-- **Metadata JSON**: Processing statistics and configuration
-- **Manifest Files**: List of generated output files
+### Primary Outputs (CSV import)
+- **`data.parquet`**: Compressed columnar data file (an input with a header but no rows still yields an empty file carrying the schema)
+- **`metadata.json`**: Processing statistics and configuration
+- **`output_data_metadata.json`**: Column statistics of the output; no cell values unless `include_value_statistics=True`
+- **`manifest.json`**: List of generated output files
+
+Stale `data.parquet` and `bad_rows.parquet` files of an earlier run are removed when a run starts. If a
+run fails, no partial data or bad rows file is left behind.
+
+The engine writes all of these itself (with S3 support through `forklift.io`); the `forklift.outputs` package is not used by it.
 
 ### Error Outputs
-- **Bad Rows Files**: Invalid data in JSON format
-- **Error Reports**: Detailed validation failure information
+- **`bad_rows.parquet`**: Rejected rows as strings, in the shape of the input columns (`results.bad_rows_file`)
+- **`results.errors`**: Messages for failures (Arrow messages are stripped of row content)
 - **Processing Logs**: Execution statistics and timing
 
 ## Performance Optimization
@@ -238,8 +254,8 @@ The engine uses a comprehensive configuration system through `ImportConfig`:
 results = import_csv(
     input_path="huge_dataset.csv",
     output_path="output/",
-    batch_size=100000,      # Larger batches for throughput
-    validate_schema=False,   # Skip validation for trusted data
+    batch_size=100000,      # Upper bound on rows per written batch
+    validate_schema=False,   # Skip the required-column check for trusted data
     compression="snappy"     # Fast compression
 )
 ```
@@ -253,20 +269,26 @@ results = import_csv(
 
 ### Exception Management
 ```python
+from forklift import import_csv
+
 try:
     results = import_csv("data.csv", "output/")
     if results.invalid_rows > 0:
         print(f"Processing completed with {results.invalid_rows} invalid rows")
         # Invalid data available in results.bad_rows_file
-except ProcessingError as e:
-    print(f"Processing failed: {e}")
+except (ValueError, OSError) as e:
+    print(f"Processing failed: {e}")  # e.g. unreadable file, no header, bad encoding
 ```
+
+`import_csv` re-raises the original exception (`ValueError`, `FileNotFoundError`, a pyarrow error, ...).
+`import_excel` and `import_sql` raise `ProcessingError` for schema problems; `import_sql` also raises it
+when a table fails (partial results are attached as `error.results`) unless `continue_on_error=True`.
 
 ## Integration Examples
 
 ### Basic Usage
 ```python
-from forklift.engine import import_csv, import_excel, import_sql
+from forklift import import_csv, import_excel, import_sql
 
 # Simple CSV import
 results = import_csv("data.csv", "output/")
@@ -298,7 +320,6 @@ config = ImportConfig(
     header_mode=HeaderMode.AUTO,
     batch_size=25000,
     create_manifest=True,
-    max_validation_errors=500
 )
 
 # Direct engine usage
@@ -327,16 +348,16 @@ The Forklift Engine is designed for extensibility:
 
 ## Dependencies and Requirements
 
-### Core Dependencies
-- **PyArrow**: High-performance columnar processing
-- **Pandas**: Data manipulation and analysis
+### Core Dependencies (installed with `pip install forklift-etl`)
+- **PyArrow**: High-performance columnar processing (all data handling, including CSV parsing and Parquet writing)
 - **boto3**: AWS S3 integration
-- **pyodbc**: Database connectivity (for SQL import)
+- **jsonschema**, **python-dateutil**, **pytz**, **chardet**, **charset-normalizer**
 
-### Optional Dependencies
-- **openpyxl/xlrd**: Excel file processing
-- **fastparquet**: Alternative Parquet engine
-- **s3fs**: Enhanced S3 filesystem operations
+### Optional Dependencies (extras)
+- **openpyxl/xlrd** (`[excel]`): Excel file processing (`.xlsx` / `.xls`)
+- **pyodbc** (`[sql]`): Database connectivity for SQL import (needs the unixODBC runtime library)
+- **pandas** / **polars** (`[pandas]`, `[polars]`): only for `DataFrameReader.as_pandas()` / `as_polars()`; the engine never imports them
+- **pyperclip** (`[clipboard]`): copy a generated schema to the clipboard
 
 ## Future Roadmap
 

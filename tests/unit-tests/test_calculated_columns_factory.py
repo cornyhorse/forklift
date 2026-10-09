@@ -71,10 +71,12 @@ class TestParseDataType:
 
     def test_parse_data_type_decimal128_invalid(self):
         """Test parsing invalid decimal128 formats."""
-        # Invalid format should fall back to string
-        assert _parse_data_type("decimal128(invalid)") == pa.string()
-        assert _parse_data_type("decimal128(10)") == pa.string()  # missing scale
-        assert _parse_data_type("decimal128(10,2,3)") == pa.string()  # too many params
+        # Invalid formats are rejected instead of silently becoming string
+        with pytest.raises(ValueError):
+            _parse_data_type("decimal128(invalid)")
+        with pytest.raises(ValueError):
+            _parse_data_type("decimal128(10,2,3)")  # too many params
+        assert _parse_data_type("decimal128(10)") == pa.decimal128(10, 0)  # scale defaults to 0
 
     def test_parse_data_type_list_types(self):
         """Test parsing list types with inner types."""
@@ -84,23 +86,21 @@ class TestParseDataType:
 
     def test_parse_data_type_list_types_invalid_inner(self):
         """Test parsing list types with invalid inner types."""
-        # Should create list with string inner type for unknown types
-        result = _parse_data_type("list<unknown_type>")
-        assert isinstance(result, pa.ListType)
-        assert result.value_type == pa.string()
+        # An unknown inner type is an error, not a silent list<string>
+        with pytest.raises(ValueError):
+            _parse_data_type("list<unknown_type>")
 
     def test_parse_data_type_list_types_empty_inner(self):
         """Test parsing list types with empty inner type."""
-        # Empty inner type should result in None inner type, which should not create a list
-        result = _parse_data_type("list<>")
-        # Since inner type parsing returns None for empty string, this should fall back to string
-        assert result == pa.string()
+        # An empty inner type is an error
+        with pytest.raises(ValueError):
+            _parse_data_type("list<>")
 
     def test_parse_data_type_unknown_type(self):
-        """Test parsing unknown data type falls back to string."""
-        assert _parse_data_type("unknown_type") == pa.string()
-        assert _parse_data_type("custom_type") == pa.string()
-        assert _parse_data_type("invalid") == pa.string()
+        """Test parsing unknown data type raises instead of falling back to string."""
+        for unknown in ("unknown_type", "custom_type", "invalid"):
+            with pytest.raises(ValueError, match="Unknown data type"):
+                _parse_data_type(unknown)
 
     def test_parse_data_type_whitespace_handling(self):
         """Test that whitespace is properly handled."""

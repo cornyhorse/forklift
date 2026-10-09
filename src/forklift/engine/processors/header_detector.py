@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 
 from ...io import UnifiedIOHandler
 from ..config import HeaderMode, ImportConfig
+from .text_utils import read_encoding
 
 
 class HeaderDetector:
@@ -23,7 +24,9 @@ class HeaderDetector:
         self.config = config
         self.io_handler = io_handler
 
-    def detect_header_row(self, input_path: Union[str, Path]) -> Tuple[int, List[str]]:
+    def detect_header_row(
+        self, input_path: Union[str, Path], schema_columns: Optional[List[str]] = None
+    ) -> Tuple[int, List[str]]:
         """Detect header row location and extract column names.
 
         Uses the configured header mode to determine how to find and extract
@@ -31,16 +34,22 @@ class HeaderDetector:
 
         Args:
             input_path: Path to the input CSV file (local or S3 URI)
+            schema_columns: Column names from the schema, used for ``HeaderMode.ABSENT``
 
         Returns:
-            Tuple of (header_row_index, column_names)
+            Tuple of (header_row_index, column_names). ``(-1, [])`` is returned only when the
+            file has no usable row at all (empty, or only blank/comment lines). In ABSENT mode
+            the index is always -1 and the names come from the schema, or are generated
+            (``col_1``..``col_N``) from the first data row.
 
         Raises:
-            ValueError: If header detection fails and no fallback is available
+            ValueError: If no header row is found within ``header_search_rows`` rows
         """
         if self.config.header_mode == HeaderMode.ABSENT:
-            # No header, use schema or generate names
-            return -1, []
+            # No header: the schema names the columns, otherwise generate names
+            if schema_columns:
+                return -1, list(schema_columns)
+            return -1, self._generate_column_names(input_path)
 
         elif self.config.header_mode == HeaderMode.PRESENT:
             # Header is expected at first non-comment row
@@ -50,33 +59,58 @@ class HeaderDetector:
         else:  # AUTO mode
             return self._auto_detect_header(input_path)
 
+    def _iter_rows(self, input_path: Union[str, Path]):
+        """Rows of the file as lists of cells; a UTF-8 byte order mark is dropped."""
+        return self.io_handler.csv_reader(
+            input_path,
+            delimiter=self.config.delimiter,
+            quotechar=self.config.quote_char,
+            encoding=read_encoding(self.config.encoding),
+            escapechar=self.config.escape_char,
+        )
+
+    def _header_not_found(self) -> ValueError:
+        """Error for a file whose first ``header_search_rows`` rows hold no header."""
+        return ValueError(
+            f"No header row found within the first {self.config.header_search_rows} rows "
+            "(blank and comment rows are skipped). Increase header_search_rows, check the "
+            "comment_rows patterns, or use header_mode='absent' if the file has no header."
+        )
+
+    def _generate_column_names(self, input_path: Union[str, Path]) -> List[str]:
+        """Generate ``col_1``..``col_N`` from the width of the first data row."""
+        for idx, row in enumerate(self._iter_rows(input_path)):
+            if idx >= self.config.header_search_rows:
+                raise self._header_not_found()
+            if not row or self._is_comment_row(row):
+                continue
+            return [f"col_{i}" for i in range(1, len(row) + 1)]
+        return []
+
     def _find_first_data_row(self, input_path: Union[str, Path]) -> Tuple[int, List[str]]:
         """Find the first non-comment row and extract columns.
 
         Searches through the file to find the first row that is not a comment
         or blank line, treating it as the header row. Works with local files and S3.
+        Rows are only comments when they match ``comment_rows``; a header such as
+        ``#,name,amount`` is a header.
 
         Args:
             input_path: Path to the input CSV file (local or S3 URI)
 
         Returns:
             Tuple of (row_index, column_names). Returns (-1, []) for empty files.
+
+        Raises:
+            ValueError: If no header is found within ``header_search_rows`` rows
         """
         # Use unified I/O handler for S3 and local file support
-        for idx, row in enumerate(
-            self.io_handler.csv_reader(
-                input_path, delimiter=self.config.delimiter, encoding=self.config.encoding
-            )
-        ):
+        for idx, row in enumerate(self._iter_rows(input_path)):
             if idx >= self.config.header_search_rows:
-                break
+                raise self._header_not_found()
 
             # Skip completely empty rows
             if not row:
-                continue
-
-            # Check for comment rows (lines starting with #)
-            if row and row[0].strip().startswith("#"):
                 continue
 
             if self._is_comment_row(row):
@@ -100,23 +134,21 @@ class HeaderDetector:
             input_path: Path to the input CSV file (local or S3 URI)
 
         Returns:
-            Tuple of (header_row_index, column_names)
+            Tuple of (header_row_index, column_names). (-1, []) for files without any row.
 
         Raises:
-            ValueError: If no suitable header row can be detected
+            ValueError: If the search window holds only blank/comment rows
         """
         rows = []
 
         # Use unified I/O handler for S3 and local file support
-        for idx, row in enumerate(
-            self.io_handler.csv_reader(
-                input_path, delimiter=self.config.delimiter, encoding=self.config.encoding
-            )
-        ):
+        for idx, row in enumerate(self._iter_rows(input_path)):
             if idx >= self.config.header_search_rows:
+                if not rows:
+                    raise self._header_not_found()
                 break
 
-            if self._is_comment_row(row):
+            if not row or self._is_comment_row(row):
                 continue
 
             rows.append((idx, row))
@@ -169,7 +201,10 @@ class HeaderDetector:
         """Check if row should be treated as a comment.
 
         Tests the first cell of the row against configured comment patterns
-        to determine if the entire row should be skipped.
+        to determine if the entire row should be skipped. When ``comment_rows`` is not
+        configured (None) only a line that is a single ``#`` cell counts as a comment (the
+        long-standing default for metadata lines such as ``# Generated: ...``); a row like
+        ``#,name,amount`` is a header. ``comment_rows=[]`` switches comment detection off.
 
         Args:
             row: List of cell values from a CSV row
@@ -177,10 +212,13 @@ class HeaderDetector:
         Returns:
             True if row matches a comment pattern, False otherwise
         """
-        if not self.config.comment_rows or not row:
+        if not row:
             return False
 
-        first_cell = row[0].strip() if row else ""
+        first_cell = row[0].strip()
+
+        if self.config.comment_rows is None:
+            return len(row) == 1 and first_cell.startswith("#")
 
         for comment_pattern in self.config.comment_rows:
             if re.match(comment_pattern, first_cell):

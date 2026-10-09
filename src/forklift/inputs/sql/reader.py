@@ -55,24 +55,24 @@ class SqlDataReader:
 
         Raises:
             ConnectionError: If not connected to database
+            ValueError: If the table is not in the database catalog
         """
         connection = self._get_connection()
 
-        # Get table schema first
+        # Get table schema first. This also validates the requested names against the
+        # database catalog: unknown tables raise before any SQL is built.
         table_schema = self.schema_manager.get_table_schema(schema_name, table_name)
+        resolved_schema, resolved_table = self.schema_manager.resolve_table(
+            schema_name, table_name
+        )
 
         cursor = connection.cursor()
 
         try:
-            # Build query
-            quoted_table = self.schema_manager._quote_identifier(table_name)
-            quoted_schema = self.schema_manager._quote_identifier(schema_name)
-
-            if schema_name and schema_name != "default":
-                full_table_name = f"{quoted_schema}.{quoted_table}"
-            else:
-                full_table_name = quoted_table
-
+            # Build query from catalog-verified, always-quoted identifiers
+            full_table_name = self.schema_manager.qualified_table_name(
+                resolved_schema, resolved_table
+            )
             query = f"SELECT * FROM {full_table_name}"
 
             # Set fetch size if specified

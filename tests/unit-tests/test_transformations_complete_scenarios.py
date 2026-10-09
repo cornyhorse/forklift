@@ -269,17 +269,9 @@ class TestSchemaBasedTransformerIntegration:
             }
         }
 
-        # Capture print output
-        with patch("builtins.print") as mock_print:
-            transformer = SchemaBasedTransformer(schema)
-
-            # Should print warning and continue
-            mock_print.assert_called_once_with(
-                "Warning: Could not create transformation invalid_transform for column col1: Unknown transformation type: invalid_transform"
-            )
-
-            # Column should not be in transformations since creation failed
-            assert "col1" not in transformer.column_transformations
+        # Configuration errors raise instead of printing a warning and carrying on
+        with pytest.raises(ValueError, match="invalid_transform.*col1"):
+            SchemaBasedTransformer(schema)
 
     def test_schema_based_transformer_full_integration(self):
         """Test full SchemaBasedTransformer integration."""
@@ -356,17 +348,9 @@ class TestSchemaBasedTransformerIntegration:
             # Replace the transformation with one that fails
             transformer.column_transformations["col1"] = [failing_transform]
 
-            result_batch, validation_results = transformer.process_batch(batch)
-
-            # Should capture the error
-            assert len(validation_results) == 1
-            assert not validation_results[0].is_valid
-            assert (
-                "Schema-based transformation failed for column 'col1': Transform failed"
-                in validation_results[0].error_message
-            )
-            assert validation_results[0].error_code == "SCHEMA_TRANSFORMATION_ERROR"
-            assert validation_results[0].column_name == "col1"
+            # Fail closed: the failure is raised, the column is never passed on untransformed
+            with pytest.raises(ValueError, match="failed for column 'col1'"):
+                transformer.process_batch(batch)
 
     def test_disabled_transformation_not_processed(self):
         """Test that disabled transformations are not processed."""

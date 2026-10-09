@@ -5,8 +5,10 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Tuple
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from ...utils.transformations import DataTransformer, create_transformation_from_config
+from .._columns import column_index
 from ..base import BaseProcessor, ValidationResult
 
 
@@ -16,6 +18,15 @@ class SchemaBasedTransformer(BaseProcessor):
 
     This processor reads transformation configurations from the schema's x-transformations
     extension and applies them automatically during data processing.
+
+    Per column, the explicit ``x-transformations`` steps run first, in the order they are
+    configured, followed by the automatic ``x-special-type`` formatting/validation step - so an
+    explicit ``regex_replace`` can strip a prefix such as ``"SSN: "`` before the value is
+    validated. A value that is not a valid ``x-special-type`` value becomes NULL and is reported
+    as an ``INVALID_SPECIAL_VALUE`` result with its row index.
+
+    Configuration errors and failing transformations raise (``ValueError``); a batch is never
+    returned with a column left untransformed.
     """
 
     def __init__(self, schema: Dict[str, Any]):
@@ -36,10 +47,7 @@ class SchemaBasedTransformer(BaseProcessor):
         """
         transformations = {}
 
-        # First, auto-detect special types from schema properties
-        self._add_special_type_transformations(transformations)
-
-        # Then, get explicit x-transformations section from schema
+        # Explicit x-transformations first ...
         x_transformations = self.schema.get("x-transformations", {})
         column_configs = x_transformations.get("column_transformations", {})
 
@@ -51,16 +59,18 @@ class SchemaBasedTransformer(BaseProcessor):
                 if isinstance(config, dict) and config.get("enabled", False):
                     try:
                         transform_func = create_transformation_from_config(transform_type, config)
-                        column_transforms.append(transform_func)
                     except ValueError as e:
-                        # Log warning but continue processing
-                        print(
-                            f"Warning: Could not create"
-                            f" transformation {transform_type} for column {column_name}: {e}"
-                        )
+                        raise ValueError(
+                            f"Could not create transformation '{transform_type}' "
+                            f"for column '{column_name}': {e}"
+                        ) from e
+                    column_transforms.append(transform_func)
 
             if column_transforms:
                 transformations[column_name] = column_transforms
+
+        # ... then the automatic steps for fields with an x-special-type
+        self._add_special_type_transformations(transformations)
 
         return transformations
 
@@ -97,7 +107,9 @@ class SchemaBasedTransformer(BaseProcessor):
                         return transform_func
 
                     transform_func = create_ssn_transform(ssn_config)
-                    transformations.setdefault(field_name, []).append(transform_func)
+                    self._append_special_step(
+                        transformations, field_name, special_type, transform_func
+                    )
 
                 elif special_type in ["zip-permissive", "zip-5", "zip-9"]:
                     # Auto-configure ZIP code formatting
@@ -118,7 +130,9 @@ class SchemaBasedTransformer(BaseProcessor):
                         return transform_func
 
                     transform_func = create_zip_transform(zip_config)
-                    transformations.setdefault(field_name, []).append(transform_func)
+                    self._append_special_step(
+                        transformations, field_name, special_type, transform_func
+                    )
 
                 elif special_type == "phone":
                     # Auto-configure phone number formatting
@@ -139,7 +153,9 @@ class SchemaBasedTransformer(BaseProcessor):
                         return transform_func
 
                     transform_func = create_phone_transform(phone_config)
-                    transformations.setdefault(field_name, []).append(transform_func)
+                    self._append_special_step(
+                        transformations, field_name, special_type, transform_func
+                    )
 
                 elif special_type == "email":
                     # Auto-configure email formatting
@@ -160,7 +176,9 @@ class SchemaBasedTransformer(BaseProcessor):
                         return transform_func
 
                     transform_func = create_email_transform(email_config)
-                    transformations.setdefault(field_name, []).append(transform_func)
+                    self._append_special_step(
+                        transformations, field_name, special_type, transform_func
+                    )
 
                 elif special_type in ["ipv4", "ipv6", "ip"]:
                     # Auto-configure IP address formatting
@@ -188,7 +206,9 @@ class SchemaBasedTransformer(BaseProcessor):
                         return transform_func
 
                     transform_func = create_ip_transform(ip_config)
-                    transformations.setdefault(field_name, []).append(transform_func)
+                    self._append_special_step(
+                        transformations, field_name, special_type, transform_func
+                    )
 
                 elif special_type == "mac-address":
                     # Auto-configure MAC address formatting
@@ -209,7 +229,20 @@ class SchemaBasedTransformer(BaseProcessor):
                         return transform_func
 
                     transform_func = create_mac_transform(mac_config)
-                    transformations.setdefault(field_name, []).append(transform_func)
+                    self._append_special_step(
+                        transformations, field_name, special_type, transform_func
+                    )
+
+    @staticmethod
+    def _append_special_step(
+        transformations: Dict[str, List[Callable]],
+        field_name: str,
+        special_type: str,
+        transform_func: Callable,
+    ) -> None:
+        """Add an automatic x-special-type step (tagged so invalid values can be reported)."""
+        transform_func.special_type = special_type
+        transformations.setdefault(field_name, []).append(transform_func)
 
     def process_batch(
         self, batch: pa.RecordBatch
@@ -220,34 +253,64 @@ class SchemaBasedTransformer(BaseProcessor):
             batch: PyArrow RecordBatch to transform
 
         Returns:
-            Tuple of (transformed_batch, validation_results)
+            Tuple of (transformed_batch, validation_results). ``validation_results`` has one
+            ``INVALID_SPECIAL_VALUE`` entry per value that an ``x-special-type`` step rejected
+            (the value is NULL in the returned batch).
+
+        Raises:
+            ValueError: If a transformation fails or a configured column name is ambiguous.
         """
         validation_results = []
 
         # Apply transformations for each configured column
         for column_name, transforms in self.column_transformations.items():
-            if column_name in batch.schema.names:
-                column_index = batch.schema.get_field_index(column_name)
-                column = batch.column(column_index)
+            col_idx = column_index(batch.schema, column_name)
+            if col_idx is None:
+                continue
+            column = batch.column(col_idx)
 
-                try:
-                    # Apply all transformations in sequence
-                    transformed_column = column
-                    for transform in transforms:
-                        transformed_column = transform(transformed_column)
+            try:
+                # Apply all transformations in sequence
+                transformed_column = column
+                for transform in transforms:
+                    result_column = transform(transformed_column)
 
-                    # Update the batch with transformed column
-                    batch = batch.set_column(column_index, column_name, transformed_column)
-
-                except Exception as e:
-                    validation_results.append(
-                        ValidationResult(
-                            is_valid=False,
-                            error_message=f"Schema-based transformation failed for column "
-                            f"'{column_name}': {str(e)}",
-                            error_code="SCHEMA_TRANSFORMATION_ERROR",
-                            column_name=column_name,
+                    special_type = getattr(transform, "special_type", None)
+                    if special_type is not None:
+                        validation_results.extend(
+                            self._invalid_special_values(
+                                transformed_column, result_column, column_name, special_type
+                            )
                         )
-                    )
+                    transformed_column = result_column
+
+                # Update the batch with transformed column
+                batch = batch.set_column(col_idx, column_name, transformed_column)
+
+            except Exception as e:
+                # Fail closed: never pass the column on untransformed
+                raise ValueError(
+                    f"Schema-based transformation failed for column '{column_name}' "
+                    f"({type(e).__name__})"
+                ) from e
 
         return batch, validation_results
+
+    @staticmethod
+    def _invalid_special_values(
+        before: pa.Array, after: pa.Array, column_name: str, special_type: str
+    ) -> List[ValidationResult]:
+        """Results for rows that were non-null before an x-special-type step and null after."""
+        rejected = pc.and_(pc.is_valid(before), pc.is_null(after))
+        return [
+            ValidationResult(
+                is_valid=False,
+                error_message=f"Column '{column_name}' has a value that is not a valid "
+                f"'{special_type}'",
+                error_code="INVALID_SPECIAL_VALUE",
+                row_index=row_idx,
+                column_name=column_name,
+            )
+            for row_idx, flag in enumerate(rejected.to_pylist())
+            if flag
+        ]

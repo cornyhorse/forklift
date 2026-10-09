@@ -21,8 +21,9 @@ The utils module is foundational to Forklift's architecture, providing:
 **Column Name Management**
 
 Provides utilities for handling column name conflicts and standardization:
-- **Deduplication**: Ensures unique column names by adding numeric suffixes
-- **Multiple Methods**: Supports suffix, prefix, and error-based deduplication strategies
+- **Deduplication**: Ensures unique column names by adding numeric suffixes; always terminates, also for empty names and names that already look generated (`["a", "a", "a_1"]`)
+- **Multiple Methods**: Supports suffix, prefix, and error-based deduplication strategies; `max_length` (at least 16) keeps the generated names within a limit, which `postgres` standardization uses for its 63-character limit
+- **Postgres standardization**: `standardize_postgres_column_name()` lower-cases, transliterates accents (`Café` -> `cafe`), replaces other characters with `_` and cuts to 63 characters; a header with only non-Latin letters becomes `col_<n>` / `col_<hash>` instead of an empty name
 - **Conflict Resolution**: Handles duplicate column names in data imports
 - **Schema Compliance**: Ensures column names meet schema requirements
 - **Use Cases**: CSV imports, data merging, schema validation
@@ -31,21 +32,14 @@ Provides utilities for handling column name conflicts and standardization:
 **File Encoding Detection**
 
 Handles automatic detection and handling of text file encodings:
-- **Multi-Encoding Support**: Attempts multiple encoding strategies
-- **Fallback Handling**: Graceful degradation to UTF-8 with error replacement
-- **Universal Newlines**: Proper handling of different line ending formats
+- **`detect_encoding(path)`**: a byte order mark decides immediately; otherwise the guess of `chardet` (or `charset-normalizer`) is tried first, then `utf-8`, `cp1252` and `latin-1`. A candidate is accepted only if the **whole file** decodes with it (a detector sees only the first 64 KiB)
+- **`verify_encoding(path, encoding)`**: streams the file through an incremental decoder (bounded memory)
+- **`open_text_auto(path, encodings=None)`**: opens the file with the first candidate that decodes it completely; on total failure falls back to UTF-8 with `errors="replace"`. The handle is opened with `newline=""`, so line endings (CRLF) are preserved as stored
 - **Defensive Processing**: Prevents crashes from encoding issues
 - **Use Cases**: File imports, data readers, international data processing
 
-### `date_parser.py`
-**Legacy Date Parser Interface**
-
-Maintains backward compatibility with the original date parsing functionality:
-- **Legacy Support**: Preserves existing API for older Forklift code
-- **Bridge Module**: Connects to the new modular date_parser system
-- **Compatibility Layer**: Ensures smooth migration path
-- **Deprecated Functions**: Maintains old function signatures
-- **Migration Path**: Guides users to new date_parser module
+### `date_parser/` (package)
+`forklift.utils.date_parser` is a package (see below). Its public functions `parse_date`, `coerce_date` and `coerce_datetime` keep the original signatures; there is no separate `date_parser.py` module.
 
 ### `row_validation.py`
 **Deprecated Row Validation**
@@ -107,7 +101,9 @@ unique_columns = dedupe_column_names(columns)
 
 ### Encoding Detection
 ```python
-from forklift.utils.detect_encoding import open_text_auto
+from forklift.utils.detect_encoding import detect_encoding, open_text_auto
+
+encoding = detect_encoding("data.csv")   # e.g. "ascii", "utf-8", "cp1252" or "utf-8-sig"; verified against the whole file
 
 # Open file with automatic encoding detection
 with open_text_auto("data.csv") as file:
@@ -124,13 +120,14 @@ tables = derive_sql_table_list(schema)
 # Returns list of (schema_name, table_name, output_name) tuples
 ```
 
-### Date Parsing (Legacy Interface)
+### Date Parsing
 ```python
 from forklift.utils.date_parser import parse_date, coerce_date
 
-# Legacy date parsing interface
 is_valid = parse_date("2023-12-25")
-iso_date = coerce_date("12/25/2023")
+iso_date = coerce_date("12/25/2023")          # "2023-12-25"
+iso_date = coerce_date("03-04-2024")          # "2024-04-03": day first by default
+iso_date = coerce_date("03-04-2024", dayfirst=False)   # "2024-03-04"
 ```
 
 ## Integration with Forklift
@@ -145,9 +142,7 @@ The utils module integrates throughout the Forklift ecosystem:
 
 ## Performance Considerations
 
-- **Memory Efficiency**: Utilities designed for large dataset processing
-- **Lazy Loading**: Sub-modules loaded only when needed
-- **Caching**: Intelligent caching of repeated operations
+- **Memory Efficiency**: Utilities designed for large dataset processing (encoding verification streams the file)
 - **Error Handling**: Graceful degradation without performance penalties
 - **PyArrow Integration**: Optimized for columnar data processing
 
@@ -156,7 +151,6 @@ The utils module integrates throughout the Forklift ecosystem:
 The utils module manages several deprecated components:
 
 - **row_validation**: Replaced by type_coercion preprocessor
-- **Legacy date_parser**: Maintained for compatibility, new code should use date_parser/
 - **Format transformations**: Consolidated into transformations/ module
 
 Migration guidance is provided through clear error messages and documentation.

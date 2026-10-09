@@ -106,7 +106,8 @@ class TestColumnNameProcessor:
         mock_standardize.assert_any_call("Name1")
         mock_standardize.assert_any_call("Name2")
 
-        # Check that dedupe_column_names was called with standardized names
-        mock_dedupe.assert_called_once_with(["std_Name1", "std_Name2"], "suffix")
+        # Check that dedupe_column_names was called with standardized names, keeping the
+        # Postgres 63-character identifier limit
+        mock_dedupe.assert_called_once_with(["std_Name1", "std_Name2"], "suffix", max_length=63)
 
         assert result == ["deduped_1", "deduped_2"]

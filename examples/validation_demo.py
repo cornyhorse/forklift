@@ -1,24 +1,26 @@
 """Comprehensive demonstration of data validation with bad rows handling."""
 
-import pyarrow as pa
-from datetime import datetime, date
 import json
 import os
+from datetime import date, datetime
+from pathlib import Path
+
+import pyarrow as pa
 
 from src.forklift.processors.data_validation import (
-    DataValidationProcessor,
-    ValidationConfig,
-    FieldValidationRule,
     BadRowsConfig,
+    DataValidationProcessor,
+    DateValidation,
+    EnumValidation,
+    FieldValidationRule,
     RangeValidation,
     StringValidation,
-    EnumValidation,
-    DateValidation,
+    ValidationConfig,
 )
 from src.forklift.processors.validation_factory import (
+    create_default_validation_rules,
     create_validation_processor_from_schema,
     get_validation_config_from_schema_file,
-    create_default_validation_rules,
 )
 from src.forklift.schema.csv_schema_importer import CsvSchemaImporter
 
@@ -397,7 +399,9 @@ def demo_schema_driven_validation():
     print("=" * 50)
 
     # Load validation configuration from updated schema
-    schema_path = "/Users/matt/PycharmProjects/forklift/schema-standards/20250826-csv.json"
+    schema_path = str(
+        Path(__file__).resolve().parent.parent / "schema-standards" / "20250826-csv.json"
+    )
 
     try:
         validation_config = get_validation_config_from_schema_file(schema_path)

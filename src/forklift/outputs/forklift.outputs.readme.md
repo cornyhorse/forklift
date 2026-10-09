@@ -1,5 +1,10 @@
 # Forklift Outputs Package
 
+> **Note:** this package is not used by the engine. `ForkliftCore`, `CSVProcessor` and the importers write
+> Parquet, manifests and metadata themselves (with S3 support through `forklift.io`); the classes here are
+> local-filesystem-only and kept for backwards compatibility. `ManifestGenerator` raises for a corrupt
+> Parquet file instead of reporting 0 records, and `MetadataGenerator` reads only Parquet footers.
+
 The `forklift.outputs` package is responsible for the final stage of the Forklift data processing pipeline. After data has been read, validated, and processed, this package handles writing the results to various output formats with comprehensive metadata and data catalog integration.
 
 ## Package Overview

@@ -171,7 +171,7 @@ class TestCsvInputHandler:
             temp_path.unlink()
 
     def test_find_header_row_no_skip_blank_lines(self):
-        """Test finding header row without skipping blank lines."""
+        """A blank line is never the header, even when skip_blank_lines is off."""
         config = CsvInputConfig(skip_blank_lines=False)
         handler = CsvInputHandler(config)
 
@@ -185,8 +185,8 @@ class TestCsvInputHandler:
 
         try:
             header_row, column_names = handler.find_header_row(temp_path)
-            assert header_row == 0
-            assert column_names == []  # Empty line produces empty list
+            assert header_row == 1
+            assert column_names == ["name", "age", "email"]
         finally:
             temp_path.unlink()
 

@@ -4,13 +4,28 @@ This guide provides comprehensive examples and workflows for using Forklift effe
 
 ## Table of Contents
 
+- [Installation](#installation)
 - [Data Import Workflows](#data-import-workflows)
 - [Schema Generation](#schema-generation)
 - [Data Reading and Analysis](#data-reading-and-analysis)
 - [Validation and Error Handling](#validation-and-error-handling)
-- [Working with Different File Formats](#working-with-different-file-formats)
+- [Excel and SQL Sources](#excel-and-sql-sources)
 - [S3 Integration](#s3-integration)
-- [Advanced Features](#advanced-features)
+- [Command Line](#command-line)
+
+## Installation
+
+```bash
+pip install forklift-etl                      # core: pyarrow, boto3, jsonschema, ...
+pip install "forklift-etl[excel]"             # Excel input (openpyxl, xlrd)
+pip install "forklift-etl[sql]"               # SQL input (pyodbc; needs the unixODBC library)
+pip install "forklift-etl[pandas,polars]"     # only for DataFrameReader.as_pandas() / as_polars()
+pip install "forklift-etl[all]"               # all optional packages
+```
+
+Forklift processes all data with PyArrow. pandas and polars are optional **output** formats: they are
+imported only when you call `as_pandas()` / `as_polars()`, and nothing in the import or schema
+generation code uses them.
 
 ## Data Import Workflows
 
@@ -20,11 +35,14 @@ This guide provides comprehensive examples and workflows for using Forklift effe
 import forklift
 
 # Simple CSV import to Parquet
-results = forklift.import_csv(
-    source="sales_data.csv",
-    destination="./output/"
-)
+results = forklift.import_csv("sales_data.csv", "./output/")
+
+print(results.output_files)   # ['./output/data.parquet']
 ```
+
+The output directory receives `data.parquet` (accepted rows), `bad_rows.parquet` (only when rows were
+rejected), `manifest.json`, `metadata.json` and `output_data_metadata.json` (column statistics). Files
+with those names from an earlier run are removed when a run starts.
 
 ### Import with Schema Validation
 
@@ -33,55 +51,63 @@ import forklift
 
 # Import with schema validation
 results = forklift.import_csv(
-    source="sales_data.csv",
-    destination="./output/",
-    schema_path="sales_schema.json"
+    input_path="sales_data.csv",
+    output_path="./output/",
+    schema_file="sales_schema.json"
 )
 
 # Check results
 print(f"Total rows processed: {results.total_rows}")
 print(f"Valid rows: {results.valid_rows}")
 print(f"Invalid rows: {results.invalid_rows}")
+print(f"Rows cut to the header width: {results.truncated_rows}")
+if results.bad_rows_file:
+    print(f"Rejected rows: {results.bad_rows_file}")
 ```
 
-### Import with Preprocessing
+What a schema does during `import_csv`:
+
+- **Types are applied.** Each column is converted to the type the schema declares (`x-csv.parquetTypeMapping` first, then the JSON `type`/`format`). A column declared `string` keeps its text exactly, so `00123` stays `00123`. Columns that are not in the schema keep Arrow's type inference when the file is read locally and are strings when it is read from S3.
+- **Values that do not convert go to `bad_rows.parquet`.** The whole row is rejected, and the file stores every column as a string in the shape of the input, so you can see what the original text was.
+- **`required` is matched by column name**, and an empty string counts as missing. A required column that is not in the file at all raises `ValueError` before any row is read.
+- **Nulls** can be configured with `x-csv.nulls`.
+- Other extensions (`x-transformations`, `x-calculatedColumns`, `x-rowHash`, `x-columnMapping`, `x-primaryKey`, ...) are documented in the schema docs, but `import_csv` does not execute them; the classes that implement them live in `forklift.processors` and `forklift.utils.transformations`.
+
+### Header, Comment and Footer Handling
 
 ```python
 import forklift
 
-# Import with data processors
 results = forklift.import_csv(
-    source="sales_data.csv",
-    destination="./output/",
-    preprocessors=["string_cleaning", "date_standardization"]
+    input_path="export.csv",
+    output_path="./output/",
+    header_mode="auto",              # "present" (default), "absent" or "auto"; enum members work too
+    header_search_rows=20,           # a header must show up within this many rows, else ValueError
+    comment_rows=[r"^#"],            # regexes; only rows above the header are checked
+    footer_detection={"column_index": 0, "patterns": [r"^Total"]},
 )
 ```
 
-### Excel Import
+- With `header_mode="absent"` the schema's property names become the columns; without a schema they are `col_1`, `col_2`, ...
+- `comment_rows=None` (the default) treats only a row that is a single `#...` cell as a comment, so `# Generated 2025-01-01` is skipped while `#,name,amount` is a header. `comment_rows=[]` turns comment detection off.
+- Completely empty lines are skipped everywhere. Data rows are never treated as comments.
+- An empty file produces no output file; a file with only a header produces an empty `data.parquet` that carries the column names (and schema types).
+
+### Value Statistics in the Output Metadata
+
+`output_data_metadata.json` contains counts, null statistics, distinct counts, string lengths and the mean/standard deviation/variance of numeric columns. Statistics that copy cell values (`top_values`, numeric/temporal `min_value`/`max_value`, `median`, `mode`, `quantiles`) can expose personal data, so they are only written when you ask for them:
 
 ```python
-import forklift
-
-# Import specific Excel sheet
-results = forklift.import_excel(
-    source="financial_data.xlsx",
-    destination="./output/",
-    sheet_name="Q4_Results"
+results = forklift.import_csv(
+    "sales_data.csv", "./output/", include_value_statistics=True
 )
 ```
 
-### Fixed-Width File Import
+The metadata records base file names (no directories) as provenance. `distinct_count_is_lower_bound` is `true` when a column has more distinct values than the tracking limit (the ratios are then `null`), and `quantiles_are_estimated` is `true` when the quantiles come from a sample.
 
-```python
-import forklift
+### What `import_csv` Does Not Do
 
-# Import FWF with schema specification
-results = forklift.import_fwf(
-    source="mainframe_export.txt",
-    destination="./output/",
-    schema_path="fwf_schema.json"
-)
-```
+`import_csv` has no `preprocessors` argument (the CLI's `--pre` only prints a warning). Fixed-width import (`import_fwf`) raises `NotImplementedError`.
 
 ## Schema Generation
 
@@ -90,13 +116,15 @@ results = forklift.import_fwf(
 ```python
 import forklift
 
-# Generate schema from CSV
+# Generate schema from CSV (the whole file is analysed by default)
 schema = forklift.generate_schema_from_csv("customer_data.csv")
 
 # Pretty print the schema
 import json
 print(json.dumps(schema, indent=2))
 ```
+
+Types are inferred from the text of the sampled values: `00123` stays a string, `NA` is not null, `2024-01-31` becomes `date32`, ISO timestamps become `timestamp`. Only local paths and `s3://` URIs are accepted (`http://`, `ftp://`, ... raise `ValueError`).
 
 ### Schema Generation with Analysis Options
 
@@ -106,7 +134,7 @@ import forklift
 # Generate schema with limited row analysis for large files
 schema = forklift.generate_schema_from_csv(
     "large_dataset.csv",
-    nrows=10000  # Analyze first 10,000 rows
+    nrows=10000  # Analyze the first 10,000 rows; None (the default) = whole file
 )
 
 # Generate with primary key inference
@@ -121,6 +149,8 @@ schema = forklift.generate_schema_from_csv(
     user_specified_primary_key=["customer_id"]
 )
 ```
+
+`nrows` must be a positive integer or `None`; `0`, negative numbers and non-integers raise `ValueError`. A primary key is only inferred for a column that is 100% unique (and non-null) in the sample.
 
 ### Schema Generation with All Output Options
 
@@ -144,18 +174,24 @@ forklift.generate_and_copy_schema(
     file_type="csv"
 )
 
-# Generate with all metadata options
-schema = forklift.generate_schema_from_csv(
+# Generate with all metadata options: any SchemaGenerationConfig field can be passed
+forklift.generate_and_save_schema(
     "data.csv",
-    nrows=5000,                         # Analyze first 5000 rows
-    include_sample_data=True,           # Include sample data (opt-in)
+    "detailed_schema.json",
+    "csv",
+    nrows=5000,                           # Analyze first 5000 rows
+    include_sample_data=True,             # x-sample rows (opt-in, copies cell values)
     infer_primary_key_from_metadata=True, # Auto-infer primary key
-    include_metadata=True,              # Rich metadata
-    enum_threshold=0.1,                 # Suggest enums for low-cardinality
-    uniqueness_threshold=0.95,          # Flag highly unique fields
-    top_n_values=10                     # Include top/bottom values
+    enum_threshold=0.1,                   # Suggest enums for low-cardinality columns
+    uniqueness_threshold=0.95,            # Flag highly unique fields
+    top_n_values=10,                      # Top/bottom values (needs include_value_statistics)
+    include_value_statistics=True,        # Also write top/bottom values, min/max, quantiles
 )
 ```
+
+### Privacy of the Generated Schema
+
+By default the generated `x-metadata` contains **no raw cell values**: it has row/null counts, distinct counts, uniqueness ratios, type information, mean/standard deviation/variance, outlier counts, string-length statistics and `enum_suggestions` that say a column *looks* categorical (`is_enum_candidate`, `confidence`, `distinct_count`, ...). Set `include_value_statistics=True` (CLI: `--include-value-stats`) to add `top_values`, `bottom_values`, `suggested_enum_values`, `min_value`, `max_value`, `median`, `range` and `quantiles` (keys like `quantile_25` and `quantile_99_5`). Sample rows (`x-sample`) are a separate opt-in (`include_sample_data`). `x-generation.source_file` holds the file name only.
 
 ### CLI Schema Generation to Different Outputs
 
@@ -178,10 +214,14 @@ forklift generate-schema data.csv \
   --enum-threshold 0.1 \
   --uniqueness-threshold 0.95 \
   --top-n-values 15 \
+  --include-value-stats \
   --output file \
   --output-path detailed_schema.json
 
-# Excel schema generation
+# Also write the column metadata to a separate file
+forklift generate-schema data.csv --file-type csv --metadata-output data_metadata.json
+
+# Excel schema generation (--sheet takes a sheet name)
 forklift generate-schema financial_data.xlsx \
   --file-type excel \
   --sheet "Summary" \
@@ -194,66 +234,66 @@ forklift generate-schema existing_data.parquet \
   --output clipboard
 ```
 
+`--nrows` defaults to the whole file.
+
 ## Data Reading and Analysis
+
+The `read_*` functions run the same pipeline as the `import_*` functions into a temporary directory and return a `DataFrameReader`. Call `as_pyarrow()`, `as_pandas()` or `as_polars()` on it.
 
 ### Reading for Quick Analysis
 
 ```python
 import forklift
 
-# Read CSV into pandas DataFrame
-df = forklift.read_csv("sales_data.csv")
+# Read CSV into a pandas DataFrame (needs the pandas extra)
+df = forklift.read_csv("sales_data.csv").as_pandas()
 print(df.head())
 print(df.info())
 
 # Read with specific encoding
-df = forklift.read_csv("legacy_data.csv", encoding="latin-1")
+df = forklift.read_csv("legacy_data.csv", encoding="latin-1").as_pandas()
 
 # Read with custom delimiter
-df = forklift.read_csv("pipe_delimited.txt", delimiter="|")
+df = forklift.read_csv("pipe_delimited.txt", delimiter="|").as_pandas()
 ```
+
+Only the accepted rows are returned. Rows that went to `bad_rows.parquet` (values that did not convert, empty required columns, ...) are not in the DataFrame; call `forklift.import_csv(...)` and read `results.bad_rows_file` if you need them. A file that has a header but no data rows gives an empty DataFrame with the header's columns.
+
+### Cleaning Up
+
+A `DataFrameReader` owns the temporary Parquet files it was built from. Use it as a context manager (or call `close()`) to delete them as soon as you are done; otherwise they are removed when the interpreter exits.
+
+```python
+import forklift
+
+with forklift.read_csv("sales_data.csv", schema_file="sales_schema.json") as reader:
+    table = reader.as_pyarrow()
+    df = reader.as_pandas()
+# the temporary files are gone here; reader.as_pandas() would now raise ValueError
+```
+
+Convert before closing: a polars `LazyFrame` (`as_polars(lazy=True)`) reads the files when you `collect()` it, so it stops working once the reader is closed. The files are deliberately not removed when the reader is garbage collected, because a lazy frame may outlive it.
 
 ### Reading Excel Files
 
 ```python
 import forklift
 
-# Read specific sheet
-df = forklift.read_excel("quarterly_report.xlsx", sheet_name="Q1")
-
-# Read with header customization
-df = forklift.read_excel(
-    "data_with_metadata.xlsx",
-    sheet_name="Data",
-    skip_rows=3  # Skip metadata rows
-)
+# Read a specific sheet (name or 0-based index)
+df = forklift.read_excel("quarterly_report.xlsx", sheet="Q1").as_pandas()
 ```
+
+To skip metadata rows above the header, describe the sheet in an Excel schema (see [Excel and SQL Sources](#excel-and-sql-sources)) and pass `schema_file=`.
 
 ### Reading Fixed-Width Files
 
-```python
-import forklift
-
-# Read FWF with schema
-df = forklift.read_fwf("mainframe_data.txt", schema_path="fwf_schema.json")
-
-# Read with inline field specifications
-df = forklift.read_fwf(
-    "simple_fwf.txt",
-    field_specs=[
-        {"name": "id", "start": 1, "length": 5},
-        {"name": "name", "start": 6, "length": 20},
-        {"name": "amount", "start": 26, "length": 10}
-    ]
-)
-```
+`forklift.read_fwf()` and `forklift.import_fwf()` raise `NotImplementedError`: fixed-width import is not wired into the engine yet. `forklift ingest --input-kind fwf` exits with status 2 for the same reason. The parsing classes (`forklift.inputs.fwf`, `forklift.schema.fwf`) can be used directly; see [X_FWF_DOCUMENTATION](../schemas/X_FWF_DOCUMENTATION.md).
 
 ### Loading Data into Different DataFrame Libraries
 
-Forklift's reader functions return a `DataFrameReader` object that can be converted to various dataframe formats with built-in optimization and validation.
-
 ```python
 import forklift
+import polars as pl
 
 # Read and convert to Pandas DataFrame
 df_pandas = forklift.read_csv("sales_data.csv").as_pandas()
@@ -267,7 +307,7 @@ print(df_polars.head())
 lf_polars = forklift.read_csv("large_dataset.csv").as_polars(lazy=True)
 result = lf_polars.filter(pl.col("amount") > 100).collect()
 
-# Read and convert to PyArrow Table
+# Read and convert to PyArrow Table (no extra package needed)
 table_arrow = forklift.read_csv("sales_data.csv").as_pyarrow()
 print(table_arrow.schema)
 ```
@@ -301,6 +341,7 @@ print(f"PyArrow Table: {table_arrow.num_rows} rows, {table_arrow.num_columns} co
 
 ```python
 import forklift
+import polars as pl
 
 # Excel with sheet specification
 reader = forklift.read_excel("financial_data.xlsx", sheet="Q4_Results")
@@ -315,23 +356,6 @@ aggregated = df_polars.group_by("category").agg([
     pl.col("amount").sum().alias("total_amount"),
     pl.col("amount").mean().alias("avg_amount")
 ])
-```
-
-#### Fixed-Width Files to Different Formats
-
-```python
-import forklift
-
-# FWF processing with multi-record support
-reader = forklift.read_fwf("mainframe_export.txt", schema_file="fwf_schema.json")
-
-# Convert to polars for efficient processing
-df_polars = reader.as_polars()
-print(f"Processed {df_polars.height} records")
-
-# Convert to pandas for compatibility with existing workflows
-df_pandas = reader.as_pandas()
-df_pandas.to_csv("converted_from_fwf.csv", index=False)
 ```
 
 ### Lazy Processing with Polars
@@ -362,6 +386,7 @@ result = (
 )
 
 print(result)
+reader.close()  # delete the temporary files once the lazy query has been collected
 ```
 
 ### Working with Spark (via PyArrow)
@@ -374,15 +399,11 @@ from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("ForkliftData").getOrCreate()
 
 # Read data through Forklift and convert to PyArrow
-reader = forklift.read_csv("large_dataset.csv", schema_file="schema.json")
-arrow_table = reader.as_pyarrow()
+with forklift.read_csv("large_dataset.csv", schema_file="schema.json") as reader:
+    arrow_table = reader.as_pyarrow()
 
-# Convert PyArrow table to Spark DataFrame
-# Note: Requires PyArrow integration in Spark
+# Convert PyArrow table to Spark DataFrame (arrow_table.to_pandas() needs pandas)
 spark_df = spark.createDataFrame(arrow_table.to_pandas())
-
-# Or use arrow integration (if available)
-# spark_df = spark.createDataFrame(arrow_table.to_pylist())
 
 print(f"Spark DataFrame with {spark_df.count()} rows")
 spark_df.show(5)
@@ -402,14 +423,13 @@ import polars as pl
 
 def process_sales_data(file_path: str, schema_path: str):
     """Process sales data with validation and return clean dataframe."""
-    
+
     # Read with validation
-    reader = forklift.read_csv(file_path, schema_file=schema_path)
-    
-    # Convert to polars for efficient processing
-    df = reader.as_polars()
-    
-    # Clean and transform data
+    with forklift.read_csv(file_path, schema_file=schema_path) as reader:
+        # Convert to polars for efficient processing
+        df = reader.as_polars()
+
+    # Clean and transform data (columns declared as string in the schema stay strings)
     cleaned_df = (
         df
         .with_columns([
@@ -423,7 +443,7 @@ def process_sales_data(file_path: str, schema_path: str):
         .filter(pl.col("amount") > 0)  # Remove invalid amounts
         .sort("date")
     )
-    
+
     return cleaned_df
 
 # Use the pipeline
@@ -439,11 +459,11 @@ import polars as pl
 
 def process_large_file_efficiently(file_path: str):
     """Process large files using lazy evaluation."""
-    
+
     # Read with forklift validation, convert to lazy polars
     reader = forklift.read_csv(file_path)
     lazy_df = reader.as_polars(lazy=True)
-    
+
     # Define processing pipeline (not executed yet)
     pipeline = (
         lazy_df
@@ -458,12 +478,14 @@ def process_large_file_efficiently(file_path: str):
             pl.col("id").count().alias("record_count")
         ])
     )
-    
-    # Execute only when needed
-    result = pipeline.collect()
-    return result
 
-# Process without loading full file into memory
+    # Execute only when needed, then delete the temporary files
+    try:
+        return pipeline.collect()
+    finally:
+        reader.close()
+
+# Process without loading the full file into memory
 summary = process_large_file_efficiently("huge_dataset.csv")
 print(summary)
 ```
@@ -503,143 +525,146 @@ plt.show()
 
 ```python
 import forklift
+import pyarrow.parquet as pq
 
-# Import with validation (default: log errors and continue)
+# Import with validation: bad rows are set aside, processing continues
 results = forklift.import_csv(
-    source="customer_data.csv",
-    destination="./output/",
-    schema_path="customer_schema.json"
+    input_path="customer_data.csv",
+    output_path="./output/",
+    schema_file="customer_schema.json"
 )
 
 # Check for validation issues
 if results.invalid_rows > 0:
     print(f"Found {results.invalid_rows} invalid rows")
-    print("Check the bad_rows file for details")
+    bad_rows = pq.read_table(results.bad_rows_file)   # every column is a string
+    print(bad_rows.to_pandas().head())                # or bad_rows.to_pylist()
 ```
 
-### Error Handling Modes
+A row is rejected when
 
-```python
-import forklift
-from forklift.engine.forklift_core import ImportConfig, ErrorHandlingMode
+- a value cannot be converted to the type the schema declares for its column (for example `"Yes"` in a `boolean` column, or `"abc"` in an `integer` column),
+- a column listed under `required` is null or an empty string, or
+- it has more fields than the header and `excess_column_mode` is `REJECT`.
 
-# Fail fast on first error
-config = ImportConfig(
-    error_handling_mode=ErrorHandlingMode.FAIL_FAST
-)
-results = forklift.import_csv(
-    source="data.csv",
-    destination="./output/",
-    schema_path="schema.json",
-    config=config
-)
-
-# Collect all errors then fail
-config = ImportConfig(
-    error_handling_mode=ErrorHandlingMode.FAIL_COMPLETE
-)
-
-# Continue processing, save bad rows to separate file
-config = ImportConfig(
-    error_handling_mode=ErrorHandlingMode.BAD_ROWS,
-    bad_rows_path="./bad_rows/"
-)
-```
+The run itself only stops (an exception is raised and `data.parquet` / `bad_rows.parquet` are not left behind) for problems with the input as a whole: a file that cannot be decoded with the configured `encoding`, no header found, a required column that is missing from the file, an unreadable schema, or an I/O error. `max_validation_errors` is reserved and not enforced, so there is no "stop after N bad rows" mode.
 
 ### Excess Column Handling
 
-Forklift provides two strategies for handling rows that contain more columns than expected:
-
-#### TRUNCATE Mode (Default)
-When using `TRUNCATE` mode, extra columns are removed and the row is kept. This performs **positional truncation**, not selective column filtering by name.
+Forklift provides three strategies for data rows that have more fields than the header (or, with `header_mode="absent"`, than the schema's columns). Short rows are padded with empty strings in all modes.
 
 ```python
 import forklift
-from forklift.engine.config import ImportConfig, ExcessColumnMode
-
-# Configure truncate mode for excess columns
-config = ImportConfig(
-    excess_column_mode=ExcessColumnMode.TRUNCATE
-)
 
 results = forklift.import_csv(
-    source="data_with_extra_columns.csv",
-    destination="./output/",
-    schema_path="partial_schema.json",
-    config=config
+    input_path="data_with_extra_columns.csv",
+    output_path="./output/",
+    excess_column_mode="truncate",   # or "reject" / "passthrough" (enum members work too)
 )
 ```
 
-**Important Behavior with Partial Schemas**: When your schema defines only a subset of columns in the file, `TRUNCATE` mode will only keep the first N columns (where N is the number of columns in your schema) and discard all additional columns.
+#### TRUNCATE Mode (Default)
+Extra fields are removed and the row is kept. This is **positional truncation to the header width**, not column filtering by name. The number of affected rows is reported as `results.truncated_rows` (and logged as a warning).
 
 **Example**:
-- CSV file has columns: `Name,Age,City,Country,Phone`
-- Schema defines only: `Name,Age,City` (3 columns)
-- Result: Only `Name,Age,City` are kept; `Country` and `Phone` are completely discarded
+- CSV header: `Name,Age,City`
+- A data row: `Ann,41,Paris,France,555-1234`
+- Result: `Ann,41,Paris`; `truncated_rows` is increased by one
 
-```python
-# Example with partial schema
-results = forklift.import_csv(
-    source="full_customer_data.csv",  # 20 columns in file
-    destination="./output/",
-    schema_path="basic_schema.json",  # Only defines 5 columns
-    config=ImportConfig(excess_column_mode=ExcessColumnMode.TRUNCATE)
-)
-# Output will contain only the first 5 columns from the CSV
-```
+The width that matters is the one of the header in the file, not the number of properties in the schema. A schema that lists fewer (or more) columns than the file does not add or remove columns; it only supplies types and `required` rules for the columns it names, matched by name.
 
 #### REJECT Mode
-When using `REJECT` mode, entire rows with excess columns are discarded.
+Rows with extra fields are written to `bad_rows.parquet` (cut to the header width; the extra fields are not kept) and counted in `invalid_rows`.
 
 ```python
-# Configure reject mode - discard rows with extra columns
-config = ImportConfig(
-    excess_column_mode=ExcessColumnMode.REJECT
-)
-
 results = forklift.import_csv(
-    source="strict_format.csv",
-    destination="./output/",
-    schema_path="exact_schema.json",
-    config=config
+    input_path="strict_format.csv",
+    output_path="./output/",
+    schema_file="exact_schema.json",
+    excess_column_mode="reject",
 )
+print(results.invalid_rows, results.bad_rows_file)
 ```
 
 #### PASSTHROUGH Mode
-When using `PASSTHROUGH` mode, all columns from the input file are preserved in the output, including those not defined in your schema. Extra columns are automatically assigned default names.
-
-```python
-# Configure passthrough mode - keep all columns
-config = ImportConfig(
-    excess_column_mode=ExcessColumnMode.PASSTHROUGH
-)
-
-results = forklift.import_csv(
-    source="variable_width_data.csv",
-    destination="./output/",
-    schema_path="partial_schema.json",  # Only defines some columns
-    config=config
-)
-```
-
-**PASSTHROUGH Behavior**: This mode is particularly useful for:
-- Files with variable numbers of columns
-- When you want to preserve all data while applying validation to known columns
-- ETL processes where you need to capture unexpected columns
+All fields are kept, and the extra ones are named `col_4`, `col_5`, ... after their position. Because the output schema is fixed by the first batch that is written, a row that is *wider than anything seen so far* is only accepted before the first batch is written; afterwards `import_csv` raises a `ValueError` that names the data row. Use it for files whose widest row comes first, otherwise prefer `TRUNCATE` or `REJECT`.
 
 **Example with PASSTHROUGH**:
-- Input CSV has columns: `Name,Age,City,Country,Phone,Email`
-- Schema defines only: `Name,Age,City` (3 columns)
-- Output will have: `Name,Age,City,col_4,col_5,col_6` (all columns preserved)
+- Input header: `Name,Age,City`; the first data row has `Ann,41,Paris,France,555-1234`
+- Output columns: `Name,Age,City,col_4,col_5`
+
+## Excel and SQL Sources
+
+### Excel Import
 
 ```python
-# Real-world example: processing survey data with variable responses
-results = forklift.import_csv(
-    source="survey_responses.csv",  # May have 10-50 columns depending on responses
-    destination="./output/",
-    schema_path="core_survey_schema.json",  # Only defines required fields
-    config=ImportConfig(excess_column_mode=ExcessColumnMode.PASSTHROUGH)
-)
-# All survey responses are preserved, even unexpected ones
+import forklift
+
+# Every sheet becomes <workbook name>_<sheet name>.parquet
+results = forklift.import_excel("financial_data.xlsx", "./output/")
+
+# Import one sheet (name or 0-based index)
+results = forklift.import_excel("financial_data.xlsx", "./output/", sheet="Q4_Results")
 ```
 
+- `.xlsx` is read with openpyxl in read-only streaming mode and legacy `.xls` with xlrd (`pip install "forklift-etl[excel]"`). The workbook must be a local file; the output location may be on S3.
+- `.xlsx` archives are checked before they are opened, and sheets are read with caps: `ExcelInputConfig` has `max_uncompressed_bytes` (1 GiB), `max_compression_ratio` (200), `max_rows` (1,048,576) and `max_cells` (10,000,000). Exceeding one raises `ValueError`. To change a limit, use `ExcelInputHandler` directly (`ExcelInputHandler(ExcelInputConfig(max_rows=...)).process_sheets(path)` yields `(sheet_name, pyarrow.Table)`; `get_sheet_info(path)` lists the sheets without reading them).
+- A sheet name or index that does not exist raises `ValueError`.
+- Cell values keep their Excel type; a column that mixes types is written as text. Only empty and whitespace-only cells are null by default (`NA` stays text unless the schema lists it under `x-excel.nulls`); formula cells without a cached value are null.
+- Excel schemas describe sheets, header and data rows (`header.row` is 0-based, `dataStartRow` / `dataEndRow` are 1-based sheet rows, both inclusive) and column mappings. A single sheet can be written as `"x-excel": {"sheet": "Sales Data", "header": {"row": 3}}`. See the [importers readme](../../src/forklift/engine/importers/forklift.engine.importers.readme.md).
+
+### SQL Import
+
+```python
+import forklift
+
+results = forklift.import_sql(
+    connection_string="Driver={ODBC Driver 18 for SQL Server};Server=db;Database=crm;Uid=reader;Pwd=...",
+    output_path="./output/",
+    schema_file="crm_tables.json",       # x-sql.tables lists the tables to export
+)
+```
+
+- Install `forklift-etl[sql]` and the ODBC driver for your database. The schema file names the tables explicitly (`"x-sql": {"tables": [{"select": {"schema": "dbo", "name": "orders"}, "outputName": "orders"}]}`); a `select` with only a `pattern` is rejected, and names must look like identifiers.
+- Names are checked against the database catalog and always quoted; the connection is requested read-only; the connection string is redacted (`Pwd=***`) in `metadata.json` and in error messages.
+- A table that fails is aborted without leaving a partial file; the other tables still run and a `ProcessingError` is raised at the end (the partial results are on `error.results`). Pass `continue_on_error=True` to get the results back instead; failed tables are in `results.errors` and under `failed_tables` in `metadata.json`.
+- The output location may be on S3 (`s3://bucket/prefix/`).
+
+## S3 Integration
+
+Any input or output location can be an `s3://bucket/key` URI; credentials come from the standard boto3 credential chain.
+
+```python
+import forklift
+
+results = forklift.import_csv(
+    input_path="s3://my-bucket/raw/sales.csv",
+    output_path="s3://my-bucket/curated/sales/",
+    schema_file="s3://my-bucket/schemas/sales_schema.json",
+)
+
+schema = forklift.generate_schema_from_csv("s3://my-bucket/raw/sales.csv", nrows=1000)
+```
+
+- **Pass S3 locations as strings.** `pathlib.Path("s3://bucket/key")` turns into `s3:/bucket/key`. Forklift recognises that form for inputs (`is_s3_path()` and the I/O handlers accept path-like objects), and raises `ValueError` for an output location that arrives collapsed, but strings are the safe choice.
+- Keys may contain `?` and `#`; the key is everything after the bucket.
+- Writers are all-or-nothing: if a run fails, the pending upload is aborted and nothing is published. Stale `data.parquet` / `bad_rows.parquet` objects at the output prefix are deleted when a run starts.
+- Text is read with line endings preserved, so CRLF files and line breaks inside quoted fields behave as they do locally.
+- Schema generation streams CSV samples from S3 and stops reading once `nrows` rows have been read; Parquet and Excel need random access, so they are first copied to a temporary local file.
+- Excel workbooks are read from local files only; `import_excel` and `import_sql` can write to S3 (and accept `s3_client=` for a pre-configured client).
+
+## Command Line
+
+```bash
+# CSV with a schema; --include-value-stats adds value-bearing statistics to the output metadata
+forklift ingest data.csv --dest ./output/ --input-kind csv --schema schema.json
+forklift ingest s3://bucket/data.csv --dest s3://bucket/out/ --input-kind csv --include-value-stats
+
+# Excel: --sheet takes a sheet name (or a 0-based index when no sheet has that name); default is all sheets
+forklift ingest book.xlsx --dest ./output/ --input-kind excel --sheet "Q4_Results"
+
+# Header handling
+forklift ingest data.csv --dest ./output/ --input-kind csv --header-mode auto
+```
+
+Exit codes: `0` success, `1` processing failed (or the run reported errors), `2` usage errors and input kinds that are not implemented (`--input-kind fwf`). `--encoding-priority` accepts several encodings but only the first one is used; the engine does not fall back to the others.

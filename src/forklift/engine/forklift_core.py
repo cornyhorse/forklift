@@ -54,8 +54,8 @@ class ForkliftCore:
             ProcessingResults object containing processing statistics and output paths
 
         Raises:
-            Exception: Various exceptions may be raised during processing,
-                      all are captured in the results.errors list
+            Exception: Processing errors are recorded in ``results.errors`` and re-raised;
+                      no partial output files are left behind
         """
         return self.csv_processor.process(self.config)
 
@@ -78,7 +78,8 @@ def import_csv(
         input_path: Path to input CSV file to process (local or S3 URI)
         output_path: Directory where output files will be created (local or S3 URI)
         schema_file: Optional path to JSON schema file for validation (local or S3 URI)
-        **kwargs: Additional configuration options passed to ImportConfig
+        **kwargs: Additional configuration options passed to ImportConfig (``header_mode`` and
+            ``excess_column_mode`` accept the enum or a string such as ``"absent"``)
 
     Returns:
         ProcessingResults object containing statistics and output file paths
@@ -198,10 +199,14 @@ def import_sql(
             - batch_size: Number of rows to fetch per batch (default: 10000)
             - query_timeout: Query timeout in seconds (default: 300)
             - connection_timeout: Connection timeout in seconds (default: 30)
-            - use_quoted_identifiers: Whether to quote table/column names (default: False)
+            - use_quoted_identifiers: Accepted for compatibility; identifiers are always
+              validated against the catalog and quoted
             - schema_name: Default schema name if not specified in table configs
             - enable_streaming: Whether to use streaming cursor (default: True)
             - null_values: Values to treat as NULL/None
+            - continue_on_error: Return the results instead of raising when some tables
+              fail (default: False; failed tables are listed in ``results.errors``)
+            - s3_client: Optional client used when ``output_path`` is an S3 URI
 
     Returns:
         ProcessingResults object containing processing statistics and metadata
@@ -209,7 +214,8 @@ def import_sql(
     Raises:
         ImportError: If pyodbc is not installed
         ConnectionError: If database connection fails
-        ProcessingError: If data processing fails or no schema file provided
+        ProcessingError: If any table fails to process (partial results are attached as
+            ``error.results``) or no schema file is provided
         ValueError: If schema file doesn't specify any tables
 
     Examples:

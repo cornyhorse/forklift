@@ -20,8 +20,8 @@ class TestFwfAbsoluteFinalCoverage:
         with patch("builtins.int") as mock_int:
             mock_int.side_effect = ValueError("Cannot convert")
             result = handler.convert_value("invalid", "uint8")
-            # This should hit line 295: return value in except block
-            assert result == "invalid"
+            # A failed conversion yields None (the parser records the error)
+            assert result is None
 
     def test_parse_line_empty_fields_return_none(self):
         """Test line 439: return None when fields_to_use is empty."""

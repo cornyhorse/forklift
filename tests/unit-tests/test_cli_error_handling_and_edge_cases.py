@@ -24,16 +24,10 @@ class TestCLIFinalBranches:
         ]
 
         with patch("sys.argv", test_args):
-            with patch("builtins.print") as mock_print:
-                # This should trigger the early return without any exception
-                result = main()
-
-                # Verify the error message is printed
-                mock_print.assert_called_with(
-                    "Error: --output-path is required when --output=file"
-                )
-                # The function should return None (early return)
-                assert result is None
+            # Usage error: exits with status 2
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 2
 
     @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_metadata_file_none_condition(self, mock_schema_gen):
@@ -43,7 +37,7 @@ class TestCLIFinalBranches:
 
         # Mock methods - metadata generation returns None (no file written)
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_csv_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = None  # This is key!
 
         test_args = [
@@ -61,7 +55,7 @@ class TestCLIFinalBranches:
                 main()
 
                 # Verify the metadata methods were called
-                mock_generator._read_csv_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
 
                 # Verify that NO metadata success message is printed (None branch)
@@ -76,7 +70,7 @@ class TestCLIFinalBranches:
 
         # Mock methods - metadata generation returns a file path
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_parquet_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = (
             "metadata_file.json"  # Truthy value
         )
@@ -96,7 +90,7 @@ class TestCLIFinalBranches:
                 main()
 
                 # Verify the metadata methods were called
-                mock_generator._read_parquet_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
 
                 # Verify that the metadata success message IS printed (truthy branch)
@@ -125,8 +119,8 @@ class TestCLIFinalBranches:
 
             # Should not call metadata generation methods when no metadata output is specified
             assert (
-                not hasattr(mock_generator, "_read_csv_sample")
-                or not mock_generator._read_csv_sample.called
+                not hasattr(mock_generator, "_read_sample_data")
+                or not mock_generator._read_sample_data.called
             )
             mock_generator.generate_schema.assert_called_once()
             mock_generator.output_schema.assert_called_once()

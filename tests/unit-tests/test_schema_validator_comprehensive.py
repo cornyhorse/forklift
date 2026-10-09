@@ -337,15 +337,9 @@ class TestSchemaValidatorConstraints:
                 }
             ]
         }
-        validator = SchemaValidator(schema_dict)
-
-        schema = pa.schema([pa.field("data", pa.string())])
-        batch = pa.RecordBatch.from_arrays([pa.array(["test"])], schema=schema)
-
-        results = validator._validate_constraints(batch)
-
-        pattern_errors = [r for r in results if r.error_code == "INVALID_PATTERN"]
-        assert len(pattern_errors) == 1
+        # Invalid patterns are rejected when the validator is created, not per batch
+        with pytest.raises(ValueError, match="Invalid regular expression"):
+            SchemaValidator(schema_dict)
 
     def test_validate_pattern_constraints_non_string(self):
         """Test pattern constraints on non-string columns (should be ignored)."""

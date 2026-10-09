@@ -25,11 +25,14 @@ class CompatibilityValidator:
         # Collect all fields from all variants
         all_fields = {}  # field_name -> list of field definitions
 
+        if not isinstance(schema_variants, list):
+            return errors  # reported by the field validator
+
         for i, variant in enumerate(schema_variants):
-            fields = variant.get("fields", [])
-            for field in fields:
-                field_name = field.get("name")
-                if field_name:
+            fields = variant.get("fields", []) if isinstance(variant, dict) else []
+            for field in fields if isinstance(fields, list) else []:
+                field_name = field.get("name") if isinstance(field, dict) else None
+                if field_name and isinstance(field_name, str):
                     if field_name not in all_fields:
                         all_fields[field_name] = []
                     all_fields[field_name].append((i, field))
@@ -64,7 +67,7 @@ class CompatibilityValidator:
 
         for variant_idx, field_def in field_defs:
             parquet_type = field_def.get("parquetType")
-            if parquet_type:
+            if parquet_type and isinstance(parquet_type, str):
                 parquet_types.add(parquet_type)
 
             start = field_def.get("start")

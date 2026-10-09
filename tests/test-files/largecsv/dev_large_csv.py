@@ -14,6 +14,7 @@ Environment variables (optional):
 
 This mirrors tests/integration behavior for the large CSV sample used in performance / chunking tests.
 """
+
 from __future__ import annotations
 
 import argparse

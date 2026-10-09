@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional, Pattern
 
+from ...utils.detect_encoding import detect_encoding as _detect_file_encoding
 from ..config import FwfConditionalSchema, FwfFieldSpec, FwfInputConfig
 
 
@@ -14,7 +15,10 @@ class FwfEncodingDetector:
 
     @staticmethod
     def detect_encoding(file_path: Path) -> str:
-        """Detect file encoding using chardet library.
+        """Detect file encoding (chardet or charset_normalizer when installed).
+
+        The detector's guess is only accepted after the whole file has been decoded with it;
+        without a detector library, utf-8, cp1252 and latin-1 are tried in turn.
 
         Args:
             file_path: Path to file to analyze
@@ -22,15 +26,7 @@ class FwfEncodingDetector:
         Returns:
             Detected encoding string (defaults to utf-8 if detection fails)
         """
-        try:
-            import chardet
-
-            with open(file_path, "rb") as f:
-                raw_data = f.read(10240)  # Read first 10KB
-            result = chardet.detect(raw_data)
-            return result.get("encoding", "utf-8")
-        except ImportError:
-            return "utf-8"
+        return _detect_file_encoding(file_path)
 
 
 class FwfSchemaDetector:
@@ -43,6 +39,34 @@ class FwfSchemaDetector:
             config: FWF configuration containing conditional schemas
         """
         self.config = config
+        self._regex_cache: Dict[str, Pattern[str]] = {}
+        # Compile now so a malformed pattern is a configuration error, not a per-line failure
+        for pattern in config.comment_patterns or []:
+            self._compile(pattern, "comment_patterns")
+        footer_pattern = self._footer_pattern()
+        if footer_pattern:
+            self._compile(footer_pattern, "footer_detection.pattern")
+
+    def _compile(self, pattern: str, option: str) -> Pattern[str]:
+        """Compile (and cache) a configured regular expression.
+
+        Raises:
+            ValueError: If the pattern is not a valid regular expression
+        """
+        compiled = self._regex_cache.get(pattern)
+        if compiled is None:
+            try:
+                compiled = re.compile(pattern)
+            except (re.error, TypeError) as e:
+                raise ValueError(f"Invalid regular expression in {option}: {pattern!r} ({e})")
+            self._regex_cache[pattern] = compiled
+        return compiled
+
+    def _footer_pattern(self) -> Optional[str]:
+        footer = self.config.footer_detection
+        if footer and footer.get("mode") == "regex" and footer.get("pattern"):
+            return footer["pattern"]
+        return None
 
     def detect_conditional_schema(self, line: str) -> Optional[FwfConditionalSchema]:
         """Detect which conditional schema applies to a line.
@@ -90,7 +114,7 @@ class FwfSchemaDetector:
             return False
 
         for pattern in self.config.comment_patterns:
-            if re.match(pattern, line):
+            if self._compile(pattern, "comment_patterns").match(line):
                 return True
 
         return False
@@ -119,14 +143,9 @@ class FwfSchemaDetector:
         Returns:
             True if line matches footer detection pattern
         """
-        if not self.config.footer_detection:
-            return False
-
-        mode = self.config.footer_detection.get("mode")
-        pattern = self.config.footer_detection.get("pattern")
-
-        if mode == "regex" and pattern:
-            return bool(re.match(pattern, line))
+        pattern = self._footer_pattern()
+        if pattern:
+            return bool(self._compile(pattern, "footer_detection.pattern").match(line))
 
         return False
 

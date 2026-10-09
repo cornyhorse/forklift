@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-csv.json",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-excel.json",
   "title": "Forklift CSV Row - Comprehensive Parquet Data Types",
   "description": "Schema for CSV file processing demonstrating all supported Parquet data types with delimiter handling, encoding detection, header scanning, and data type validation for Parquet output.",
   "type": "object",
@@ -157,14 +157,16 @@
     }
   },
 
-  "x-csv": {
-    "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
-    "delimiter": "auto",
-    "quotechar": "\"",
-    "escapechar": "\\",
-    "multiline": true,
-    "header": { "mode": "stability_scan", "keywords": ["id", "name", "age", "salary"] },
-    "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" },
+  "x-excel": {
+    "valuesOnly": true,
+    "dateSystem": "1900",
+    "sheets": [
+      {
+        "select": { "name": "Sheet1" },
+        "hasHeader": true,
+        "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" }
+      }
+    ],
     "nulls": {
       "global": ["", "NA", "N/A", "-", "NULL"],
       "perColumn": {

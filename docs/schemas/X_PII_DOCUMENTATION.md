@@ -3,6 +3,10 @@
 ## Overview
 The `x-pii` extension provides comprehensive Personally Identifiable Information (PII) field marking and handling for data privacy, masking, and compliance applications. This feature enables automatic identification, classification, and protection of sensitive personal data according to privacy regulations like GDPR, CCPA, and HIPAA.
 
+> **Status**: `x-pii` is part of the schema standard (marking and masking vocabulary). No code in this version reads it: `import_csv` and the processors neither mask nor hash the marked columns, and nothing is flagged automatically. Use it as machine-readable documentation, or implement masking with the transformers in `forklift.utils.transformations` (for example `regex_replace` or `string_replace`) in your own pipeline.
+
+> **What Forklift does to avoid leaking values today**: schema generation and the output metadata file (`output_data_metadata.json`) contain no cell values by default (no top/bottom values, min/max, quantiles, enum value lists or sample rows). They are only written when you opt in with `include_value_statistics=True` (CLI `--include-value-stats`) or `include_sample_data=True`, because those values can be PII. Provenance in generated files is recorded as base file names, and error messages carry row numbers and column names rather than cell content.
+
 ## Schema Structure
 ```json
 {
@@ -453,5 +457,5 @@ Pattern:   "555-123-4567" → "XXX-XXX-XXXX"
 - **x-special-type**: Automatically classify special types as PII
 - **x-transformations**: Apply PII masking after data transformations
 - **x-constraintHandling**: Handle PII validation errors appropriately
-- **x-metadata-generation**: Include PII statistics while respecting privacy
+- **x-metadata-generation**: Metadata contains no cell values unless `include_value_statistics` is enabled; leave it off for columns marked as PII
 - **x-calculatedColumns**: Mark derived PII columns appropriately

@@ -15,6 +15,7 @@ Validates FWF-specific schema extensions (`x-fwf`):
 - Validates FWF extension structure and required fields
 - Ensures proper field definitions and configurations
 - Validates FWF-specific properties like alignment, padding, and trimming
+- Accepts any text encoding Python's `codecs` module knows for `encoding`
 
 ### FieldValidator (`fields.py`)
 Provides field-level validation for FWF schemas:
@@ -24,15 +25,14 @@ Provides field-level validation for FWF schemas:
 
 ### ParquetTypeValidator (`parquet_types.py`)
 Handles Parquet data type mapping and validation:
-- Maps FWF field types to Parquet data types
-- Validates type compatibility and conversions
+- Validates the Parquet type grammar strictly: time units (`s`, `ms`, `us`, `ns`), `decimal128(p,s)` parameters, `list<...>` and `dictionary<values=..., indices=...>` are parsed, not just prefix-matched
+- Validates type compatibility across conditional variants (see below)
 - Ensures proper data type handling for Parquet output
 
 ### CompatibilityValidator (`compatibility.py`)
-Ensures cross-format compatibility and standards compliance:
-- Validates compatibility between different schema versions
-- Checks for breaking changes in schema updates
-- Ensures backward compatibility with existing implementations
+Checks fields that appear in more than one conditional schema variant:
+- The declared Parquet types of one column across variants must be unifiable (all numeric, all decimal, all date/timestamp with the same time zone, all duration, or all string/binary); `int32` and `double` unify to `double`, `int64` and `string` do not
+- Overlapping positions of the same column in different variants are only an error when the types are incompatible
 
 ## Usage
 

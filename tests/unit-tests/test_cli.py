@@ -58,11 +58,10 @@ class TestCLIArgumentParsing:
         ]
 
         with patch("sys.argv", test_args):
-            with patch("builtins.print") as mock_print:
+            # A usage error must exit non-zero (argparse convention: 2), not return 0
+            with pytest.raises(SystemExit) as exc_info:
                 main()
-                mock_print.assert_called_with(
-                    "Error: --output-path is required when --output=file"
-                )
+            assert exc_info.value.code == 2
 
     @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_with_all_options(self, mock_forklift):
@@ -94,8 +93,8 @@ class TestCLIArgumentParsing:
 
         mock_forklift.assert_called_once()
 
-    @patch("forklift.cli.ForkliftCore")
-    def test_ingest_excel_with_sheet(self, mock_forklift):
+    @patch("forklift.cli.import_excel")
+    def test_ingest_excel_with_sheet(self, mock_import_excel):
         """Test ingest command with Excel input and sheet specification."""
         test_args = [
             "forklift",
@@ -112,10 +111,13 @@ class TestCLIArgumentParsing:
         with patch("sys.argv", test_args):
             main()
 
-        mock_forklift.assert_called_once()
+        mock_import_excel.assert_called_once_with("input.xlsx", "output/", None, sheet="Sheet1")
 
-    @patch("forklift.cli.ForkliftCore")
-    def test_ingest_fwf_with_spec(self, mock_forklift):
+    @patch(
+        "forklift.cli.import_fwf",
+        side_effect=NotImplementedError("FWF import not yet implemented"),
+    )
+    def test_ingest_fwf_with_spec(self, mock_import_fwf):
         """Test ingest command with FWF input and specification."""
         test_args = [
             "forklift",
@@ -132,9 +134,11 @@ class TestCLIArgumentParsing:
         ]
 
         with patch("sys.argv", test_args):
-            main()
+            with pytest.raises(SystemExit) as exc_info:
+                main()
 
-        mock_forklift.assert_called_once()
+        assert exc_info.value.code == 2
+        mock_import_fwf.assert_called_once_with("input.txt", "output/", "fwf_spec.json")
 
     @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_csv_basic(self, mock_schema_gen):
@@ -377,9 +381,14 @@ class TestCLIArgumentParsing:
 
     # NEW TESTS TO ACHIEVE 100% COVERAGE
 
-    @patch("forklift.cli.ForkliftCore")
-    def test_ingest_excel_unsupported_error(self, mock_forklift):
-        """Test ingest command with Excel input shows unsupported error (line 98)."""
+    @patch("forklift.cli.import_excel")
+    def test_ingest_excel_runs_importer(self, mock_import_excel):
+        """Test ingest command with Excel input runs the Excel importer and prints results."""
+        mock_import_excel.return_value.errors = []
+        mock_import_excel.return_value.total_rows = 7
+        mock_import_excel.return_value.valid_rows = 7
+        mock_import_excel.return_value.invalid_rows = 0
+        mock_import_excel.return_value.output_files = ["output/input_Sheet1.parquet"]
         test_args = [
             "forklift",
             "ingest",
@@ -393,21 +402,22 @@ class TestCLIArgumentParsing:
         with patch("sys.argv", test_args):
             with patch("builtins.print") as mock_print:
                 main()
-                mock_print.assert_any_call(
-                    "Error: Input kind 'excel' not yet implemented in new ForkliftCore. Only 'csv' is currently supported."
-                )
+                mock_print.assert_any_call("Processing complete. Processed 7 rows.")
 
-    @patch("forklift.cli.ForkliftCore")
-    def test_ingest_fwf_unsupported_error(self, mock_forklift):
-        """Test ingest command with FWF input shows unsupported error (line 98)."""
+        mock_import_excel.assert_called_once_with("input.xlsx", "output/", None)
+
+    def test_ingest_fwf_unsupported_error(self):
+        """Test ingest command with FWF input exits 2 with a clear message."""
         test_args = ["forklift", "ingest", "input.txt", "--dest", "output/", "--input-kind", "fwf"]
 
         with patch("sys.argv", test_args):
             with patch("builtins.print") as mock_print:
-                main()
-                mock_print.assert_any_call(
-                    "Error: Input kind 'fwf' not yet implemented in new ForkliftCore. Only 'csv' is currently supported."
-                )
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+
+        assert exc_info.value.code == 2
+        message = " ".join(str(call.args[0]) for call in mock_print.call_args_list)
+        assert "'fwf' is not implemented yet" in message
 
     @patch("forklift.cli.ForkliftCore")
     def test_ingest_csv_successful_processing_output(self, mock_forklift):
@@ -445,7 +455,7 @@ class TestCLIArgumentParsing:
 
         # Mock methods
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_csv_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
 
         test_args = [
@@ -464,7 +474,7 @@ class TestCLIArgumentParsing:
                 # Verify metadata file written message
                 mock_print.assert_any_call("Metadata file written to: metadata_output.json")
                 # Verify the CSV reader method was called
-                mock_generator._read_csv_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
 
     @patch("forklift.cli.SchemaGenerator")
@@ -475,7 +485,7 @@ class TestCLIArgumentParsing:
 
         # Mock methods
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_excel_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
 
         test_args = [
@@ -494,7 +504,7 @@ class TestCLIArgumentParsing:
                 # Verify metadata file written message
                 mock_print.assert_any_call("Metadata file written to: metadata_output.json")
                 # Verify the Excel reader method was called
-                mock_generator._read_excel_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
 
     @patch("forklift.cli.SchemaGenerator")
@@ -505,7 +515,7 @@ class TestCLIArgumentParsing:
 
         # Mock methods
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_parquet_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = "metadata_output.json"
 
         test_args = [
@@ -524,7 +534,7 @@ class TestCLIArgumentParsing:
                 # Verify metadata file written message
                 mock_print.assert_any_call("Metadata file written to: metadata_output.json")
                 # Verify the Parquet reader method was called
-                mock_generator._read_parquet_sample.assert_called_once()
+                mock_generator._read_sample_data.assert_called_once()
                 mock_generator.generate_and_save_metadata.assert_called_once_with("mock_table")
 
     @patch("forklift.cli.SchemaGenerator")
@@ -538,9 +548,13 @@ class TestCLIArgumentParsing:
 
         with patch("sys.argv", test_args):
             with patch("builtins.print") as mock_print:
-                main()
-                # Verify error message is printed
-                mock_print.assert_any_call("Error generating schema: Test error message")
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+                # A failed run must exit non-zero and say why (on stderr)
+                assert exc_info.value.code == 1
+                mock_print.assert_any_call(
+                    "Error generating schema: Test error message", file=sys.stderr
+                )
 
     @patch("forklift.cli.SchemaGenerator")
     def test_generate_schema_metadata_output_no_file_returned(self, mock_schema_gen):
@@ -550,7 +564,7 @@ class TestCLIArgumentParsing:
 
         # Mock methods - metadata generation returns None
         mock_generator.generate_schema.return_value = {"test": "schema"}
-        mock_generator._read_csv_sample.return_value = "mock_table"
+        mock_generator._read_sample_data.return_value = "mock_table"
         mock_generator.generate_and_save_metadata.return_value = None
 
         test_args = [

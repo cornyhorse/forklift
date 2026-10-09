@@ -32,9 +32,12 @@ class ManifestGenerator:
         Returns:
             Path to the created manifest file as a string
 
+        Raises:
+            pyarrow.ArrowInvalid: If a listed file exists but is not a valid Parquet file
+
         Note:
             The manifest includes file paths, sizes, record counts, and timestamps
-            in a standardized format for data catalog integration.
+            in a standardized format for data catalog integration. Local files only.
         """
         manifest_path = output_dir / "manifest.json"
 
@@ -44,7 +47,10 @@ class ManifestGenerator:
                 {
                     "file_path": str(Path(f).name),
                     "file_size": Path(f).stat().st_size if Path(f).exists() else 0,
-                    "record_count": ManifestGenerator._get_parquet_row_count(f),
+                    # A listed file that does not exist has size 0 and no records
+                    "record_count": (
+                        ManifestGenerator._get_parquet_row_count(f) if Path(f).exists() else 0
+                    ),
                 }
                 for f in files
             ],
@@ -69,10 +75,11 @@ class ManifestGenerator:
             file_path: Path to the Parquet file to analyze
 
         Returns:
-            Number of rows in the Parquet file (0 if file cannot be read)
+            Number of rows in the Parquet file
+
+        Raises:
+            FileNotFoundError: If the file does not exist
+            pyarrow.ArrowInvalid: If the file is not a valid Parquet file
         """
-        try:
-            parquet_file = pq.ParquetFile(file_path)
-            return parquet_file.metadata.num_rows
-        except Exception:
-            return 0
+        # A missing/corrupt file must not be reported as an empty one
+        return pq.ParquetFile(file_path).metadata.num_rows

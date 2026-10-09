@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ....utils.column_name_utilities import dedupe_column_names, standardize_postgres_column_name
+from ...naming import camel_case_name, snake_case_name
 
 
 class ColumnNameProcessor:
@@ -36,9 +37,16 @@ class ColumnNameProcessor:
                 processed_names = [
                     standardize_postgres_column_name(name) for name in processed_names
                 ]
-            # Add other standardization methods as needed
+            elif standardize_method == "snake_case":
+                processed_names = [snake_case_name(name) for name in processed_names]
+            elif standardize_method == "camelCase":
+                processed_names = [camel_case_name(name) for name in processed_names]
 
         if dedupe_method:
-            processed_names = dedupe_column_names(processed_names, dedupe_method)
+            # Postgres identifiers are limited to 63 characters, including dedupe suffixes
+            max_length = 63 if standardize_method == "postgres" else None
+            processed_names = dedupe_column_names(
+                processed_names, dedupe_method, max_length=max_length
+            )
 
         return processed_names

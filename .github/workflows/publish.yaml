@@ -4,16 +4,46 @@ on:
   release:
     types: [published]
 
+# Least privilege: only the publish job below gets an OIDC token (trusted publishing).
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: '3.12'
+
+    # The release tag (a leading "v" is ignored) must be the version in pyproject.toml, so a
+    # release can never publish a package whose version differs from the tag it was cut from.
+    - name: Verify release tag matches the package version
+      env:
+        TAG_NAME: ${{ github.event.release.tag_name }}
+      run: |
+        python - <<'PY'
+        import os
+        import sys
+        import tomllib
+
+        tag = os.environ["TAG_NAME"]
+        expected = tag[1:] if tag.startswith("v") else tag
+        with open("pyproject.toml", "rb") as handle:
+            version = tomllib.load(handle)["project"]["version"]
+        if version != expected:
+            sys.exit(
+                f"Release tag {tag!r} does not match the pyproject.toml version {version!r}; "
+                "bump the version (or re-tag) and publish the release again."
+            )
+        print(f"Release tag {tag!r} matches pyproject.toml version {version!r}")
+        PY
 
     - name: Install build dependencies
       run: |
@@ -23,6 +53,9 @@ jobs:
     - name: Build package
       run: python -m build
 
+    - name: Check package metadata
+      run: twine check dist/*
+
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -30,19 +63,29 @@ jobs:
         path: dist/
 
   test:
+    # Gate: the built wheel must install and import, and the real unit tests must pass.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: build
     strategy:
+      fail-fast: true
       matrix:
-        python-version: ['3.12']
+        python-version: ['3.12', '3.13', '3.14']
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Install system libraries (unixODBC runtime for pyodbc)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends unixodbc
 
     - name: Download build artifacts
       uses: actions/download-artifact@v4
@@ -53,14 +96,18 @@ jobs:
     - name: Install package from wheel
       run: |
         python -m pip install --upgrade pip
-        # Find the wheel file and install it with all extras
+        # Install the built wheel with all extras plus the test tooling (dev extra)
         WHEEL_FILE=$(find dist/ -name "*.whl" | head -1)
-        pip install "${WHEEL_FILE}[all]"
+        pip install "${WHEEL_FILE}[all,dev]"
 
-    - name: Test package import
+    - name: Test package import (from outside the source tree)
+      working-directory: ${{ runner.temp }}
       run: |
         python -c "import forklift; print(f'Forklift version: {forklift.__version__}')"
         python -c "from forklift import generate_schema_from_csv, import_csv, read_csv"
+
+    - name: Run unit tests
+      run: python -m pytest tests/unit-tests
 
   publish-pypi:
     runs-on: ubuntu-latest

@@ -20,12 +20,20 @@ class CalculatedColumn:
     data_type: Optional[pa.DataType] = _UNSET
     description: Optional[str] = None
     dependencies: Optional[List[str]] = None
+    # Set for constants: the evaluator returns this value directly and never evaluates
+    # ``expression`` (which is then only a human-readable rendering of the value).
+    constant_value: Any = _UNSET
 
     def __post_init__(self):
         if self.dependencies is None:
             self.dependencies = []
         if self.data_type is _UNSET:
             self.data_type = pa.string()
+
+    @property
+    def is_constant(self) -> bool:
+        """Whether this column carries a constant value instead of an expression."""
+        return self.constant_value is not _UNSET
 
 
 @dataclass
@@ -45,19 +53,19 @@ class ConstantColumn:
             self.data_type = pa.string()  # Convert explicit None to string
 
     def to_calculated_column(self) -> CalculatedColumn:
-        """Convert to CalculatedColumn for processing."""
-        # Create expression that returns the constant value
-        if isinstance(self.value, str):
-            expression = f"'{self.value}'"
-        else:
-            expression = str(self.value)
+        """Convert to CalculatedColumn for processing.
 
+        The value is carried as-is (``constant_value``) and returned directly by the
+        evaluator; it is never spliced into expression source. ``expression`` is only a
+        safe, ``repr``-based rendering of the value for display.
+        """
         return CalculatedColumn(
             name=self.name,
-            expression=expression,
+            expression=repr(self.value),
             data_type=self.data_type,
             description=self.description,
             dependencies=[],
+            constant_value=self.value,
         )
 
 

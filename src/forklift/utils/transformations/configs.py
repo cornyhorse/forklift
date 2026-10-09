@@ -5,8 +5,46 @@ This module contains all the dataclass configurations used by the transformation
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
+from ._timezones import validate_timezone
+
+
+def resolve_separators(
+    thousands_separator: Optional[str], decimal_separator: Optional[str]
+) -> Tuple[str, str]:
+    """Resolve the (thousands, decimal) separator pair of a numeric/money configuration.
+
+    ``None`` means "not set by the user". A user who only sets one of the two gets the sane
+    counterpart instead of a clash: ``decimal_separator=","`` implies ``thousands_separator="."``
+    and ``thousands_separator="."`` implies ``decimal_separator=","``; anything else keeps the
+    US conventions (",", "."). An empty thousands separator is honoured (no grouping character).
+
+    Raises:
+        ValueError: if both separators are set explicitly to the same non-empty string
+    """
+    for label, sep in (
+        ("thousands_separator", thousands_separator),
+        ("decimal_separator", decimal_separator),
+    ):
+        if sep is not None and not isinstance(sep, str):
+            raise ValueError(f"{label} must be a string, got {type(sep).__name__}")
+
+    if thousands_separator is None and decimal_separator is None:
+        return ",", "."
+    if thousands_separator is None:
+        thousands_separator = "." if decimal_separator == "," else ","
+    elif decimal_separator is None:
+        decimal_separator = "," if thousands_separator == "." else "."
+
+    if thousands_separator and decimal_separator and thousands_separator == decimal_separator:
+        raise ValueError(
+            "thousands_separator and decimal_separator must differ "
+            f"(both are {thousands_separator!r})"
+        )
+    return thousands_separator, decimal_separator
 
 
 @dataclass
@@ -21,7 +59,8 @@ class DateTimeTransformConfig:
     to_epoch: Optional[str] = None  # Convert output to epoch ("seconds", "milliseconds", etc.)
     target_type: str = "datetime"  # "datetime", "date", "timestamp", "string"
     output_format: Optional[str] = None  # Format for string output (if target_type is "string")
-    timezone: Optional[str] = None  # Target timezone for output
+    timezone: Optional[str] = None  # Target IANA timezone for output (validated at construction)
+    dayfirst: bool = True  # Resolve ambiguous dates such as 03-04-2024 as day-month-year
 
     def __post_init__(self):
         valid_modes = ["enforce", "specify_formats", "common_formats"]
@@ -40,6 +79,9 @@ class DateTimeTransformConfig:
                 f"Invalid target_type: {self.target_type}. Must be one of {valid_targets}"
             )
 
+        # An unknown timezone must fail here, not null every row at apply time.
+        validate_timezone(self.timezone)
+
         if self.to_epoch:
             valid_epoch_units = ["seconds", "milliseconds", "microseconds", "nanoseconds"]
             if self.to_epoch not in valid_epoch_units:
@@ -50,20 +92,43 @@ class DateTimeTransformConfig:
 
 @dataclass
 class RegexReplaceConfig:
-    """Configuration for regex replace operations."""
+    """Configuration for regex replace operations.
+
+    The pattern is compiled when the configuration is created, so a bad regular expression (or a
+    replacement template that references a missing group) raises ``ValueError`` immediately instead
+    of failing in the middle of a batch.
+
+    Note:
+        Patterns run on the stdlib ``re`` engine, which has no timeout: a pathological pattern
+        (catastrophic backtracking) combined with hostile input can stall a worker. Only use
+        patterns from trusted schemas.
+    """
 
     pattern: str
     replacement: str
     flags: int = 0  # re.IGNORECASE, re.MULTILINE, etc.
 
+    def __post_init__(self):
+        try:
+            compiled = re.compile(self.pattern, self.flags)
+            compiled.sub(self.replacement, "")  # validates the replacement template
+        except (re.error, TypeError, ValueError, OverflowError, RecursionError) as exc:
+            raise ValueError(f"Invalid regex_replace configuration: {exc}") from exc
+
 
 @dataclass
 class StringReplaceConfig:
-    """Configuration for simple string replace operations."""
+    """Configuration for simple (literal, non-regex) string replace operations."""
 
     old: str
     new: str
-    count: int = -1  # -1 means replace all occurrences
+    count: int = -1  # -1 (or any negative number) means replace all occurrences
+
+    def __post_init__(self):
+        if not isinstance(self.old, str) or not isinstance(self.new, str):
+            raise ValueError("string_replace 'old' and 'new' must be strings")
+        if isinstance(self.count, bool) or not isinstance(self.count, int):
+            raise ValueError("string_replace 'count' must be an integer")
 
 
 @dataclass
@@ -71,27 +136,35 @@ class MoneyTypeConfig:
     """Configuration for money type conversions."""
 
     currency_symbols: List[str] = None
-    thousands_separator: str = ","
-    decimal_separator: str = "."
+    # None = "not set": setting only one separator derives the other one (see resolve_separators)
+    thousands_separator: Optional[str] = None  # resolved to "," when neither is set
+    decimal_separator: Optional[str] = None  # resolved to "." when neither is set
     parentheses_negative: bool = True
     strip_whitespace: bool = True
 
     def __post_init__(self):
         if self.currency_symbols is None:
             self.currency_symbols = ["$", "€", "£", "¥", "₹", "₽", "¢"]
+        self.thousands_separator, self.decimal_separator = resolve_separators(
+            self.thousands_separator, self.decimal_separator
+        )
 
 
 @dataclass
 class NumericCleaningConfig:
     """Configuration for numeric field cleaning."""
 
-    thousands_separator: str = ","
-    decimal_separator: str = "."
-    allow_nan: bool = True
+    # None = "not set": setting only one separator derives the other one (see resolve_separators)
+    thousands_separator: Optional[str] = None  # resolved to "," when neither is set
+    decimal_separator: Optional[str] = None  # resolved to "." when neither is set
+    allow_nan: bool = True  # Unparseable/overflowing values become NULL instead of raising
     nan_values: List[str] = None
     strip_whitespace: bool = True
 
     def __post_init__(self):
+        self.thousands_separator, self.decimal_separator = resolve_separators(
+            self.thousands_separator, self.decimal_separator
+        )
         if self.nan_values is None:
             self.nan_values = ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!"]
 
@@ -104,10 +177,20 @@ class StringPaddingConfig:
     fillchar: str = " "
     side: str = "left"  # "left", "right", "both"
 
+    def __post_init__(self):
+        if not isinstance(self.fillchar, str) or len(self.fillchar) != 1:
+            raise ValueError("string_padding fillchar must be exactly one character")
+        if isinstance(self.width, bool) or not isinstance(self.width, int):
+            raise ValueError("string_padding width must be an integer")
+
 
 @dataclass
 class HTMLXMLConfig:
-    """Configuration for HTML/XML cleaning."""
+    """Configuration for HTML/XML cleaning.
+
+    This is *text extraction*, not a security sanitizer: the output is plain text and must still
+    be escaped/encoded by whatever renders it. See ``HTMLXMLTransformer`` for the exact rules.
+    """
 
     strip_tags: bool = True
     decode_entities: bool = True
@@ -116,7 +199,14 @@ class HTMLXMLConfig:
 
 @dataclass
 class StringCleaningConfig:
-    """Configuration for comprehensive string cleaning operations."""
+    """Configuration for comprehensive string cleaning operations.
+
+    Note:
+        Two options are lossy: ``unicode_normalize="NFKC"`` (the default) folds compatibility
+        characters (full-width digits, ligatures, superscripts, ``½`` -> ``1⁄2``) and
+        ``ascii_only=True`` drops every non-ASCII character. Set ``unicode_normalize=None``
+        to keep the original characters.
+    """
 
     # Smart quotes and special characters
     normalize_quotes: bool = True  # Convert smart quotes to ASCII quotes
@@ -136,7 +226,8 @@ class StringCleaningConfig:
     preserve_tabs: bool = False  # Keep \t when removing control chars
 
     # Unicode normalization
-    unicode_normalize: Optional[str] = "NFKC"  # Unicode normalization form (NFC, NFD, NFKC, NFKD)
+    # Unicode normalization form (NFC, NFD, NFKC, NFKD). NFKC (default) is lossy, see class doc.
+    unicode_normalize: Optional[str] = "NFKC"
 
     # Case handling
     fix_case_issues: bool = False  # Fix common case issues (e.g., multiple caps)
@@ -156,8 +247,8 @@ class StringCleaningConfig:
 
     # Other cleaning
     remove_accents: bool = False  # Remove diacritical marks
-    ascii_only: bool = False  # Convert to ASCII-only (implies remove_accents=True)
-    fix_encoding_errors: bool = True  # Fix common encoding errors
+    ascii_only: bool = False  # Convert to ASCII-only (implies remove_accents=True); lossy
+    fix_encoding_errors: bool = True  # Repair UTF-8 text mis-decoded as cp1252/latin-1 (mojibake)
 
     def __post_init__(self):
         if self.title_case_exceptions is None:
@@ -209,6 +300,8 @@ class SSNConfig:
     """Configuration for Social Security Number formatting."""
 
     format_with_dashes: bool = True  # Format as XXX-XX-XXXX
+    # zero_pad restores dropped leading zeros, but length is validated first: with validate=True a
+    # short value is rejected, so zero_pad only takes effect when validate=False.
     zero_pad: bool = True  # Zero-pad numbers with fewer than 9 digits
     validate: bool = True  # Validate that result has exactly 9 digits
     allow_invalid: bool = False  # If False, invalid SSNs become None
@@ -220,6 +313,8 @@ class ZipCodeConfig:
 
     zip_type: str = "zip-permissive"  # "zip-permissive", "zip-5", "zip-9"
     format_with_dash: bool = True  # Format ZIP+4 as XXXXX-XXXX
+    # zip-5 pads before validating ("2134" -> "02134"); zip-9 and zip-permissive validate the
+    # length first, so for them zero_pad only takes effect when validate=False.
     zero_pad: bool = True  # Zero-pad ZIP codes
     validate: bool = True  # Validate ZIP code format
     allow_invalid: bool = False  # If False, invalid ZIP codes become None
@@ -285,7 +380,7 @@ class MACAddressConfig:
 
     format_style: str = "colon"  # "colon", "dash", "dot", "none"
     case_style: str = "lower"  # "lower", "upper", "preserve"
-    zero_pad: bool = True  # Zero-pad MAC addresses
+    zero_pad: bool = True  # Zero-pad single-digit octets ("0:1a:..." -> "00:1a:...")
     validate: bool = True  # Validate MAC address format
     allow_invalid: bool = False  # If False, invalid MAC addresses become None
 

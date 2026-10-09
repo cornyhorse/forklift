@@ -4,7 +4,7 @@ Tests both mocked and real S3 operations based on --no-s3-mock flag.
 """
 
 import csv
-from io import StringIO
+from io import BytesIO, StringIO
 from unittest.mock import MagicMock, mock_open, patch
 
 import pyarrow as pa
@@ -145,8 +145,9 @@ class TestUnifiedIOHandler:
                     content = f.read()
 
                 assert content == "s3 content"
+                # Text mode keeps line breaks inside quoted CSV fields intact
                 mock_s3_client.open_for_read.assert_called_once_with(
-                    "s3://bucket/key", encoding="utf-8"
+                    "s3://bucket/key", encoding="utf-8", newline=""
                 )
 
     def test_open_for_write_local_file(self, tmp_path):
@@ -279,7 +280,8 @@ class TestUnifiedIOHandler:
                 with patch.object(handler, "open_for_write", return_value=mock_s3_writer):
                     handler.copy_file(src_file, "s3://bucket/dest.txt")
 
-                mock_s3_writer.write.assert_called_with(content)
+                # The copy is binary, so the exact bytes arrive at the writer
+                mock_s3_writer.write.assert_called_with(content.encode("utf-8"))
 
     def test_copy_file_s3_to_local(self, tmp_path, s3_mock_conditional):
         """Test copy_file method from S3 to local."""
@@ -291,7 +293,7 @@ class TestUnifiedIOHandler:
             with patch("forklift.io.s3_streaming.is_s3_path") as mock_is_s3:
                 mock_is_s3.side_effect = lambda path: str(path).startswith("s3://")
 
-                mock_s3_reader = StringIO(s3_content)
+                mock_s3_reader = BytesIO(s3_content.encode("utf-8"))
 
                 handler = UnifiedIOHandler()
                 with patch.object(handler, "open_for_read", return_value=mock_s3_reader):
@@ -301,33 +303,21 @@ class TestUnifiedIOHandler:
                 assert dest_file.read_text() == s3_content
 
     def test_copy_file_s3_to_s3(self, s3_mock_conditional):
-        """Test copy_file method from S3 to S3 using native S3 copy."""
+        """Test copy_file method from S3 to S3 using the managed server-side copy."""
         mock_session, mock_client = s3_mock_conditional
         if mock_session:  # Using mocked S3
-            with patch("forklift.io.s3_streaming.is_s3_path", return_value=True):
-                with patch("forklift.io.unified_io.S3Path") as mock_s3_path_class:
-                    mock_src_path = MagicMock()
-                    mock_src_path.bucket = "src-bucket"
-                    mock_src_path.key = "src-key"
+            mock_s3_client = MagicMock(spec=S3StreamingClient)
+            mock_boto3_client = MagicMock()
+            mock_s3_client._s3_client = mock_boto3_client
 
-                    mock_dest_path = MagicMock()
-                    mock_dest_path.bucket = "dest-bucket"
-                    mock_dest_path.key = "dest-key"
+            handler = UnifiedIOHandler(s3_client=mock_s3_client)
+            handler.copy_file("s3://src-bucket/src-key", "s3://dest-bucket/dest-key")
 
-                    mock_s3_path_class.side_effect = [mock_src_path, mock_dest_path]
-
-                    mock_s3_client = MagicMock(spec=S3StreamingClient)
-                    mock_boto3_client = MagicMock()
-                    mock_s3_client._s3_client = mock_boto3_client
-
-                    handler = UnifiedIOHandler(s3_client=mock_s3_client)
-                    handler.copy_file("s3://src-bucket/src-key", "s3://dest-bucket/dest-key")
-
-                    mock_boto3_client.copy_object.assert_called_once_with(
-                        CopySource={"Bucket": "src-bucket", "Key": "src-key"},
-                        Bucket="dest-bucket",
-                        Key="dest-key",
-                    )
+            # client.copy (unlike copy_object) is multipart-aware, so objects > 5 GB work
+            mock_boto3_client.copy.assert_called_once_with(
+                {"Bucket": "src-bucket", "Key": "src-key"}, "dest-bucket", "dest-key"
+            )
+            mock_boto3_client.copy_object.assert_not_called()
 
     def test_copy_file_with_custom_chunk_size(self, tmp_path):
         """Test copy_file method with custom chunk size."""

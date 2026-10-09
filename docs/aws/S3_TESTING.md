@@ -9,6 +9,8 @@ Forklift supports two modes for S3 testing:
 1. **Mocked S3 Testing** (default): Uses `unittest.mock` to simulate S3 operations without actual AWS calls
 2. **Real S3 Testing**: Uses actual S3 buckets for testing (requires AWS credentials)
 
+3. **In-process fake S3 (moto)**: several unit-test modules exercise the real S3 code paths (multipart uploads, `abort()`, keys containing `?` and `#`, streaming reads, `import_csv` / `import_excel` / `import_sql` writing to `s3://`) against `moto`'s in-memory S3. They need no credentials and no network. `moto[s3]` is part of the `dev` extra (`pip install -e ".[dev]"` or `pip install -r requirements-dev.txt`).
+
 ## Test Types
 
 ### Unit Tests (`tests/unit-tests/test_s3_streaming.py`)

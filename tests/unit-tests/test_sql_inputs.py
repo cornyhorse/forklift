@@ -144,11 +144,17 @@ class TestSqlInputHandler:
                 expected = [("default", "logs")]
                 assert result == expected
 
-                # Test table name only that exists in multiple schemas (should pick first match)
-                specs = ["users"]
-                result = sql_handler.get_specified_tables(specs)
-                expected = [("public", "users")]  # First match
-                assert result == expected
+        # A bare table name that exists in several schemas is ambiguous: no silent first match
+        available_tables = available_tables + [("archive", "users")]
+        with patch.object(sql_handler, "get_table_list", return_value=available_tables):
+            with patch.object(sql_handler, "connection", Mock()):
+                with pytest.raises(ValueError, match="ambiguous"):
+                    sql_handler.get_specified_tables(["users"])
+
+                # Qualifying the name resolves the ambiguity
+                assert sql_handler.get_specified_tables(["archive.users"]) == [
+                    ("archive", "users")
+                ]
 
     def test_get_specified_tables_not_found(self, sql_handler):
         """Test handling of table specifications that don't exist."""
@@ -171,7 +177,7 @@ class TestSqlInputHandler:
         assert sql_handler._sql_type_to_pyarrow("SMALLINT") == pa.int16()
 
         # Test float types
-        assert sql_handler._sql_type_to_pyarrow("FLOAT") == pa.float32()
+        assert sql_handler._sql_type_to_pyarrow("FLOAT") == pa.float64()
         assert sql_handler._sql_type_to_pyarrow("DOUBLE") == pa.float64()
 
         # Test decimal with precision
@@ -193,9 +199,9 @@ class TestSqlInputHandler:
 
     def test_quote_identifier(self, sql_handler):
         """Test identifier quoting functionality."""
-        # Test without quoting enabled
+        # Identifiers are always quoted; use_quoted_identifiers=False does not disable it
         sql_handler.config.use_quoted_identifiers = False
-        assert sql_handler._quote_identifier("table_name") == "table_name"
+        assert sql_handler._quote_identifier("table_name") == '"table_name"'
 
         # Test with quoting enabled
         sql_handler.config.use_quoted_identifiers = True
@@ -267,18 +273,13 @@ class TestSqlInputHandler:
         assert result.to_pylist() == expected
 
     def test_convert_column_data_fallback_to_string(self, sql_handler):
-        """Test fallback to string type when conversion fails."""
+        """A failed conversion raises instead of contradicting the declared type."""
         # Use incompatible data that will fail conversion
         column_data = ("not_a_number", "also_not_a_number")
         pa_type = pa.int32()
 
-        with patch("forklift.inputs.sql.types.logger") as mock_logger:
-            result = sql_handler._convert_column_data(column_data, pa_type)
-
-            # Should fallback to string representation
-            assert result.type == pa.string()
-            assert result.to_pylist() == ["not_a_number", "also_not_a_number"]
-            mock_logger.warning.assert_called_once()
+        with pytest.raises(ValueError, match="declared type int32"):
+            sql_handler._convert_column_data(column_data, pa_type)
 
 
 class TestSqlInputHandlerIntegration:

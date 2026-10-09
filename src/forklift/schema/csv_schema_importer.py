@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ..utils.column_name_utilities import dedupe_column_names, standardize_postgres_column_name
+from ..utils.column_name_utilities import dedupe_column_names
+from .naming import apply_name_style
+from .types.data_types import is_valid_parquet_type
+from .validation_utils import (
+    bounds_inverted,
+    normalize_encoding,
+    regex_error,
+    required_names,
+    resolve_json_types,
+    validate_required,
+)
 
 
 class SchemaValidationError(Exception):
@@ -66,15 +75,19 @@ class CsvSchemaImporter:
         if isinstance(schema, (str, Path)):
             with open(schema, "r", encoding="utf-8") as f:
                 self.schema: Dict[str, Any] = json.load(f)
+            if not isinstance(self.schema, dict):
+                raise SchemaValidationError(f"{schema}: schema root must be a JSON object")
         elif isinstance(schema, dict):
             self.schema = schema
         else:
             raise TypeError("schema must be path-like or dict")
 
-        # Extract core schema components
-        self.csv_ext: Dict[str, Any] = self.schema.get("x-csv", {})
+        # Extract core schema components (malformed values are kept so validation can report
+        # them; the accessors below never assume more than what was validated)
+        csv_ext = self.schema.get("x-csv", {})
+        self.csv_ext: Dict[str, Any] = csv_ext if isinstance(csv_ext, dict) else {}
         self.field_map: Dict[str, Any] = self.schema.get("properties", {})
-        self.required: List[str] = list(self.schema.get("required", []))
+        self.required: List[str] = required_names(self.schema.get("required", []))
         self.additional_properties: bool = bool(self.schema.get("additionalProperties", True))
 
         # Extract case configuration
@@ -122,11 +135,12 @@ class CsvSchemaImporter:
         elif self.schema["$schema"] != "https://json-schema.org/draft/2020-12/schema":
             errors.append("Schema must reference JSON Schema 2020-12 standard")
 
-        if not self.schema.get("$id"):
+        schema_id = self.schema.get("$id")
+        if not schema_id:
             errors.append("Missing required '$id' field")
-        elif not self.schema["$id"].startswith(
-            "https://github.com/cornyhorse/forklift/schema-standards/"
-        ):
+        elif not isinstance(schema_id, str):
+            errors.append("'$id' must be a string")
+        elif not schema_id.startswith("https://github.com/cornyhorse/forklift/schema-standards/"):
             errors.append("Schema $id must follow the standard GitHub URL pattern")
 
         if not self.schema.get("title"):
@@ -138,31 +152,40 @@ class CsvSchemaImporter:
         if not isinstance(self.field_map, dict):
             errors.append("Properties must be a dictionary")
 
+        known_fields = self.field_map if isinstance(self.field_map, dict) else {}
+        errors.extend(validate_required(self.schema.get("required"), known_fields))
+
         return errors
 
     def _validate_csv_extension(self) -> List[str]:
         """Validate x-csv extension structure and values."""
         errors = []
 
+        if "x-csv" in self.schema and not isinstance(self.schema["x-csv"], dict):
+            errors.append("x-csv must be an object")
+            return errors
+
         if not self.csv_ext:
             errors.append("Missing required 'x-csv' extension")
             return errors
 
-        # Validate encoding priority
+        # Validate encoding priority: any text encoding Python knows (iso-8859-1, cp1250, utf-16,
+        # cp037 ...), not just a hand-picked four
         encoding_priority = self.csv_ext.get("encodingPriority")
-        if encoding_priority and not isinstance(encoding_priority, list):
+        if encoding_priority is not None and not isinstance(encoding_priority, list):
             errors.append("x-csv.encodingPriority must be a list")
         elif isinstance(encoding_priority, list):
-            valid_encodings = {"utf-8", "utf-8-sig", "latin-1", "cp1252"}
             for enc in encoding_priority:
-                if enc not in valid_encodings:
+                if normalize_encoding(enc) is None:
                     errors.append(f"Invalid encoding '{enc}' in encodingPriority")
 
-        # Validate delimiter
+        # Validate delimiter: 'auto' or exactly one character (the CSV readers cannot split on
+        # multi-character delimiters)
         delimiter = self.csv_ext.get("delimiter")
-        if delimiter and delimiter not in ["auto", ",", ";", "\t", "|"]:
-            if not isinstance(delimiter, str) or len(delimiter) > 5:
-                errors.append("Invalid delimiter specification")
+        if delimiter is not None and (
+            not isinstance(delimiter, str) or not (delimiter == "auto" or len(delimiter) == 1)
+        ):
+            errors.append("Invalid delimiter specification (must be 'auto' or a single character)")
 
         # Validate quote char
         quote_char = self.csv_ext.get("quotechar")
@@ -176,7 +199,9 @@ class CsvSchemaImporter:
 
         # Validate nulls configuration
         nulls = self.csv_ext.get("nulls")
-        if nulls and isinstance(nulls, dict):
+        if nulls is not None and not isinstance(nulls, dict):
+            errors.append("x-csv.nulls must be an object")
+        elif nulls:
             if "global" in nulls and not isinstance(nulls["global"], list):
                 errors.append("x-csv.nulls.global must be a list")
             if "perColumn" in nulls and not isinstance(nulls["perColumn"], dict):
@@ -184,10 +209,12 @@ class CsvSchemaImporter:
 
         # Validate header configuration
         header = self.csv_ext.get("header")
-        if header and isinstance(header, dict):
+        if header is not None and not isinstance(header, dict):
+            errors.append("x-csv.header must be an object")
+        elif header:
             mode = header.get("mode")
             valid_modes = {"present", "absent", "auto", "stability_scan"}
-            if mode and mode not in valid_modes:
+            if mode and not (isinstance(mode, str) and mode in valid_modes):
                 errors.append(f"Invalid header mode '{mode}', must be one of {valid_modes}")
 
             # Validate keywords for stability_scan mode
@@ -198,22 +225,34 @@ class CsvSchemaImporter:
 
         # Validate footer configuration
         footer = self.csv_ext.get("footer")
-        if footer and isinstance(footer, dict):
+        if footer is not None and not isinstance(footer, dict):
+            errors.append("x-csv.footer must be an object")
+        elif footer:
             mode = footer.get("mode")
-            if mode and mode not in {"regex", "blank_line"}:
+            if mode and not (isinstance(mode, str) and mode in {"regex", "blank_line"}):
                 errors.append(f"Invalid footer mode '{mode}', must be 'regex' or 'blank_line'")
-            if mode == "regex" and not footer.get("pattern"):
+            pattern = footer.get("pattern")
+            if mode == "regex" and not pattern:
                 errors.append("Footer mode 'regex' requires a pattern")
+            elif pattern is not None:
+                reason = regex_error(pattern)
+                if reason:
+                    errors.append(f"x-csv.footer.pattern {reason}")
 
         # Validate case configuration
         case_cfg = self.csv_ext.get("case")
         if case_cfg and isinstance(case_cfg, dict):
             standardize = case_cfg.get("standardizeNames")
-            if standardize and standardize not in {"postgres", "snake_case", "camelCase"}:
+            if standardize and not (
+                isinstance(standardize, str)
+                and standardize in {"postgres", "snake_case", "camelCase"}
+            ):
                 errors.append(f"Invalid standardizeNames value '{standardize}'")
 
             dedupe = case_cfg.get("dedupeNames")
-            if dedupe and dedupe not in {"suffix", "prefix", "error"}:
+            if dedupe and not (
+                isinstance(dedupe, str) and dedupe in {"suffix", "prefix", "error"}
+            ):
                 errors.append(f"Invalid dedupeNames value '{dedupe}'")
 
         return errors
@@ -222,90 +261,99 @@ class CsvSchemaImporter:
         """Validate Parquet type mappings in the schema."""
         errors = []
 
-        parquet_mapping = self.csv_ext.get("parquetTypeMapping", {})
-        if parquet_mapping:
-            for field_name, parquet_type in parquet_mapping.items():
-                if field_name not in self.field_map:
-                    errors.append(f"Parquet type mapping for unknown field '{field_name}'")
+        parquet_mapping = self.csv_ext.get("parquetTypeMapping")
+        if parquet_mapping is None:
+            return errors
+        if not isinstance(parquet_mapping, dict):
+            return ["x-csv.parquetTypeMapping must be an object"]
 
-                if not self._is_valid_parquet_type(parquet_type):
-                    errors.append(
-                        f"Invalid Parquet type '{parquet_type}' for field '{field_name}'"
-                    )
+        known_fields = self.field_map if isinstance(self.field_map, dict) else {}
+        for field_name, parquet_type in parquet_mapping.items():
+            if field_name not in known_fields:
+                errors.append(f"Parquet type mapping for unknown field '{field_name}'")
+
+            if not self._is_valid_parquet_type(parquet_type):
+                errors.append(f"Invalid Parquet type '{parquet_type}' for field '{field_name}'")
 
         return errors
 
     def _validate_properties(self) -> List[str]:
         """Validate field properties and their constraints."""
-        errors = []
+        errors: List[str] = []
+
+        if not isinstance(self.field_map, dict):
+            return errors  # reported by _validate_json_schema_structure
 
         for field_name, field_def in self.field_map.items():
             if not isinstance(field_def, dict):
                 errors.append(f"Field '{field_name}' definition must be a dictionary")
                 continue
 
-            field_type = field_def.get("type")
-            valid_types = {"string", "integer", "number", "boolean", "array", "object"}
-            if field_type not in valid_types:
+            # "type" may be a string, a nullable array (["string", "null"]) or an anyOf/oneOf union
+            _, invalid_types, problems = resolve_json_types(field_def)
+            for field_type in invalid_types:
                 errors.append(f"Invalid type '{field_type}' for field '{field_name}'")
+            for problem in problems:
+                errors.append(f"Field '{field_name}': {problem}")
 
-            # Validate constraints based on type
-            if field_type == "integer":
-                minimum = field_def.get("minimum")
-                maximum = field_def.get("maximum")
-                if minimum is not None and not isinstance(minimum, (int, float)):
-                    errors.append(f"Invalid minimum value for integer field '{field_name}'")
-                if maximum is not None and not isinstance(maximum, (int, float)):
-                    errors.append(f"Invalid maximum value for integer field '{field_name}'")
-
-            elif field_type == "string":
-                min_length = field_def.get("minLength")
-                max_length = field_def.get("maxLength")
-                pattern = field_def.get("pattern")
-
-                if min_length is not None and (not isinstance(min_length, int) or min_length < 0):
-                    errors.append(f"Invalid minLength for string field '{field_name}'")
-                if max_length is not None and (not isinstance(max_length, int) or max_length < 0):
-                    errors.append(f"Invalid maxLength for string field '{field_name}'")
-                if pattern is not None:
-                    try:
-                        re.compile(pattern)
-                    except re.error:
-                        errors.append(f"Invalid regex pattern for field '{field_name}'")
-
-            elif field_type == "array":
-                items = field_def.get("items")
-                if items and not isinstance(items, dict):
-                    errors.append(f"Array field '{field_name}' items must be an object")
+            errors.extend(self._validate_constraints(field_name, field_def))
 
         return errors
 
-    def _is_valid_parquet_type(self, parquet_type: str) -> bool:
-        """Check if a Parquet type is valid."""
-        if parquet_type in self.SUPPORTED_PARQUET_TYPES:
-            return True
+    def _validate_constraints(self, field_name: str, field_def: Dict[str, Any]) -> List[str]:
+        """Validate the type-specific constraints of a property (and of its union branches)."""
+        errors: List[str] = []
+        types, _, _ = resolve_json_types(field_def)
 
-        # Check for parameterized types like decimal128(precision,scale)
-        if parquet_type.startswith("decimal128(") and parquet_type.endswith(")"):
-            return True
+        for kind in ("integer", "number"):
+            if kind not in types:
+                continue
+            minimum = field_def.get("minimum")
+            maximum = field_def.get("maximum")
+            if minimum is not None and not isinstance(minimum, (int, float)):
+                errors.append(f"Invalid minimum value for {kind} field '{field_name}'")
+            if maximum is not None and not isinstance(maximum, (int, float)):
+                errors.append(f"Invalid maximum value for {kind} field '{field_name}'")
+            if bounds_inverted(minimum, maximum):
+                errors.append(f"minimum must not exceed maximum for {kind} field '{field_name}'")
 
-        # Check for timestamp with timezone
-        if parquet_type.startswith("timestamp[") and parquet_type.endswith("]"):
-            return True
+        if "string" in types:
+            min_length = field_def.get("minLength")
+            max_length = field_def.get("maxLength")
+            pattern = field_def.get("pattern")
 
-        # Check for duration types
-        if parquet_type.startswith("duration[") and parquet_type.endswith("]"):
-            return True
+            if min_length is not None and (not isinstance(min_length, int) or min_length < 0):
+                errors.append(f"Invalid minLength for string field '{field_name}'")
+            if max_length is not None and (not isinstance(max_length, int) or max_length < 0):
+                errors.append(f"Invalid maxLength for string field '{field_name}'")
+            if (
+                isinstance(min_length, int)
+                and isinstance(max_length, int)
+                and min_length > max_length
+            ):
+                errors.append(
+                    f"minLength must not exceed maxLength for string field '{field_name}'"
+                )
+            if pattern is not None and regex_error(pattern):
+                errors.append(f"Invalid regex pattern for field '{field_name}'")
 
-        # Check for list types
-        if parquet_type.startswith("list<") and parquet_type.endswith(">"):
-            return True
+        if "array" in types:
+            items = field_def.get("items")
+            if items and not isinstance(items, dict):
+                errors.append(f"Array field '{field_name}' items must be an object")
 
-        # Check for dictionary types
-        if parquet_type.startswith("dictionary<") and parquet_type.endswith(">"):
-            return True
+        for key in ("anyOf", "oneOf"):
+            branches = field_def.get(key)
+            if isinstance(branches, list):
+                for branch in branches:
+                    if isinstance(branch, dict):
+                        errors.extend(self._validate_constraints(field_name, branch))
 
-        return False
+        return errors
+
+    def _is_valid_parquet_type(self, parquet_type: Any) -> bool:
+        """Check if a Parquet type is valid (strict: units and parameters are parsed)."""
+        return is_valid_parquet_type(parquet_type)
 
     def get_field_map(self) -> Dict[str, Any]:
         """Get the field mapping from the schema."""
@@ -343,14 +391,12 @@ class CsvSchemaImporter:
         if not self.standardize_names:
             return column_names
 
-        if self.standardize_names == "postgres":
-            standardized = [standardize_postgres_column_name(name) for name in column_names]
-        else:
-            # Add other standardization methods as needed
-            standardized = column_names
+        standardized = apply_name_style(column_names, self.standardize_names)
 
         if self.dedupe_names:
-            return dedupe_column_names(standardized, self.dedupe_names)
+            # Postgres identifiers are limited to 63 characters, including dedupe suffixes
+            max_length = 63 if self.standardize_names == "postgres" else None
+            return dedupe_column_names(standardized, self.dedupe_names, max_length=max_length)
 
         return standardized
 

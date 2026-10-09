@@ -2,19 +2,196 @@
 
 from __future__ import annotations
 
+import json
+import logging
+import math
+import os
 import time
+from datetime import date, datetime
 from pathlib import Path
-from typing import Union
+from typing import Any, List, Optional, Sequence, Union
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
-from ...metadata import OutputMetadataCollector
-from ..config import ImportConfig, ProcessingResults
+from ...metadata import MetadataWriteError, OutputMetadataCollector
+from ..config import HeaderMode, ImportConfig, ProcessingResults
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
 from .header_detector import HeaderDetector
 from .schema_processor import SchemaProcessor
+from .text_utils import sanitize_arrow_error
+from .type_conversion import to_string_batch
+
+logger = logging.getLogger(__name__)
+
+
+class _ParquetOutputs:
+    """Owns the data and bad-rows writers so each one is either finished or discarded.
+
+    Writers are created lazily from the schema of the first batch. ``close()`` finishes them;
+    ``abort()`` discards whatever is still open (partial local file removed, S3 writer asked to
+    drop its temporary file without uploading) and is safe to call at any time.
+    """
+
+    def __init__(
+        self,
+        good_file: str,
+        bad_file: str,
+        io_handler: UnifiedIOHandler,
+        use_s3_output: bool,
+        compression: str,
+    ):
+        self.good_file = good_file
+        self.bad_file = bad_file
+        self._io_handler = io_handler
+        self._use_s3_output = use_s3_output
+        self._compression = compression
+
+        self.good_writer = None
+        self.bad_writer = None
+        self.good_schema: Optional[pa.Schema] = None
+        self.bad_schema: Optional[pa.Schema] = None
+        self.good_written = False
+        self.bad_written = False
+
+    def _create_writer(self, path: str, schema: pa.Schema):
+        return create_parquet_writer(
+            path,
+            schema,
+            s3_client=self._io_handler.s3_client if self._use_s3_output else None,
+            compression=self._compression,
+        )
+
+    def ensure_good_writer(self, schema: pa.Schema) -> None:
+        """Create the data writer (an empty data file still carries the schema)."""
+        if self.good_writer is None:
+            self.good_writer = self._create_writer(self.good_file, schema)
+            self.good_schema = schema
+
+    def write_good(self, batch: pa.RecordBatch) -> None:
+        """Append rows to the data file."""
+        self.ensure_good_writer(batch.schema)
+        if len(batch) > 0:
+            self.good_writer.write_table(pa.Table.from_batches([batch]))
+
+    def write_bad(self, batch: pa.RecordBatch) -> None:
+        """Append rejected rows to the bad rows file.
+
+        Rejected rows are stored as strings: a value that failed type conversion cannot live
+        in a typed column, and one stable schema lets rows from every batch share the file.
+        """
+        if len(batch) == 0:
+            return
+        batch = to_string_batch(batch)
+        if self.bad_writer is None:
+            self.bad_writer = self._create_writer(self.bad_file, batch.schema)
+            self.bad_schema = batch.schema
+        elif not batch.schema.equals(self.bad_schema):
+            batch = self._align(batch, self.bad_schema)
+        self.bad_writer.write_table(pa.Table.from_batches([batch]))
+
+    @staticmethod
+    def _align(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
+        """Arrange ``batch`` by column name in the order of ``schema`` (missing -> null)."""
+        arrays = []
+        for field in schema:
+            position = batch.schema.get_field_index(field.name)
+            if position >= 0:
+                arrays.append(batch.column(position))
+            else:
+                arrays.append(pa.nulls(len(batch), type=field.type))
+        return pa.RecordBatch.from_arrays(arrays, names=schema.names)
+
+    def close(self) -> None:
+        """Finish both files; if one fails to close the other is discarded."""
+        if self.good_writer is not None:
+            writer, self.good_writer = self.good_writer, None
+            try:
+                writer.close()
+            except BaseException:
+                self._abort_writer(writer, self.good_file)
+                self.abort()
+                raise
+            self.good_written = True
+
+        if self.bad_writer is not None:
+            writer, self.bad_writer = self.bad_writer, None
+            try:
+                writer.close()
+            except BaseException:
+                self._abort_writer(writer, self.bad_file)
+                raise
+            self.bad_written = True
+
+    def abort(self) -> None:
+        """Discard every writer that is still open (idempotent)."""
+        if self.good_writer is not None:
+            writer, self.good_writer = self.good_writer, None
+            self._abort_writer(writer, self.good_file)
+        if self.bad_writer is not None:
+            writer, self.bad_writer = self.bad_writer, None
+            self._abort_writer(writer, self.bad_file)
+
+    @staticmethod
+    def _abort_writer(writer, path: str) -> None:
+        """Drop a partial output without publishing it."""
+        abort = getattr(writer, "abort", None)
+        if callable(abort):
+            try:
+                abort()
+            except Exception:
+                logger.warning("Could not abort partial output %s", path, exc_info=True)
+            if not is_s3_path(path):
+                try:
+                    Path(path).unlink()
+                except OSError:
+                    pass
+            return
+
+        # Writers without abort(): an S3 writer keeps its data in a temporary file that close()
+        # would upload, so release the temporary file directly instead of closing
+        temp_path = getattr(writer, "_temp_path", None)
+        if temp_path is not None:
+            try:
+                inner = getattr(writer, "_writer", None)
+                if inner is not None:
+                    inner.close()
+            except Exception:
+                pass
+            try:
+                Path(temp_path).unlink()
+            except OSError:
+                pass
+            return
+
+        try:
+            writer.close()
+        except Exception:
+            pass
+        if not is_s3_path(path):
+            try:
+                Path(path).unlink()
+            except OSError:
+                pass
+
+
+def _json_safe(value: Any) -> Any:
+    """Make a value serialisable with ``allow_nan=False`` (NaN/inf become null)."""
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, (set, frozenset)):
+        return [_json_safe(v) for v in sorted(value, key=str)]
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return str(value)
 
 
 class CSVProcessor(BaseProcessor):
@@ -41,108 +218,174 @@ class CSVProcessor(BaseProcessor):
             ProcessingResults object containing processing statistics and output paths
 
         Raises:
-            Exception: Various exceptions may be raised during processing,
-                      all are captured in the results.errors list
+            Exception: Any failure is recorded in ``results.errors`` and re-raised. A failed run
+                leaves no partial ``data.parquet`` / ``bad_rows.parquet`` behind (local files
+                are removed, S3 uploads are not completed), and outputs of earlier runs in the
+                destination are removed when processing starts.
         """
         start_time = time.time()
         results = ProcessingResults()
+        outputs: Optional[_ParquetOutputs] = None
 
         try:
             # Initialize components
             self.io_handler = UnifiedIOHandler()
             self.schema_processor = SchemaProcessor(config, self.io_handler)
             self.header_detector = HeaderDetector(config, self.io_handler)
-            self.batch_processor = BatchProcessor(config, self.io_handler)
 
             # Load schema if provided
             schema = self.schema_processor.load_schema()
+            converter = self.schema_processor.build_converter()
 
             # Detect header - now works with S3 inputs
             header_row_index, column_names = self._detect_header_row(config)
 
+            # Required columns are looked up by name, so they have to exist
+            required_columns = self._required_columns(config)
+            self._check_required_columns_present(required_columns, column_names)
+
             # Prepare output paths - support both local and S3 outputs
             good_file, bad_file, use_s3_output = self._prepare_output_paths(config)
 
+            # A re-run must not expose outputs of an earlier run
+            self._remove_stale_outputs([good_file, bad_file], use_s3_output)
+
             # Initialize parquet writers using unified I/O
-            good_writer = None
-            bad_writer = None
+            outputs = _ParquetOutputs(
+                good_file, bad_file, self.io_handler, use_s3_output, config.compression
+            )
 
             # Initialize output metadata collector if enabled
             output_metadata_collector = self._initialize_metadata_collector(config)
 
-            # Process batches using extracted batch processor
-            for batch in self.batch_processor.create_s3_batch_reader(
-                config.input_path,
-                column_names,
-                header_row_index,
-                self.header_detector.should_stop_for_footer,
-            ):
+            def write_rejected(rejected_batch: pa.RecordBatch) -> None:
+                """Rows the reader could not turn into valid typed rows."""
+                outputs.write_bad(rejected_batch)
+                results.invalid_rows += len(rejected_batch)
+                results.total_rows += len(rejected_batch)
+
+            self.batch_processor = BatchProcessor(
+                config, self.io_handler, converter=converter, reject_handler=write_rejected
+            )
+
+            # Process batches using extracted batch processor (no columns: nothing to read)
+            batches = (
+                self.batch_processor.create_s3_batch_reader(
+                    config.input_path,
+                    column_names,
+                    header_row_index,
+                    self.header_detector.should_stop_for_footer,
+                )
+                if column_names
+                else ()
+            )
+            for batch in batches:
                 # Validate and split batch
-                valid_batch, invalid_batch = self._validate_batch(batch, schema, config)
+                valid_batch, invalid_batch = self._validate_batch(
+                    batch, schema, config, required_columns
+                )
 
                 # Initialize writers on first batch (to get schema)
-                if good_writer is None:
-                    good_writer = create_parquet_writer(
-                        good_file,
-                        valid_batch.schema,
-                        s3_client=self.io_handler.s3_client if use_s3_output else None,
-                        compression=config.compression,
-                    )
-                if bad_writer is None and len(invalid_batch) > 0:
-                    bad_writer = create_parquet_writer(
-                        bad_file,
-                        invalid_batch.schema,
-                        s3_client=self.io_handler.s3_client if use_s3_output else None,
-                        compression=config.compression,
-                    )
+                outputs.ensure_good_writer(valid_batch.schema)
 
                 # Write batches and collect metadata from FINAL OUTPUT DATA
                 if len(valid_batch) > 0:
-                    self._write_batch_to_parquet(valid_batch, good_writer)
+                    outputs.write_good(valid_batch)
                     # Collect metadata from the final transformed valid data
                     if output_metadata_collector:
                         output_metadata_collector.add_batch(valid_batch)
                     results.valid_rows += len(valid_batch)
 
                 if len(invalid_batch) > 0:
-                    if bad_writer is None:
-                        bad_writer = create_parquet_writer(
-                            bad_file,
-                            invalid_batch.schema,
-                            s3_client=self.io_handler.s3_client if use_s3_output else None,
-                            compression=config.compression,
-                        )
-                    self._write_batch_to_parquet(invalid_batch, bad_writer)
+                    outputs.write_bad(invalid_batch)
                     results.invalid_rows += len(invalid_batch)
 
                 results.total_rows += len(batch)
 
+            # A header without rows (or only rejected rows) still yields an empty data file
+            # that carries the schema
+            if outputs.good_writer is None and column_names:
+                outputs.ensure_good_writer(
+                    self.batch_processor.established_schema or converter.empty_schema(column_names)
+                )
+
+            results.truncated_rows = self.batch_processor.truncated_rows
+            if results.truncated_rows:
+                logger.warning(
+                    "%d row(s) had more fields than the header and were truncated "
+                    "(excess_column_mode=TRUNCATE)",
+                    results.truncated_rows,
+                )
+
             # Close writers
-            self._close_writers(good_writer, bad_writer, good_file, bad_file, results)
+            outputs.close()
+            self._record_output_files(outputs, results)
 
             # Create manifest and metadata (support S3 outputs)
-            self._create_output_files(config, results, output_metadata_collector, good_writer)
+            self._create_output_files(config, results, output_metadata_collector, outputs)
 
             results.execution_time = time.time() - start_time
 
         except Exception as e:
-            results.errors.append(str(e))
+            error = self._friendly_error(e, config)
+            results.errors.append(self._error_text(error))
             results.execution_time = time.time() - start_time
-            raise
+            if error is e:
+                raise
+            raise error from None
+        finally:
+            # Nothing is left open on success; after a failure this discards partial outputs
+            if outputs is not None:
+                outputs.abort()
 
         return results
 
+    @staticmethod
+    def _friendly_error(error: Exception, config: ImportConfig) -> Exception:
+        """Undecodable input gets one clear message (Python's own names the byte, not the fix)."""
+        if isinstance(error, UnicodeDecodeError):
+            return ValueError(
+                f"Input contains bytes that are not valid for encoding '{config.encoding}' "
+                f"(byte offset {error.start}). Set the encoding the file was written with "
+                "(for example 'latin-1' or 'cp1252')."
+            )
+        return error
+
+    @staticmethod
+    def _error_text(error: Exception) -> str:
+        """Message for ``results.errors``; Arrow messages carry raw row content, so drop it."""
+        if isinstance(error, pa.ArrowException):
+            return f"{type(error).__name__}: {sanitize_arrow_error(str(error))}"
+        return str(error)
+
     def _detect_header_row(self, config: ImportConfig):
         """Detect header row location and extract column names."""
-        header_idx, columns = self.header_detector.detect_header_row(config.input_path)
-
-        # Handle ABSENT mode fallback to schema
-        if config.header_mode.name == "ABSENT" and not columns:
+        schema_columns = None
+        if config.header_mode == HeaderMode.ABSENT:
+            # No header in the file: the schema names the columns
             schema_columns = self.schema_processor.get_column_names_from_schema()
-            if schema_columns:
-                return -1, schema_columns
 
-        return header_idx, columns
+        return self.header_detector.detect_header_row(config.input_path, schema_columns)
+
+    def _required_columns(self, config: ImportConfig) -> List[str]:
+        """Columns the schema marks as required (none when validation is off)."""
+        if not config.validate_schema or not self.schema_processor.schema_dict:
+            return []
+        return self.schema_processor.get_required_columns()
+
+    @staticmethod
+    def _check_required_columns_present(
+        required_columns: Sequence[str], column_names: Sequence[str]
+    ) -> None:
+        """Fail early, with the column names, if a required column is not in the input."""
+        if not column_names:
+            return  # nothing to read
+        missing = [name for name in required_columns if name not in column_names]
+        if missing:
+            raise ValueError(
+                "Required column(s) missing from the input header: "
+                + ", ".join(repr(name) for name in missing)
+            )
 
     def _prepare_output_paths(self, config: ImportConfig):
         """Prepare output file paths for both local and S3 outputs."""
@@ -161,6 +404,23 @@ class CSVProcessor(BaseProcessor):
             use_s3_output = False
 
         return good_file, bad_file, use_s3_output
+
+    def _remove_stale_outputs(self, files: Sequence[str], use_s3_output: bool) -> None:
+        """Delete the parquet files an earlier run may have left (only the names written here)."""
+        for path in files:
+            try:
+                if use_s3_output:
+                    client = self.io_handler.s3_client
+                    delete = getattr(client, "delete", None)
+                    if callable(delete):
+                        delete(path)
+                    else:
+                        target = S3Path(path)
+                        client._s3_client.delete_object(Bucket=target.bucket, Key=target.key)
+                else:
+                    Path(path).unlink(missing_ok=True)
+            except Exception:
+                logger.warning("Could not remove stale output %s", path, exc_info=True)
 
     def _initialize_metadata_collector(self, config: ImportConfig):
         """Initialize output metadata collector if enabled."""
@@ -184,72 +444,73 @@ class CSVProcessor(BaseProcessor):
             quantiles=metadata_config.get("statistics", {})
             .get("numeric", {})
             .get("quantiles", [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),
+            include_value_statistics=config.include_value_statistics,
         )
 
-    def _validate_batch(self, batch: pa.RecordBatch, schema: pa.Schema, config: ImportConfig):
-        """Validate batch and separate good/bad rows."""
+    def _validate_batch(
+        self,
+        batch: pa.RecordBatch,
+        schema: Optional[pa.Schema],
+        config: ImportConfig,
+        required_columns: Optional[Sequence[str]] = None,
+    ):
+        """Validate batch and separate good/bad rows.
+
+        Required columns are looked up by name. A row is invalid when a required column is null,
+        or (string columns) empty.
+
+        Args:
+            batch: Batch to check
+            schema: Schema loaded from the schema file, if any
+            config: Import configuration
+            required_columns: Required column names; derived from the schema when omitted
+
+        Raises:
+            ValueError: If a required column is not part of the batch
+        """
         if not config.validate_schema or not schema:
             # No validation, return all as good
             empty_batch = batch.slice(0, 0)  # Empty batch with same schema
             return batch, empty_batch
 
-        # For now, let's simplify validation - just check for required fields
-        num_rows = len(batch)
-        valid_mask = pa.array([True] * num_rows)
+        if required_columns is None:
+            required_columns = [field.name for field in schema if not field.nullable]
 
-        for i, field in enumerate(schema):
-            if i >= batch.num_columns:
-                continue
+        valid_mask = None
+        for name in required_columns:
+            position = batch.schema.get_field_index(name)
+            if position < 0:
+                raise ValueError(f"Required column '{name}' is missing from the input")
 
-            column = batch.column(i)
+            column = batch.column(position)
+            column_ok = pc.is_valid(column)
+            if pa.types.is_string(column.type) or pa.types.is_large_string(column.type):
+                # An empty string is a missing value for a required text column
+                is_empty = pc.fill_null(pc.equal(column, ""), False)
+                column_ok = pc.and_(column_ok, pc.invert(is_empty))
+            valid_mask = column_ok if valid_mask is None else pc.and_(valid_mask, column_ok)
 
-            # Null validation for required fields
-            if not field.nullable:
-                import pyarrow.compute as pc
-
-                null_mask = pc.is_valid(column)
-                valid_mask = pc.and_(valid_mask, null_mask)
+        if valid_mask is None or valid_mask.false_count == 0:
+            return batch, batch.slice(0, 0)
 
         # Split into valid and invalid batches
-        import pyarrow.compute as pc
+        return batch.filter(valid_mask), batch.filter(pc.invert(valid_mask))
 
-        valid_indices = pc.filter(pa.array(range(num_rows)), valid_mask)
-        invalid_indices = pc.filter(pa.array(range(num_rows)), pc.invert(valid_mask))
+    def _record_output_files(self, outputs: _ParquetOutputs, results: ProcessingResults) -> None:
+        """List the finished files in the results."""
+        if outputs.good_written:
+            results.output_files.append(outputs.good_file)
 
-        if len(valid_indices) > 0:
-            valid_batch = pc.take(batch, valid_indices)
-        else:
-            valid_batch = batch.slice(0, 0)  # Empty batch
-
-        if len(invalid_indices) > 0:
-            invalid_batch = pc.take(batch, invalid_indices)
-        else:
-            invalid_batch = batch.slice(0, 0)  # Empty batch
-
-        return valid_batch, invalid_batch
-
-    def _write_batch_to_parquet(self, batch: pa.RecordBatch, writer):
-        """Write a batch to parquet file."""
-        if len(batch) > 0:
-            table = pa.Table.from_batches([batch])
-            writer.write_table(table)
-
-    def _close_writers(self, good_writer, bad_writer, good_file, bad_file, results):
-        """Close parquet writers and update results."""
-        if good_writer:
-            good_writer.close()
-            results.output_files.append(good_file)
-
-        if bad_writer:
-            bad_writer.close()
-            results.output_files.append(bad_file)
+        if outputs.bad_written:
+            results.output_files.append(outputs.bad_file)
+            results.bad_rows_file = outputs.bad_file
 
     def _create_output_files(
         self,
         config: ImportConfig,
         results: ProcessingResults,
         output_metadata_collector,
-        good_writer,
+        outputs: _ParquetOutputs,
     ):
         """Create manifest and metadata files."""
         # Create manifest and metadata (support S3 outputs)
@@ -261,41 +522,60 @@ class CSVProcessor(BaseProcessor):
         if config.create_metadata:
             # Generate and save output metadata if we collected it
             if output_metadata_collector and output_metadata_collector.total_rows > 0:
-                # Get the schema from the good writer if available
-                output_schema = good_writer.schema if good_writer else None
-
-                # Generate source info for metadata
+                # Provenance recorded in the metadata file. Base names only: absolute paths
+                # would leak local directory names into a file that is often shared.
                 source_info = {
-                    "input_path": str(config.input_path),
+                    "input_path": os.path.basename(str(config.input_path)),
                     "processing_type": "csv_processing",
-                    "schema_file": str(config.schema_file) if config.schema_file else None,
+                    "schema_file": (
+                        os.path.basename(str(config.schema_file)) if config.schema_file else None
+                    ),
                     "total_batches_processed": "streaming",
-                    "final_output_files": results.output_files,
+                    "final_output_files": [os.path.basename(str(f)) for f in results.output_files],
                 }
 
-                # Generate comprehensive metadata about the final output data
-                output_metadata_collector.generate_metadata(output_schema, source_info)
-
-                # Save output metadata to separate file
-                output_metadata_path = output_metadata_collector.save_metadata(
-                    config.output_path, "output_data_metadata.json"
-                )
+                # Save output metadata to a separate file (local directory or S3 prefix). The
+                # data files are already written at this point, so a failure here is recorded
+                # in results.errors and logged rather than discarding a finished run.
+                try:
+                    output_metadata_path = output_metadata_collector.save_metadata(
+                        str(config.output_path),
+                        "output_data_metadata.json",
+                        schema=outputs.good_schema,
+                        source_info=source_info,
+                    )
+                except MetadataWriteError as e:
+                    logger.error("Output metadata was not written: %s", e)
+                    results.errors.append(str(e))
+                    output_metadata_path = None
 
                 if output_metadata_path:
-                    print(f"Output data metadata saved to: {output_metadata_path}")
+                    logger.info("Output data metadata saved to: %s", output_metadata_path)
 
             # Still create the traditional processing metadata
             results.metadata_file = self._create_s3_metadata(config.output_path, results)
 
+    @staticmethod
+    def _join_output(output_path: Union[str, Path], name: str) -> str:
+        """Path of a file inside the output location (local directory or S3 prefix)."""
+        if is_s3_path(output_path):
+            return str(S3Path(str(output_path)).join(name))
+        return os.path.join(str(output_path), name)
+
+    def _write_json(self, path: str, payload: Any) -> str:
+        """Serialise first (so a failure never leaves a half-written file), then write."""
+        text = json.dumps(_json_safe(payload), indent=2, allow_nan=False, ensure_ascii=False)
+        with self.io_handler.open_for_write(path, encoding="utf-8") as f:
+            f.write(text)
+        return path
+
     def _create_s3_manifest(self, output_path: Union[str, Path], files: list) -> str:
         """Create manifest file supporting S3 output locations."""
-        from datetime import datetime
-
         manifest = {
             "format_version": "1.0",
             "files": [
                 {
-                    "file_path": str(Path(f).name) if not is_s3_path(f) else S3Path(f).name,
+                    "file_path": S3Path(f).name if is_s3_path(f) else os.path.basename(str(f)),
                     "file_size": self.io_handler.get_size(f) if self.io_handler.exists(f) else 0,
                 }
                 for f in files
@@ -303,35 +583,18 @@ class CSVProcessor(BaseProcessor):
             "created_at": datetime.now().isoformat(),
         }
 
-        if is_s3_path(output_path):
-            # S3 output
-            manifest_path = S3Path(str(output_path)).join("manifest.json")
-            with self.io_handler.open_for_write(str(manifest_path), encoding="utf-8") as f:
-                import json
-
-                json.dump(manifest, f, indent=2)
-            return str(manifest_path)
-        else:
-            # Local output
-            output_dir = Path(output_path)
-            manifest_path = output_dir / "manifest.json"
-            with open(manifest_path, "w", encoding="utf-8") as f:
-                import json
-
-                json.dump(manifest, f, indent=2)
-            return str(manifest_path)
+        return self._write_json(self._join_output(output_path, "manifest.json"), manifest)
 
     def _create_s3_metadata(
         self, output_path: Union[str, Path], results: ProcessingResults
     ) -> str:
         """Create metadata file supporting S3 output locations."""
-        from datetime import datetime
-
         metadata = {
             "processing_summary": {
                 "total_rows": results.total_rows,
                 "valid_rows": results.valid_rows,
                 "invalid_rows": results.invalid_rows,
+                "truncated_rows": results.truncated_rows,
                 "execution_time_seconds": results.execution_time,
             },
             "input_config": {
@@ -349,23 +612,8 @@ class CSVProcessor(BaseProcessor):
                 "batch_size": self.schema_processor.config.batch_size,
             },
             "output_files": results.output_files,
+            "bad_rows_file": results.bad_rows_file,
             "created_at": datetime.now().isoformat(),
         }
 
-        if is_s3_path(output_path):
-            # S3 output
-            metadata_path = S3Path(str(output_path)).join("metadata.json")
-            with self.io_handler.open_for_write(str(metadata_path), encoding="utf-8") as f:
-                import json
-
-                json.dump(metadata, f, indent=2)
-            return str(metadata_path)
-        else:
-            # Local output
-            output_dir = Path(output_path)
-            metadata_path = output_dir / "metadata.json"
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                import json
-
-                json.dump(metadata, f, indent=2)
-            return str(metadata_path)
+        return self._write_json(self._join_output(output_path, "metadata.json"), metadata)

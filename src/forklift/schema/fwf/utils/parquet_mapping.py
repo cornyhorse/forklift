@@ -22,6 +22,9 @@ class ParquetMappingUtils:
         """
         errors = []
 
+        if not isinstance(fields, list):
+            return errors  # reported by the field validator
+
         for i, field in enumerate(fields):
             if isinstance(field, dict):
                 parquet_type = field.get("parquetType")
@@ -42,8 +45,15 @@ class ParquetMappingUtils:
         """
         errors = []
 
+        if not isinstance(schema_variants, list):
+            return errors  # reported by the field validator
+
         for i, variant in enumerate(schema_variants):
+            if not isinstance(variant, dict):
+                continue  # reported by the field validator
             fields = variant.get("fields", [])
+            if not isinstance(fields, list):
+                continue
             for j, field in enumerate(fields):
                 if isinstance(field, dict):
                     parquet_type = field.get("parquetType")

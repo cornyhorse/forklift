@@ -10,7 +10,12 @@ Forklift Inputs is designed as a modular, extensible system that handles the com
 - **Schema-Aware Processing**: Automatic type detection and conversion with PyArrow integration
 - **Configuration-Driven**: Declarative configuration for all input sources
 - **Streaming Support**: Memory-efficient processing of large datasets
-- **Error Handling**: Comprehensive validation and graceful error recovery
+- **Error Handling**: Validation at construction time; problems in the data are recorded (FWF) or raised with row/column positions, never with cell values
+
+The handlers in this package are the building blocks. `forklift.import_csv()` uses its own
+engine (`forklift.engine`) rather than `CsvInputHandler`; `import_excel()` uses `ExcelInputHandler`
+and `import_sql()` uses `SqlInputHandler`. `FwfInputHandler` is not wired into the engine yet
+(`import_fwf()` raises `NotImplementedError`) but can be used directly.
 
 ## Architecture
 
@@ -59,7 +64,7 @@ The package follows a layered architecture with clear separation of concerns:
 - **`CsvInputConfig`**: CSV processing parameters (delimiters, encoding, header detection)
 - **`ExcelInputConfig`**: Excel file processing (sheet selection, date systems, engines)
 - **`FwfInputConfig`**: Fixed-width file configuration (field specs, conditional schemas)
-- **`SqlInputConfig`**: Database connection and query configuration
+- **`SqlInputConfig`**: Database connection and query configuration (`read_only` defaults to `True`; the connection string and connection parameters are left out of `repr()`)
 - **Helper Classes**: `FwfFieldSpec`, `FwfConditionalSchema`, `ExcelSheetConfig`
 
 **Key Features**:
@@ -77,15 +82,15 @@ The package follows a layered architecture with clear separation of concerns:
 - **`CsvInputHandler`**: Main orchestrator for CSV processing
 
 **Core Functionality**:
-- **Encoding Detection**: Automatic encoding detection using chardet library
-- **Header Discovery**: Intelligent header row detection with configurable search depth
-- **Comment Handling**: Regex-based comment row filtering
+- **Encoding Detection**: Statistical detection with `chardet` (or `charset-normalizer`), confirmed by decoding the whole file; without either library utf-8, cp1252 and latin-1 are tried
+- **Header Discovery**: Header row detection with configurable search depth (`header_mode` `present`, `absent` or `auto`)
+- **Comment Handling**: Regex-based comment row filtering (invalid patterns raise `ValueError` when the config is created)
 - **PyArrow Integration**: Direct PyArrow CSV streaming reader creation
-- **Preprocessing**: Blank line handling and data cleaning
+- **Preprocessing**: Blank line handling
 
 **Methods**:
 - `detect_encoding()`: Analyzes file encoding using statistical detection
-- `find_header_row()`: Locates header row while respecting comment patterns
+- `find_header_row()`: Locates header row while respecting comment patterns; `absent` returns `(-1, [])`, a UTF-8 byte order mark is ignored, and `ValueError` is raised if no header row is found within `header_search_rows`
 - `create_arrow_reader()`: Creates configured PyArrow streaming reader
 - `_is_comment_row()`: Filters comment rows based on regex patterns
 
@@ -98,14 +103,18 @@ The package follows a layered architecture with clear separation of concerns:
 - **`ExcelInputHandler`**: Main orchestrator for Excel processing
 
 **Core Functionality**:
-- **Multi-Engine Support**: Automatic engine selection (openpyxl for .xlsx, xlrd for .xls)
-- **Sheet Selection**: Flexible sheet selection by name, index, or regex pattern
-- **Data Range Control**: Configurable data start/end rows and header handling
-- **Format Handling**: Support for formulas vs. values, date systems, and null values
+- **Streaming readers**: `.xlsx` is read with openpyxl in read-only mode, legacy `.xls` with xlrd (chosen by extension unless `ExcelInputConfig.engine` is set); no DataFrame library is involved and sheets are turned into PyArrow tables column by column
+- **Resource limits**: `.xlsx` archives are inspected before they are opened (`max_uncompressed_bytes`, `max_compression_ratio`; the check trusts the sizes declared in the archive) and sheets are read with `max_rows` / `max_cells` caps; exceeding a limit raises `ValueError`. Sparse sheets are never expanded to their bounding box
+- **Sheet Selection**: By name, 0-based index or regex; a name, index or regex that matches nothing raises `ValueError`
+- **Data Range Control**: `header.row` is a **0-based** offset (`0` = sheet row 1); `data_start_row` / `data_end_row` are **1-based** sheet rows, inclusive, and data never starts on or before the header row. `header.mode` is `present` (default), `absent` (columns `col_1`..`col_N`, or `header.override`) or `auto` (the row is a header only if it consists of unique, non-numeric labels)
+- **Null handling**: `keep_default_na=True` (default) means only empty and whitespace-only cells are null; `NA`, `N/A` etc. stay text unless listed in `na_values` or `nulls` (global or per column). Formula cells without a cached value are null
+- **Types**: Cells keep their Excel type (int, float, bool, date, datetime, time); a column that mixes types becomes text, and `parquetType` entries in the column mappings cast explicitly
 
 **Methods**:
 - `detect_engine()`: Selects appropriate Excel engine based on file extension
-- `open_workbook()`/`close_workbook()`: Workbook lifecycle management
+- `open_workbook()`/`close_workbook()`: Workbook lifecycle management (the handler is also a context manager)
+- `get_sheet_info(file_path)`: `{"engine", "sheet_count", "sheet_names"}` without reading any sheet data
+- `process_sheets(file_path)`: Generator of `(sheet_name, pyarrow.Table)` for every configured sheet (all sheets when `config.sheets` is unset)
 - `get_sheet_names()`: Extracts available sheet names
 - `select_sheets()`: Matches sheets against configuration criteria
 - `read_sheet_data()`: Reads configured data ranges from sheets
@@ -156,6 +165,9 @@ The Fixed-Width File package is organized into six specialized modules:
 - Main orchestrator coordinating all FWF processing
 - File reading, PyArrow table creation, schema generation
 - Methods delegating to specialized components for separation of concerns
+- Problems are recorded instead of silently dropped: `handler.errors` lists the (line number, field) pairs whose value could not be converted to the declared type (the field becomes null), and `handler.rejected_lines` lists lines that were dropped because no conditional schema matches their flag (`no_matching_schema`) or a required field is blank (`required_missing`). Entries contain line numbers and field names only, never the data
+- Type conversion is strict: an integer field that is not an integer (or is out of range for its width) and a boolean other than `true/false/1/0/yes/no/y/n/t/f` are invalid values, not silent zeros or `False`; a UTF-8 byte order mark on the first line is ignored; the flag column of a conditional schema is populated for every record, even if the matched variant does not list it among its own fields
+- Specs are validated when the handler is created (`ValueError`)
 
 **`parsers.py`** - **FwfLineParser, FwfFieldExtractor**
 - Core parsing logic for individual lines and fields
@@ -188,14 +200,14 @@ The SQL database package is organized into six specialized modules:
 - Context manager support for resource cleanup
 
 **`connection.py`** - **SqlConnectionManager**
-- ODBC connection management with proper error handling
+- ODBC connection management with proper error handling (read-only by default)
 - Connection and query timeout configuration
 - Connection state validation and lifecycle management
 
 **`schema.py`** - **SqlSchemaManager**
 - Database schema discovery and PyArrow schema generation
 - Table and view enumeration across database schemas
-- Table specification parsing and identifier quoting
+- Table specification parsing; names are validated against the catalog and identifiers are always quoted
 
 **`reader.py`** - **SqlDataReader**
 - Streaming data reads with configurable batch processing
@@ -273,16 +285,16 @@ with SqlInputHandler(sql_config) as sql_handler:
 
 # Excel multi-sheet processing
 excel_handler = ExcelInputHandler(excel_config)
-excel_handler.open_workbook(file_path)
-sheets = excel_handler.select_sheets(sheet_configs)
+print(excel_handler.get_sheet_info(file_path)["sheet_names"])
+for sheet_name, table in excel_handler.process_sheets(file_path):
+    print(sheet_name, table.num_rows)  # table is a pyarrow.Table
 ```
 
 ## Performance Characteristics
 
 - **Memory Efficiency**: Streaming processing with configurable batch sizes
-- **Type Safety**: Compile-time type checking with runtime validation
-- **Scalability**: Handles files from KB to multi-GB sizes
-- **Resource Management**: Automatic cleanup and connection pooling
-- **Error Recovery**: Continues processing despite individual record failures
+- **Scalability**: CSV, FWF line parsing and SQL are streamed; Excel sheets are read into memory one sheet at a time (bounded by `max_rows` / `max_cells`)
+- **Resource Management**: Context managers close workbooks and database connections (pyodbc pooling is switched off)
+- **Error Recovery**: FWF records unconvertible values and rejected lines; Excel and SQL raise on problems they cannot represent
 
 The `forklift.inputs` package provides a robust foundation for data ingestion in the Forklift ETL framework, handling the complexity of various data sources while maintaining performance and reliability.

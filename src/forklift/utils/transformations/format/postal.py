@@ -14,7 +14,8 @@ class ZipCodeFormatter(BaseFormatter, ValidationMixin):
 
     def format_value(self, value: str) -> str:
         """Format a single ZIP code value according to the specified type."""
-        original_value = value.strip()
+        # "2134.0" (an integer column that went through float) is ZIP 02134, not 21340
+        original_value = self.strip_float_suffix(value.strip())
 
         if not original_value:
             raise ValueError("Empty ZIP code value")

@@ -8,36 +8,72 @@ chunked uploads for large files.
 from __future__ import annotations
 
 import io
-from pathlib import Path
+import os
+import re
 from typing import Any, BinaryIO, Dict, Iterator, Optional, TextIO, Union
-from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import ClientError
+
+_S3_SCHEME = "s3://"
+_INVALID_BUCKET_CHARS = re.compile(r"[\s?#\\\x00-\x1f\x7f]")
+
+
+def normalize_s3_uri(path: Union[str, "os.PathLike[str]", "S3Path"]) -> str:
+    """Return ``path`` as a string, restoring the ``s3://`` form a ``Path`` collapsed.
+
+    ``Path("s3://bucket/key")`` stores ``s3:/bucket/key`` (the double slash is collapsed), so
+    path-like objects that start with ``s3:/`` are mapped back to ``s3://``. Plain strings
+    are returned unchanged.
+
+    Args:
+        path: A string, ``os.PathLike`` or ``S3Path``
+
+    Returns:
+        The path as a string
+
+    Raises:
+        TypeError: If ``path`` is not string-like
+    """
+    if isinstance(path, S3Path):
+        return path.uri
+    text = os.fspath(path)
+    if not isinstance(text, str):
+        raise TypeError(f"Unsupported path type: {type(path).__name__}")
+    if not isinstance(path, str) and text.startswith("s3:/") and not text.startswith(_S3_SCHEME):
+        return _S3_SCHEME + text[len("s3:/") :]
+    return text
 
 
 class S3Path:
     """Utility class for parsing and working with S3 paths."""
 
-    def __init__(self, s3_uri: str):
+    def __init__(self, s3_uri: Union[str, "os.PathLike[str]"]):
         """Initialize S3Path from S3 URI.
 
+        The URI is split manually: everything after the first ``/`` following the bucket is
+        the object key, verbatim. (``urllib.parse`` would treat ``?`` and ``#`` in a key as
+        query/fragment delimiters and silently truncate it.)
+
         Args:
-            s3_uri: S3 URI in format s3://bucket/key
+            s3_uri: S3 URI in format s3://bucket/key (a ``Path`` is accepted too)
 
         Raises:
             ValueError: If URI is not a valid S3 path
         """
-        if not s3_uri.startswith("s3://"):
+        s3_uri = normalize_s3_uri(s3_uri)
+        if not s3_uri.startswith(_S3_SCHEME):
             raise ValueError(f"Invalid S3 URI: {s3_uri}. Must start with 's3://'")
 
-        parsed = urlparse(s3_uri)
-        self.bucket = parsed.netloc
-        self.key = parsed.path.lstrip("/")
-        self.uri = s3_uri
-
-        if not self.bucket:
+        bucket, _, key = s3_uri[len(_S3_SCHEME) :].partition("/")
+        if not bucket:
             raise ValueError(f"Invalid S3 URI: {s3_uri}. Bucket name is required")
+        if _INVALID_BUCKET_CHARS.search(bucket):
+            raise ValueError(f"Invalid S3 URI: {s3_uri}. Bucket name contains invalid characters")
+
+        self.bucket = bucket
+        self.key = key
+        self.uri = s3_uri
 
     def __str__(self) -> str:
         return self.uri
@@ -65,6 +101,11 @@ class S3Path:
         key_parts = [self.key] + list(parts)
         new_key = "/".join(part.strip("/") for part in key_parts if part.strip("/"))
         return S3Path(f"s3://{self.bucket}/{new_key}")
+
+
+def _as_s3_path(s3_path: Union[str, "os.PathLike[str]", S3Path]) -> S3Path:
+    """Coerce a URI string / ``Path`` / ``S3Path`` to an ``S3Path``."""
+    return s3_path if isinstance(s3_path, S3Path) else S3Path(s3_path)
 
 
 class S3StreamingClient:
@@ -102,7 +143,7 @@ class S3StreamingClient:
 
         self._s3_client = self._session.client("s3", **kwargs)
 
-    def exists(self, s3_path: Union[str, S3Path]) -> bool:
+    def exists(self, s3_path: Union[str, "os.PathLike[str]", S3Path]) -> bool:
         """Check if S3 object exists.
 
         Args:
@@ -111,8 +152,7 @@ class S3StreamingClient:
         Returns:
             True if object exists, False otherwise
         """
-        if isinstance(s3_path, str):
-            s3_path = S3Path(s3_path)
+        s3_path = _as_s3_path(s3_path)
 
         try:
             self._s3_client.head_object(Bucket=s3_path.bucket, Key=s3_path.key)
@@ -122,7 +162,7 @@ class S3StreamingClient:
                 return False
             raise
 
-    def get_size(self, s3_path: Union[str, S3Path]) -> int:
+    def get_size(self, s3_path: Union[str, "os.PathLike[str]", S3Path]) -> int:
         """Get size of S3 object in bytes.
 
         Args:
@@ -134,18 +174,18 @@ class S3StreamingClient:
         Raises:
             ClientError: If object doesn't exist
         """
-        if isinstance(s3_path, str):
-            s3_path = S3Path(s3_path)
+        s3_path = _as_s3_path(s3_path)
 
         response = self._s3_client.head_object(Bucket=s3_path.bucket, Key=s3_path.key)
         return response["ContentLength"]
 
     def open_for_read(
         self,
-        s3_path: Union[str, S3Path],
+        s3_path: Union[str, "os.PathLike[str]", S3Path],
         encoding: str = "utf-8",
         chunk_size: int = 8192,
         mode: str = "r",
+        newline: Optional[str] = None,
     ) -> Union[TextIO, BinaryIO]:
         """Open S3 object for streaming read.
 
@@ -154,6 +194,8 @@ class S3StreamingClient:
             encoding: Text encoding for the file (ignored for binary mode)
             chunk_size: Size of chunks to read at a time
             mode: Read mode - 'r' for text, 'rb' for binary
+            newline: Newline handling for text mode, as for ``open()``. Pass ``""`` when the
+                text is fed to ``csv`` so line breaks inside quoted fields survive.
 
         Returns:
             Text stream for reading in text mode, binary stream for binary mode
@@ -161,8 +203,7 @@ class S3StreamingClient:
         Raises:
             ClientError: If object doesn't exist or access is denied
         """
-        if isinstance(s3_path, str):
-            s3_path = S3Path(s3_path)
+        s3_path = _as_s3_path(s3_path)
 
         response = self._s3_client.get_object(Bucket=s3_path.bucket, Key=s3_path.key)
         binary_stream = response["Body"]
@@ -170,11 +211,16 @@ class S3StreamingClient:
         # Return binary stream for binary mode, text wrapper for text mode
         if "b" in mode:
             return binary_stream
-        else:
-            return io.TextIOWrapper(binary_stream, encoding=encoding)
+        wrapper_kwargs = {"encoding": encoding}
+        if newline is not None:
+            wrapper_kwargs["newline"] = newline
+        return io.TextIOWrapper(binary_stream, **wrapper_kwargs)
 
     def open_for_write(
-        self, s3_path: Union[str, S3Path], encoding: str = "utf-8", mode: str = "w"
+        self,
+        s3_path: Union[str, "os.PathLike[str]", S3Path],
+        encoding: str = "utf-8",
+        mode: str = "w",
     ) -> "S3StreamingWriter":
         """Open S3 object for streaming write using multipart upload.
 
@@ -186,39 +232,51 @@ class S3StreamingClient:
         Returns:
             S3StreamingWriter for writing data
         """
-        if isinstance(s3_path, str):
-            s3_path = S3Path(s3_path)
+        s3_path = _as_s3_path(s3_path)
 
         return S3StreamingWriter(self._s3_client, s3_path, encoding=encoding, mode=mode)
 
     def list_objects(
-        self, s3_prefix: Union[str, S3Path], max_keys: Optional[int] = None
+        self, s3_prefix: Union[str, "os.PathLike[str]", S3Path], max_keys: Optional[int] = None
     ) -> Iterator[Dict[str, Any]]:
         """List objects with given prefix.
 
         Args:
             s3_prefix: S3 path prefix to list
-            max_keys: Maximum number of keys to return
+            max_keys: Maximum number of objects to yield in total (default: all)
 
         Yields:
             Dictionary with object metadata (Key, Size, LastModified, etc.)
+
+        Raises:
+            ValueError: If ``max_keys`` is not positive
         """
-        if isinstance(s3_prefix, str):
-            s3_prefix = S3Path(s3_prefix)
+        s3_prefix = _as_s3_path(s3_prefix)
+        if max_keys is not None and max_keys < 1:
+            raise ValueError("max_keys must be a positive integer")
 
         paginator = self._s3_client.get_paginator("list_objects_v2")
+        # MaxKeys is only the page size of each request; the overall limit is applied below
         page_iterator = paginator.paginate(
-            Bucket=s3_prefix.bucket, Prefix=s3_prefix.key, MaxKeys=max_keys or 1000
+            Bucket=s3_prefix.bucket, Prefix=s3_prefix.key, MaxKeys=min(max_keys or 1000, 1000)
         )
 
+        yielded = 0
         for page in page_iterator:
             if "Contents" in page:
                 for obj in page["Contents"]:
                     yield obj
+                    yielded += 1
+                    if max_keys is not None and yielded >= max_keys:
+                        return
 
 
 class S3StreamingWriter:
-    """Streaming writer for S3 using multipart upload."""
+    """Streaming writer for S3 using multipart upload.
+
+    Used as a context manager, a clean exit completes the upload and an exit caused by an
+    exception aborts it: a partially written object is never published.
+    """
 
     def __init__(
         self,
@@ -253,7 +311,8 @@ class S3StreamingWriter:
         self._part_number = 1
         self._buffer = io.BytesIO()
         self._closed = False
-        self._position = 0  # Track current position for tell()
+        self._aborted = False
+        self._position = 0  # Bytes written so far, for tell()
 
     @property
     def closed(self):
@@ -266,7 +325,7 @@ class S3StreamingWriter:
         return self._mode
 
     def tell(self):
-        """Return current position in the stream."""
+        """Return current position in the stream (bytes written)."""
         return self._position
 
     def flush(self):
@@ -289,10 +348,11 @@ class S3StreamingWriter:
         """Write data to S3 stream.
 
         Args:
-            data: Text data (str) for text mode, binary data (bytes) for binary mode
+            data: Text data (str) for text mode, bytes-like data (bytes, bytearray,
+                memoryview) for either mode
 
         Returns:
-            Number of characters/bytes written
+            Number of characters (for str) or bytes (for bytes-like data) written
         """
         if self._closed:
             raise ValueError("I/O operation on closed file")
@@ -303,15 +363,18 @@ class S3StreamingWriter:
                 raise ValueError("Cannot write string data in binary mode")
             data_bytes = data.encode(self._encoding)
             return_count = len(data)
-        elif isinstance(data, bytes):
-            data_bytes = data
-            return_count = len(data)
+        elif isinstance(data, (bytes, bytearray, memoryview)):
+            data_bytes = bytes(data)
+            return_count = len(data_bytes)
         else:
-            raise TypeError(f"Unsupported data type: {type(data)}. Expected str or bytes.")
+            raise TypeError(
+                f"Unsupported data type: {type(data)}. "
+                "Expected str, bytes, bytearray or memoryview."
+            )
 
         # Write to buffer
         self._buffer.write(data_bytes)
-        self._position += return_count
+        self._position += len(data_bytes)
 
         # Upload part if buffer is large enough
         if self._buffer.tell() >= self._part_size:
@@ -344,29 +407,26 @@ class S3StreamingWriter:
         self._buffer = io.BytesIO()  # Reset buffer
 
     def close(self):
-        """Close the stream and complete multipart upload."""
+        """Close the stream and complete multipart upload (no-op after close/abort)."""
         if self._closed:
             return
 
         try:
-            # Upload any remaining data
-            if self._buffer.tell() > 0:
-                self._upload_part()
-
-            # Handle different upload scenarios
             if not self._parts:
-                # No parts uploaded - use simple put_object instead
-                # This happens with small files that don't reach the part size threshold
+                # Nothing reached the part size threshold (this includes writing zero bytes):
+                # upload what was buffered as a single object instead of a multipart upload.
+                # An empty object is still created, matching ``open(path, "wb").close()``.
                 self._abort_upload()  # Clean up the multipart upload
 
-                # Get all data and upload as single object
                 self._buffer.seek(0)
-                data = self._buffer.read()
-                if data:  # Only upload if there's actually data
-                    self._s3_client.put_object(
-                        Bucket=self._s3_path.bucket, Key=self._s3_path.key, Body=data
-                    )
+                self._s3_client.put_object(
+                    Bucket=self._s3_path.bucket, Key=self._s3_path.key, Body=self._buffer.read()
+                )
             else:
+                # Upload any remaining data
+                if self._buffer.tell() > 0:
+                    self._upload_part()
+
                 # Complete multipart upload with valid parts
                 self._s3_client.complete_multipart_upload(
                     Bucket=self._s3_path.bucket,
@@ -381,6 +441,20 @@ class S3StreamingWriter:
         finally:
             self._closed = True
 
+    def abort(self):
+        """Discard everything written so far and never publish the object.
+
+        Aborts the multipart upload and drops the buffered data. Safe to call repeatedly and
+        after ``close()`` (a no-op once the stream is closed or aborted).
+        """
+        if self._closed or self._aborted:
+            return
+        self._aborted = True
+        self._closed = True
+        self._buffer = io.BytesIO()
+        self._parts = []
+        self._abort_upload()
+
     def _abort_upload(self):
         """Abort the multipart upload (cleanup method)."""
         try:
@@ -394,21 +468,33 @@ class S3StreamingWriter:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+        if exc_type is not None:
+            # The body failed: publishing the truncated data would look like a complete file
+            self.abort()
+        else:
+            self.close()
 
 
-def is_s3_path(path: Union[str, Path]) -> bool:
+def is_s3_path(path: Union[str, "os.PathLike[str]", S3Path]) -> bool:
     """Check if a path is an S3 URI.
 
+    ``Path("s3://bucket/key")`` collapses the double slash to ``s3:/bucket/key``; path-like
+    objects in that form are recognised as S3 too (see :func:`normalize_s3_uri`).
+
     Args:
-        path: Path to check
+        path: Path to check (string, ``os.PathLike`` or ``S3Path``)
 
     Returns:
         True if path is S3 URI, False otherwise
     """
-    if isinstance(path, Path):
-        path = str(path)
-    return isinstance(path, str) and path.startswith("s3://")
+    if isinstance(path, S3Path):
+        return True
+    if not isinstance(path, (str, os.PathLike)):
+        return False
+    try:
+        return normalize_s3_uri(path).startswith(_S3_SCHEME)
+    except TypeError:
+        return False
 
 
 def get_s3_client(**kwargs) -> S3StreamingClient:

@@ -19,7 +19,7 @@ class TestFwf100PercentCoverage:
         # Force both ValueError and TypeError to ensure we hit the exception handling
         with patch("builtins.int", side_effect=ValueError("Conversion failed")):
             result = handler.convert_value("invalid", "int64")
-            assert result == "invalid"  # Should return original value on exception
+            assert result is None  # Invalid values become None (the parser records the error)
 
     def test_parse_line_no_fields_scenario_line_439(self):
         """Test parse_line when fields_to_use is None (line 439)."""

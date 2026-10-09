@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -23,12 +25,15 @@ logger = logging.getLogger(__name__)
 class BadRowsConfig:
     """Configuration for bad rows handling."""
 
-    output_path: Optional[Union[str, Path]] = None
+    output_path: Optional[Union[str, Path]] = None  # a file, or a directory for generated names
     output_format: str = "parquet"  # parquet, csv, json
     include_original_data: bool = True
     include_error_details: bool = True
-    max_bad_rows: Optional[int] = None  # Maximum number of bad rows to collect
+    max_bad_rows: Optional[int] = None  # Maximum number of bad rows to collect (0 collects none)
     create_summary: bool = True
+    # CSV output: prefix cells that start with = + - @ (or tab/CR) with ' so spreadsheet
+    # programs do not run them as formulas
+    csv_formula_protection: bool = True
 
 
 class BadRowsHandler:
@@ -50,7 +55,9 @@ class BadRowsHandler:
         self.validation_errors: List[ValidationResult] = []
         self.constraint_violations: List[ConstraintViolation] = []
         self.row_count = 0
-        self.bad_row_count = 0
+        self.bad_row_count = 0  # every bad row seen, whether it was collected or not
+        self.dropped_bad_row_count = 0  # bad rows not collected because of max_bad_rows
+        self._limit_warning_logged = False
 
     def add_bad_row(
         self,
@@ -67,11 +74,18 @@ class BadRowsHandler:
             validation_results: Schema validation errors for this row
             constraint_violations: Constraint violations for this row
         """
-        if self.config.max_bad_rows and self.bad_row_count >= self.config.max_bad_rows:
-            logger.warning(
-                f"Maximum bad rows limit ({self.config.max_bad_rows}) reached. "
-                f"Subsequent bad rows will not be collected."
-            )
+        self.bad_row_count += 1
+
+        max_bad_rows = self.config.max_bad_rows
+        if max_bad_rows is not None and len(self.bad_rows) >= max_bad_rows:
+            # Count the row (so percentages stay right) but do not keep it; warn once
+            self.dropped_bad_row_count += 1
+            if not self._limit_warning_logged:
+                self._limit_warning_logged = True
+                logger.warning(
+                    f"Maximum bad rows limit ({max_bad_rows}) reached. "
+                    f"Subsequent bad rows will be counted but not collected."
+                )
             return
 
         bad_row_entry = {"row_index": row_index, "timestamp": datetime.now().isoformat()}
@@ -121,8 +135,6 @@ class BadRowsHandler:
             self.validation_errors.extend([r for r in validation_results if not r.is_valid])
         if constraint_violations:
             self.constraint_violations.extend(constraint_violations)
-
-        self.bad_row_count += 1
 
     def add_bad_rows_from_batch(
         self,
@@ -209,6 +221,8 @@ class BadRowsHandler:
         return {
             "total_rows_processed": self.row_count,
             "bad_rows_count": self.bad_row_count,
+            "bad_rows_collected": len(self.bad_rows),
+            "bad_rows_dropped": self.dropped_bad_row_count,
             "bad_rows_percentage": (
                 (self.bad_row_count / self.row_count * 100) if self.row_count > 0 else 0
             ),
@@ -230,15 +244,7 @@ class BadRowsHandler:
             logger.info("No bad rows to write")
             return None
 
-        # Determine output path
-        if output_path:
-            file_path = Path(output_path)
-        elif self.config.output_path:
-            file_path = Path(self.config.output_path)
-        else:
-            # Generate default path
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_path = Path(f"bad_rows_{timestamp}.{self.config.output_format}")
+        file_path = self._resolve_output_path(output_path)
 
         # Ensure directory exists
         file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -265,6 +271,66 @@ class BadRowsHandler:
         except Exception as e:
             logger.error(f"Failed to write bad rows to {file_path}: {e}")
             raise
+
+    def _resolve_output_path(self, output_path: Optional[Union[str, Path]] = None) -> Path:
+        """File to write: an explicit file path, or a unique generated name.
+
+        ``output_path`` (argument or configuration) may name a file or a directory; for a
+        directory (existing, or written with a trailing separator) and when nothing is
+        configured, a unique ``bad_rows_<timestamp with microseconds>_<pid>_<id>`` file name
+        is generated, so concurrent jobs never overwrite each other.
+        """
+        configured = output_path or self.config.output_path
+        extension = self.config.output_format.lower()
+
+        if configured:
+            candidate = Path(configured)
+            is_directory = candidate.is_dir() or str(configured).endswith(("/", os.sep))
+            if not is_directory:
+                return candidate
+            directory = candidate
+        else:
+            directory = Path(".")
+
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        return directory / f"bad_rows_{stamp}_{os.getpid()}_{uuid.uuid4().hex[:8]}.{extension}"
+
+    @staticmethod
+    def _table_from_rows(rows: List[Dict[str, Any]]) -> pa.Table:
+        """Arrow table with the union of the rows' keys (a column that cannot hold its mixed
+        values becomes a string column)."""
+        names: List[str] = []
+        seen = set()
+        for row in rows:
+            for key in row:
+                if key not in seen:
+                    seen.add(key)
+                    names.append(key)
+
+        columns = []
+        for name in names:
+            values = [row.get(name) for row in rows]
+            try:
+                columns.append(pa.array(values))
+            except (pa.ArrowInvalid, pa.ArrowTypeError):
+                columns.append(
+                    pa.array([None if v is None else str(v) for v in values], pa.string())
+                )
+        return pa.Table.from_arrays(columns, names=names)
+
+    @staticmethod
+    def _protect_formulas(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Prefix string cells that a spreadsheet would run as formulas with an apostrophe."""
+        triggers = ("=", "+", "-", "@", "\t", "\r")
+        return [
+            {
+                key: (
+                    "'" + value if isinstance(value, str) and value.startswith(triggers) else value
+                )
+                for key, value in row.items()
+            }
+            for row in rows
+        ]
 
     def _write_parquet(self, file_path: Path):
         """Write bad rows in Parquet format."""
@@ -299,7 +365,7 @@ class BadRowsHandler:
             flattened_rows.append(flattened)
 
         # Convert to Arrow table
-        table = pa.Table.from_pylist(flattened_rows)
+        table = self._table_from_rows(flattened_rows)
         pq.write_table(table, file_path)
 
     def _write_csv(self, file_path: Path):
@@ -329,7 +395,9 @@ class BadRowsHandler:
             flattened_rows.append(flattened)
 
         # Convert to Arrow table and write as CSV
-        table = pa.Table.from_pylist(flattened_rows)
+        if self.config.csv_formula_protection:
+            flattened_rows = self._protect_formulas(flattened_rows)
+        table = self._table_from_rows(flattened_rows)
         pv_csv.write_csv(table, file_path)
 
     def _write_json(self, file_path: Path):

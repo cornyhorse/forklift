@@ -7,11 +7,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from .._regex import compile_pattern
 from .base_local import BaseProcessor, ValidationResult
 from .config import NullabilityMode, SchemaValidationMode, SchemaValidatorConfig
 from .constraints import ConstraintValidator
 from .schema import ColumnSchema
-from .type_converter import TypeConverter
+from .type_converter import TypeConverter, parse_arrow_type
 
 
 class SchemaValidator(BaseProcessor):
@@ -66,6 +67,42 @@ class SchemaValidator(BaseProcessor):
         self.expected_columns = self._parse_schema_definition()
         self._validation_cache: Dict[str, bool] = {}
 
+        # Column-name matching: exact, or ignoring case when case_sensitive=False
+        self._expected_by_key: Dict[str, str] = {}
+        for expected_name in self.expected_columns:
+            key = self._name_key(expected_name)
+            if key in self._expected_by_key:
+                raise ValueError(
+                    f"Schema columns '{self._expected_by_key[key]}' and '{expected_name}' differ "
+                    f"only by case but case_sensitive is False"
+                )
+            self._expected_by_key[key] = expected_name
+
+        # Patterns are compiled (and rejected if invalid/unsafe) when the validator is created
+        for col_schema in self.expected_columns.values():
+            pattern = (col_schema.constraints or {}).get("pattern")
+            if pattern is not None:
+                compile_pattern(pattern, self._allow_unsafe_regex(col_schema))
+
+    def _name_key(self, name: str) -> str:
+        return name if self.config.case_sensitive else name.lower()
+
+    def _expected_for(self, batch_column_name: str) -> Optional[ColumnSchema]:
+        """Schema entry for a batch column (honouring ``case_sensitive``), or None."""
+        expected_name = self._expected_by_key.get(self._name_key(batch_column_name))
+        return self.expected_columns[expected_name] if expected_name is not None else None
+
+    def _allow_unsafe_regex(self, col_schema: ColumnSchema) -> bool:
+        constraints = col_schema.constraints or {}
+        return bool(constraints.get("allow_unsafe_regex", self.config.allow_unsafe_regex))
+
+    @property
+    def _coercion_enabled(self) -> bool:
+        return (
+            self.config.allow_type_coercion
+            or self.config.validation_mode == SchemaValidationMode.COERCE
+        )
+
     def _parse_schema_definition(self) -> Dict[str, ColumnSchema]:
         """Parse schema definition into ColumnSchema objects."""
         columns = {}
@@ -101,6 +138,11 @@ class SchemaValidator(BaseProcessor):
             Tuple of (processed_batch, validation_results)
         """
         validation_results = []
+
+        # Cast mismatching columns to the schema types (allow_type_coercion / COERCE mode)
+        if batch is not None and self._coercion_enabled:
+            batch, coercion_results = self._coerce_batch(batch)
+            validation_results.extend(coercion_results)
 
         # Validate batch structure
         validation_results.extend(self._validate_batch_structure(batch))
@@ -151,11 +193,13 @@ class SchemaValidator(BaseProcessor):
     def _validate_column_presence(self, batch: pa.RecordBatch) -> List[ValidationResult]:
         """Validate that required columns are present."""
         results = []
-        batch_columns = set(batch.column_names)
-        expected_columns = set(self.expected_columns.keys())
+        batch_columns = {self._name_key(name): name for name in batch.column_names}
+        expected_columns = set(self._expected_by_key)
 
         # Check for missing columns
-        missing_columns = expected_columns - batch_columns
+        missing_columns = {
+            self._expected_by_key[key] for key in expected_columns - set(batch_columns)
+        }
         for missing_col in missing_columns:
             col_schema = self.expected_columns[missing_col]
             if (
@@ -177,7 +221,9 @@ class SchemaValidator(BaseProcessor):
             not self.config.extra_columns_allowed
             and self.config.validation_mode == SchemaValidationMode.STRICT
         ):
-            extra_columns = batch_columns - expected_columns
+            extra_columns = [
+                name for key, name in batch_columns.items() if key not in expected_columns
+            ]
             for extra_col in extra_columns:
                 results.append(
                     ValidationResult(
@@ -191,7 +237,11 @@ class SchemaValidator(BaseProcessor):
         # Check column order if required
         if self.config.check_column_order and len(missing_columns) == 0:
             expected_order = list(self.expected_columns.keys())
-            actual_order = [col for col in batch.column_names if col in expected_columns]
+            actual_order = [
+                self._expected_by_key[self._name_key(col)]
+                for col in batch.column_names
+                if self._name_key(col) in expected_columns
+            ]
 
             if expected_order != actual_order:
                 results.append(
@@ -209,13 +259,13 @@ class SchemaValidator(BaseProcessor):
         """Validate column data types."""
         results = []
 
-        for col_name in batch.column_names:
-            if col_name in self.expected_columns:
-                expected_schema = self.expected_columns[col_name]
-                actual_type = batch.column(col_name).type
+        for col_idx, col_name in enumerate(batch.column_names):
+            expected_schema = self._expected_for(col_name)
+            if expected_schema is not None:
+                actual_type = batch.column(col_idx).type
 
                 if not self._is_type_compatible(actual_type, expected_schema.data_type):
-                    if self.config.allow_type_coercion:
+                    if self._coercion_enabled:
                         # Check if coercion is possible
                         if not TypeConverter.can_coerce_type(
                             actual_type, expected_schema.data_type
@@ -251,10 +301,10 @@ class SchemaValidator(BaseProcessor):
         if self.config.nullability_mode == NullabilityMode.IGNORE:
             return results
 
-        for col_name in batch.column_names:
-            if col_name in self.expected_columns:
-                expected_schema = self.expected_columns[col_name]
-                column = batch.column(col_name)
+        for col_idx, col_name in enumerate(batch.column_names):
+            expected_schema = self._expected_for(col_name)
+            if expected_schema is not None:
+                column = batch.column(col_idx)
 
                 # Check if column should not be nullable
                 if not expected_schema.nullable:
@@ -277,8 +327,8 @@ class SchemaValidator(BaseProcessor):
                                 )
                             )
 
-                # Check null percentage thresholds
-                if self.config.max_null_percentage is not None:
+                # Check null percentage thresholds (an empty batch has no percentage)
+                if self.config.max_null_percentage is not None and batch.num_rows > 0:
                     null_mask = pc.is_null(column)
                     null_count = pc.sum(null_mask).as_py()
                     null_percentage = (null_count / batch.num_rows) * 100
@@ -301,10 +351,10 @@ class SchemaValidator(BaseProcessor):
         """Validate column constraints."""
         results = []
 
-        for col_name in batch.column_names:
-            if col_name in self.expected_columns:
-                expected_schema = self.expected_columns[col_name]
-                column = batch.column(col_name)
+        for col_idx, col_name in enumerate(batch.column_names):
+            expected_schema = self._expected_for(col_name)
+            if expected_schema is not None:
+                column = batch.column(col_idx)
 
                 # Validate range constraints
                 if "min" in expected_schema.constraints or "max" in expected_schema.constraints:
@@ -326,7 +376,10 @@ class SchemaValidator(BaseProcessor):
                 if "pattern" in expected_schema.constraints:
                     results.extend(
                         ConstraintValidator.validate_pattern_constraints(
-                            column, col_name, expected_schema.constraints["pattern"]
+                            column,
+                            col_name,
+                            expected_schema.constraints["pattern"],
+                            self._allow_unsafe_regex(expected_schema),
                         )
                     )
 
@@ -379,6 +432,82 @@ class SchemaValidator(BaseProcessor):
         result = TypeConverter.is_type_compatible(actual_type, expected_type_str)
         self._validation_cache[cache_key] = result
         return result
+
+    def _coerce_batch(
+        self, batch: pa.RecordBatch
+    ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
+        """Cast columns whose type differs from the schema to the schema type.
+
+        The cast is safe (no silent truncation/overflow). Values that cannot be converted become
+        NULL in the returned batch and are reported as ``COERCION_FAILED`` results with their row
+        index, so callers can reject those rows. Columns that cannot be cast at all keep their
+        type and are reported as type mismatches by the normal validation.
+        """
+        results: List[ValidationResult] = []
+        columns = list(batch.columns)
+        changed = False
+
+        for col_idx, col_name in enumerate(batch.column_names):
+            expected_schema = self._expected_for(col_name)
+            if expected_schema is None:
+                continue
+
+            column = columns[col_idx]
+            if self._is_type_compatible(column.type, expected_schema.data_type):
+                continue
+            if not TypeConverter.can_coerce_type(column.type, expected_schema.data_type):
+                continue
+
+            target = parse_arrow_type(expected_schema.data_type)
+            cast_column, failed_rows = self._safe_cast(column, target)
+            if cast_column is None:
+                continue
+
+            columns[col_idx] = cast_column
+            changed = True
+            for row_idx in failed_rows:
+                results.append(
+                    ValidationResult(
+                        is_valid=False,
+                        error_message=f"Column '{col_name}' has a value that cannot be "
+                        f"converted to {target}",
+                        error_code="COERCION_FAILED",
+                        column_name=col_name,
+                        row_index=row_idx,
+                    )
+                )
+
+        if changed:
+            fields = [
+                pa.field(f.name, col.type, f.nullable, f.metadata)
+                for f, col in zip(batch.schema, columns)
+            ]
+            batch = pa.RecordBatch.from_arrays(columns, schema=pa.schema(fields))
+        return batch, results
+
+    @staticmethod
+    def _safe_cast(column: pa.Array, target: pa.DataType) -> Tuple[Optional[pa.Array], List[int]]:
+        """Safe-cast ``column``; returns (array or None if impossible, rows that failed)."""
+        try:
+            return column.cast(target), []
+        except pa.ArrowNotImplementedError:
+            return None, []
+        except (pa.ArrowInvalid, pa.ArrowTypeError):
+            pass
+
+        # Find the offending values, null them, and cast the rest
+        failed_rows: List[int] = []
+        for row_idx in range(len(column)):
+            if column[row_idx].is_valid:
+                try:
+                    column.slice(row_idx, 1).cast(target)
+                except (pa.ArrowInvalid, pa.ArrowTypeError):
+                    failed_rows.append(row_idx)
+
+        failed_set = set(failed_rows)
+        failed_mask = pa.array([i in failed_set for i in range(len(column))], pa.bool_())
+        cleaned = pc.if_else(failed_mask, pa.scalar(None, column.type), column)
+        return cleaned.cast(target), failed_rows
 
     def _process_batch_based_on_mode(
         self, batch: pa.RecordBatch, validation_results: List[ValidationResult]

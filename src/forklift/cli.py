@@ -1,8 +1,23 @@
+"""Command line interface: ``forklift ingest`` and ``forklift generate-schema``.
+
+Exit codes: 0 on success, 1 when processing fails, 2 for usage errors and for input kinds that
+are not implemented (argparse itself also exits with 2 for invalid arguments).
+"""
+
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import sys
+from typing import Any, Dict, Optional, Sequence
 
-from .engine.forklift_core import ForkliftCore, HeaderMode, ImportConfig
+from .engine.forklift_core import (
+    ForkliftCore,
+    HeaderMode,
+    ImportConfig,
+    import_excel,
+    import_fwf,
+)
 from .io import is_s3_path
 from .schema.schema_generator import (
     FileType,
@@ -11,8 +26,51 @@ from .schema.schema_generator import (
     SchemaGenerator,
 )
 
+EXIT_FAILURE = 1
+EXIT_USAGE = 2
 
-def main() -> None:
+
+def _warn(message: str) -> None:
+    print(f"Warning: {message}", file=sys.stderr)
+
+
+def _fail(message: str, code: int = EXIT_FAILURE) -> None:
+    """Print ``message`` to stderr and exit with ``code``."""
+    print(message, file=sys.stderr)
+    sys.exit(code)
+
+
+def _value_statistics_kwargs(config_cls: Any, requested: bool) -> Dict[str, Any]:
+    """``include_value_statistics=True`` if requested and ``config_cls`` supports it."""
+    if not requested:
+        return {}
+    supported = dataclasses.is_dataclass(config_cls) and "include_value_statistics" in {
+        f.name for f in dataclasses.fields(config_cls)
+    }
+    if not supported:
+        _warn("--include-value-stats is not supported by this version and is ignored")
+        return {}
+    return {"include_value_statistics": True}
+
+
+def _print_results(results: Any) -> None:
+    print(f"Processing complete. Processed {results.total_rows} rows.")
+    print(f"Valid rows: {results.valid_rows}, Invalid rows: {results.invalid_rows}")
+    if results.output_files:
+        print(f"Output files: {', '.join(results.output_files)}")
+    if results.manifest_file:
+        print(f"Manifest file: {results.manifest_file}")
+    if results.metadata_file:
+        print(f"Metadata file: {results.metadata_file}")
+
+    errors = getattr(results, "errors", None)
+    if isinstance(errors, list) and errors:
+        for message in errors:
+            print(f"Error: {message}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
+
+
+def _build_parser():
     p = argparse.ArgumentParser("forklift")
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -28,10 +86,22 @@ def main() -> None:
     ingest.add_argument("--pre", nargs="*", default=[], help="Preprocessors by name")
     # common input args
     ingest.add_argument(
-        "--encoding-priority", nargs="*", default=["utf-8-sig", "utf-8", "latin-1"]
+        "--encoding-priority",
+        nargs="*",
+        default=["utf-8-sig", "utf-8", "latin-1"],
+        help=(
+            "Candidate encodings. Only the first one is used: the engine takes a single "
+            "encoding and does not fall back to the others (default: utf-8-sig)"
+        ),
     )
     ingest.add_argument("--delimiter")
-    ingest.add_argument("--sheet")  # excel
+    ingest.add_argument(
+        "--sheet",
+        help=(
+            "Excel only: sheet name to import, or a 0-based index if no sheet has that name "
+            "(default: all sheets)"
+        ),
+    )
     ingest.add_argument("--fwf-spec")  # path to JSON with x-fwf fields (or part of schema)
     ingest.add_argument(
         "--header-mode",
@@ -40,6 +110,14 @@ def main() -> None:
         help=(
             "Explicit header handling: 'present' (file has header), "
             "'absent' (no header, use override), 'auto'"
+        ),
+    )
+    ingest.add_argument(
+        "--include-value-stats",
+        action="store_true",
+        help=(
+            "Include statistics that expose real cell values (top values, min/max, quantiles) "
+            "in the output metadata. Off by default because the metadata can hold PII."
         ),
     )
 
@@ -52,7 +130,9 @@ def main() -> None:
         required=True,
         help="Type of input file",
     )
-    schema_gen.add_argument("--nrows", type=int, help="Number of rows to analyze (default: 1000)")
+    schema_gen.add_argument(
+        "--nrows", type=int, help="Number of rows to analyze (default: the whole file)"
+    )
     schema_gen.add_argument(
         "--output", choices=["stdout", "file", "clipboard"], default="stdout", help="Output target"
     )
@@ -96,19 +176,35 @@ def main() -> None:
         type=float,
         help="Custom quantiles for numeric columns (default: 0.25 0.5 0.75 0.9 0.95 0.99)",
     )
+    schema_gen.add_argument(
+        "--include-value-stats",
+        action="store_true",
+        help=(
+            "Include statistics that expose real cell values (top values, min/max, quantiles) "
+            "in the generated metadata. Off by default because the metadata can hold PII."
+        ),
+    )
+    return p, ingest, schema_gen
 
-    args = p.parse_args()
 
-    if args.cmd == "ingest":
-        # Check for S3 paths and provide user feedback
-        input_is_s3 = is_s3_path(args.source)
-        output_is_s3 = is_s3_path(args.dest)
+def _run_ingest(args: argparse.Namespace) -> None:
+    # Check for S3 paths and provide user feedback
+    if is_s3_path(args.source):
+        print(f"Reading from S3: {args.source}")
+    if is_s3_path(args.dest):
+        print(f"Writing to S3: {args.dest}")
 
-        if input_is_s3:
-            print(f"Reading from S3: {args.source}")
-        if output_is_s3:
-            print(f"Writing to S3: {args.dest}")
+    # Options that do not apply to the chosen input kind must not be silently dropped
+    if args.fwf_spec and args.input_kind != "fwf":
+        _warn("--fwf-spec only applies to --input-kind fwf and is ignored")
+    if args.sheet and args.input_kind != "excel":
+        _warn("--sheet only applies to --input-kind excel and is ignored")
+    if args.include_value_stats and args.input_kind != "csv":
+        _warn("--include-value-stats only affects the CSV output metadata and is ignored")
+    if args.pre:
+        _warn(f"Preprocessors not yet implemented in new ForkliftCore: {args.pre}")
 
+    if args.input_kind == "csv":
         # Create ImportConfig from CLI arguments
         config = ImportConfig(
             input_path=args.source,
@@ -117,92 +213,75 @@ def main() -> None:
             header_mode=HeaderMode(args.header_mode),
             encoding=args.encoding_priority[0] if args.encoding_priority else "utf-8",
             delimiter=args.delimiter or ",",
+            **_value_statistics_kwargs(ImportConfig, args.include_value_stats),
         )
-
-        # Handle FWF spec if provided
-        if args.fwf_spec:
-            print(
-                f"Warning: FWF spec processing not yet implemented in new "
-                f"ForkliftCore: {args.fwf_spec}"
-            )
-
-        # Handle preprocessors if provided
-        if args.pre:
-            print(f"Warning: Preprocessors not yet implemented in new ForkliftCore: {args.pre}")
-
-        # Handle Excel sheet if provided
-        if args.sheet:
-            print(
-                f"Warning: Excel sheet processing not yet implemented in new "
-                f"ForkliftCore: {args.sheet}"
-            )
-
-        # Create and run ForkliftCore
-        core = ForkliftCore(config)
-
-        # Currently ForkliftCore only has process_csv method
-        if args.input_kind == "csv":
-            results = core.process_csv()
-            print(f"Processing complete. Processed {results.total_rows} rows.")
-            print(f"Valid rows: {results.valid_rows}, Invalid rows: {results.invalid_rows}")
-            if results.output_files:
-                print(f"Output files: {', '.join(results.output_files)}")
-            if results.manifest_file:
-                print(f"Manifest file: {results.manifest_file}")
-            if results.metadata_file:
-                print(f"Metadata file: {results.metadata_file}")
-        else:
-            print(
-                f"Error: Input kind '{args.input_kind}' not yet implemented in new "
-                f"ForkliftCore. Only 'csv' is currently supported."
-            )
-    elif args.cmd == "generate-schema":
-        # Validate output arguments
-        if args.output == "file" and not args.output_path:
-            print("Error: --output-path is required when --output=file")
-            return
-
-        # Create schema generation config
-        config = SchemaGenerationConfig(
-            input_path=args.source,
-            file_type=FileType(args.file_type),
-            nrows=args.nrows,
-            output_target=OutputTarget(args.output),
-            output_path=args.output_path,
-            delimiter=args.delimiter,
-            encoding=args.encoding,
-            sheet_name=args.sheet,
-            include_sample_data=args.include_sample,
-            infer_primary_key_from_metadata=args.infer_primary_key,  # Use metadata-based inference
-            # New metadata generation options
-            generate_metadata=not args.no_metadata,
-            metadata_output_path=args.metadata_output,
-            enum_threshold=args.enum_threshold,
-            uniqueness_threshold=args.uniqueness_threshold,
-            top_n_values=args.top_n_values,
-            quantiles=args.quantiles if args.quantiles else None,
-        )
-
+        results = ForkliftCore(config).process_csv()
+    elif args.input_kind == "excel":
+        excel_kwargs = {"sheet": args.sheet} if args.sheet else {}
+        results = import_excel(args.source, args.dest, args.schema, **excel_kwargs)
+    else:  # fwf
         try:
-            # Generate schema
-            generator = SchemaGenerator(config)
-            schema = generator.generate_schema()
-            generator.output_schema(schema)
+            results = import_fwf(args.source, args.dest, args.schema or args.fwf_spec)
+        except NotImplementedError as exc:
+            _fail(f"Error: input kind 'fwf' is not implemented yet ({exc}).", EXIT_USAGE)
 
-            # Generate and save separate metadata file if requested
-            if config.metadata_output_path:
-                # Read the data again for full metadata generation
-                if config.file_type == FileType.CSV:
-                    table = generator._read_csv_sample()
-                elif config.file_type == FileType.EXCEL:
-                    table = generator._read_excel_sample()
-                elif config.file_type == FileType.PARQUET:
-                    table = generator._read_parquet_sample()
+    _print_results(results)
 
+
+def _run_generate_schema(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    # Validate output arguments
+    if args.output == "file" and not args.output_path:
+        parser.error("--output-path is required when --output=file")
+
+    # Create schema generation config
+    config = SchemaGenerationConfig(
+        input_path=args.source,
+        file_type=FileType(args.file_type),
+        nrows=args.nrows,
+        output_target=OutputTarget(args.output),
+        output_path=args.output_path,
+        delimiter=args.delimiter,
+        encoding=args.encoding,
+        sheet_name=args.sheet,
+        include_sample_data=args.include_sample,
+        infer_primary_key_from_metadata=args.infer_primary_key,  # Use metadata-based inference
+        # New metadata generation options
+        generate_metadata=not args.no_metadata,
+        metadata_output_path=args.metadata_output,
+        enum_threshold=args.enum_threshold,
+        uniqueness_threshold=args.uniqueness_threshold,
+        top_n_values=args.top_n_values,
+        quantiles=args.quantiles if args.quantiles else None,
+        **_value_statistics_kwargs(SchemaGenerationConfig, args.include_value_stats),
+    )
+
+    try:
+        # Generate schema
+        generator = SchemaGenerator(config)
+        schema = generator.generate_schema()
+        generator.output_schema(schema)
+
+        # Generate and save separate metadata file if requested
+        if config.metadata_output_path:
+            if not config.generate_metadata:
+                _warn("--metadata-output is ignored because --no-metadata was given")
+            else:
+                # Read the sample again (same rows as the schema analysis) for the metadata
+                table = generator._read_sample_data()
                 metadata_file = generator.generate_and_save_metadata(table)
                 if metadata_file:
                     print(f"Metadata file written to: {metadata_file}")
 
-        except Exception as e:
-            print(f"Error generating schema: {e}")
-            return
+    except Exception as e:
+        _fail(f"Error generating schema: {e}")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    """Run the CLI. Exits non-zero on any failure (see module docstring)."""
+    p, _ingest, schema_gen = _build_parser()
+    args = p.parse_args(argv)
+
+    if args.cmd == "ingest":
+        _run_ingest(args)
+    elif args.cmd == "generate-schema":
+        _run_generate_schema(schema_gen, args)

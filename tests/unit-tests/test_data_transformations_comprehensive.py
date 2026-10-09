@@ -869,7 +869,7 @@ class TestDateTimeTransformation:
         assert result.to_pylist() == [1672531200]
 
     @patch("forklift.utils.transformations.datetime_transformations.coerce_datetime")
-    @patch("pytz.timezone")
+    @patch("forklift.utils.transformations.datetime_transformations.resolve_timezone")
     def test_apply_datetime_transformation_with_timezone(self, mock_timezone, mock_coerce):
         """Test datetime transformation with timezone conversion."""
         transformer = DataTransformer()
@@ -1384,7 +1384,8 @@ class TestSSNFormatting:
     def test_format_ssn_wrong_length(self):
         """Test SSN formatting with wrong length in validation mode."""
         transformer = DataTransformer()
-        config = SSNConfig(validate=True)
+        # zero_pad would restore the missing leading zero, so test the validation without it
+        config = SSNConfig(validate=True, zero_pad=False)
 
         with pytest.raises(ValueError, match="SSN must have exactly 9 digits"):
             transformer._format_ssn("12345678", config)
@@ -1476,7 +1477,7 @@ class TestZipCodeFormatting:
     def test_format_zip_code_zip_9_invalid_length(self):
         """Test ZIP-9 formatting with invalid length."""
         transformer = DataTransformer()
-        config = ZipCodeConfig(zip_type="zip-9", validate=True)
+        config = ZipCodeConfig(zip_type="zip-9", validate=True, zero_pad=False)
 
         with pytest.raises(ValueError, match="ZIP-9 must have exactly 9 digits"):
             transformer._format_zip_code("12345", config)
@@ -1500,7 +1501,7 @@ class TestZipCodeFormatting:
     def test_format_zip_code_permissive_invalid_length(self):
         """Test permissive ZIP code formatting with invalid length."""
         transformer = DataTransformer()
-        config = ZipCodeConfig(zip_type="zip-permissive", validate=True)
+        config = ZipCodeConfig(zip_type="zip-permissive", validate=True, zero_pad=False)
 
         with pytest.raises(ValueError, match="ZIP code must have 5 or 9 digits"):
             transformer._format_zip_code("123", config)
@@ -1955,8 +1956,12 @@ class TestMACAddressFormatting:
         transformer = DataTransformer()
         config = MACAddressConfig(zero_pad=True)
 
-        result = transformer._format_mac_address("11223344556", config)
-        assert result == "01:12:23:34:45:56"
+        # zero_pad pads single-digit octets; it never invents digits for short input
+        result = transformer._format_mac_address("0:11:22:3:44:5", config)
+        assert result == "00:11:22:03:44:05"
+
+        with pytest.raises(ValueError, match="exactly 12 hexadecimal digits"):
+            transformer._format_mac_address("11223344556", config)
 
     def test_format_mac_address_empty_value(self):
         """Test MAC address formatting with empty value."""
@@ -1993,12 +1998,12 @@ class TestStringCleaningHelperMethods:
         """Test encoding error fixes."""
         transformer = DataTransformer()
 
-        # Test common mojibake patterns
+        # Mojibake is repaired by a cp1252 -> UTF-8 round trip (quote folding is a separate option)
         result = transformer._fix_encoding_errors("Donâ€™t")
-        assert result == "Don't"
+        assert result == "Don\u2019t"
 
-        result = transformer._fix_encoding_errors("â€œhelloâ€")
-        assert result == '"hello"'
+        result = transformer._fix_encoding_errors("â€œhelloâ€\x9d")
+        assert result == "\u201chello\u201d"
 
     def test_normalize_quotes(self):
         """Test quote normalization."""
@@ -2317,7 +2322,6 @@ class TestCreateTransformationFromConfig:
             "pattern": r"\d+",
             "replacement": "NUMBER",
             "enabled": True,
-            "extra_param": "value",
         }
         transform_func = create_transformation_from_config("regex_replace", config)
 

@@ -3,6 +3,7 @@
 Simple coverage runner for Forklift project
 Usage: python run_coverage_simple.py [module_name]
 """
+
 import os
 import subprocess
 import sys

@@ -4,6 +4,14 @@
 
 This document describes the comprehensive constraint validation and bad rows handling functionality implemented in the Forklift codebase that addresses data quality requirements for handling unique constraints, primary keys, and not-null violations according to schema standards.
 
+> **Relationship to `import_csv`.** The classes described here (`forklift.processors`) are building
+> blocks that you run on PyArrow batches yourself. `forklift.import_csv()` does not call them: its own
+> bad-rows handling covers values that do not convert to the schema's types, empty/null values in
+> `required` columns (matched by name) and, with `excess_column_mode=REJECT`, rows with excess fields.
+> Those rows go to `bad_rows.parquet` (all-string columns in the shape of the input) and are counted in
+> `ProcessingResults.invalid_rows`; `ProcessingResults.bad_rows_file` names the file. Primary key,
+> unique-constraint and `x-constraintHandling` settings in a schema are not evaluated by `import_csv`.
+
 ## Key Components Implemented
 
 ### 1. Constraint Validator (`constraint_validator.py`)

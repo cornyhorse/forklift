@@ -20,8 +20,9 @@ class TestFwfPerfectCoverage:
         # Force a ValueError by mocking int() to raise a ValueError
         with patch("builtins.int", side_effect=ValueError("Invalid literal")):
             result = handler.convert_value("abc", "int64")
-            # Should return original value when conversion fails with ValueError
-            assert result == "abc"
+            # An invalid value becomes None (never the raw string, which would later turn
+            # into a silent NULL); the parser records the error
+            assert result is None
 
     def test_comment_pattern_no_match(self):
         """Test comment pattern that doesn't match (line 335)."""

@@ -7,6 +7,17 @@ import re
 from ..configs import EmailConfig
 from .base import BaseFormatter
 
+# Dot-separated runs of local-part characters: no leading, trailing or doubled dots
+_LOCAL_PART = r"[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+)*"
+# Domain labels start and end with a letter/digit (hyphens only inside); the TLD is alphabetic
+_DOMAIN_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+_EMAIL_PATTERN = re.compile(rf"{_LOCAL_PART}@(?:{_DOMAIN_LABEL}\.)+[A-Za-z]{{2,}}")
+
+# RFC 5321 limits
+_MAX_LOCAL_PART = 64
+_MAX_ADDRESS = 254
+_MAX_LABEL = 63
+
 
 class EmailFormatter(BaseFormatter):
     """Formatter for email addresses."""
@@ -16,23 +27,33 @@ class EmailFormatter(BaseFormatter):
 
     def format_value(self, value: str) -> str:
         """Format a single email value according to the specified rules."""
-        original_value = value.strip()
-
-        if not original_value:
+        if not value.strip():
             raise ValueError("Empty email value")
 
+        formatted = value
+
         if self.config.normalize_case:
-            original_value = original_value.lower()
+            formatted = formatted.lower()
 
+        # Only strip when asked to: with strip_whitespace=False surrounding whitespace is kept and
+        # then fails validation (or is returned as is when validation is off).
         if self.config.strip_whitespace:
-            original_value = original_value.strip()
+            formatted = formatted.strip()
 
-        if self.config.normalize_domain and "." in original_value:
-            original_value = re.sub(r"\.+$", "", original_value)
+        if self.config.normalize_domain and "." in formatted:
+            formatted = re.sub(r"\.+$", "", formatted)
 
-        if self.config.validate_format:
-            pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-            if not re.match(pattern, original_value):
-                raise ValueError("Invalid email format")
+        if self.config.validate_format and not self._is_valid(formatted):
+            raise ValueError("Invalid email format")
 
-        return original_value
+        return formatted
+
+    @staticmethod
+    def _is_valid(address: str) -> bool:
+        """Syntax check: dot-atom local part, label-based domain, RFC length limits."""
+        if len(address) > _MAX_ADDRESS or not _EMAIL_PATTERN.fullmatch(address):
+            return False
+        local, _, domain = address.rpartition("@")
+        return len(local) <= _MAX_LOCAL_PART and all(
+            len(label) <= _MAX_LABEL for label in domain.split(".")
+        )

@@ -263,6 +263,7 @@ has a rule). Supported shape (the one in `schema-standards/20250826-csv.json`):
 | `dateValidation {minDate, maxDate, format}` | `DateValidation(min_date, max_date, formats)` (`format` is a string or a list) |
 | `uniquenessHandling.strategy` | `ValidationConfig.uniqueness_strategy` (`first_wins`, `last_wins`, `fail_on_duplicate`, `mark_all_duplicates`) |
 | `badRowsHandling.maxBadRowsPercent` / `failOnExceedThreshold` | `BadRowsConfig.max_bad_rows_percent` / `.fail_on_exceed_threshold` (defaults 10.0 / true) |
+| `badRowsHandling.thresholdMode` (`end_of_file` or `early`) | `BadRowsConfig.threshold_check`; the loader's default is `end_of_file`, the class's own default is `early` (the previous behaviour). With `end_of_file` the verdict is given by `DataValidationProcessor.check_threshold()` after the last batch |
 
 The processor that is built **does not write files and does not keep the rejected rows**
 (`BadRowsConfig(enabled=False)`): the caller removes/writes the rejected rows itself using the
@@ -282,11 +283,13 @@ Field names go through `resolve_column` (header name -> output name).
 rules use the *output* column names and can name calculated columns. The rows it rejects are written by the
 engine to `bad_rows.parquet` (the input's column names, all strings) with the reason
 `VALIDATION_ERROR:<column>` in the `_rejection_reason` column, and counted in
-`ProcessingResults.validation_summary`; the processor writes no file. Percentages are checked after every
-batch against **all rows that reached the validator so far** (rows already rejected by type conversion or
-`required` never get here): with the default `maxBadRowsPercent` 10 and `failOnExceedThreshold` true,
-the import raises `BadRowsThresholdExceededError` (a `RuntimeError`) as soon as more than 10 % of those rows
-were rejected, and leaves no output behind. A rule for a column that is declared in `properties` but absent
+`ProcessingResults.validation_summary`; the processor writes no file. The share of rejected rows is
+compared with `maxBadRowsPercent` against **all rows that reached the validator** (rows already rejected by type
+conversion or `required` never get here): with the default `thresholdMode` (`end_of_file`) the whole input is
+checked first and the import then raises `BadRowsThresholdExceededError` (a `RuntimeError`) if more than 10 % of
+those rows were rejected, with the findings by rule in the message and no output left behind; with `early` the
+comparison is made after every batch on the rows seen so far and the import stops at the first batch over the
+limit. A rule for a column that is declared in `properties` but absent
 from the file is skipped with a warning; a rule for a name that is nowhere raises `ValueError`.
 
 ## Validation semantics

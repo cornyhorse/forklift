@@ -86,7 +86,7 @@ For CSV files, `import_csv` (and `forklift ingest --input-kind csv`) runs the sc
 | `x-columnMapping` | `explicitMappings`, `namingConvention`, `caseSensitive`, `allowUnmapped`, `dropUnmapped` | renames columns; `allowUnmapped: false` (like `dropUnmapped: true`) drops the unmapped ones |
 | `x-calculatedColumns` | `constants`, `expressions`, `calculated` (each with `name`, `dataType` and a `value` or `expression`), `failOnError`, `addMetadata`, `validateDependencies` | appends columns |
 | `x-dataQuality` | `fieldSpecificRules` (`min`, `max`, `pattern`), `fieldQualityRules.<column>.parameters` (`min_length`, `max_length`, `pattern`, `min_value`, `max_value`), `enabled` | report only: findings are counted, no row is dropped |
-| `x-validation` | `fieldValidations.<column>` (`required`, `unique`, `range`, `stringValidation`, `enumValidation`, `dateValidation`), `uniquenessHandling.strategy`, `badRowsHandling.maxBadRowsPercent` / `failOnExceedThreshold` | rejects rows |
+| `x-validation` | `fieldValidations.<column>` (`required`, `unique`, `range`, `stringValidation`, `enumValidation`, `dateValidation`), `uniquenessHandling.strategy`, `badRowsHandling.maxBadRowsPercent` / `failOnExceedThreshold` / `thresholdMode` | rejects rows |
 | `x-primaryKey`, `x-uniqueConstraints` | `columns`, `type`, `enforceUniqueness`, `allowNulls`; `name`, `columns` | rejects duplicate rows (and rows with a NULL primary key); the first row of a key wins |
 | per-property constraints | `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `enum`, `x-unique` | rejects rows (other keywords such as `exclusiveMinimum` or `multipleOf` are not enforced) |
 | `x-constraintHandling` | `errorMode` | what happens to a violation: `bad_rows` (default), `fail_fast`, `fail_complete` |
@@ -110,7 +110,7 @@ output names   x-columnMapping          renames columns
 
 **Names.** `properties`, `required`, `x-csv` and `x-transformations` use the column names exactly as they are in the file header, because they run before anything is renamed. Every stage from `x-columnMapping` on uses the *output* names (a header name that was renamed is accepted there too). A `properties` entry declared under the *new* name of a renamed column is not applied to it; the import adds a warning.
 
-**Rejected rows.** `bad_rows.parquet` has all-string columns named like the input file's columns, with the values as the stage saw them (after transformations and type conversion). When the schema configures `x-validation` or any constraint, it gets an extra last column `_rejection_reason`: the reason is `CODE` or `CODE:column` (for example `UNIQUE_VIOLATION:id`, `VALIDATION_ERROR:age`, `NULL_VIOLATION:id`, `RANGE_VIOLATION:age`), several joined by `; `, and never contains a cell value. Rows rejected by type conversion, by `required` or (with `excess_column_mode="reject"`) for excess fields carry `type_conversion_failed`, `required_value_missing` or `too_many_fields` in that column. Without `x-validation` and constraints the file has no reason column.
+**Rejected rows.** `bad_rows.parquet` has all-string columns named like the input file's columns, with the text the input file had (not the cleaned or converted values: `bob again` stays `bob again` although the name was title-cased, `007.50` stays `007.50`, an `NA` null marker stays `NA`; a column the schema does not list keeps Arrow's inferred type, so its value is shown as that type prints). When the schema configures `x-validation` or any constraint, it gets an extra last column `_rejection_reason`: the reason is `CODE` or `CODE:column` (for example `UNIQUE_VIOLATION:id`, `VALIDATION_ERROR:age`, `NULL_VIOLATION:id`, `RANGE_VIOLATION:age`), several joined by `; `, and never contains a cell value. Rows rejected by type conversion, by `required` or (with `excess_column_mode="reject"`) for excess fields carry `type_conversion_failed`, `required_value_missing` or `too_many_fields` in that column. Without `x-validation` and constraints the file has no reason column.
 
 **Results.** `ProcessingResults` reports what happened in three fields: `schema_extensions` (the extensions that were applied), `validation_summary` (counts per `CODE` or `CODE:column`; never values) and `warnings`. The CLI prints them (`Schema extensions applied: ...`, `Findings by the schema extensions:`, warnings on stderr) and `metadata.json` records them.
 
@@ -184,11 +184,11 @@ for row in pq.read_table(results.bad_rows_file).to_pylist():
 {'id': 1, 'name': 'Ann', 'age': 34, 'source': 'people.csv', 'age_band': 'adult'}
 {'id': 2, 'name': 'Bob', 'age': 70, 'source': 'people.csv', 'age_band': 'senior'}
 {'id': 4, 'name': 'Erin', 'age': 29, 'source': 'people.csv', 'age_band': 'adult'}
-{'id': '3', 'name': 'Dave', 'age': 'x', '_rejection_reason': 'type_conversion_failed'}
-{'id': '2', 'name': 'Carol', 'age': '41', '_rejection_reason': 'UNIQUE_VIOLATION:id'}
+{'id': '3', 'name': 'dave', 'age': 'x', '_rejection_reason': 'type_conversion_failed'}
+{'id': '2', 'name': 'carol', 'age': '41', '_rejection_reason': 'UNIQUE_VIOLATION:id'}
 ```
 
-The names were cleaned before the types were applied (the rejected rows show `Dave` and `Carol`, not `dave` and `carol`), the first row with `id` 2 won, and `age` `x` failed type conversion. The same run from the command line prints `Schema extensions applied: x-transformations, x-calculatedColumns, x-primaryKey/x-uniqueConstraints/constraints` and, under `Findings by the schema extensions:`, `UNIQUE_VIOLATION:id: 1`.
+The names were cleaned before the types were applied (`Ann`, `Bob`, `Erin`), but the rejected rows show the text of the file (`dave` and `carol`, not `Dave` and `Carol`); the first row with `id` 2 won, and `age` `x` failed type conversion. The same run from the command line prints `Schema extensions applied: x-transformations, x-calculatedColumns, x-primaryKey/x-uniqueConstraints/constraints` and, under `Findings by the schema extensions:`, `UNIQUE_VIOLATION:id: 1`.
 
 ### Header, Comment and Footer Handling
 
@@ -671,7 +671,7 @@ A row is rejected when
 
 When the schema configures `x-validation` or a constraint, `bad_rows.parquet` has a last column `_rejection_reason` that says which rule rejected each row (`type_conversion_failed`, `required_value_missing`, `too_many_fields`, `UNIQUE_VIOLATION:id`, ...); the reason never contains the cell value. `results.validation_summary` counts the findings per reason.
 
-The run itself only stops (an exception is raised and `data.parquet` / `bad_rows.parquet` are not left behind) for problems with the input as a whole: a file that cannot be decoded with the configured `encoding`, no header found, a required column that is missing from the file, an unreadable schema, an extension that is configured incorrectly or names a column that does not exist (`ValueError`, before any output is written), `x-constraintHandling.errorMode` `fail_fast` / `fail_complete` with a violation, `x-validation` rejecting more rows than `maxBadRowsPercent`, or an I/O error. `max_validation_errors` is reserved and not enforced, so there is no "stop after N bad rows" mode.
+The run itself only stops (an exception is raised and `data.parquet` / `bad_rows.parquet` are not left behind) for problems with the input as a whole: a file that cannot be decoded with the configured `encoding`, no header found, a required column that is missing from the file, an unreadable schema, an extension that is configured incorrectly or names a column that does not exist (`ValueError`, before any output is written), `x-constraintHandling.errorMode` `fail_fast` / `fail_complete` with a violation, `x-validation` rejecting more rows than `maxBadRowsPercent` (judged after the whole input was checked, unless `badRowsHandling.thresholdMode` is `early`; the message lists the findings by rule), or an I/O error. `max_validation_errors` is reserved and not enforced, so there is no "stop after N bad rows" mode.
 
 ### Excess Column Handling
 

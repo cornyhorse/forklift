@@ -131,6 +131,24 @@ rejected when the processor is created, even with `failOnError: false`.
 - **Calls**: `function(arg, ...)` using the functions below. Function names are lower case and
   case sensitive; SQL spellings such as `UPPER()` or `CASE WHEN ... END` are not supported.
 
+**Mistakes are reported before anything is written**, with what to write instead. For SQL habits
+the error contains the supported spelling, for example for
+`CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END`:
+
+```
+Expression is not valid: invalid syntax. SQL 'CASE WHEN ... THEN ... ELSE ... END' is not
+supported. Write a conditional expression instead: 'a if condition else b', nested for more
+branches. For this expression: 'minor' if age < 18 else ('adult' if age < 65 else 'senior').
+The function if_then_else(condition, a, b) does the same for one branch. See
+docs/schemas/X_CALCULATED_COLUMNS_DOCUMENTATION.md
+```
+
+A single `=`, `<>`, `IS [NOT] NULL`, upper-case `AND` / `OR` / `NOT` and `||` get a hint each. A
+function or column the expression uses but that does not exist is reported with the calculated column
+it is in, a "did you mean" suggestion, the available functions or columns, and (for a column the
+file lacks) how to declare it under `properties` so the column is skipped for such files. A result
+that does not fit `dataType` names the types the expression produced (never the values).
+
 **NULL handling:** arithmetic and ordering comparisons (`< <= > >=`) with a NULL operand give
 NULL (SQL semantics), whatever the column is called. `==` and `!=` and the logical operators keep
 Python semantics. Use `coalesce(x, default)`, `isnull(x)` and `nullif(x, y)` to handle NULLs

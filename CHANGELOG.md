@@ -67,6 +67,11 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     `x-validation`/`x-dataQuality`, a calculated or hash column that would overwrite a data column,
     or a header starting with `__forklift_` raise `ValueError`. A calculated column whose listed
     `dependencies` the file lacks is left out with a warning when `properties` declares them.
+  - `x-validation.badRowsHandling.maxBadRowsPercent` is judged once, after the whole input was
+    checked (`thresholdMode: end_of_file`, the default): the verdict no longer depends on where the
+    bad rows are or on `batch_size`, and the error lists the findings by rule and the settings that
+    change the outcome. `thresholdMode: early` keeps the per-batch check, which stops a hopeless
+    input sooner.
   - Content that no processor reads (for example `x-pii`, or `x-transformations.stringCleaning`)
     is reported in `ProcessingResults.warnings`, logged and printed by the CLI instead of failing.
     `x-pii` masking is not implemented.
@@ -182,6 +187,11 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   (numbers); pyarrow 25 was not affected. `set_null_where` (`forklift.utils.arrow_compat`) is used
   by the converter, schema inference and the schema validator; tests cover several batch sizes and
   run in the minimum-versions CI job.
+- Errors in calculated-column expressions say what to write instead: `CASE WHEN` gets the
+  equivalent conditional expression for that expression, `=`, `<>`, `IS NULL`, upper-case
+  `AND`/`OR`/`NOT` and `||` get a hint, unknown functions and columns get "did you mean" and the
+  available names, all checked before anything is written (they used to fail at row 0 of the first
+  batch, or with "invalid syntax").
 - Calculated-column constants of a date or timestamp type accept ISO text (`"2024-08-26"`, also with `Z`);
   building the result no longer triggers pyarrow's `names=` deprecation warning.
 - `ColumnMapper` ignored `allowUnmapped: false`; `DataValidationProcessor` results did not carry
@@ -219,9 +229,10 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   cross-field and global validations, `x-dataQuality` completeness/uniqueness/consistency/accuracy
   blocks, `x-uniqueConstraints` `condition` / `ignoreNulls: false` / case-insensitive keys, partition
   and index columns, `x-columnMapping.standardizationRules`.
-- `bad_rows.parquet` shows values as the stage that rejected the row saw them (after
-  transformations and type conversion) under the input file's column names; its row order depends
-  on `batch_size` (type failures of a batch are written before the batch's other rejects).
+- `bad_rows.parquet` shows the rows as the input file had them (all strings, under the input's
+  column names), whichever stage rejected them; a column the schema does not list keeps Arrow's
+  inferred type, so it is shown as that type prints. Its row order depends on `batch_size` (type
+  failures of a batch are written before the batch's other rejects).
 - `properties` (types, `required`, constraints, `x-csv.nulls`) are matched by the column names of
   the file, before `x-columnMapping` renames; a property declared under a rename's new name is not
   applied to the renamed column (the import warns).

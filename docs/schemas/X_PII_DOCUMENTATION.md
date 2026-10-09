@@ -467,4 +467,4 @@ Pattern:   "555-123-4567" → "XXX-XXX-XXXX"
 - **x-constraintHandling**: Not related; it only handles constraint violations
 - **x-metadata-generation**: Metadata contains no cell values unless `include_value_statistics` is enabled; leave it off for columns marked as PII
 - **x-calculatedColumns**: Mark derived PII columns appropriately (by hand)
-- **bad_rows.parquet**: rejected rows are written with their (cleaned) cell values, PII columns included; `_rejection_reason` never contains values, but the file is as sensitive as the input
+- **bad_rows.parquet**: rejected rows are written with the text the input file had, PII columns included; `_rejection_reason` never contains values, but the file is as sensitive as the input

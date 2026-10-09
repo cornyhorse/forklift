@@ -45,7 +45,7 @@ The generator (`forklift generate-schema`) writes suggestions in this same `colu
 - **Names**: the column names are the names in the file header, like `properties`; they run before `x-columnMapping`. A column that is not in the file is skipped with a warning (`x-transformations (and x-special-type) steps for column(s) 'nickname' are not applied: the columns are not in the input`); a column name that only exists after a rename does the same
 - **Result types**: a step may return a typed array (`money_conversion` and `numeric_cleaning` give numbers, `datetime` a date or timestamp). The engine then converts the result to the property's type: `1234.0` becomes `1234` in an `integer` column, `1234.5` is a type conversion failure (the row goes to `bad_rows.parquet`). Without a property type for the column a local file keeps the transformed type. A `string` property receives the text of a date (`2024-01-02`)
 - **Failures**: a value a step cannot parse is NULL; with `required` that rejects the row (`required_value_missing`, the bad row shows the NULL). A step that raises (for example `numeric_cleaning` with `allow_nan: false` on a bad value) stops the import with `ValueError: Schema-based transformation failed for column '...'` and leaves no output. A misspelled option or transformation name raises before any output is written
-- **`bad_rows.parquet`** shows the values as the failing stage saw them: cleaned text, not the original
+- **`bad_rows.parquet`** shows the text the input file had, not the cleaned values
 - **Row hash**: `x-rowHash`'s input hash is computed on the text of the file before the null markers and the transformations
 - A header name starting with `__forklift_` is reserved and raises a `ValueError` when `x-transformations` is used
 

@@ -66,9 +66,15 @@ Top-level `enabled: false` turns the whole block off (default `true`).
 #### `maxBadRowsPercent`
 - **Type**: Number from 0 to 100 (anything else raises a `ValueError`)
 - **Default**: `10`
-- **Description**: The import is aborted when the rows rejected by `x-validation` exceed this percentage of the rows that reached `x-validation` so far. The check is made after every batch on the running totals and uses "greater than": exactly 10% is still accepted, 10.1% is not
-- **Failure**: `BadRowsThresholdExceededError: Bad rows (50.0%) exceed threshold (10.0%)` (a `RuntimeError`); no output file is left behind. The error appears as soon as the running share is over the limit, so with small batches a bad start fails an import that would end below the limit with large batches (`batch_size`)
+- **Description**: The import is aborted when the rows rejected by `x-validation` exceed this percentage of the rows that reached `x-validation`. The comparison uses "greater than": exactly 10% is still accepted, 10.1% is not. When it is made depends on [`thresholdMode`](#thresholdmode)
+- **Failure**: `BadRowsThresholdExceededError` (a `RuntimeError`); no output file is left behind. The message gives the counts and, with the default `thresholdMode`, the findings by rule, for example: `Bad rows (44.0%) exceed threshold (10.0%): 44 of 100 rows that were validated by x-validation were rejected. Findings by rule: VALIDATION_ERROR:age x34, VALIDATION_ERROR:name x15. The whole input was checked and no output was kept. To keep the output and the rejected rows (bad_rows.parquet) set x-validation.badRowsHandling.failOnExceedThreshold to false; ...`
 - Rows rejected before `x-validation` (type conversion, `required`) are in neither the numerator nor the denominator; rows rejected after it (constraints) are in the denominator only
+
+#### `thresholdMode`
+- **Type**: `"end_of_file"` or `"early"` (anything else raises a `ValueError` that lists the choices)
+- **Default**: `"end_of_file"`
+- **`end_of_file`**: the whole input is checked first and the share of rejected rows is compared with `maxBadRowsPercent` once, at the end. The verdict is the same whatever the order of the rows and the `batch_size`, and the error can say what was wrong across the whole file. The price is that a hopeless input is read to the end before the import fails
+- **`early`**: the share is compared after every batch, against the rows seen so far, and the import stops at the first batch that goes over the limit. Faster for hopeless input, but a bad start (3 bad rows in the first 10 of a file that is 3% bad overall) fails an import that would end under the limit, so the result depends on where the bad rows are and on `batch_size`
 
 #### `failOnExceedThreshold`
 - **Type**: Boolean
@@ -262,7 +268,7 @@ with
 ## Best Practices
 
 1. **Set the threshold on purpose**: the default of 10% stops the import for a worse file; raise it for exploratory runs and lower it for strict feeds
-2. **Mind the batch size**: the threshold is checked on the running totals, so very small batches judge a file by its first rows
+2. **Choose when the threshold is judged**: the default (`thresholdMode: end_of_file`) checks the whole input before judging it and explains the failure; use `early` only to stop a hopeless input quickly, and then mind that small batches judge a file by its first rows
 3. **Anchor patterns**: `pattern` is a search; use `^...$` for whole-value matches
 4. **Use `unique` for a business key you want to keep one row of**; use `x-primaryKey` when a NULL key must be rejected too or when `errorMode` should be able to stop the import
 5. **Read the warnings**: `results.warnings` shows every rule or key that was ignored

@@ -55,7 +55,7 @@ Every other key is ignored and reported in `results.warnings` (`x-constraintHand
 
 Notes:
 - The per-property keywords are matched by header name, like the rest of `properties`; their reasons use the output name. NULL passes the value constraints (use `required` for that). Other JSON Schema keywords (`exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `format`, `const`, ...) are not enforced
-- A violating value in `bad_rows.parquet` is shown as the stage saw it; the reason never contains the value
+- A violating row in `bad_rows.parquet` is shown as the input file had it; the reason never contains the value
 - A row that breaks several constraints lists all of them, joined by `; `
 - The stage runs after `x-validation`, so the constraints only see the rows that passed it. A row that violates anything does not claim its unique keys
 - With `bad_rows` (the default) the first row of a key stays and the later rows with that key are rejected

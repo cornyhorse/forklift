@@ -71,7 +71,10 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     checked (`thresholdMode: end_of_file`, the default): the verdict no longer depends on where the
     bad rows are or on `batch_size`, and the error lists the findings by rule and the settings that
     change the outcome. `thresholdMode: early` keeps the per-batch check, which stops a hopeless
-    input sooner.
+    input sooner. When the import stops on this threshold it discards `data.parquet` but keeps
+    `bad_rows.parquet` (finished and readable) and names it in the error, so the rejected rows can
+    be inspected (`BadRowsThresholdExceededError.bad_rows_file`); every other failure still leaves
+    no output.
   - Content that no processor reads (for example `x-pii`, or `x-transformations.stringCleaning`)
     is reported in `ProcessingResults.warnings`, logged and printed by the CLI instead of failing.
     `x-pii` masking is not implemented.

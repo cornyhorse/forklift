@@ -16,6 +16,9 @@ import pyarrow.compute as pc
 
 from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
 from ...metadata import MetadataWriteError, OutputMetadataCollector
+from ...processors.data_validation.data_validation_processor import (
+    BadRowsThresholdExceededError,
+)
 from ..config import HeaderMode, ImportConfig, ProcessingResults
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
@@ -154,6 +157,28 @@ class _ParquetOutputs:
                 raise
             self.bad_written = True
 
+    def keep_bad_rows(self) -> Optional[str]:
+        """Finish the bad-rows file and discard the data file (for a run that stops on purpose).
+
+        A run that is aborted because too many rows were rejected keeps what explains it.
+
+        Returns:
+            The path of the finished bad-rows file, or None if there is none
+        """
+        if self.good_writer is not None:
+            writer, self.good_writer = self.good_writer, None
+            self._abort_writer(writer, self.good_file)
+        if self.bad_writer is None:
+            return None
+        writer, self.bad_writer = self.bad_writer, None
+        try:
+            writer.close()
+        except BaseException:
+            self._abort_writer(writer, self.bad_file)
+            raise
+        self.bad_written = True
+        return self.bad_file
+
     def abort(self) -> None:
         """Discard every writer that is still open (idempotent)."""
         if self.good_writer is not None:
@@ -250,7 +275,10 @@ class CSVProcessor(BaseProcessor):
             Exception: Any failure is recorded in ``results.errors`` and re-raised. A failed run
                 leaves no partial ``data.parquet`` / ``bad_rows.parquet`` behind (local files
                 are removed, S3 uploads are not completed), and outputs of earlier runs in the
-                destination are removed when processing starts.
+                destination are removed when processing starts. One exception: a
+                ``BadRowsThresholdExceededError`` (``x-validation`` rejected more rows than
+                ``maxBadRowsPercent`` allows) discards ``data.parquet`` but keeps a finished
+                ``bad_rows.parquet`` and names it (``error.bad_rows_file``).
         """
         start_time = time.time()
         results = ProcessingResults()
@@ -396,6 +424,13 @@ class CSVProcessor(BaseProcessor):
 
             results.execution_time = time.time() - start_time
 
+        except BadRowsThresholdExceededError as e:
+            # Too many rows were rejected: the data file is discarded, the rejected rows are kept
+            # because they are what the user needs to see why
+            error = self._explain_kept_bad_rows(e, outputs)
+            results.errors.append(self._error_text(error))
+            results.execution_time = time.time() - start_time
+            raise error from None
         except Exception as e:
             error = self._friendly_error(e, config)
             results.errors.append(self._error_text(error))
@@ -431,6 +466,31 @@ class CSVProcessor(BaseProcessor):
             results.warnings.extend(pipeline.warnings)
             results.schema_extensions = list(pipeline.applied)
         return pipeline
+
+    @staticmethod
+    def _explain_kept_bad_rows(
+        error: BadRowsThresholdExceededError, outputs: Optional[_ParquetOutputs]
+    ) -> BadRowsThresholdExceededError:
+        """Keep the rejected rows of an import that stopped on its threshold, say where."""
+        try:
+            kept = outputs.keep_bad_rows() if outputs is not None else None
+        except Exception:
+            logger.warning("Could not keep the rejected rows", exc_info=True)
+            kept = None
+        if kept is None:
+            return error
+        which = (
+            "All rows rejected by the checks"
+            if error.whole_input_checked
+            else "The rows rejected before the import stopped"
+        )
+        explained = BadRowsThresholdExceededError(
+            f"{error} {which} are in {kept}"
+            + (" (the _rejection_reason column says why)." if outputs._reason_column else ".")
+        )
+        explained.whole_input_checked = error.whole_input_checked
+        explained.bad_rows_file = kept
+        return explained
 
     @staticmethod
     def _friendly_error(error: Exception, config: ImportConfig) -> Exception:

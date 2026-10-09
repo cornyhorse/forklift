@@ -287,7 +287,7 @@ engine to `bad_rows.parquet` (the input's column names, all strings) with the re
 compared with `maxBadRowsPercent` against **all rows that reached the validator** (rows already rejected by type
 conversion or `required` never get here): with the default `thresholdMode` (`end_of_file`) the whole input is
 checked first and the import then raises `BadRowsThresholdExceededError` (a `RuntimeError`) if more than 10 % of
-those rows were rejected, with the findings by rule in the message and no output left behind; with `early` the
+those rows were rejected, with the findings by rule in the message (the import discards the data file, keeps `bad_rows.parquet` and names it in the error); with `early` the
 comparison is made after every batch on the rows seen so far and the import stops at the first batch over the
 limit. A rule for a column that is declared in `properties` but absent
 from the file is skipped with a warning; a rule for a name that is nowhere raises `ValueError`.

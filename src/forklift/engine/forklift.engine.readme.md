@@ -259,7 +259,9 @@ The engine uses a comprehensive configuration system through `ImportConfig`:
 - **`manifest.json`**: List of generated output files
 
 Stale `data.parquet` and `bad_rows.parquet` files of an earlier run are removed when a run starts. If a
-run fails, no partial data or bad rows file is left behind.
+run fails, no partial data or bad rows file is left behind. The exception is a run that stops because
+`x-validation` rejected more rows than `maxBadRowsPercent` allows: it keeps a finished `bad_rows.parquet`
+(and names it in the error) so the rejected rows can be inspected; `data.parquet` is not kept.
 
 The engine writes all of these itself (with S3 support through `forklift.io`); the `forklift.outputs` package is not used by it.
 

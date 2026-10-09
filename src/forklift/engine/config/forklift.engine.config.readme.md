@@ -165,7 +165,7 @@ for note in results.warnings:      # schema content that nothing reads, rules sk
 
 The module provides error handling through:
 - Row-level isolation: rows with an unconvertible value, an empty/null required column, (with `REJECT`) excess fields or a violation of `x-validation` / a key / a constraint are written to `bad_rows.parquet` instead of aborting the run
-- Run-level failures (unreadable input, undecodable bytes, invalid schema, no header found, a misconfigured schema extension, `x-constraintHandling.errorMode` `fail_fast` / `fail_complete` with a violation, `x-validation` over its `maxBadRowsPercent`) raise, are appended to `ProcessingResults.errors`, and leave no partial `data.parquet`/`bad_rows.parquet` behind: local partial files are removed and S3 uploads are not completed
+- Run-level failures (unreadable input, undecodable bytes, invalid schema, no header found, a misconfigured schema extension, `x-constraintHandling.errorMode` `fail_fast` / `fail_complete` with a violation, `x-validation` over its `maxBadRowsPercent`) raise, are appended to `ProcessingResults.errors`, and leave no partial `data.parquet`/`bad_rows.parquet` behind: local partial files are removed and S3 uploads are not completed. The one exception is `x-validation` over its threshold: `data.parquet` is discarded but a finished `bad_rows.parquet` is kept and named in the error, so the rejected rows can be inspected
 - Clear `ValueError`s for invalid enum values and missing required columns
 
 ## Performance Considerations

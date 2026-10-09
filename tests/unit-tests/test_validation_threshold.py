@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 import json
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from forklift import import_csv
@@ -73,7 +75,7 @@ class TestProcessor:
         text = str(error.value)
         assert "20 of 100 rows" in text and "(20.0%)" in text and "threshold (10%)" in text
         assert "VALIDATION_ERROR:age x20, VALIDATION_ERROR:name x3" in text
-        assert "no output was kept" in text
+        assert "no data file was kept" in text
         for hint in ("failOnExceedThreshold", "maxBadRowsPercent", "thresholdMode"):
             assert f"x-validation.badRowsHandling.{hint}" in text
 
@@ -167,17 +169,105 @@ class TestImport:
 
         assert not (tmp_path / "out" / "data.parquet").exists()
 
-    def test_a_failing_file_is_checked_to_the_end_and_leaves_no_output(self, tmp_path):
+    def test_a_failing_file_is_checked_to_the_end_and_keeps_only_the_rejected_rows(self, tmp_path):
         text = "id,age\n" + "".join(f"{i},{999 if i % 2 else 30}\n" for i in range(100))
 
         with pytest.raises(BadRowsThresholdExceededError) as error:
             run(tmp_path, text)
 
-        assert "50 of 100 rows" in str(error.value) and "VALIDATION_ERROR:age x50" in str(
-            error.value
-        )
+        message = str(error.value)
+        assert "50 of 100 rows" in message and "VALIDATION_ERROR:age x50" in message
+        kept = tmp_path / "out" / "bad_rows.parquet"
         assert not (tmp_path / "out" / "data.parquet").exists()
+        assert error.value.bad_rows_file == str(kept) and error.value.whole_input_checked
+        assert f"All rows rejected by the checks are in {kept}" in message
+        table = pq.read_table(kept)
+        assert table.num_rows == 50  # every rejected row, not just those before the verdict
+        assert table.schema.names == ["id", "age", "_rejection_reason"]
+        assert set(table.column("age").to_pylist()) == {"999"}  # the text of the file
+        assert set(table.column("_rejection_reason").to_pylist()) == {"VALIDATION_ERROR:age"}
+
+    def test_early_mode_keeps_what_was_rejected_before_it_stopped(self, tmp_path):
+        # batch 1 (10 rows): one bad row = 10 %, not over the limit; batch 2 pushes it over
+        ages = [999] + [30] * 9 + [999] * 5 + [30] * 5
+        text = "id,age\n" + "".join(f"{i},{a}\n" for i, a in enumerate(ages))
+
+        with pytest.raises(BadRowsThresholdExceededError) as error:
+            run(tmp_path, text, thresholdMode="early")
+
+        assert not error.value.whole_input_checked
+        assert "The rows rejected before the import stopped are in" in str(error.value)
+        assert not (tmp_path / "out" / "data.parquet").exists()
+        assert pq.read_table(error.value.bad_rows_file).column("id").to_pylist() == ["0"]
+
+    def test_nothing_to_keep_when_nothing_was_written_yet(self, tmp_path):
+        with pytest.raises(BadRowsThresholdExceededError) as error:
+            run(tmp_path, rows(bad_first=True), thresholdMode="early")
+
+        assert error.value.bad_rows_file is None and " are in " not in str(error.value)
+        assert not list((tmp_path / "out").glob("*.parquet"))
+
+    def test_a_later_clean_run_removes_the_kept_file(self, tmp_path):
+        bad = "id,age\n" + "".join(f"{i},999\n" for i in range(20))
+        with pytest.raises(BadRowsThresholdExceededError):
+            run(tmp_path, bad)
+        assert (tmp_path / "out" / "bad_rows.parquet").exists()
+
+        results = run(tmp_path, "id,age\n1,30\n2,31\n")
+
+        assert results.invalid_rows == 0
         assert not (tmp_path / "out" / "bad_rows.parquet").exists()
+
+    def test_other_aborts_still_leave_nothing(self, tmp_path):
+        source = tmp_path / "in.csv"
+        source.write_text("id,age\n1,30\n1,31\n")
+        schema = tmp_path / "schema.json"
+        schema.write_text(
+            json.dumps(
+                {
+                    "properties": {"id": {"type": "integer"}, "age": {"type": "integer"}},
+                    "x-primaryKey": {"columns": ["id"]},
+                    "x-constraintHandling": {"errorMode": "fail_complete"},
+                }
+            )
+        )
+
+        with pytest.raises(ValueError):
+            import_csv(
+                input_path=str(source),
+                output_path=str(tmp_path / "out"),
+                schema_file=str(schema),
+            )
+
+        assert not list((tmp_path / "out").glob("*.parquet"))
+
+    def test_s3_output(self, tmp_path, monkeypatch):
+        moto = pytest.importorskip("moto")
+        boto3 = pytest.importorskip("boto3")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+        schema = {
+            "properties": {"id": {"type": "integer"}, "age": {"type": "integer"}},
+            "x-validation": {"fieldValidations": {"age": {"range": {"min": 0, "max": 150}}}},
+        }
+        text = "id,age\n" + "".join(f"{i},{999 if i % 2 else 30}\n" for i in range(20))
+
+        with moto.mock_aws():
+            client = boto3.client("s3", region_name="us-east-1")
+            client.create_bucket(Bucket="bkt")
+            client.put_object(Bucket="bkt", Key="in.csv", Body=text.encode())
+            client.put_object(Bucket="bkt", Key="schema.json", Body=json.dumps(schema).encode())
+
+            with pytest.raises(BadRowsThresholdExceededError) as error:
+                import_csv("s3://bkt/in.csv", "s3://bkt/out/", schema_file="s3://bkt/schema.json")
+
+            keys = {o["Key"] for o in client.list_objects_v2(Bucket="bkt")["Contents"]}
+            body = client.get_object(Bucket="bkt", Key="out/bad_rows.parquet")["Body"].read()
+
+        assert "out/data.parquet" not in keys and "out/bad_rows.parquet" in keys
+        assert error.value.bad_rows_file == "s3://bkt/out/bad_rows.parquet"
+        assert pq.read_table(io.BytesIO(body)).num_rows == 10
 
     def test_not_failing_keeps_the_output_and_the_rejected_rows(self, tmp_path):
         text = "id,age\n" + "".join(f"{i},{999 if i % 2 else 30}\n" for i in range(100))

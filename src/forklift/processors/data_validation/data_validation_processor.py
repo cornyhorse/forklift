@@ -15,7 +15,16 @@ class ValidationProcessingError(RuntimeError):
 
 
 class BadRowsThresholdExceededError(ValidationProcessingError):
-    """More rows were rejected than ``BadRowsConfig.max_bad_rows_percent`` allows."""
+    """More rows were rejected than ``BadRowsConfig.max_bad_rows_percent`` allows.
+
+    Attributes:
+        whole_input_checked: True when every row was validated before the verdict
+            (``threshold_check="end_of_file"``); False when the import stopped early
+        bad_rows_file: Where the import kept the rejected rows, if it did (set by the import)
+    """
+
+    whole_input_checked: bool = False
+    bad_rows_file: Optional[str] = None
 
 
 class _RuleError(str):
@@ -187,9 +196,11 @@ class DataValidationProcessor(BaseProcessor):
                 were validated were rejected.
         """
         if self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed):
-            raise BadRowsThresholdExceededError(
+            error = BadRowsThresholdExceededError(
                 self._threshold_message(early=False, reasons=reasons)
             )
+            error.whole_input_checked = True
+            raise error
 
     def _threshold_message(
         self, *, early: bool, reasons: Optional[Mapping[str, int]] = None
@@ -208,8 +219,8 @@ class DataValidationProcessor(BaseProcessor):
                 f"batch that went over the limit because {settings}.thresholdMode is 'early'. "
                 f"Use 'end_of_file' (the default) to check the whole input first, and so see "
                 f"every reason, and the same verdict for any batch size. To keep going instead, "
-                f"raise maxBadRowsPercent or set failOnExceedThreshold to false (the rejected "
-                f"rows are then written to bad_rows.parquet)."
+                f"raise maxBadRowsPercent or set failOnExceedThreshold to false (the import "
+                f"then finishes and keeps the data of the accepted rows)."
             )
         message = (
             f"Bad rows ({percent:.1f}%) exceed threshold ({limit}): {bad} of {total} rows that "
@@ -222,8 +233,9 @@ class DataValidationProcessor(BaseProcessor):
                 f" (and {len(reasons) - len(top)} more)." if len(reasons) > len(top) else "."
             )
         return message + (
-            f" The whole input was checked and no output was kept. To keep the output and the "
-            f"rejected rows (bad_rows.parquet) set {settings}.failOnExceedThreshold to false; to "
+            f" The whole input was checked and the import was aborted, so no data file was kept. "
+            f"To keep the data of the accepted rows as well (the rejected rows are in "
+            f"bad_rows.parquet either way) set {settings}.failOnExceedThreshold to false; to "
             f"allow more bad rows raise {settings}.maxBadRowsPercent; to stop at the first "
             f"batch that goes over the limit, which is faster for hopeless input, set "
             f"{settings}.thresholdMode to 'early'."

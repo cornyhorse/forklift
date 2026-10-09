@@ -15,7 +15,7 @@ import pyarrow.csv as pv_csv
 from ...io import S3Path, UnifiedIOHandler, is_s3_path
 from ..config import ExcessColumnMode, ImportConfig
 from .text_utils import read_encoding, sanitize_arrow_error
-from .type_conversion import ColumnConverter
+from .type_conversion import ColumnConverter, visible_schema, with_raw_columns
 
 logger = logging.getLogger(__name__)
 
@@ -275,26 +275,35 @@ class BatchProcessor:
     def _finalize_batch(self, batch: pa.RecordBatch) -> Optional[pa.RecordBatch]:
         """Apply schema types/null markers and route unconvertible rows to the reject handler.
 
+        Whenever something can change the values of a row (a schema, null markers, the
+        pre-conversion hook), a hidden copy of the row as read travels with it, so rejected
+        rows can be written as the file had them (see ``with_raw_columns``).
+
         Returns:
             The converted batch, or None if no row of it is left
         """
         if not isinstance(batch, pa.RecordBatch):
             return batch  # not a real batch (callers that stub the row converter)
 
+        converter = self.converter
+        schema_applies = bool(converter.column_types or converter.null_policy.configured)
+        if schema_applies or self.pre_convert is not None:
+            batch = with_raw_columns(batch)
+
         if self.pre_convert is not None:
             batch = self.pre_convert(batch)
 
-        converter = self.converter
-        if not converter.column_types and not converter.null_policy.configured:
+        if not schema_applies:
             # No schema to apply; the first batch only fixes the schema later ones must match
+            visible = visible_schema(batch.schema)
             if self.established_schema is None:
-                self.established_schema = batch.schema
-            if batch.schema.equals(self.established_schema):
+                self.established_schema = visible
+            if visible.equals(self.established_schema):
                 return batch if len(batch) > 0 else None
 
         converted, rejected = converter.convert(batch, self.established_schema)
         if self.established_schema is None:
-            self.established_schema = converted.schema
+            self.established_schema = visible_schema(converted.schema)
         if rejected is not None:
             self.rejected_rows += rejected.num_rows
             if self.reject_handler is not None:

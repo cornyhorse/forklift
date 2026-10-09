@@ -944,9 +944,9 @@ class TestShippedStandard:
         rejected = bad(out)
 
         assert rejected.column("id").to_pylist() == ["2"]
-        # In the shape of the input file, with the values as the validation stage saw them
+        # In the shape of the input file, with the text the file had
         assert rejected.schema.names[:3] == ["id", "name", "age"]
-        assert rejected.column("name").to_pylist() == ["Dup Dan"]
+        assert rejected.column("name").to_pylist() == ["dup dan"]
         assert rejected.column("ssn").to_pylist() == ["222-33-4444"]
         assert "id" in rejected.column("_rejection_reason")[0].as_py()
 

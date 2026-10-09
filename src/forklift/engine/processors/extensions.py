@@ -34,11 +34,12 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import pyarrow as pa
 
 from ...processors.base import ValidationResult
+from .type_conversion import HIDDEN_COLUMN_PREFIX, has_raw_columns, raw_rows
 
 logger = logging.getLogger(__name__)
 
 #: Columns the pipeline adds temporarily; they never reach an output file.
-HIDDEN_PREFIX = "__forklift_"
+HIDDEN_PREFIX = HIDDEN_COLUMN_PREFIX
 ROW_ID_COLUMN = f"{HIDDEN_PREFIX}row_id"
 INPUT_HASH_COLUMN = f"{HIDDEN_PREFIX}input_hash"
 POSITION_COLUMN = f"{HIDDEN_PREFIX}pos"
@@ -210,7 +211,8 @@ class ExtensionPipeline:
 
         if self._needs_input_hash:
             # The hash is taken before any transformation: it identifies the row as it was read
-            hidden.append(self.row_hash.compute_input_hash(batch))
+            # (of the file's own columns: the raw copies the engine carries are not part of it)
+            hidden.append(self.row_hash.compute_input_hash(strip_hidden_columns(batch)))
             names.append(INPUT_HASH_COLUMN)
         if self._needs_row_ids:
             first = self._rows_seen + 1
@@ -274,7 +276,12 @@ class ExtensionPipeline:
         if len(current) != total:
             kept = set(kept_positions.to_pylist())
             rejected_positions = [p for p in range(total) if p not in kept]
-            rejected_batch = data.take(pa.array(rejected_positions, type=pa.int64()))
+            positions = pa.array(rejected_positions, type=pa.int64())
+            # As the input file had the rows when the engine kept a copy of them; otherwise the
+            # typed values under the input's names
+            rejected_batch = (
+                raw_rows(batch.take(positions)) if has_raw_columns(batch) else data.take(positions)
+            )
             reason_list = [
                 "; ".join(dict.fromkeys(reasons.get(p, ["REJECTED"])))[:_MAX_REASON_LENGTH]
                 for p in rejected_positions

@@ -28,7 +28,7 @@ from .extensions import (
 from .header_detector import HeaderDetector
 from .schema_processor import SchemaProcessor
 from .text_utils import sanitize_arrow_error
-from .type_conversion import to_string_batch
+from .type_conversion import raw_rows
 
 logger = logging.getLogger(__name__)
 
@@ -89,14 +89,15 @@ class _ParquetOutputs:
     ) -> None:
         """Append rejected rows to the bad rows file.
 
-        Rejected rows are stored as strings: a value that failed type conversion cannot live
-        in a typed column, and one stable schema lets rows from every batch share the file.
+        Rejected rows are stored as strings, as the input file had them: a value that failed type
+        conversion cannot live in a typed column, and one stable schema lets rows from every
+        batch share the file.
         When the file has a reason column (the schema asks for validation or constraints),
         ``reason`` is one text for all rows or one text per row.
         """
         if len(batch) == 0:
             return
-        batch = to_string_batch(strip_hidden_columns(batch))
+        batch = raw_rows(batch)
         if self._reason_column:
             batch = self._with_reason(batch, reason)
         if self.bad_writer is None:

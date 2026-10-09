@@ -217,6 +217,9 @@ class ColumnConverter:
 
         for index, name in enumerate(names):
             column = batch.column(index)
+            if is_hidden_column(name):  # the pipeline's own columns, e.g. the raw copies
+                arrays.append(column)
+                continue
             target = self.column_types.get(name)
             if target is None and established is not None:
                 position = established.get_field_index(name)
@@ -236,7 +239,7 @@ class ColumnConverter:
             return converted, None
 
         keep = pa.array([row not in failed for row in range(batch.num_rows)], type=pa.bool_())
-        rejected = to_string_batch(batch.take(pa.array(sorted(failed), type=pa.int64())))
+        rejected = raw_rows(batch.take(pa.array(sorted(failed), type=pa.int64())))
         return converted.filter(keep), rejected
 
     def mark_nulls(self, batch: pa.RecordBatch) -> pa.RecordBatch:
@@ -248,7 +251,7 @@ class ColumnConverter:
         arrays = [
             (
                 self._apply_nulls(column, name, self.column_types.get(name))
-                if _is_text(column.type)
+                if _is_text(column.type) and not is_hidden_column(name)
                 else column
             )
             for name, column in zip(batch.schema.names, batch.columns)
@@ -307,6 +310,64 @@ def _cast_isolated(
     left, _ = _cast_isolated(array.slice(0, middle), target, offset, bad)
     right, _ = _cast_isolated(array.slice(middle), target, offset + middle, bad)
     return pa.concat_arrays([left, right]), bad
+
+
+#: Prefix of the columns the engine adds temporarily; they never reach an output file.
+HIDDEN_COLUMN_PREFIX = "__forklift_"
+
+#: Prefix of the hidden copy of a column as it was read (see :func:`with_raw_columns`).
+RAW_COLUMN_PREFIX = HIDDEN_COLUMN_PREFIX + "raw__"
+
+
+def is_hidden_column(name: str) -> bool:
+    """Whether ``name`` is one of the engine's temporary columns."""
+    return name.startswith(HIDDEN_COLUMN_PREFIX)
+
+
+def visible_schema(schema: pa.Schema) -> pa.Schema:
+    """``schema`` without the temporary columns."""
+    return pa.schema([field for field in schema if not is_hidden_column(field.name)])
+
+
+def with_raw_columns(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """Append a hidden copy of every column, exactly as it was read.
+
+    Type conversion, null markers and transformations replace the values of a column; a row that
+    is rejected later (a value that does not convert, a missing required value, a validation or
+    constraint rule) is written to ``bad_rows.parquet`` from these copies, so the file shows
+    what the input said. Arrow arrays are immutable and the copies share the buffers of the
+    columns they were taken from, so this costs no copying of the data.
+    """
+    names = batch.schema.names
+    if len(set(names)) != len(names) or any(is_hidden_column(n) for n in names):
+        return batch  # ambiguous or reserved names: rejected rows fall back to the typed values
+    return pa.RecordBatch.from_arrays(
+        list(batch.columns) + list(batch.columns),
+        names=names + [RAW_COLUMN_PREFIX + name for name in names],
+    )
+
+
+def has_raw_columns(batch: pa.RecordBatch) -> bool:
+    """Whether ``batch`` carries the copies made by :func:`with_raw_columns`."""
+    return any(name.startswith(RAW_COLUMN_PREFIX) for name in batch.schema.names)
+
+
+def raw_rows(batch: pa.RecordBatch) -> pa.RecordBatch:
+    """The rows of ``batch`` as the file said them: the file's columns, all ``string``.
+
+    Uses the hidden copies when there are any. Columns without a copy (a batch that never went
+    through :func:`with_raw_columns`) are cast from their typed values.
+    """
+    names = batch.schema.names
+    arrays: List[pa.Array] = []
+    kept: List[str] = []
+    for position, name in enumerate(names):
+        if is_hidden_column(name):
+            continue
+        raw = batch.schema.get_field_index(RAW_COLUMN_PREFIX + name)
+        arrays.append(batch.column(raw if raw >= 0 else position))
+        kept.append(name)
+    return to_string_batch(pa.RecordBatch.from_arrays(arrays, names=kept))
 
 
 def to_string_batch(batch: pa.RecordBatch) -> pa.RecordBatch:

@@ -2,6 +2,15 @@
 
 Forklift uses JSON Schema as the foundation for data validation and processing configuration, with custom extensions to support advanced data processing features.
 
+> **Status of the examples.** This page is an overview of the schema vocabulary. The extensions that
+> have their own page (`x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling`, `x-csv`, `x-fwf`,
+> `x-special-type`, `x-transformations`, `x-calculatedColumns`, `x-rowHash`, `x-pii`, `x-columnMapping`,
+> `x-dataQuality`, `x-metadata-generation`) are specified there, and each of those pages says what the
+> code does with it; start from [README.md](./README.md#what-the-engine-applies-today). The sections
+> below on `x-json`, `x-parquet`, `x-constraints` and `x-processing` are illustrative designs: no code in
+> this version reads those four extensions. `import_csv` itself applies the property types, `required`,
+> `x-csv.parquetTypeMapping`, `x-csv.nulls` and `x-metadata-generation`.
+
 ## Table of Contents
 
 - [Base JSON Schema Structure](#base-json-schema-structure)
@@ -48,6 +57,12 @@ Forklift schemas follow the JSON Schema Draft 2020-12 specification:
   "required": ["customer_id", "name", "email"]
 }
 ```
+
+Property definitions may declare `type` as a string, as a nullable array (`["integer", "null"]`) or
+through a nullable `anyOf` / `oneOf` union (`{"anyOf": [{"type": "string"}, {"type": "null"}]}`). `required`
+must be an array of strings that name defined properties; the schema importers collect every problem
+they find (with its location, for example `Sheet 0 column 1 invalid type 'foo'` or
+`required[2] refers to unknown property 'x'`) into one `SchemaValidationError`.
 
 ## Forklift Extensions
 
@@ -98,38 +113,67 @@ Define additional unique constraints:
 
 ### Metadata Information (`x-metadata`)
 
-Rich metadata about each field (generated during schema inference):
+Column-level metadata written into a schema by schema generation (`generate_schema_from_*`, `forklift generate-schema`):
 
 ```json
 {
   "x-metadata": {
-    "customer_id": {
-      "distinct_count": 1247,
-      "null_count": 0,
-      "min_value": 1,
-      "max_value": 1247,
-      "is_potentially_unique": true
-    },
-    "status": {
-      "distinct_count": 3,
-      "null_count": 12,
-      "value_counts": {
-        "active": 890,
-        "inactive": 245,
-        "pending": 100
+    "analysis_config": {"rows_analyzed": 1247, "include_value_statistics": false},
+    "table_metadata": {"row_count": 1247, "column_count": 3, "source_file": "customers.csv"},
+    "column_metadata": {
+      "customer_id": {
+        "name": "customer_id",
+        "type": "int64",
+        "parquet_type": "int64",
+        "null_count": 0,
+        "distinct_count": 1247,
+        "uniqueness_ratio": 1.0,
+        "mean": 624.0,
+        "std_dev": 360.1,
+        "variance": 129688.0
       },
-      "suggested_enum": true
+      "status": {
+        "name": "status",
+        "type": "string",
+        "null_count": 12,
+        "distinct_count": 3,
+        "uniqueness_ratio": 0.0024,
+        "min_length": 6,
+        "max_length": 8
+      }
     },
-    "signup_date": {
-      "distinct_count": 456,
-      "null_count": 0,
-      "min_value": "2020-01-15",
-      "max_value": "2024-12-30",
-      "date_formats_detected": ["YYYY-MM-DD"]
+    "enum_suggestions": {
+      "status": {"is_enum_candidate": true, "confidence": "high", "distinct_count": 3}
     }
   }
 }
 ```
+
+By default the metadata contains **no cell values**: counts, null counts, distinct counts, uniqueness
+ratios, mean / standard deviation / variance, outlier counts, string-length statistics and enum
+*candidates* without their values. The statistics that copy values from the data appear only when
+schema generation is run with `include_value_statistics=True` (CLI `--include-value-stats`), because
+those values can be personal data:
+
+```json
+{
+  "x-metadata": {
+    "column_metadata": {
+      "customer_id": {"min_value": 1.0, "max_value": 1247.0, "median": 624.0, "quantiles": {"quantile_25": 312.5, "quantile_99_5": 1240.8},
+                      "top_values": [{"value": "1", "count": 1, "percentage": 0.08}]},
+      "status": {"top_values": [{"value": "active", "count": 890, "percentage": 71.4}]}
+    },
+    "enum_suggestions": {
+      "status": {"suggested_enum_values": ["active", "inactive", "pending"]}
+    }
+  }
+}
+```
+
+Quantile keys are the exact percentage (`0.995` is `quantile_99_5`); each requested quantile must be
+within 0..1. `source_file` is the file name, never the directory. The separate output metadata file
+written by `import_csv` has its own structure; see the [metadata generation
+documentation](./X_METADATA_GENERATION_DOCUMENTATION.md).
 
 ## File Format Configurations
 
@@ -150,9 +194,9 @@ Rich metadata about each field (generated during schema inference):
     "quotechar": "\"",
     "escapechar": "\\",
     "header": {
-      "mode": "present",
-      "row": 0
+      "mode": "present"
     },
+    "footer": {"mode": "regex", "pattern": "^(total|summary)\\b"},
     "nulls": {
       "global": ["", "NA", "NULL", "null", "None"],
       "perColumn": {
@@ -160,150 +204,107 @@ Rich metadata about each field (generated during schema inference):
         "comments": ["", "No comment", "-"]
       }
     },
-    "dataTypes": {
+    "parquetTypeMapping": {
       "customer_id": "int64",
       "name": "string",
       "salary": "double",
       "signup_date": "date32"
-    },
-    "validation": {
-      "enabled": true,
-      "onError": "log",
-      "maxErrors": 1000,
-      "badRowsPath": "./bad_rows/"
-    },
-    "preprocessing": {
-      "stringCleaning": {
-        "enabled": true,
-        "trimWhitespace": true,
-        "normalizeCase": false
-      },
-      "dateStandardization": {
-        "enabled": true,
-        "inferFormats": true,
-        "targetFormat": "YYYY-MM-DD"
-      }
     }
   }
 }
 ```
+
+See the [x-csv documentation](./X_CSV_DOCUMENTATION.md) for the exact values (`header.mode` is `present`,
+`absent`, `auto` or `stability_scan`; `footer.mode` is `regex` or `blank_line`) and for which parts the
+engine applies: the column types (`parquetTypeMapping`, falling back to each property's `type` /
+`format`) and `nulls`. Bad rows are always written to `bad_rows.parquet` in the output directory; there
+is no `validation` or `preprocessing` block.
 
 ### Excel Configuration (`x-excel`)
 
 **Unique Excel Features:**
-- **Multi-Sheet Support**: Specify worksheet by name or index
-- **Skip Rows**: Handle files with metadata or headers above data
-- **Cell Range Specification**: Process specific cell ranges
-- **Formula Evaluation**: Option to evaluate Excel formulas
+- **Multi-Sheet Support**: Select sheets by name, 0-based index or regex
+- **Header and Data Range**: `header.row` (0-based), `dataStartRow` / `dataEndRow` (1-based, inclusive), `header.mode` (`present`, `absent`, `auto`)
+- **Column Mapping**: Pick columns by letter or number and cast them with `parquetType`
+- **Cached Formula Values**: `valuesOnly` (default true) reads the values Excel stored, formulas without a cached value are null
+- **Resource limits**: `.xlsx` archives and sheets are read with size, row and cell limits (`ExcelInputConfig`)
 
 ```json
 {
   "x-excel": {
-    "sheet": "CustomerData",
-    "sheetIndex": 0,
-    "header": {
-      "mode": "present",
-      "row": 0
-    },
-    "skipRows": 2,
-    "maxRows": 10000,
-    "usecols": "A:E",
-    "evaluateFormulas": true,
+    "valuesOnly": true,
+    "dateSystem": "1900",
+    "sheets": [
+      {
+        "select": {"name": "CustomerData"},
+        "header": {"mode": "present", "row": 0},
+        "dataStartRow": 2,
+        "skipBlankRows": true,
+        "nameOverride": "customers",
+        "columns": [
+          {"name": "customer_id", "position": "A", "parquetType": "int64"},
+          {"name": "name", "position": "B"},
+          {"name": "signup_date", "position": "C", "parquetType": "date32"}
+        ]
+      }
+    ],
     "nulls": {
-      "global": ["", "NA", "NULL", "#N/A"]
-    },
-    "dataTypes": {
-      "customer_id": "int64",
-      "name": "string",
-      "signup_date": "date32"
-    },
-    "validation": {
-      "enabled": true,
-      "onError": "log"
+      "global": ["", "NA", "N/A", "#N/A"]
     }
   }
 }
 ```
 
+A single sheet can also be written as `"x-excel": {"sheet": "CustomerData", "header": {"row": 0}}`
+(this is the form the schema generator emits; `sheet` is a name or a 0-based index). Giving both
+`sheet` and `sheets` is an error. By default only empty and whitespace-only cells are null; `NA`
+stays text unless it is listed under `nulls`. `schema-standards/20250826-excel.json` contains a complete example `x-excel`
+block.
+
 ### Fixed-Width File Configuration (`x-fwf`)
 
 **Unique FWF Features:**
-- **Multi-Record Type Support**: Handle files with different record structures
+- **Multi-Record Type Support**: Handle files with different record structures (`conditionalSchemas`)
 - **Position-Based Field Definition**: Precise field positioning with start/length
-- **Record Type Flags**: Automatic record type detection based on flag fields
-- **Hierarchical Data Processing**: Support for header/detail/trailer record patterns
+- **Record Type Flags**: Record type detection based on a flag column
+- **Recorded problems**: unconvertible values and rejected lines are listed, not dropped silently (see the [x-fwf documentation](./X_FWF_DOCUMENTATION.md))
 
 ```json
 {
   "x-fwf": {
     "encoding": "utf-8",
-    "recordTypes": {
-      "header": {
-        "flag": {
-          "column": "record_type",
-          "position": {"start": 1, "length": 1},
-          "value": "H"
+    "conditionalSchemas": {
+      "flagColumn": {"name": "record_type", "start": 1, "length": 1, "parquetType": "string"},
+      "schemas": [
+        {
+          "flagValue": "H",
+          "description": "Header record",
+          "fields": [
+            {"name": "file_date", "start": 2, "length": 8, "parquetType": "string"},
+            {"name": "batch_id", "start": 10, "length": 10, "parquetType": "string"}
+          ]
         },
-        "fields": [
-          {
-            "name": "record_type",
-            "start": 1,
-            "length": 1,
-            "type": "string"
-          },
-          {
-            "name": "file_date",
-            "start": 2,
-            "length": 8,
-            "type": "string"
-          },
-          {
-            "name": "batch_id",
-            "start": 10,
-            "length": 10,
-            "type": "string"
-          }
-        ]
-      },
-      "detail": {
-        "flag": {
-          "column": "record_type",
-          "position": {"start": 1, "length": 1},
-          "value": "D"
-        },
-        "fields": [
-          {
-            "name": "record_type",
-            "start": 1,
-            "length": 1,
-            "type": "string"
-          },
-          {
-            "name": "customer_id",
-            "start": 2,
-            "length": 8,
-            "type": "integer"
-          },
-          {
-            "name": "amount",
-            "start": 10,
-            "length": 12,
-            "type": "decimal"
-          },
-          {
-            "name": "transaction_date",
-            "start": 22,
-            "length": 8,
-            "type": "string"
-          }
-        ]
-      }
+        {
+          "flagValue": "D",
+          "description": "Detail record",
+          "fields": [
+            {"name": "customer_id", "start": 2, "length": 8, "align": "right", "pad": "0", "parquetType": "int64"},
+            {"name": "amount", "start": 10, "length": 12, "align": "right", "parquetType": "double"},
+            {"name": "transaction_date", "start": 22, "length": 8, "parquetType": "string"}
+          ]
+        }
+      ]
     }
   }
 }
 ```
 
+Single-layout files use a plain `"fields": [...]` list instead. Fixed-width import is not wired into
+`import_fwf()` yet; use `FwfInputHandler` directly.
+
 ### JSON Configuration (`x-json`)
+
+> Illustrative only: JSON input is not implemented and no code reads `x-json`.
 
 **Unique JSON Features:**
 - **Nested Object Handling**: Flatten or preserve nested structures
@@ -330,6 +331,8 @@ Rich metadata about each field (generated during schema inference):
 ```
 
 ### Parquet Configuration (`x-parquet`)
+
+> Illustrative only: no code reads `x-parquet`. Parquet is read for schema generation (`generate_schema_from_parquet`) and is the output format of the importers.
 
 **Unique Parquet Features:**
 - **Column Subset Reading**: Read only specified columns for performance
@@ -358,6 +361,8 @@ Rich metadata about each field (generated during schema inference):
 ## Data Type Transformations
 
 Forklift provides comprehensive data transformation capabilities through the `x-transformations` property.
+
+> **Reading the examples in this section.** Each example is written as `"<column>": {"type": "<transformation>", "config": {...}}` for brevity. The form the processor (`SchemaBasedTransformer`) reads is `"x-transformations": {"column_transformations": {"<column>": {"<transformation>": {"enabled": true, ...config}}}}`, and the `config` options are exactly the fields of the matching config class in `forklift.utils.transformations.configs` (an unknown option raises `ValueError`). Transformation names: `string_cleaning`, `regex_replace`, `string_replace`, `string_padding`, `string_trimming`, `html_xml_cleaning`, `money_conversion`, `numeric_cleaning`, `datetime`, `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting`, `mac_address_formatting`. `import_csv` does not execute these transformations; see [X_TRANSFORMATIONS_DOCUMENTATION.md](./X_TRANSFORMATIONS_DOCUMENTATION.md).
 
 ### String Transformations
 
@@ -494,11 +499,10 @@ Forklift provides comprehensive data transformation capabilities through the `x-
     "ssn": {
       "type": "ssn_formatting",
       "config": {
-        "format": "dashed",
-        "mask": false,
-        "mask_char": "X",
+        "format_with_dashes": true,
+        "zero_pad": true,
         "validate": true,
-        "strict": false
+        "allow_invalid": false
       }
     }
   }
@@ -511,11 +515,11 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 {
   "x-transformations": {
     "zip_code": {
-      "type": "zip_formatting",
+      "type": "zip_code_formatting",
       "config": {
-        "format": "zip5",
+        "zip_type": "zip-5",
         "validate": true,
-        "pad_zeros": true
+        "zero_pad": true
       }
     }
   }
@@ -528,12 +532,11 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 {
   "x-transformations": {
     "phone": {
-      "type": "phone_formatting",
+      "type": "phone_number_formatting",
       "config": {
-        "format": "national",
-        "country_code": "US",
+        "format_style": "us-standard",
         "validate": true,
-        "strict": false
+        "allow_invalid": false
       }
     }
   }
@@ -549,8 +552,8 @@ Forklift provides comprehensive data transformation capabilities through the `x-
       "type": "email_formatting",
       "config": {
         "normalize_case": true,
-        "validate": true,
-        "strict": false
+        "validate_format": true,
+        "allow_invalid": false
       }
     }
   }
@@ -563,18 +566,18 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 {
   "x-transformations": {
     "ip_address": {
-      "type": "ip_formatting",
+      "type": "ip_address_formatting",
       "config": {
-        "version": "auto",
+        "ip_version": "both",
         "compress_ipv6": true,
         "validate": true
       }
     },
     "mac_address": {
-      "type": "mac_formatting",
+      "type": "mac_address_formatting",
       "config": {
-        "format": "colon",
-        "uppercase": true,
+        "format_style": "colon",
+        "case_style": "upper",
         "validate": true
       }
     }
@@ -601,9 +604,13 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 }
 ```
 
+HTML/XML cleaning is text extraction, not a security sanitizer: tags are stripped first, entities are decoded once afterwards (`5 &lt; 6` becomes `5 < 6`) and `<script>`/`<style>` content is dropped. Escape the result for the place where you use it.
+
 ## Validation Configuration
 
 ### Constraint Validation (`x-constraints`)
+
+> Illustrative only: the constraint extensions that exist are `x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling` and `x-dataQuality`; no code reads `x-constraints`.
 
 Define various data constraints:
 
@@ -671,6 +678,8 @@ Define various data constraints:
 ## Processing Configuration
 
 ### Enhanced Processing (`x-processing`)
+
+> Illustrative only: no code reads `x-processing`. The extensions that exist are `x-calculatedColumns`, `x-rowHash`, `x-columnMapping` and `x-dataQuality`.
 
 Configure comprehensive data transformation and processing:
 

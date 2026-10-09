@@ -28,45 +28,45 @@ The primary configuration class that controls all aspects of data import process
 ### ProcessingResults
 
 Tracks the outcomes of data processing operations, including:
-- Row counts (total, valid, invalid)
-- Generated file paths
-- Execution metrics
-- Error collection
+- Row counts: `total_rows`, `valid_rows`, `invalid_rows` and `truncated_rows` (rows cut to the header width)
+- Generated file paths: `output_files` (the data file and, when rows were rejected, the bad rows file), plus `bad_rows_file` to tell the rejected-rows file apart (`None` when nothing was rejected), `manifest_file` and `metadata_file`
+- Execution metrics (`execution_time`)
+- Error collection (`errors`): a failed run appends the message here and re-raises; a failure to write the output-metadata file (the data files are already complete by then) is recorded here without raising
 
 ### Enums
 
 #### HeaderMode
 Controls header detection behavior:
-- `PRESENT`: File contains headers to use
-- `ABSENT`: No headers, use schema or defaults
-- `AUTO`: Automatically detect header location
+- `PRESENT`: The first row that is not blank or a comment is the header (a header must appear within `header_search_rows` rows, otherwise `ValueError`)
+- `ABSENT`: No header row. Column names come from the schema, or are generated as `col_1`..`col_N` from the width of the first data row when there is no schema
+- `AUTO`: Pick the row within `header_search_rows` that looks most like a header (mostly text rather than numbers); falls back to the first row
+
+`header_mode` and `excess_column_mode` accept the enum member or its string value, case-insensitively (`"absent"`, `"ABSENT"`); anything else raises a `ValueError` listing the valid values.
 
 #### ExcessColumnMode
-Handles rows with more columns than expected:
-- `TRUNCATE`: Remove extra columns, keep row (default)
-- `REJECT`: Discard entire row with excess columns
-- `PASSTHROUGH`: Keep all columns, including those not in schema
+Handles data rows that have more fields than the header (or, in `ABSENT` mode, than the schema's columns):
+- `TRUNCATE`: Cut the row to the header width and keep it (default). The number of cut rows is reported in `ProcessingResults.truncated_rows` and logged as a warning
+- `REJECT`: Write the whole row to `bad_rows.parquet` (cut to the header width, so fields beyond it are not kept) and count it in `invalid_rows`
+- `PASSTHROUGH`: Keep every field and name the extra columns `col_N` (N is the 1-based position). The output schema is fixed by the first batch, so a wider row that appears after data has already been written raises a `ValueError` (put the widest row first, or use `TRUNCATE`/`REJECT`)
 
-**Important**: When using `TRUNCATE` mode with a schema that specifies only a subset of columns, Forklift will only keep the first N columns (where N is the number of columns in your schema) and discard all additional columns. This is positional truncation, not selective column filtering by name.
+Rows with *fewer* fields than the header are padded with empty strings in every mode.
 
-**Example**: If your CSV has 5 columns (`Name,Age,City,Country,Phone`) but your schema only defines 3 columns (`Name,Age,City`), the `Country` and `Phone` columns will be completely discarded in TRUNCATE mode.
+**Important**: the width that counts is the width of the header found in the file (in `ABSENT` mode: the schema's columns). A schema never adds or removes columns by itself: it only supplies types, null markers and `required` rules for the columns that exist in the file, matched by name. Schema properties that are not in the file are ignored (a *required* one that is missing from the file raises a `ValueError` before any row is read).
 
-**PASSTHROUGH Mode**: When using `PASSTHROUGH` mode, all columns from the input file are preserved in the output, even if they're not defined in your schema. Extra columns beyond the schema are automatically assigned default names like `col_4`, `col_5`, etc. This is useful when you want to capture all data from variable-width files while still applying schema validation to the known columns.
+**Example**: A file with the header `Name,Age,City` and a data row `Ann,41,Paris,France,555-1234`:
+- `TRUNCATE`: the row is kept as `Ann,41,Paris`; `truncated_rows` is incremented
+- `REJECT`: the row is written to `bad_rows.parquet` as `Ann,41,Paris`
+- `PASSTHROUGH`: the output columns are `Name,Age,City,col_4,col_5` (only if this row is reached before the first batch of data is written)
 
-**PASSTHROUGH Example**: 
-- CSV file has columns: `Name,Age,City,Country,Phone`
-- Schema defines only: `Name,Age,City` (3 columns)
-- Result: All columns are kept with names: `Name,Age,City,col_4,col_5`
+**Implementation**: This functionality is implemented in the `BatchProcessor` class located at `src/forklift/engine/processors/batch_processor.py`. The local Arrow reader requires every row to have exactly the header's field count; on the first row that does not, the rest of the file is read by a row-by-row reader (the S3 reader always works this way) which applies the mode:
+- For `TRUNCATE` mode: Excess columns are removed using `row[:expected_columns]` and counted in `truncated_rows`
+- For `REJECT` mode: The row is handed to the bad rows writer
+- For `PASSTHROUGH` mode: Extra columns get auto-generated names
+- Short rows are padded with empty strings regardless of mode
 
-**Implementation**: This functionality is implemented in the `BatchProcessor` class located at `src/forklift/engine/processors/batch_processor.py`. The logic is applied during CSV row processing where:
-- For `TRUNCATE` mode: Excess columns are removed using `row[:expected_columns]` 
-- For `REJECT` mode: The entire row is skipped when excess columns are detected
-- For `PASSTHROUGH` mode: All columns are preserved and extra columns get auto-generated names
-- The implementation also handles insufficient columns by padding with empty strings regardless of mode
-
-**Testing**: The functionality is validated by unit tests in `tests/test_batch_processor.py`:
+**Testing**: The functionality is validated by unit tests in `tests/unit-tests/test_batch_processor.py`:
 - `test_create_s3_csv_batches_excess_columns_truncate()` - Tests that excess columns are properly removed while preserving the row
-- `test_create_s3_csv_batches_excess_columns_reject()` - Tests that rows with excess columns are completely discarded
+- `test_create_s3_csv_batches_excess_columns_reject()` - Tests that rows with excess columns are rejected
 - `test_create_s3_csv_batches_excess_columns_passthrough()` - Tests that all columns are preserved with auto-generated names for extras
 
 ## Usage Examples
@@ -87,7 +87,7 @@ config = ImportConfig(
 ### Advanced Configuration with Schema Validation
 
 ```python
-from forklift.engine.config import ImportConfig, ExcessColumnMode
+from forklift.engine.config import ExcessColumnMode, HeaderMode, ImportConfig
 
 config = ImportConfig(
     input_path="data/complex.csv",
@@ -95,11 +95,10 @@ config = ImportConfig(
     schema_file="schemas/data_schema.json",
     delimiter="|",
     encoding="utf-8",
-    header_mode=HeaderMode.AUTO,
+    header_mode=HeaderMode.AUTO,        # or the string "auto"
     header_search_rows=5,
-    excess_column_mode=ExcessColumnMode.REJECT,
+    excess_column_mode=ExcessColumnMode.REJECT,  # or "reject"
     validate_schema=True,
-    max_validation_errors=100,
     create_manifest=True,
     compression="gzip"
 )
@@ -108,57 +107,56 @@ config = ImportConfig(
 ### Processing Results Usage
 
 ```python
-from forklift.engine.config import ProcessingResults
+from forklift import import_csv
 
-# After processing operation
-results = ProcessingResults(
-    total_rows=10000,
-    valid_rows=9850,
-    invalid_rows=150,
-    output_files=["output_001.parquet", "output_002.parquet"],
-    execution_time=45.2
-)
+results = import_csv("data/input.csv", "data/output/", schema_file="schemas/data_schema.json")
 
 print(f"Success rate: {results.valid_rows / results.total_rows * 100:.2f}%")
+if results.bad_rows_file:
+    print(f"{results.invalid_rows} rejected rows are in {results.bad_rows_file}")
+print(f"{results.truncated_rows} rows were cut to the header width")
+for message in results.errors:  # e.g. the output metadata file could not be written
+    print("Warning:", message)
 ```
 
 ## Configuration Parameters
 
 ### File Handling
-- `input_path`: Source file location
-- `output_path`: Destination directory
-- `schema_file`: Optional JSON schema for validation
-- `encoding`: Text encoding (default: utf-8)
+- `input_path`: Source file location (local path or `s3://` URI)
+- `output_path`: Destination directory (local path or `s3://` prefix). `data.parquet` and `bad_rows.parquet` of an earlier run in that location are removed when processing starts, so a re-run never leaves stale outputs next to the new ones
+- `schema_file`: Optional JSON schema (local or `s3://`). Its types are applied to the output: the `x-csv.parquetTypeMapping` entry first, otherwise the JSON `type`/`format`. A column typed `string` keeps its text exactly (`00123` stays `00123`). A value that cannot be converted sends its row to `bad_rows.parquet`. Columns that are not in the schema keep Arrow's type inference on the local path and stay strings on the S3 path
+- `encoding`: Text encoding (default: utf-8); a UTF-8 byte order mark is ignored
 
 ### CSV Processing
 - `delimiter`: Field separator (default: comma)
 - `quote_char`: Quote character (default: double quote)
 - `escape_char`: Escape character for special chars
-- `skip_blank_lines`: Skip empty rows (default: True)
+- `skip_blank_lines`: Only used while looking for the header (blank rows above it are skipped). Completely empty lines in the data section are always skipped
 
 ### Header Processing
-- `header_mode`: Header detection strategy
-- `header_search_rows`: Max rows to scan for headers (default: 10)
-- `comment_rows`: Regex patterns for comment detection
+- `header_mode`: Header detection strategy (enum member or case-insensitive string such as `"absent"`)
+- `header_search_rows`: Max rows to scan for headers (default: 10); no header inside the window is an error
+- `comment_rows`: Regex patterns for comment rows. Only applied while looking for the header (matching rows above it are skipped; lines below the header are never comments). With the default `None`, only a row that is a single `#...` cell counts as a comment (so `# Generated: 2025-01-01` is skipped but a header such as `#,name,amount` is a header); `comment_rows=[]` turns comment detection off
+- `footer_detection`: Dictionary, for example `{"stop_on_blank": True}` or `{"column_index": 0, "patterns": ["^Total"]}`; processing stops at the first matching row
 
 ### Validation & Error Handling
-- `validate_schema`: Enable schema validation (default: True)
-- `max_validation_errors`: Error threshold before stopping (default: 1000)
-- `excess_column_mode`: Strategy for extra columns
+- `validate_schema`: Enforce the schema's `required` columns (default: True). Required columns are matched by column *name*; a null or an empty string in a required column sends the row to `bad_rows.parquet`. A required column that is missing from the input raises `ValueError`
+- `max_validation_errors`: Reserved, not enforced: every invalid row goes to `bad_rows.parquet` and processing continues
+- `excess_column_mode`: Strategy for extra columns (enum member or string)
 
 ### Output Options
-- `batch_size`: Rows per processing batch (default: 10000)
+- `batch_size`: Upper bound on rows per batch written (default: 10000). The local reader produces batches of roughly 1 MiB, which are only split down to this size, so smaller batches can occur; the S3 reader buffers exactly this many rows
+- `include_value_statistics`: Allow value-bearing statistics (top values, min/max, median, mode, quantiles) in `output_data_metadata.json` (default: False, because cell values can be personal data)
 - `create_manifest`: Generate manifest file (default: True)
-- `create_metadata`: Generate metadata file (default: True)
+- `create_metadata`: Generate the metadata files (default: True)
 - `compression`: Output compression type (default: snappy)
 
 ## Error Handling
 
-The module provides robust error handling through:
-- Configurable validation error limits
-- Multiple strategies for malformed data
-- Comprehensive error collection in ProcessingResults
-- Graceful handling of schema mismatches
+The module provides error handling through:
+- Row-level isolation: rows with an unconvertible value, an empty/null required column or (with `REJECT`) excess fields are written to `bad_rows.parquet` instead of aborting the run
+- Run-level failures (unreadable input, undecodable bytes, invalid schema, no header found) raise, are appended to `ProcessingResults.errors`, and leave no partial `data.parquet`/`bad_rows.parquet` behind: local partial files are removed and S3 uploads are not completed
+- Clear `ValueError`s for invalid enum values and missing required columns
 
 ## Performance Considerations
 
@@ -173,9 +171,8 @@ This configuration module integrates with the broader Forklift engine:
 
 ```python
 from forklift.engine.config import ImportConfig
-from forklift.engine import DataProcessor
+from forklift.engine.forklift_core import ForkliftCore
 
 config = ImportConfig(input_path="data.csv", output_path="output/")
-processor = DataProcessor(config)
-results = processor.process()
+results = ForkliftCore(config).process_csv()
 ```

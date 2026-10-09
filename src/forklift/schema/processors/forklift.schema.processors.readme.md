@@ -12,23 +12,25 @@ The core processor responsible for converting PyArrow table structures into JSON
 - **Required Field Detection**: Analyzes data to determine which fields should be required based on null value presence
 - **Type Mapping**: Handles complex type conversions including nested structures, dates, and custom formats
 - **Schema Extensions**: Generates file-format specific extensions (x-csv, x-excel)
-- **Sample Data Integration**: Embeds representative data samples in schema definitions
+- **Sample Data Integration**: Embeds the first rows as JSON-safe samples (dates and timestamps as ISO strings, decimals as strings, NaN/infinity as null) when `include_sample_data` is set
 
 ### ConfigurationParser
 Generates configuration objects and extensions for data processing pipelines:
-- **Primary Key Configuration**: Analyzes data uniqueness and cardinality to suggest primary key candidates
+- **Primary Key Configuration**: Infers a primary key only from columns that are exactly unique and null-free in the analysed rows (the key is written with `enforceUniqueness: true`) and whose name contains a whole `id`, `key`, `pk`, `uuid` or `guid` token (`user_id`, `userId`, not `width` or `paid`)
 - **Transformation Extensions**: Creates transformation rule templates based on data characteristics
 - **Processing Hints**: Generates optimization suggestions for large datasets
 - **Validation Rules**: Constructs field-level validation constraints
 - **Column Analysis**: Provides detailed column-level processing recommendations
 
 ### MetadataGenerator
-Extracts and formats comprehensive metadata from data sources:
-- **Statistical Analysis**: Calculates distributions, quartiles, and data quality metrics
-- **Data Profiling**: Generates column profiles including uniqueness, null rates, and value distributions
-- **Type Confidence**: Provides confidence scores for type inference decisions
-- **Data Quality Metrics**: Identifies potential data quality issues and anomalies
-- **Schema Versioning**: Tracks schema evolution and compatibility information
+Extracts and formats metadata from data sources using `pyarrow.compute` (no pandas):
+- **Privacy**: raw cell values are only embedded when the caller sets `include_value_statistics=True` (`top_values`, `bottom_values`, `suggested_enum_values`, `min_value`, `max_value`, `median`, `range`, `quantiles`). Without it the metadata keeps counts, null/NaN statistics, type information, distinct counts, mean/standard deviation/variance, outlier counts and string-length statistics. Only the source file name is recorded
+- **Robustness**: list, struct, map and other unhashable columns get null/type statistics but no distinct-value statistics; dictionary columns are analysed on their decoded values; undefined statistics (such as the standard deviation of one row) are `null` and the result is strict JSON
+- **Quantiles**: configured quantiles must be within 0..1 (`ValueError` otherwise) and are keyed by their percentage, for example `quantile_29` and `quantile_99_5`
+- **Statistical Analysis**: Numeric columns get count, null and NaN counts, mean, standard deviation, variance, coefficient of variation and IQR outlier counts; quartiles, median, range and the configured quantiles only with `include_value_statistics`
+- **Data Profiling**: Generates column profiles including uniqueness, null rates and string-length statistics; value distributions (`top_values`, `bottom_values`) only with `include_value_statistics`
+- **Enum suggestions**: A column is an enum candidate when its uniqueness ratio is at most `enum_threshold` (default 0.1), it has at most 50 distinct values and it is below `uniqueness_threshold`; the suggestion carries `suggested_enum_values` only with `include_value_statistics`
+- **Source**: `table_metadata.source_file` is the file name, not the path
 
 ## Processing Capabilities
 
@@ -47,18 +49,14 @@ Extracts and formats comprehensive metadata from data sources:
 - **Null Handling**: Configures nullable field specifications
 
 ### File Format Processing
-- **CSV Extensions**: Delimiter, encoding, and parsing configuration
-- **Excel Extensions**: Sheet references, cell formatting, and range specifications
-- **Parquet Extensions**: Column statistics, compression settings, and schema metadata
-- **Fixed-Width Extensions**: Field positions, padding, and alignment specifications
+- **CSV Extensions**: `x-csv` with encoding priority, delimiter, quote/escape characters, null markers and the Parquet type of each column
+- **Excel Extensions**: `x-excel` with the sheet (a name or 0-based index), header and null markers
 
 ## Configuration Generation
 
 ### Primary Key Analysis
-- **Uniqueness Detection**: Identifies columns with high uniqueness ratios
-- **Composite Key Analysis**: Suggests multi-column primary key combinations
-- **Data Distribution**: Analyzes value distributions to assess key quality
-- **Performance Optimization**: Recommends indexing strategies based on key characteristics
+- **Uniqueness Detection**: A column is only a candidate if every analysed value is distinct (uniqueness ratio 1.0), it has no nulls or NaN, and its name contains an `id`, `key`, `pk`, `uuid` or `guid` word token
+- **Single column only**: composite keys are not inferred; a composite key can be supplied through `user_specified_primary_key`
 
 ### Transformation Templates
 - **Data Cleaning**: Generates rules for common data quality issues
@@ -70,10 +68,10 @@ Extracts and formats comprehensive metadata from data sources:
 ## Metadata Extraction
 
 ### Statistical Profiling
-- **Descriptive Statistics**: Mean, median, mode, standard deviation for numeric data
-- **Distribution Analysis**: Histograms, percentiles, and outlier detection
-- **Categorical Analysis**: Value counts, frequency distributions, and cardinality metrics
-- **Temporal Analysis**: Date ranges, seasonal patterns, and time series characteristics
+- **Descriptive Statistics**: Mean, standard deviation and variance for numeric data; median, range and min/max only with `include_value_statistics`
+- **Distribution Analysis**: Percentiles (opt-in) and IQR outlier counts
+- **Categorical Analysis**: Cardinality metrics always; value counts and frequency distributions (`top_values`) only with `include_value_statistics`
+- **Temporal columns**: type, null and distinct-count statistics (no min/max dates are computed)
 
 ### Data Quality Assessment
 - **Completeness Metrics**: Null value analysis and missing data patterns
@@ -107,8 +105,10 @@ transformation_config = parser.generate_transformation_extension(table)
 from forklift.schema.processors import MetadataGenerator
 
 generator = MetadataGenerator()
-metadata = generator.generate_metadata(table, config)
-profile = generator.generate_column_profiles(table)
+metadata = generator.generate_metadata(
+    table,
+    {"enum_threshold": 0.1, "quantiles": [0.25, 0.5, 0.75], "include_value_statistics": False},
+)
 ```
 
 ## Integration Points
@@ -120,13 +120,9 @@ profile = generator.generate_column_profiles(table)
 
 ### External Dependencies
 - **PyArrow**: Core data processing and type system
-- **Pandas**: Statistical analysis and data manipulation
-- **NumPy**: Numerical computations and array operations
+- **PyArrow compute**: Statistical analysis (no pandas or NumPy required)
 
 ## Performance Optimizations
 
-- **Lazy Evaluation**: Deferred computation for large datasets
-- **Sampling Strategies**: Statistical sampling for performance-critical operations
-- **Memory Management**: Efficient processing of large tables
-- **Parallel Processing**: Multi-threaded analysis for independent operations
-- **Caching**: Result caching for repeated operations
+- **Vectorised statistics**: all statistics use `pyarrow.compute` kernels on the sampled table
+- **Sampling**: the caller chooses the sample with `nrows` before the table reaches these processors

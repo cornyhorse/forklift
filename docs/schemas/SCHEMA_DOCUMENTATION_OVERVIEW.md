@@ -7,11 +7,14 @@ This folder contains comprehensive documentation for Forklift's schema system, d
 ### [SCHEMA_STANDARDS.md](SCHEMA_STANDARDS.md)
 **Complete reference for Forklift schema configuration**
 - JSON Schema extensions and custom properties
-- File format configurations (CSV, Excel, FWF, JSON, Parquet)
+- File format configurations (CSV, Excel, FWF; the JSON and Parquet blocks are illustrative, no code reads them)
 - Data type transformations (string, numeric, datetime, format-specific)
 - Validation rules and constraint definitions
 - Processing configuration options
 - Comprehensive examples and use cases
+
+### [README.md](README.md)
+**Index of the per-extension pages** (`x-csv`, `x-fwf`, `x-transformations`, `x-metadata-generation`, ...), including a table of which schema parts `import_csv` actually applies today.
 
 ## Planned Additions
 

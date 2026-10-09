@@ -3,6 +3,23 @@
 ## Overview
 This directory contains comprehensive documentation for Forklift's extended JSON schema attributes (x-attributes) that provide powerful data processing, validation, transformation, and quality management capabilities beyond standard JSON schema functionality.
 
+## What the engine applies today
+
+The extensions below are the schema vocabulary. Which of them the code acts on differs:
+
+| Applied by `import_csv` / `read_csv` | Schema part |
+| --- | --- |
+| Column types | `properties.<col>.type` / `format`, overridden by `x-csv.parquetTypeMapping`; values that do not convert send the row to `bad_rows.parquet` |
+| Required columns | `required` (matched by column name; null or empty string rejects the row) |
+| Null markers | `x-csv.nulls` (`global` and `perColumn`) |
+| Metadata settings | `x-metadata-generation`: `enabled`, `enum_detection.uniqueness_threshold`, `statistics.categorical.top_n_values`, `statistics.numeric.quantiles` |
+
+Read settings such as delimiter, encoding, header handling and batch size come from the keyword arguments of `import_csv` (`ImportConfig`), not from `x-csv`. `import_excel` reads `x-excel` (sheets, header, columns, nulls) and `import_sql` reads `x-sql` (tables).
+
+The remaining extensions (`x-transformations`, `x-special-type`, `x-calculatedColumns`, `x-rowHash`, `x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling`, `x-dataQuality`, `x-columnMapping`) are implemented by classes in `forklift.processors` and `forklift.utils.transformations` that you can run on PyArrow data yourself; `import_csv` does not execute them. `x-pii` is not read by any code. Each feature document states what it describes.
+
+Statistics that copy cell values into metadata (top/bottom values, min/max, quantiles, enum value lists, samples) are never produced by a schema setting: they need `include_value_statistics=True` / `--include-value-stats`, because those values can be personal data.
+
 ## Complete Feature Set
 
 ### Core Data Integrity Features
@@ -54,7 +71,8 @@ Advanced data transformation and standardization capabilities.
 - **Numeric Cleaning:** Thousands separators, decimal handling, NaN processing
 - **Money Type:** Currency symbol removal, parentheses negative notation
 - **DateTime Parsing:** Multiple format support, fuzzy parsing, timezone handling
-- **File-Type Specific:** FWF, SQL, and CSV-specific transformations
+- **Format Transformations:** SSN, ZIP, phone, email, IP and MAC address formatting
+- **HTML/XML Cleaning:** Tag stripping and entity decoding (text extraction, not a sanitizer)
 
 ### Data Enhancement Features
 
@@ -100,7 +118,7 @@ Advanced CSV processing with robust parsing and type mapping.
 
 **Features:**
 - **Encoding Detection:** Multi-encoding support with priority ordering
-- **Delimiter Detection:** Automatic delimiter detection and custom format support
+- **Delimiter:** A single character (`auto` passes schema validation, but no automatic detection is performed)
 - **Header/Footer Handling:** Flexible header detection and footer exclusion
 - **Null Handling:** Global and per-column null value configuration
 - **Type Mapping:** Explicit Parquet type mapping with inference fallback
@@ -122,9 +140,9 @@ Automatic metadata analysis and statistics generation.
 
 **Analysis Types:**
 - **Enum Detection:** Automatic categorical data identification
-- **Statistical Analysis:** Comprehensive numeric statistics with quantiles and outlier detection
-- **String Analysis:** Length statistics and pattern analysis
-- **Performance Optimization:** Configurable sampling for large datasets
+- **Statistical Analysis:** Numeric mean / standard deviation / variance and outlier counts; min/max, median and quantiles only with `include_value_statistics`
+- **String Analysis:** Length statistics (`min_length` / `max_length`) and character-class counts
+- **Performance Optimization:** Streaming collection with a distinct-value tracking cap and seeded reservoir sampling for quantiles (the output metadata flags `distinct_count_is_lower_bound` and `quantiles_are_estimated`)
 
 #### [x-dataQuality](./X_DATA_QUALITY_DOCUMENTATION.md)
 Comprehensive data quality assessment and enforcement.

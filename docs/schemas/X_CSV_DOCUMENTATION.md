@@ -3,6 +3,18 @@
 ## Overview
 The `x-csv` extension provides comprehensive CSV file processing configuration with advanced parsing options, encoding detection, delimiter handling, header scanning, and Parquet type mapping. This feature enables robust processing of CSV files with varying formats and quality issues.
 
+## What is applied and what is only validated
+
+`CsvSchemaImporter` validates the whole extension (a schema needs `$schema` 2020-12, an `$id` under `https://github.com/cornyhorse/forklift/schema-standards/`, a `title`, `type: object` and an `x-csv` object; every problem found is reported in one `SchemaValidationError`). `forklift.import_csv()` reads only these parts of it:
+
+- `parquetTypeMapping` (together with each property's JSON `type` / `format`): the column types of the output. Columns declared `string` keep their text exactly (`00123` stays `00123`); a value that does not convert sends its row to `bad_rows.parquet`
+- `nulls` (`global` and `perColumn`): text values that become NULL
+- the schema's `required` list (matched by column name; null and empty strings reject the row)
+
+Everything else here (`encodingPriority`, `delimiter`, `quotechar`, `escapechar`, `multiline`, `header`, `footer`, `case`) documents the file layout and is validated, but the engine takes its read settings from `ImportConfig` (`encoding`, `delimiter`, `quote_char`, `escape_char`, `header_mode`, `comment_rows`, `footer_detection`, ...). In particular there is no encoding fallback chain and no delimiter auto-detection in the engine; the CLI's `--encoding-priority` accepts a list but only its first entry is used.
+
+Property definitions may declare `type` as a string, a nullable array (`["integer", "null"]`) or a nullable `anyOf` / `oneOf` union; `required` must list names of defined properties. Validation errors name the field, for example `Invalid type 'foo' for field 'age'` or `required[1] refers to unknown property 'x'`.
+
 ## Schema Structure
 ```json
 {
@@ -51,9 +63,10 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 
 #### `encodingPriority`
 - **Type**: Array of strings
-- **Description**: Priority order for encoding detection attempts
-- **Default**: `["utf-8-sig", "utf-8", "latin-1"]`
-- **Implementation**: Tries encodings in order until successful parsing
+- **Description**: Priority order of the encodings the file may use
+- **Default**: `["utf-8-sig", "utf-8", "latin-1"]` in generated schemas
+- **Validation**: Any text encoding Python's `codecs` module knows is accepted (`utf-8`, `iso-8859-1`, `cp1250`, `utf-16`, `cp037`, ...); an unknown or non-text codec is a validation error
+- **Implementation**: The importer exposes the list (`get_encoding_priority()`); the engine itself uses the single `encoding` of `ImportConfig` and does not retry other encodings. A file that cannot be decoded raises a `ValueError` asking for the right encoding
 - **Common Encodings**:
   - `"utf-8-sig"`: UTF-8 with BOM (Byte Order Mark)
   - `"utf-8"`: Standard UTF-8
@@ -65,15 +78,15 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 
 #### `delimiter`
 - **Type**: String or "auto"
-- **Description**: CSV field delimiter character
-- **Values**: 
-  - `"auto"`: Automatic delimiter detection
+- **Description**: CSV field delimiter character. Must be `"auto"` or exactly one character
+- **Values**:
+  - `"auto"`: Accepted by validation; no automatic detection is performed by the engine (set `ImportConfig.delimiter`)
   - `","`: Comma (standard CSV)
   - `";"`: Semicolon (European CSV)
   - `"\t"`: Tab (TSV files)
   - `"|"`: Pipe delimiter
   - Custom single character
-- **Default**: `"auto"`
+- **Default**: `","` for `ImportConfig`; `get_delimiter()` returns `","` when the key is absent
 
 #### `quotechar`
 - **Type**: String
@@ -98,12 +111,12 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 #### `header.mode`
 - **Type**: String
 - **Description**: Strategy for detecting header row
-- **Values**:
-  - `"stability_scan"`: Scan for stable header patterns using keywords
-  - `"first_row"`: Always use first row as header
-  - `"no_header"`: File has no header row
-  - `"auto_detect"`: Automatically determine if header exists
-  - `"skip_to_keywords"`: Skip rows until keywords found
+- **Values** (anything else is a validation error):
+  - `"present"`: The first row that is not blank or a comment is the header
+  - `"absent"`: File has no header row (columns come from the schema, or are `col_1`, `col_2`, ...)
+  - `"auto"`: Pick the row (within `header_search_rows`) that looks most like a header
+  - `"stability_scan"`: Scan for stable header patterns using `keywords` (requires a non-empty `keywords` list)
+- **Engine equivalent**: `ImportConfig.header_mode` (`PRESENT`, `ABSENT`, `AUTO`; strings are accepted). A header must be found within `header_search_rows` rows or a `ValueError` is raised. With `comment_rows=None` only a single-cell `#...` row above the header counts as a comment (`#,name,amount` is a header); `comment_rows=[]` disables comments
 
 #### `header.keywords`
 - **Type**: Array of strings
@@ -113,7 +126,7 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 
 #### `header.skipRows`
 - **Type**: Integer
-- **Description**: Number of rows to skip before looking for header
+- **Description**: Number of rows to skip before looking for header. Not read by the importer or the engine (use `comment_rows` / `header_search_rows`)
 - **Default**: `0`
 
 ### Footer Detection and Handling
@@ -121,11 +134,10 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 #### `footer.mode`
 - **Type**: String
 - **Description**: Strategy for detecting footer content
-- **Values**:
-  - `"regex"`: Use regular expression to identify footer rows
-  - `"row_count"`: Skip last N rows
-  - `"keyword"`: Look for specific footer keywords
-  - `"none"`: No footer processing
+- **Values** (anything else is a validation error):
+  - `"regex"`: Use regular expression to identify footer rows (requires `pattern`, which must compile)
+  - `"blank_line"`: A blank line ends the data
+- **Engine equivalent**: `ImportConfig.footer_detection`, for example `{"stop_on_blank": True}` or `{"column_index": 0, "patterns": ["^Total"]}`
 
 #### `footer.pattern`
 - **Type**: String
@@ -135,21 +147,20 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 
 #### `footer.skipLastRows`
 - **Type**: Integer
-- **Description**: Number of rows to skip from end of file
-- **Use**: When footer has fixed number of rows
+- **Description**: Not read by the importer or the engine
 
 ### Null Value Handling
 
 #### `nulls.global`
 - **Type**: Array of strings
 - **Description**: Global null value representations
-- **Default**: `["", "NA", "N/A", "-", "NULL"]`
-- **Implementation**: These string values are converted to null across all columns
+- **Default**: none. `get_null_values()` returns `[""]` when the key is absent, and without an `x-csv.nulls` block the engine only applies Arrow's own null markers to non-string columns (string columns keep every text value, including the empty string)
+- **Implementation**: These string values are converted to null across all columns. The generated schemas suggest `["", "NA", "N/A", "-", "NULL", "null"]`; note that the schema sampler itself does not treat `NA` as null (it can be a real value)
 
 #### `nulls.perColumn`
 - **Type**: Object
 - **Description**: Column-specific null value representations
-- **Implementation**: Overrides global null handling for specific columns
+- **Implementation**: Overrides (replaces, it does not extend) the global list for those columns
 - **Use Cases**:
   - Financial data: `"0.00"` as null for optional amounts
   - JSON fields: `"{}"` as null for empty objects
@@ -160,12 +171,11 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 #### `case.standardizeNames`
 - **Type**: String
 - **Description**: Column name standardization strategy
-- **Values**:
-  - `"postgres"`: PostgreSQL naming (lowercase, underscores)
-  - `"snake_case"`: Snake case formatting
-  - `"camelCase"`: Camel case formatting
-  - `"PascalCase"`: Pascal case formatting
-  - `"none"`: No standardization
+- **Values** (anything else is a validation error):
+  - `"postgres"`: PostgreSQL naming (lowercase ASCII, underscores, accents transliterated, at most 63 characters)
+  - `"snake_case"`: Snake case formatting (`User ID` -> `user_id`, `customerName` -> `customer_name`)
+  - `"camelCase"`: Camel case formatting (`user_id` -> `userId`)
+- **Where it applies**: `CsvSchemaImporter.standardize_column_names()`; `import_csv` does not rename columns
 
 #### `case.dedupeNames`
 - **Type**: String
@@ -174,6 +184,7 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
   - `"suffix"`: Add numeric suffix (name_1, name_2)
   - `"prefix"`: Add numeric prefix (1_name, 2_name)
   - `"error"`: Raise error on duplicates
+- **Note**: It is applied together with `standardizeNames`; without `standardizeNames` the importer returns the names unchanged. With `postgres`, suffixed names stay within the 63-character limit
 
 ### Parquet Type Mapping
 
@@ -181,38 +192,35 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 - **Type**: Object
 - **Description**: Explicit mapping from CSV columns to Parquet data types
 - **Purpose**: Override automatic type inference with specific types
-- **Supported Types**:
+- **Keys**: must be properties of the schema (`Parquet type mapping for unknown field` is a validation error)
+- **Supported Types** (the grammar is strict: units, precision, scale and nesting are parsed, a malformed string is rejected rather than prefix-matched):
   - **Numeric**: `int8`, `int16`, `int32`, `int64`, `uint8`, `uint16`, `uint32`, `uint64`
   - **Floating**: `float32`, `double`
-  - **Decimal**: `decimal128(precision,scale)`
+  - **Decimal**: `decimal128(precision,scale)` (precision 1-38), `decimal256(precision,scale)` (1-76)
   - **Boolean**: `bool`
-  - **String**: `string`
-  - **Temporal**: `date32`, `timestamp[us]`, `duration[s]`
-  - **Complex**: `list<type>`, `struct`, `dictionary<values=type, indices=type>`
-  - **Binary**: `binary`
+  - **String**: `string`, `large_string`
+  - **Temporal**: `date32`, `date64`, `time32[s|ms]`, `time64[us|ns]`, `timestamp[s|ms|us|ns]`, `timestamp[us, tz=UTC]`, `duration[s|ms|us|ns]`
+  - **Complex**: `list<type>`, `large_list<type>`, `struct`, `dictionary<values=type, indices=int type>`
+  - **Binary**: `binary`, `large_binary`
+- **In `import_csv`**: scalar types, `decimal128/256`, `timestamp`, `duration` and `dictionary` are built from the CSV text. Nested types (`list<...>`, `struct`) cannot be parsed from a CSV cell, so such a column stays `string`. Timestamps without a time zone also accept values with a `Z` or UTC offset (the UTC wall time is kept)
 
 ## Advanced Features
 
 ### Automatic Type Inference
 When Parquet types are not explicitly specified, the system automatically infers types:
 
-1. **Integer Detection**: Identifies numeric columns with whole numbers
-2. **Float Detection**: Identifies decimal numbers
-3. **Boolean Detection**: Recognizes true/false, yes/no, 1/0 patterns
-4. **Date Detection**: Identifies common date formats
-5. **String Fallback**: Default type for unrecognized patterns
+- **Schema generation** (`generate_schema_from_csv`) reads every sampled value as text and applies fixed rules: integers must match `-?(0|[1-9]\d*)` (so `02134` stays a string), then plain decimal numbers, `true`/`false` booleans (any case), `YYYY-MM-DD` dates (`date32`), `YYYY-MM-DD[T ]HH:MM[:SS[.f]]` timestamps (with or without a UTC offset), otherwise string. Empty values and `NULL`, `null`, `N/A`, `n/a`, `#N/A`, `NaN`, `nan` count as missing; `NA` does not.
+- **`import_csv`** uses the schema's types for the columns it lists; other columns keep Arrow's inference when the file is read locally and are strings when it is read from S3.
 
 ### Error Recovery
-- **Malformed Rows**: Handle rows with wrong number of fields
-- **Encoding Errors**: Retry with different encodings
-- **Type Conversion Errors**: Route problematic values to bad rows
-- **Quote Mismatch**: Attempt to repair unbalanced quotes
+- **Malformed Rows**: Rows with fewer fields are padded; rows with more fields follow `ImportConfig.excess_column_mode` (`TRUNCATE` to the header width and count them in `truncated_rows`, `REJECT` to `bad_rows.parquet`, or `PASSTHROUGH` into extra `col_N` columns)
+- **Encoding Errors**: A file that is not valid in the configured encoding raises a `ValueError` that names the byte offset and asks for the right `encoding`; there is no retry with other encodings
+- **Type Conversion Errors**: The whole row goes to `bad_rows.parquet` (all-string columns in the shape of the header)
+- **Blank lines** are skipped
 
 ### Performance Optimization
-- **Streaming Processing**: Process large files without loading entirely into memory
-- **Chunk Processing**: Process files in configurable chunks
-- **Parallel Parsing**: Utilize multiple cores for parsing operations
-- **Memory Management**: Configurable memory limits for large files
+- **Streaming Processing**: Process large files without loading entirely into memory (`ImportConfig.batch_size` is an upper bound on rows per written batch)
+- **Fast path**: Local files are read with Arrow's streaming CSV reader; S3 inputs and files with mismatching row widths are read row by row
 
 ## Usage Examples
 
@@ -221,7 +229,7 @@ When Parquet types are not explicitly specified, the system automatically infers
 {
   "x-csv": {
     "delimiter": ",",
-    "header": { "mode": "first_row" },
+    "header": { "mode": "present" },
     "nulls": { "global": ["", "NULL"] }
   }
 }
@@ -299,7 +307,7 @@ When Parquet types are not explicitly specified, the system automatically infers
       "dedupeNames": "suffix"
     },
     "header": {
-      "mode": "auto_detect"
+      "mode": "auto"
     }
   }
 }
@@ -332,7 +340,7 @@ When Parquet types are not explicitly specified, the system automatically infers
 {
   "x-csv": {
     "delimiter": ",",
-    "header": { "mode": "first_row" }
+    "header": { "mode": "present" }
   },
   "x-constraintHandling": {
     "errorMode": "bad_rows",
@@ -370,8 +378,8 @@ When Parquet types are not explicitly specified, the system automatically infers
 ## Best Practices
 
 ### File Format Detection
-1. **Use Auto-Detection**: Start with `"auto"` for delimiter detection
-2. **Encoding Priority**: Order encodings from most to least likely
+1. **Be explicit**: Set `ImportConfig.delimiter` and `encoding`; the engine does not detect them
+2. **Encoding Priority**: List the encodings the file may use, most likely first (documentation for readers of the schema)
 3. **Header Keywords**: Provide expected column names for robust header detection
 4. **Test with Samples**: Validate configuration with representative file samples
 
@@ -388,24 +396,23 @@ When Parquet types are not explicitly specified, the system automatically infers
 4. **Monitoring**: Track parsing success rates and common errors
 
 ### Performance Tuning
-1. **Chunk Size**: Optimize for available memory
-2. **Parallel Processing**: Enable for large files
-3. **Type Inference**: Limit inference to improve performance
-4. **Memory Limits**: Set appropriate limits for large datasets
+1. **Batch Size**: `batch_size` bounds the rows per written batch
+2. **Type Inference**: Declare types in the schema; schema generation can sample with `nrows`
+3. **Local vs. S3**: Local files take the faster Arrow path
 
 ## Common Issues and Solutions
 
 ### Encoding Problems
-- **Issue**: Garbled characters in output
-- **Solution**: Add more encodings to `encodingPriority`, check source file encoding
+- **Issue**: Garbled characters in output, or a `ValueError` about bytes that are not valid for the encoding
+- **Solution**: Set `encoding` to the one the file was written with (for example `latin-1` or `cp1252`); a UTF-8 byte order mark is ignored
 
 ### Delimiter Detection Failures
 - **Issue**: Fields not properly separated
-- **Solution**: Specify delimiter explicitly, check for unusual delimiters
+- **Solution**: Set `delimiter` explicitly, check for unusual delimiters
 
 ### Header Detection Issues
-- **Issue**: Wrong row used as header
-- **Solution**: Use `stability_scan` with keywords, adjust `skipRows`
+- **Issue**: Wrong row used as header, or `No header row found`
+- **Solution**: Use `header_mode="auto"`, raise `header_search_rows`, or adjust `comment_rows`
 
 ### Type Conversion Errors
 - **Issue**: Data doesn't convert to expected types
@@ -413,4 +420,4 @@ When Parquet types are not explicitly specified, the system automatically infers
 
 ### Memory Issues
 - **Issue**: Out of memory errors with large files
-- **Solution**: Reduce chunk size, enable streaming processing
+- **Solution**: Reduce `batch_size`; processing is streaming by default

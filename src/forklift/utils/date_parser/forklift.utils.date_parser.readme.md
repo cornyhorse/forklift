@@ -85,9 +85,13 @@ from forklift.utils.date_parser import parse_date, coerce_date
 is_valid = parse_date("2023-12-25")  # Returns True
 is_valid = parse_date("invalid")     # Returns False
 
-# Convert to ISO date format
+# Convert to ISO date format (an unparseable value raises ValueError)
 iso_date = coerce_date("12/25/2023")  # Returns "2023-12-25"
 iso_date = coerce_date("Dec 25, 2023")  # Returns "2023-12-25"
+
+# Ambiguous numeric dates: day first by default
+coerce_date("03-04-2024")                  # "2024-04-03"
+coerce_date("03-04-2024", dayfirst=False)  # "2024-03-04"
 ```
 
 ### Custom Format Specification
@@ -103,17 +107,21 @@ result = coerce_date("December 25, 2023", formats=formats)
 ```python
 from forklift.utils.date_parser import coerce_datetime
 
-# Convert to ISO datetime format
-datetime_str = coerce_datetime("2023-12-25 14:30:00")
-# Returns "2023-12-25T14:30:00"
+# Returns a datetime.datetime (or an int epoch with to_epoch=...)
+parsed = coerce_datetime("2023-12-25 14:30:00")
+# datetime.datetime(2023, 12, 25, 14, 30)
+
+coerce_datetime("1703520000")                       # epoch auto-detected (10/13/16/19 digits), UTC
+coerce_datetime("2023-12-25", to_epoch="seconds")   # 1703462400
+coerce_datetime("2024010112", fmt="%Y%m%d%H")       # an explicit fmt disables epoch auto-detection
 ```
 
 ### Epoch Timestamp Handling
 ```python
-from forklift.utils.date_parser.epoch import convert_epoch
+from forklift.utils.date_parser.epoch import is_epoch_timestamp, parse_epoch_timestamp
 
-# Convert Unix timestamp
-date_str = convert_epoch(1703520000)  # Returns ISO date
+is_epoch_timestamp("1703520000")     # True: exactly 10, 13, 16 or 19 ASCII digits, no leading zero
+parse_epoch_timestamp("1703520000")  # datetime(2023, 12, 25, 16, 0, tzinfo=utc)
 ```
 
 ## Integration with Forklift
@@ -152,6 +160,33 @@ The date parser automatically detects and handles:
 - **Default Formats**: Set preferred formats for ambiguous dates
 - **Error Handling**: Configure behavior for unparseable dates
 - **Timezone Handling**: Specify timezone conversion preferences
+
+## Resolution Rules
+
+`parse_date`, `coerce_date` and `coerce_datetime` share one resolution order:
+
+1. `from_epoch=True`: the value must be an epoch timestamp (10/13/16/19 digits).
+2. An explicit `fmt` / `formats`: only those formats are tried. Epoch auto-detection and the
+   common-format fallbacks are **not** used, so `fmt="%Y%m%d%H"` parses `2024010112` and
+   phone-like IDs are never reinterpreted as epochs. `fmt` is matched exactly (zero-padded
+   fields; offsets such as `Z`, `+0500` and `+05:00` are fine for `%z`) unless a schema-token
+   format uses single-letter tokens (`YYYY-M-D`). `formats` entries use plain strptime matching,
+   and a value matching none of them is rejected (`parse_date` is True exactly when `coerce_date`
+   succeeds).
+3. Otherwise: epoch auto-detection (plain ASCII digit strings of exactly 10, 13, 16 or 19
+   digits), timezone-aware text via dateutil, the common datetime formats, the common date
+   formats and finally dateutil. The dateutil fallback only accepts text with a full year, month
+   **and** day; `12`, `Mon`, `Mar`, `2024` or `10:30` are rejected rather than completed from
+   today's date.
+
+Ambiguous numeric dates (`03-04-2024`) follow the `dayfirst` keyword of all three functions
+(default `True`: 3 April; `dayfirst=False`: March 4).
+
+Schema tokens: `mm`/`MM` is the minute directly after an hour token (`HH:mm`, `HHmm`) or before
+`ss` (`mm:ss`) and the month otherwise; three or more `S` (or `f`) are fractional seconds
+(`YYYY-MM-DD HH:mm:ss.SSS`, `YYYYMMDDHHmmss`, `DD MM YYYY HH:mm:ss` are valid).
+Epoch conversions use integer arithmetic, so nanosecond values keep every digit a `datetime`
+can hold (microsecond resolution). Error messages never include the offending value.
 
 ## Error Handling
 

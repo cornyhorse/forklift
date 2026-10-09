@@ -11,6 +11,25 @@ string ``"1"``. ``null_value`` and ``separator`` are not used by this encoding.
 ``hash_version`` 1 (``legacy_encoding=True``) reproduces the original preimage byte for byte
 (``separator``-joined ``str()`` of the values, ``null_value`` for NULL) so previously stored hashes
 can still be verified. Hashes of the two versions are never comparable.
+
+Use in a pipeline that drops rows
+---------------------------------
+The input hash (the hash of the row *as it entered the pipeline*) and the source row number
+(the position of the row in the source) are both properties of the row *before* any stage dropped
+or changed rows. When the processor runs as the last step of a per-batch pipeline in which rows
+may have been dropped (type conversion, validation, uniqueness) and columns renamed or added,
+the caller therefore computes them up front and carries them along:
+
+* ``compute_input_hash(raw_batch)`` returns one hash per raw row. Compute it on the raw batch
+  *before* any row is dropped, keep the array aligned with the surviving rows, and pass it as
+  ``process_batch(batch, input_hash=...)`` (its length must equal ``len(batch)``).
+* ``process_batch(batch, source_row_numbers=...)`` takes the 1-based position of each row among
+  the data rows of the source (``int64``, length ``len(batch)``). It replaces the internal
+  counter for the source row number column; ``source_row_offset`` is *not* added to it.
+
+The processing sequence column (``_rownum``) always counts the rows this processor has received
+since ``set_source_context``. ``output_columns()`` (and ``row_hash_output_columns`` in
+``row_hash_factory``) list the columns the processor adds, in order.
 """
 
 from __future__ import annotations
@@ -22,6 +41,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from .base import BaseProcessor, ValidationResult
 
@@ -115,6 +135,26 @@ class RowHashConfig:
         """Encoding version of the row hash: 2 (injective, default) or 1 (legacy)."""
         return HASH_VERSION_LEGACY if self.legacy_encoding else HASH_VERSION_CURRENT
 
+    def output_column_names(self) -> List[str]:
+        """Names of the columns the processor adds, in the order it adds them.
+
+        Output hash, input hash, source URI, ingestion timestamp, then (with
+        ``row_number_enabled``) the source row number and the processing row number.
+        """
+        names: List[str] = []
+        if self.enabled:
+            names.append(self.column_name)
+        if self.input_hash_enabled:
+            names.append(self.input_hash_column_name)
+        if self.source_uri_enabled:
+            names.append(self.source_uri_column_name)
+        if self.ingested_at_enabled:
+            names.append(self.ingested_at_column_name)
+        if self.row_number_enabled:
+            names.append(self.source_row_number_column_name)
+            names.append(self.processing_row_number_column_name)
+        return names
+
 
 class RowHashProcessor(BaseProcessor):
     """Processor for adding row-level hash columns and metadata.
@@ -129,6 +169,13 @@ class RowHashProcessor(BaseProcessor):
     The processor supports multiple hash algorithms and flexible column
     inclusion/exclusion rules. Failures raise; a batch is never returned without
     the requested hash/metadata columns.
+
+    Meaning of the two row-number columns: the *source row number* is the 1-based position of
+    the row among the data rows of the source (counted from ``source_row_offset`` + 1 over the
+    rows this processor receives, unless ``process_batch(source_row_numbers=...)`` supplies the
+    real positions - needed when rows were dropped before this processor); the *processing
+    sequence number* is the 1-based count of the rows this processor has received since
+    ``set_source_context``. See the module docstring for pipelines that drop rows.
     """
 
     def __init__(self, config: RowHashConfig):
@@ -163,79 +210,138 @@ class RowHashProcessor(BaseProcessor):
             "legacy_encoding": self.config.legacy_encoding,
         }
 
+    def compute_input_hash(self, input_batch: pa.RecordBatch) -> pa.Array:
+        """Hash every row of ``input_batch`` the way the input-hash column is computed.
+
+        Returns a string array with one hash per row: exactly the value ``process_batch`` stores
+        in the input-hash column for that row when it is given the same batch as ``input_batch``
+        (same algorithm, encoding version and column selection: *every* column of
+        ``input_batch``, in its schema order, under its own name).
+
+        Call this on the batch as it entered the pipeline, before any row is dropped, and pass
+        the result (kept aligned with the surviving rows) as ``process_batch(..., input_hash=...)``.
+        It does not depend on ``input_hash_enabled`` and does not change any processor state.
+        """
+        return self._compute_row_hashes(
+            input_batch, self._get_input_hash_columns(input_batch.schema)
+        )
+
     def process_batch(
-        self, batch: pa.RecordBatch, input_batch: Optional[pa.RecordBatch] = None
+        self,
+        batch: pa.RecordBatch,
+        input_batch: Optional[pa.RecordBatch] = None,
+        *,
+        input_hash: Optional[pa.Array] = None,
+        source_row_numbers: Optional[pa.Array] = None,
     ) -> Tuple[pa.RecordBatch, List[ValidationResult]]:
         """Process a batch by adding hash columns and metadata.
 
+        Args:
+            batch: The batch to hash and annotate.
+            input_batch: The row as it entered the pipeline, used for the input-hash column. It
+                must have exactly the rows of ``batch`` (same count, same order); if rows were
+                dropped since, pass ``input_hash`` instead.
+            input_hash: Precomputed input hashes (see ``compute_input_hash``): a string array
+                with one non-null hash per row of ``batch``. Takes precedence over
+                ``input_batch``, which may then be omitted or have a different length.
+            source_row_numbers: ``int64`` array with one value per row of ``batch``: the 1-based
+                position of the row among the data rows of the source. When given it is used for
+                the source row number column instead of the internal counter (and
+                ``source_row_offset`` is not added). The processing sequence column keeps
+                counting the rows this processor receives.
+
         Raises:
-            ValueError: If a metadata/hash column name already exists in the batch.
+            ValueError: If a metadata/hash column name already exists in the batch; if
+                ``input_hash`` / ``source_row_numbers`` / ``input_batch`` do not match the rows
+                of ``batch``; if the input hash is enabled but neither ``input_batch`` nor
+                ``input_hash`` is given; if the source URI / ingestion timestamp column is
+                enabled but ``set_source_context`` was not called; or if no column is left to
+                hash. The processor never returns a batch without a requested column.
         """
         validation_results: List[ValidationResult] = []
         processed_batch = batch
+        num_rows = batch.num_rows
+
+        # Check every per-row input before anything is computed or any state changes
+        input_hash_values = self._coerce_input_hash(input_hash, num_rows)
+        source_row_values = self._coerce_source_row_numbers(source_row_numbers, num_rows)
+        if self.config.input_hash_enabled and input_hash_values is None:
+            if input_batch is None:
+                raise ValueError(
+                    f"Input hash is enabled (column '{self.config.input_hash_column_name}') but "
+                    f"neither input_batch nor input_hash was given"
+                )
+            if input_batch.num_rows != num_rows:
+                raise ValueError(
+                    f"input_batch has {input_batch.num_rows} rows but the batch has {num_rows}; "
+                    f"after rows were dropped pass input_hash=compute_input_hash(<raw batch>) "
+                    f"aligned with the remaining rows instead"
+                )
+        if self.config.source_uri_enabled and self.source_uri is None:
+            raise ValueError(
+                f"Source URI is enabled (column '{self.config.source_uri_column_name}') but "
+                f"set_source_context() was not called"
+            )
+        if self.config.ingested_at_enabled and self.ingestion_timestamp is None:
+            raise ValueError(
+                f"Ingestion timestamp is enabled (column '{self.config.ingested_at_column_name}')"
+                f" but set_source_context() was not called"
+            )
 
         # Add output row hash if enabled
         if self.config.enabled:
             hash_columns = self._get_hash_columns(batch.schema)
-            if hash_columns:
-                hash_values = self._compute_row_hashes(batch, hash_columns)
-                processed_batch = self._add_column(
-                    processed_batch,
-                    self.config.column_name,
-                    hash_values,
-                    metadata=self._hash_field_metadata(),
+            if not hash_columns:
+                raise ValueError(
+                    f"Row hash column '{self.config.column_name}' is enabled but no column is "
+                    f"left to hash (check includeColumns / excludeColumns)"
                 )
+            hash_values = self._compute_row_hashes(batch, hash_columns)
+            processed_batch = self._add_column(
+                processed_batch,
+                self.config.column_name,
+                hash_values,
+                metadata=self._hash_field_metadata(),
+            )
 
-        # Add input row hash if enabled and input batch provided
-        if self.config.input_hash_enabled and input_batch is not None:
-            input_hash_columns = self._get_input_hash_columns(input_batch.schema)
-            if input_hash_columns:
-                input_hash_values = self._compute_row_hashes(input_batch, input_hash_columns)
-                processed_batch = self._add_column(
-                    processed_batch,
-                    self.config.input_hash_column_name,
-                    input_hash_values,
-                    metadata=self._hash_field_metadata(),
-                )
+        # Add input row hash if enabled
+        if self.config.input_hash_enabled:
+            if input_hash_values is None:
+                input_hash_values = self.compute_input_hash(input_batch)
+            processed_batch = self._add_column(
+                processed_batch,
+                self.config.input_hash_column_name,
+                input_hash_values,
+                metadata=self._hash_field_metadata(),
+            )
 
         # Add source URI if enabled
-        if self.config.source_uri_enabled and self.source_uri:
-            source_uri_values = pa.array([self.source_uri] * batch.num_rows, type=pa.string())
+        if self.config.source_uri_enabled:
+            source_uri_values = pa.array([self.source_uri] * num_rows, type=pa.string())
             processed_batch = self._add_column(
                 processed_batch, self.config.source_uri_column_name, source_uri_values
             )
 
         # Add ingestion timestamp if enabled
-        if self.config.ingested_at_enabled and self.ingestion_timestamp:
-            timestamp_values = pa.array(
-                [self.ingestion_timestamp] * batch.num_rows, type=pa.string()
-            )
+        if self.config.ingested_at_enabled:
+            timestamp_values = pa.array([self.ingestion_timestamp] * num_rows, type=pa.string())
             processed_batch = self._add_column(
                 processed_batch, self.config.ingested_at_column_name, timestamp_values
             )
 
         # Add row numbers if enabled
         if self.config.row_number_enabled:
-            # Source file row numbers
-            source_row_numbers = list(
-                range(
-                    self.source_row_offset + self.processing_row_counter + 1,
-                    self.source_row_offset + self.processing_row_counter + batch.num_rows + 1,
-                )
-            )
-            source_row_array = pa.array(source_row_numbers, type=pa.int64())
+            # Position in the source: supplied by the caller, else counted from the rows seen
+            if source_row_values is None:
+                first = self.source_row_offset + self.processing_row_counter + 1
+                source_row_values = pa.array(range(first, first + num_rows), type=pa.int64())
             processed_batch = self._add_column(
-                processed_batch, self.config.source_row_number_column_name, source_row_array
+                processed_batch, self.config.source_row_number_column_name, source_row_values
             )
 
-            # Processing sequence row numbers
-            processing_row_numbers = list(
-                range(
-                    self.processing_row_counter + 1,
-                    self.processing_row_counter + batch.num_rows + 1,
-                )
-            )
-            processing_row_array = pa.array(processing_row_numbers, type=pa.int64())
+            # Processing sequence: rows this processor has emitted so far, 1-based
+            first = self.processing_row_counter + 1
+            processing_row_array = pa.array(range(first, first + num_rows), type=pa.int64())
             processed_batch = self._add_column(
                 processed_batch,
                 self.config.processing_row_number_column_name,
@@ -243,9 +349,63 @@ class RowHashProcessor(BaseProcessor):
             )
 
             # Update counter
-            self.processing_row_counter += batch.num_rows
+            self.processing_row_counter += num_rows
 
         return processed_batch, validation_results
+
+    @staticmethod
+    def _as_array(values: Any, argument: str) -> pa.Array:
+        """A single (combined) Arrow array from an Arrow array or chunked array."""
+        if isinstance(values, pa.ChunkedArray):
+            values = values.combine_chunks()
+            if isinstance(values, pa.ChunkedArray):  # zero chunks on some pyarrow versions
+                values = pa.array([], type=values.type)
+        if not isinstance(values, pa.Array):
+            raise TypeError(f"{argument} must be a pyarrow Array, got {type(values).__name__}")
+        return values
+
+    def _coerce_input_hash(self, input_hash: Optional[pa.Array], num_rows: int):
+        """Validated string array of precomputed input hashes (``None`` if not supplied)."""
+        if input_hash is None:
+            return None
+        values = self._as_array(input_hash, "input_hash")
+        if len(values) != num_rows:
+            raise ValueError(
+                f"input_hash has {len(values)} values but the batch has {num_rows} rows"
+            )
+        if pa.types.is_null(values.type) or pa.types.is_large_string(values.type):
+            values = values.cast(pa.string())
+        if not pa.types.is_string(values.type):
+            raise ValueError(f"input_hash must be a string array, got {values.type}")
+        if values.null_count:
+            raise ValueError("input_hash must not contain nulls")
+        return values
+
+    def _coerce_source_row_numbers(self, source_row_numbers: Optional[pa.Array], num_rows: int):
+        """Validated int64 array of 1-based source positions (``None`` if not supplied)."""
+        if source_row_numbers is None:
+            return None
+        values = self._as_array(source_row_numbers, "source_row_numbers")
+        if len(values) != num_rows:
+            raise ValueError(
+                f"source_row_numbers has {len(values)} values but the batch has {num_rows} rows"
+            )
+        if not pa.types.is_integer(values.type):
+            raise ValueError(f"source_row_numbers must be an integer array, got {values.type}")
+        if values.null_count:
+            raise ValueError("source_row_numbers must not contain nulls")
+        values = values.cast(pa.int64())
+        if num_rows and pc.min(values).as_py() < 1:
+            raise ValueError("source_row_numbers are 1-based positions and must be >= 1")
+        return values
+
+    def output_columns(self) -> List[str]:
+        """Names of the columns this processor adds to a batch, in order.
+
+        The source URI and ingestion timestamp columns are only added once
+        ``set_source_context`` was called (``process_batch`` raises otherwise).
+        """
+        return self.config.output_column_names()
 
     def _hash_field_metadata(self) -> Dict[bytes, bytes]:
         return {
@@ -276,7 +436,7 @@ class RowHashProcessor(BaseProcessor):
         return hash_columns
 
     def _get_input_hash_columns(self, schema: pa.Schema) -> List[str]:
-        """Get columns for input hash calculation (all original columns)."""
+        """Get columns for input hash calculation (all columns of the input batch)."""
         return [field.name for field in schema]
 
     # ------------------------------------------------------------------ hashing
@@ -375,23 +535,41 @@ class RowHashProcessor(BaseProcessor):
 
         new_fields = list(batch.schema)
         new_fields.append(pa.field(column_name, column_values.type, metadata=metadata))
-        new_schema = pa.schema(new_fields)
+        new_schema = pa.schema(new_fields, metadata=batch.schema.metadata)
 
         new_columns = list(batch.columns)
         new_columns.append(column_values)
 
         return pa.RecordBatch.from_arrays(new_columns, schema=new_schema)
 
-    def get_output_schema(self, input_schema: pa.Schema) -> pa.Schema:
-        """Get the output schema with hash column added."""
-        if not self.config.enabled:
-            return input_schema
+    def _output_fields(self) -> List[pa.Field]:
+        """The fields ``process_batch`` adds, in order (types and metadata are fixed)."""
+        config = self.config
+        hash_metadata = self._hash_field_metadata()
+        fields: List[pa.Field] = []
+        if config.enabled:
+            fields.append(pa.field(config.column_name, pa.string(), metadata=hash_metadata))
+        if config.input_hash_enabled:
+            fields.append(
+                pa.field(config.input_hash_column_name, pa.string(), metadata=hash_metadata)
+            )
+        if config.source_uri_enabled:
+            fields.append(pa.field(config.source_uri_column_name, pa.string()))
+        if config.ingested_at_enabled:
+            fields.append(pa.field(config.ingested_at_column_name, pa.string()))
+        if config.row_number_enabled:
+            fields.append(pa.field(config.source_row_number_column_name, pa.int64()))
+            fields.append(pa.field(config.processing_row_number_column_name, pa.int64()))
+        return fields
 
-        new_fields = list(input_schema)
-        new_fields.append(
-            pa.field(self.config.column_name, pa.string(), metadata=self._hash_field_metadata())
-        )
-        return pa.schema(new_fields)
+    def get_output_schema(self, input_schema: pa.Schema) -> pa.Schema:
+        """Get the output schema: the input schema plus every column the processor adds.
+
+        Same columns, types and field metadata as ``process_batch`` produces (for a batch with
+        rows as well as for an empty one).
+        """
+        new_fields = list(input_schema) + self._output_fields()
+        return pa.schema(new_fields, metadata=input_schema.metadata)
 
 
 def _cells(column: pa.Array) -> List[Optional[Tuple[bytes, bytes]]]:

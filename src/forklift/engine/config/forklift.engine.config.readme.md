@@ -21,7 +21,7 @@ The primary configuration class that controls all aspects of data import process
 - File path configuration (input/output)
 - CSV parsing options (delimiter, encoding, quotes)
 - Header detection and processing
-- Schema validation settings
+- Schema validation settings (`validate_schema`, and `apply_schema_extensions` for the schema's `x-...` extensions)
 - Output file generation options
 - Error handling preferences
 
@@ -32,6 +32,11 @@ Tracks the outcomes of data processing operations, including:
 - Generated file paths: `output_files` (the data file and, when rows were rejected, the bad rows file), plus `bad_rows_file` to tell the rejected-rows file apart (`None` when nothing was rejected), `manifest_file` and `metadata_file`
 - Execution metrics (`execution_time`)
 - Error collection (`errors`): a failed run appends the message here and re-raises; a failure to write the output-metadata file (the data files are already complete by then) is recorded here without raising
+- Schema extension reporting (CSV imports; empty for Excel and SQL):
+  - `schema_extensions`: names of the extensions that were applied (for example `['x-transformations', 'x-primaryKey/x-uniqueConstraints/constraints']`)
+  - `validation_summary`: `{CODE or CODE:column: count}` for rows rejected by validation and constraints (`UNIQUE_VIOLATION:id`), values nulled by `x-special-type` (`INVALID_SPECIAL_VALUE:ssn`), `x-dataQuality` findings and so on; it never holds cell values
+  - `warnings`: notes that do not stop the import, such as schema content that no processor reads (`x-pii`, `x-transformations.stringCleaning`, ...) or rules skipped because the file lacks the column
+  - all three are also written to `metadata.json` and printed by the CLI
 
 ### Enums
 
@@ -117,6 +122,10 @@ if results.bad_rows_file:
 print(f"{results.truncated_rows} rows were cut to the header width")
 for message in results.errors:  # e.g. the output metadata file could not be written
     print("Warning:", message)
+print(results.schema_extensions)   # extensions that were applied, e.g. ['x-transformations']
+print(results.validation_summary)  # findings per CODE / CODE:column, e.g. {'UNIQUE_VIOLATION:id': 1}
+for note in results.warnings:      # schema content that nothing reads, rules skipped for absent columns
+    print("Note:", note)
 ```
 
 ## Configuration Parameters
@@ -124,7 +133,7 @@ for message in results.errors:  # e.g. the output metadata file could not be wri
 ### File Handling
 - `input_path`: Source file location (local path or `s3://` URI)
 - `output_path`: Destination directory (local path or `s3://` prefix). `data.parquet` and `bad_rows.parquet` of an earlier run in that location are removed when processing starts, so a re-run never leaves stale outputs next to the new ones
-- `schema_file`: Optional JSON schema (local or `s3://`). Its types are applied to the output: the `x-csv.parquetTypeMapping` entry first, otherwise the JSON `type`/`format`. A column typed `string` keeps its text exactly (`00123` stays `00123`). A value that cannot be converted sends its row to `bad_rows.parquet`. Columns that are not in the schema keep Arrow's type inference on the local path and stay strings on the S3 path
+- `schema_file`: Optional JSON schema (local or `s3://`). Its types are applied to the output: the `x-csv.parquetTypeMapping` entry first, otherwise the JSON `type`/`format`. A column typed `string` keeps its text exactly (`00123` stays `00123`). A value that cannot be converted sends its row to `bad_rows.parquet`. Columns that are not in the schema keep Arrow's type inference on the local path and stay strings on the S3 path. The schema's `x-...` extensions (transformations, column mapping, calculated columns, validation, keys, constraints, row hash) are applied too unless `apply_schema_extensions` is false; they use the header names of the file for `properties`, `required`, `x-csv` and `x-transformations` and the output names after `x-columnMapping`
 - `encoding`: Text encoding (default: utf-8); a UTF-8 byte order mark is ignored
 
 ### CSV Processing
@@ -142,6 +151,7 @@ for message in results.errors:  # e.g. the output metadata file could not be wri
 ### Validation & Error Handling
 - `validate_schema`: Enforce the schema's `required` columns (default: True). Required columns are matched by column *name*; a null or an empty string in a required column sends the row to `bad_rows.parquet`. A required column that is missing from the input raises `ValueError`
 - `max_validation_errors`: Reserved, not enforced: every invalid row goes to `bad_rows.parquet` and processing continues
+- `apply_schema_extensions`: Run the schema's `x-...` extensions on every batch of a CSV import (default: True): `x-transformations` and `x-special-type` formatting, `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality` (findings only), `x-validation`, `x-primaryKey`, `x-uniqueConstraints`, per-property constraints (`minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `enum`, `x-unique`), `x-constraintHandling.errorMode` and `x-rowHash`. Rows rejected by validation or constraints go to `bad_rows.parquet`, which then has a last `_rejection_reason` column. With False the extensions are ignored; types, null markers and `required` still apply (CLI: `--no-schema-extensions`). Excel and SQL imports never apply them
 - `excess_column_mode`: Strategy for extra columns (enum member or string)
 
 ### Output Options
@@ -154,8 +164,8 @@ for message in results.errors:  # e.g. the output metadata file could not be wri
 ## Error Handling
 
 The module provides error handling through:
-- Row-level isolation: rows with an unconvertible value, an empty/null required column or (with `REJECT`) excess fields are written to `bad_rows.parquet` instead of aborting the run
-- Run-level failures (unreadable input, undecodable bytes, invalid schema, no header found) raise, are appended to `ProcessingResults.errors`, and leave no partial `data.parquet`/`bad_rows.parquet` behind: local partial files are removed and S3 uploads are not completed
+- Row-level isolation: rows with an unconvertible value, an empty/null required column, (with `REJECT`) excess fields or a violation of `x-validation` / a key / a constraint are written to `bad_rows.parquet` instead of aborting the run
+- Run-level failures (unreadable input, undecodable bytes, invalid schema, no header found, a misconfigured schema extension, `x-constraintHandling.errorMode` `fail_fast` / `fail_complete` with a violation, `x-validation` over its `maxBadRowsPercent`) raise, are appended to `ProcessingResults.errors`, and leave no partial `data.parquet`/`bad_rows.parquet` behind: local partial files are removed and S3 uploads are not completed. The one exception is `x-validation` over its threshold: `data.parquet` is discarded but a finished `bad_rows.parquet` is kept and named in the error, so the rejected rows can be inspected
 - Clear `ValueError`s for invalid enum values and missing required columns
 
 ## Performance Considerations

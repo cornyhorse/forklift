@@ -33,9 +33,10 @@ Forklift is a comprehensive data processing tool that provides:
 ### 🛡️ **Validation & Quality**
 - JSON Schema validation with custom extensions
 - Primary key inference and enforcement
-- Constraint validation (unique, not-null, primary key)
+- Constraint validation (unique, not-null, primary key, `minimum` / `pattern` / `enum` ...)
 - Data type validation and conversion
-- Configurable error handling modes (fail-fast, fail-complete, bad-rows)
+- CSV imports also apply the schema's `x-...` extensions: text transformations, column mapping, calculated columns, validation rules and row hashes
+- Configurable error handling modes (fail-fast, fail-complete, bad-rows); rejected rows are written to `bad_rows.parquet` (with `x-validation` or constraints in the schema, each row carries its reason in a `_rejection_reason` column)
 
 ## Installation
 
@@ -104,7 +105,27 @@ if results.bad_rows_file:
 
 With a schema, the declared types are applied to the output (a `string` column keeps `00123` as
 written). Rows with a value that does not convert, or an empty value in a `required` column, go to
-`bad_rows.parquet` instead of stopping the run. `import_excel(input_path, output_path, schema_file=None,
+`bad_rows.parquet` instead of stopping the run.
+
+For CSV files the schema's `x-...` extensions are applied as well: `x-transformations` (and
+`x-special-type` formatting) clean the text, `x-columnMapping` renames columns, `x-calculatedColumns`
+appends columns, and `x-validation`, `x-primaryKey`, `x-uniqueConstraints` and per-property constraints
+(`minimum`, `maxLength`, `pattern`, `enum`, ...) send violating rows to `bad_rows.parquet`, whose last
+column `_rejection_reason` says why (for example `UNIQUE_VIOLATION:id`). `x-rowHash` appends hash
+columns. The result reports what ran:
+
+```python
+print(results.schema_extensions)    # e.g. ['x-transformations', 'x-primaryKey/x-uniqueConstraints/constraints']
+print(results.validation_summary)   # e.g. {'UNIQUE_VIOLATION:id': 1}  (counts, never cell values)
+print(results.warnings)             # schema content that nothing reads, such as x-pii (no masking is applied)
+```
+
+`import_csv(..., apply_schema_extensions=False)` (CLI: `--no-schema-extensions`) ignores the extensions;
+types, null markers and `required` still apply. Excel, SQL and fixed-width imports apply none of them.
+The stage order, the supported keys and a worked example are in the
+[Usage Guide](docs/guides/USAGE.md#applying-schema-extensions).
+
+`import_excel(input_path, output_path, schema_file=None,
 sheet=None)` writes one Parquet file per sheet, and `import_sql(connection_string, output_path,
 schema_file)` one per table listed in the schema file. `import_fwf` is not implemented yet and raises
 `NotImplementedError`.
@@ -181,6 +202,11 @@ forklift ingest data.xlsx --dest ./output/ --input-kind excel --sheet "Sheet1"
 # output metadata. Off by default because the metadata can hold personal data.
 forklift ingest data.csv --dest ./output/ --input-kind csv --include-value-stats
 
+# Ignore the schema's x-... extensions (CSV only; types, null markers and `required` still apply).
+# Without this flag the summary also lists "Schema extensions applied: ...", the findings counted
+# by the extensions ("Findings by the schema extensions:") and, on stderr, the warnings.
+forklift ingest data.csv --dest ./output/ --input-kind csv --schema schema.json --no-schema-extensions
+
 # Fixed-width files are not implemented in the engine yet: this exits with status 2
 forklift ingest data.txt --dest ./output/ --input-kind fwf --fwf-spec schema.json
 ```
@@ -232,7 +258,7 @@ forklift generate-schema data.csv --file-type csv --include-value-stats
 - **Import Engine**: High-performance data processing with PyArrow
 - **Schema Generator**: Intelligent schema inference and generation
 - **Validation System**: Constraint validation and error handling
-- **Processors**: Pluggable data transformation components
+- **Processors**: The transformation, mapping, calculated-column, validation, constraint and row-hash components that `import_csv` runs from a schema's `x-...` extensions (also usable on their own on PyArrow batches)
 - **I/O Operations**: S3 and local file system support
 
 ## Documentation
@@ -241,7 +267,9 @@ For detailed documentation, see the [`docs/`](docs/) directory:
 
 - **[Usage Guide](docs/guides/USAGE.md)** - Comprehensive usage examples and workflows
 - **[Schema Standards](docs/schemas/SCHEMA_STANDARDS.md)** - JSON Schema format and extensions
+- **[Schema Extensions (`x-...`)](docs/schemas/README.md)** - what each extension does and what `import_csv` applies
 - **[API Reference](docs/api/API_REFERENCE.md)** - Complete API documentation
+- **[Documentation Index](docs/DOCUMENTATION_INDEX.md)** - Every page in `docs/`
 - **[Constraint Validation](docs/integration/CONSTRAINT_VALIDATION_IMPLEMENTATION.md)** - Validation features
 - **[S3 Integration](docs/aws/S3_TESTING.md)** - S3 usage and testing
 

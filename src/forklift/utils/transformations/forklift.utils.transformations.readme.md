@@ -246,9 +246,15 @@ All transformations use a consistent configuration system:
   or stays as it was when `allow_invalid=True`. `zero_pad` is applied before validation, so it
   restores leading zeros that a numeric column dropped (`"2134"` -> ZIP `02134`, `"12345678"` -> SSN
   `012-34-5678`), and a float rendering such as `"2134.0"` is read as `2134`.
-- **Not applied by `import_csv`**: these classes are building blocks. The engine's `import_csv` does not
-  run `x-transformations` from a schema; apply the transformers to your Arrow data yourself or through
-  `forklift.processors.transformations`.
+- **Applied by `import_csv` (CSV only)**: `import_csv` runs these transformers on the text of a CSV's
+  columns through `forklift.processors.transformations.SchemaBasedTransformer`, before the column types are
+  applied. The steps come from `x-transformations.column_transformations.<column>.<step>` (`<step>` is a
+  `create_transformation_from_config` type such as `string_cleaning`, `money_conversion`, `regex_replace` or
+  `ssn_formatting`; it only runs with `"enabled": true`) and, automatically, from the `x-special-type` of a
+  property (`ssn`, `zip-5`, `zip-9`, `zip-permissive`, `phone`, `email`, `ipv4`, `ipv6`, `ip`,
+  `mac-address`). The other `x-transformations` blocks (`stringCleaning`, `moneyType`, ...) are not read.
+  Excel, SQL and fixed-width imports apply no transformations; you can always apply the transformers to
+  your own Arrow data.
 
 ## Error Handling
 

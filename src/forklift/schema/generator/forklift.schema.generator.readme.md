@@ -85,8 +85,8 @@ The subpackage supports extensive configuration through `SchemaGenerationConfig`
 ### File-Specific Extensions
 - **x-csv**: CSV layout that was analysed (encoding priority, delimiter, null markers, `dataTypes`)
 - **x-excel**: Excel sheet settings (`sheet` is a single name or index, `header`, `skipRows`, `nulls`); `ExcelSchemaImporter` accepts both this `sheet` form and a `sheets` list
-- **x-transformations**: Suggested cleaning steps per column
-- **x-primaryKey**: Primary key configurations (inferred only for columns that are 100% unique in the sample)
+- **x-transformations**: Suggested cleaning steps per column. Every step is written with `"enabled": false`, so `import_csv` changes nothing until you enable one; the block's `version`, `global_settings` and `transformation_types` keys are documentation only and `import_csv` reports them in `results.warnings`
+- **x-primaryKey**: Primary key configurations (inferred only for columns that are 100% unique in the sample). `import_csv` enforces it: later files with a duplicate or NULL key get those rows rejected. Its `inference_metadata` key is not read (reported as a warning)
 
 ### Analysis Metadata
 - Column statistics (counts, null statistics, distinct counts, string lengths; value statistics only with `include_value_statistics=True`)

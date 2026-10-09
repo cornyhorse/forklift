@@ -188,8 +188,10 @@ class TestSchemaTypesAreApplied:
         )
 
         assert len(batches) == 1
-        assert batches[0].schema.types == [pa.int64(), pa.string(), pa.float64()]
-        assert batches[0].to_pydict() == {"id": [1], "zip": ["00123"], "amount": [1.5]}
+        # The reader also carries hidden copies of the row as read (for rejected rows)
+        visible = batches[0].select([0, 1, 2])
+        assert visible.schema.types == [pa.int64(), pa.string(), pa.float64()]
+        assert visible.to_pydict() == {"id": [1], "zip": ["00123"], "amount": [1.5]}
         assert rejected[0].to_pydict() == {"id": ["2"], "zip": ["02134"], "amount": ["oops"]}
 
     def test_s3_end_to_end_matches_local_schema(self, tmp_path, monkeypatch):

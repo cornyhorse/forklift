@@ -11,6 +11,7 @@ Forklift Engine serves as the central orchestration layer for data import operat
 - **Streaming Data Processing**: Memory-efficient handling of large datasets using PyArrow streaming
 - **Multi-Format Support**: Unified API for CSV, Excel, and SQL data sources
 - **Schema Validation**: Comprehensive data validation against JSON schemas
+- **Schema Extensions (CSV)**: The schema's `x-...` extensions (transformations, column mapping, calculated columns, validation, primary/unique keys, constraints, row hashes) are run on every batch
 - **Error Handling**: Separation of valid and invalid data with detailed error reporting
 - **Cloud Integration**: Native support for S3 input/output with streaming capabilities
 - **Metadata Generation**: Automatic creation of manifests, metadata, and processing reports
@@ -87,11 +88,12 @@ Source Detection → Format-Specific Import → Streaming Setup → Header Detec
 
 ### 3. **Processing Phase**
 ```
-Batch Processing → Schema Validation → Error Separation → Output Generation
+Batch Processing → Schema Validation → Schema Extensions (CSV) → Error Separation → Output Generation
 ```
 
 - Stream data in configurable batches for memory efficiency
-- Apply schema validation to each batch
+- Apply schema validation to each batch (types, null markers, `required`)
+- CSV only: run the schema extensions (see [Schema extensions](#schema-extensions-csv))
 - Separate valid and invalid data into different output streams
 - Generate Parquet files with compression
 
@@ -140,6 +142,36 @@ print(f"Valid rows: {results.valid_rows}")
 print(f"Invalid rows: {results.invalid_rows}")
 print(f"Bad rows file: {results.bad_rows_file}")  # None when nothing was rejected
 ```
+
+### Schema Extensions (CSV)
+
+`import_csv` (`ForkliftCore.process_csv`) also runs the `x-...` extensions of the schema. `CSVProcessor` builds an
+`ExtensionPipeline` (`processors/extensions.py`) from the schema and the file's header before any output is
+written, and runs it on every batch. Excel, SQL and fixed-width imports do not use it. Per batch:
+
+```
+raw text from the reader
+  PRE   (header names)  x-rowHash input hash / row numbers (hidden columns, only if asked for)
+                        x-csv null markers -> NULL
+                        x-transformations + automatic x-special-type formatting
+  engine                type conversion (properties, x-csv.parquetTypeMapping)  -> bad_rows
+                        required                                                -> bad_rows
+  POST  (output names)  x-columnMapping (renames) -> x-calculatedColumns (appends) -> x-dataQuality (findings only)
+                        -> x-validation (rows -> bad_rows) -> constraints (x-primaryKey, x-uniqueConstraints,
+                        per-property constraints, x-constraintHandling.errorMode; rows -> bad_rows)
+                        -> x-rowHash (hash and metadata columns, last)
+```
+
+`properties`, `required`, `x-csv` and `x-transformations` use the header names of the file; every stage after
+`x-columnMapping` uses the output names. `bad_rows.parquet` keeps the input's column names and gains a last
+`_rejection_reason` column when `x-validation` or any constraint is configured. The pipeline's findings
+come back on `ProcessingResults` (`schema_extensions`, `validation_summary`, `warnings`).
+`ImportConfig(apply_schema_extensions=False)` switches the whole pipeline off. Misconfiguration (an invalid
+extension, a column that does not exist, a calculated column that would replace an existing one) raises
+`ValueError` before any output is written. The supported keys, error modes and a worked example are in the
+[usage guide](../../../docs/guides/USAGE.md#applying-schema-extensions); the processors are described in the
+[processors readme](processors/forklift.engine.processors.readme.md) and the
+[extension loaders readme](../processors/forklift.processors.readme.md).
 
 ### Multi-Format Support
 
@@ -201,7 +233,7 @@ The engine uses a comprehensive configuration system through `ImportConfig`:
 ### Core Settings
 - **File Paths**: Input/output locations (local or S3)
 - **Processing Options**: Batch size (an upper bound), encoding, delimiters
-- **Validation Settings**: Schema file, `validate_schema`
+- **Validation Settings**: Schema file, `validate_schema`, `apply_schema_extensions` (CSV: run the schema's `x-...` extensions, default on)
 - **Output Configuration**: Compression, manifest and metadata generation, `include_value_statistics`
 
 `header_mode` and `excess_column_mode` accept the enum member or a case-insensitive string
@@ -222,18 +254,21 @@ The engine uses a comprehensive configuration system through `ImportConfig`:
 
 ### Primary Outputs (CSV import)
 - **`data.parquet`**: Compressed columnar data file (an input with a header but no rows still yields an empty file carrying the schema)
-- **`metadata.json`**: Processing statistics and configuration
-- **`output_data_metadata.json`**: Column statistics of the output; no cell values unless `include_value_statistics=True`
+- **`metadata.json`**: Processing statistics and configuration, plus `schema_extensions`, `validation_summary` and `warnings`
+- **`output_data_metadata.json`**: Column statistics of the output (after the schema extensions, so calculated columns are included); no cell values unless `include_value_statistics=True`
 - **`manifest.json`**: List of generated output files
 
 Stale `data.parquet` and `bad_rows.parquet` files of an earlier run are removed when a run starts. If a
-run fails, no partial data or bad rows file is left behind.
+run fails, no partial data or bad rows file is left behind. The exception is a run that stops because
+`x-validation` rejected more rows than `maxBadRowsPercent` allows: it keeps a finished `bad_rows.parquet`
+(and names it in the error) so the rejected rows can be inspected; `data.parquet` is not kept.
 
 The engine writes all of these itself (with S3 support through `forklift.io`); the `forklift.outputs` package is not used by it.
 
 ### Error Outputs
-- **`bad_rows.parquet`**: Rejected rows as strings, in the shape of the input columns (`results.bad_rows_file`)
+- **`bad_rows.parquet`**: Rejected rows as strings, in the shape of the input columns (`results.bad_rows_file`). When the schema configures `x-validation` or a constraint it has a last column `_rejection_reason` (`type_conversion_failed`, `required_value_missing`, `too_many_fields`, or `CODE` / `CODE:column` such as `UNIQUE_VIOLATION:id`; never a cell value)
 - **`results.errors`**: Messages for failures (Arrow messages are stripped of row content)
+- **`results.warnings`**, **`results.validation_summary`**, **`results.schema_extensions`**: ignored schema content, finding counts per `CODE` / `CODE:column`, and the extensions that ran (CSV)
 - **Processing Logs**: Execution statistics and timing
 
 ## Performance Optimization
@@ -364,7 +399,7 @@ The Forklift Engine is designed for extensibility:
 ### Planned Enhancements
 - **Fixed-Width File Support**: Complete implementation of `import_fwf()`
 - **Additional Formats**: JSON, XML, and other structured data formats
-- **Advanced Transformations**: Built-in data transformation capabilities
+- **Schema Extensions beyond CSV**: `import_excel`, `import_sql` and `import_fwf` apply none of the `x-...` extensions yet; `x-pii` masking does not exist for any import
 - **Performance Optimizations**: Further streaming and parallel processing improvements
 
 ### Integration Opportunities

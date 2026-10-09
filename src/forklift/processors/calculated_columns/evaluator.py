@@ -192,11 +192,37 @@ class ExpressionEvaluator:
 
     @staticmethod
     def _to_array(values: List[Any], column_config: CalculatedColumn) -> pa.Array:
+        data_type = column_config.data_type
         try:
-            return pa.array(values, type=column_config.data_type)
+            try:
+                return pa.array(values, type=data_type)
+            except (pa.ArrowException, TypeError, ValueError, OverflowError):
+                # A constant such as "2024-08-26" for a date32 column: ISO text is read as the
+                # temporal type (other conversions from text stay errors)
+                if (
+                    data_type is not None
+                    and (pa.types.is_temporal(data_type) and not pa.types.is_duration(data_type))
+                    and all(v is None or isinstance(v, str) for v in values)
+                ):
+                    text = pa.array(values, type=pa.string())
+                    try:
+                        return text.cast(data_type)
+                    except pa.ArrowInvalid:
+                        if not (pa.types.is_timestamp(data_type) and data_type.tz is None):
+                            raise
+                        # "2024-08-26T10:30:00Z" for a timestamp without time zone: keep the
+                        # UTC wall time (as the engine does for timestamp columns)
+                        return text.cast(pa.timestamp(data_type.unit, tz="UTC")).cast(data_type)
+                raise
         except (pa.ArrowException, TypeError, ValueError, OverflowError):
-            # The Arrow message quotes the offending value; report only the target type.
+            # The Arrow message quotes the offending value; report only the types involved.
+            produced = sorted({type(v).__name__ for v in values if v is not None})[:4]
             raise ValueError(
                 f"Expression result for column '{column_config.name}' "
                 f"cannot be converted to {column_config.data_type}"
+                + (f": the expression produced {', '.join(produced)} values" if produced else "")
+                + ". Set dataType to the type the expression returns (for example 'bool' for "
+                "isnull(x) or a comparison, 'int64' for whole numbers, 'double' for decimals, "
+                "'string' for text) or convert the value in the expression with to_string(), "
+                "to_int() or to_float()"
             ) from None

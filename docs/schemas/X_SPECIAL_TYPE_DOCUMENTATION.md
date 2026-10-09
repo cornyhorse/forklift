@@ -5,7 +5,13 @@ The `x-special-type` extension provides specialized data type handling for commo
 
 ## How special types are applied
 
-The formatters live in `forklift.utils.transformations.format`; `SchemaBasedTransformer` (`forklift.processors.transformations`) adds the matching formatter automatically for every property that carries `x-special-type`, with the default options listed below. `import_csv` itself does not run them (see the [transformations documentation](./X_TRANSFORMATIONS_DOCUMENTATION.md)). A value that fails validation becomes NULL (or stays unchanged with `allow_invalid`); nothing is looked up externally: there is no MX, GeoIP, OUI/vendor, disposable-address or private/public-address check.
+The formatters live in `forklift.utils.transformations.format`. `import_csv` (also `read_csv` and `forklift ingest --input-kind csv`) adds the matching formatter automatically for every property that carries `x-special-type` and applies it to the **text of the file, before the types are applied**, with the default options listed below (`SchemaBasedTransformer` does the same outside the engine; see the [transformations documentation](./X_TRANSFORMATIONS_DOCUMENTATION.md)). Excel, SQL and fixed-width imports do not apply it. Nothing is looked up externally: there is no MX, GeoIP, OUI/vendor, disposable-address or private/public-address check.
+
+- **Invalid values**: a value that fails validation becomes NULL and is counted as `INVALID_SPECIAL_VALUE:<column>` in `results.validation_summary` (the CLI prints it under `Findings by the schema extensions:`). The row is kept; it is rejected only if the column is `required` (`required_value_missing`, and the bad row shows the NULL) or the NULL breaks another rule
+- **Order**: the explicit `x-transformations` steps of the column run first (so a `regex_replace` can strip a prefix such as `SSN: `), the automatic formatter last. The null markers of `x-csv` are applied to the text before both
+- **Column names**: the property is matched by the header name; a property declared only under a renamed column's new name is not applied (the import warns)
+- **The options of the automatic step cannot be changed.** To use other options, leave `x-special-type` off the property and configure the explicit step (`ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting`, `mac_address_formatting`) in `x-transformations.column_transformations`. An explicit step on a column that also has `x-special-type` runs first and the automatic step then runs on its result, so `"allow_invalid": true` there does not keep an invalid value
+- **Constraints see the formatted value**: a `pattern` next to `x-special-type` (as in the shipped standard) is checked against the formatted text, and NULL passes it
 
 The same formatters are available per column as `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting` and `mac_address_formatting` with these options:
 
@@ -18,7 +24,26 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 | `ipv4` / `ipv6` / `ip` | `ip_version` (`ipv4`, `ipv6`, `both`), `normalize_ipv6` (true), `compress_ipv6` (true), `validate` (true), `allow_invalid` (false) |
 | `mac-address` | `format_style` (`colon`, `dash`, `dot`, `none`), `case_style` (`lower`, `upper`, `preserve`), `zero_pad` (true), `validate` (true), `allow_invalid` (false) |
 
-`zero_pad` is applied before validation, so it restores leading zeros that a numeric column dropped (`"2134"` is ZIP `02134`, `"12345678"` is SSN `012-34-5678`), and a float rendering such as `"2134.0"` is read as `2134`.
+`zero_pad` restores leading zeros that a numeric column dropped, but with `validate` on (the automatic step) the number of digits is checked *before* padding, except for `zip-5`: `"2134"` is ZIP `02134` for `zip-5`, while a short SSN, `zip-9` or `zip-permissive` value is invalid. With `"validate": false` in an explicit step the same input is padded (`"2134"` is `02134`, `"12345678"` is SSN `012-34-5678`). A float rendering such as `"2134.0"` is read as `2134`.
+
+### Example
+
+```
+ssn,zip,phone,email,ip,mac
+123456789,2134,5551234567, Ann@Example.COM ,2001:DB8:0:0:0:0:0:1,00-1A-2B-3C-4D-5E
+not-an-ssn,abcde,12,bad,999.1.1.1,xyz
+111-22-3333,12345-6789,(555) 123-4567,b@x.org,10.0.0.1,0:1a:2b:3:4:5
+```
+
+with the properties `ssn` (`x-special-type: ssn`), `zip` (`zip-permissive`), `phone` (`phone`), `email` (`email`), `ip` (`ip`) and `mac` (`mac-address`), all `"type": "string"`, gives
+
+| ssn | zip | phone | email | ip | mac |
+| --- | --- | --- | --- | --- | --- |
+| 123-45-6789 | (null) | (555) 123-4567 | ann@example.com | 2001:db8::1 | 00:1a:2b:3c:4d:5e |
+| (null) | (null) | (null) | (null) | (null) | (null) |
+| 111-22-3333 | 12345-6789 | (555) 123-4567 | b@x.org | 10.0.0.1 | 00:1a:2b:03:04:05 |
+
+and `results.validation_summary` is `{'INVALID_SPECIAL_VALUE:ssn': 1, 'INVALID_SPECIAL_VALUE:zip': 2, 'INVALID_SPECIAL_VALUE:phone': 1, 'INVALID_SPECIAL_VALUE:email': 1, 'INVALID_SPECIAL_VALUE:ip': 1, 'INVALID_SPECIAL_VALUE:mac': 1}`. The first ZIP (`2134`) is NULL because a `zip-permissive` value needs 5 or 9 digits (use `zip-5` to pad it to `02134`).
 
 ## Supported Special Types
 
@@ -28,8 +53,8 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 - **Pattern**: `^\\d{3}-\\d{2}-\\d{4}$`
 - **Format**: XXX-XX-XXXX
 - **Validation**: Exactly 9 digits after separators are removed; letters make the value invalid
-- **Normalization**: Converts various formats (`123456789`, `123 45 6789`) to standard XXX-XX-XXXX; with `zero_pad` shorter digit strings are padded to 9 digits first
-- **Privacy**: The formatter standardizes the value; it does not mask it (use the PII masking features for that)
+- **Normalization**: Converts various formats (`123456789`, `123 45 6789`, `123456789.0`) to standard XXX-XX-XXXX; a value with fewer than 9 digits is invalid in the automatic step (see `zero_pad` above)
+- **Privacy**: The formatter standardizes the value; it does not mask it (masking is not implemented, see [x-pii](./X_PII_DOCUMENTATION.md))
 
 ```json
 {
@@ -47,8 +72,8 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 #### `zip-permissive` - Flexible ZIP Code
 - **Pattern**: `^\\d{5}(-\\d{4})?$`
 - **Formats**: XXXXX or XXXXX-XXXX
-- **Validation**: Accepts 5-digit and 9-digit ZIP codes (anything else is invalid)
-- **Normalization**: Up to 5 digits are padded to 5; 6-9 digits are padded to 9 and written as XXXXX-XXXX (`format_with_dash`)
+- **Validation**: Accepts 5-digit and 9-digit ZIP codes (anything else, a 4-digit value included, is invalid)
+- **Normalization**: 5 digits are kept; 9 digits are written as XXXXX-XXXX (`format_with_dash`), so `123456789` becomes `12345-6789`
 
 ```json
 {
@@ -81,7 +106,7 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 #### `zip-9` - ZIP+4 Code
 - **Pattern**: `^\\d{5}-\\d{4}$`
 - **Format**: XXXXX-XXXX
-- **Validation**: Requires 9 digits (shorter values are zero-padded first)
+- **Validation**: Requires exactly 9 digits (`12345678` and `12345` are invalid in the automatic step; with `validate: false` shorter values are zero-padded)
 - **Normalization**: Adds hyphen if missing (`format_with_dash`)
 
 ```json
@@ -105,7 +130,7 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
   - XXXXXXXXXX
   - 1XXXXXXXXXX
 - **Validation**: `min_digits`-`max_digits` digits (10-11 by default, counted after a leading country code `1` is removed); letters make the value invalid. A number that is not 10 digits long after the leading `1` is removed is returned as bare digits instead of being formatted
-- **Normalization**: Converts to standard (XXX) XXX-XXXX format (`us-standard`)
+- **Normalization**: Converts to standard (XXX) XXX-XXXX format (`us-standard`); 11 digits that start with the country code `1` are written `1(XXX) XXX-XXXX` (`+1 555 123 4567` too)
 - **International**: A number with an explicit `+` country code other than `+1` is validated against the E.164 length limits (7-15 digits including the country code) and written as `+<digits>`; `+1` is never added to it
 
 ```json
@@ -223,10 +248,10 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 - **Symbol Standardization**: Use consistent punctuation and separators
 
 ### Integration with Other Features
-- **PII Detection**: Special types automatically flagged for PII handling
-- **Constraint Validation**: Invalid special types trigger constraint violations
-- **Metadata Generation**: Type-specific statistics and pattern analysis
-- **Transformations**: Enhanced cleaning rules for each special type
+- **PII Detection**: `x-pii` is documentation only; a special type is not flagged as PII and nothing is masked
+- **Constraint Validation**: An invalid special value becomes NULL, which passes the per-property constraints (`pattern`, `maxLength`, ...); use `required` or an `x-validation` rule (`required: true`) to reject the rows
+- **Metadata Generation**: The output metadata describes the formatted values
+- **Transformations**: The explicit steps of the column run first, the automatic formatter last
 
 ## Configuration Examples
 
@@ -249,13 +274,12 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 ```
 
 ### Special Types with Tuned Options
+Leave `x-special-type` off the property and configure the explicit step; here invalid addresses are kept as they are instead of becoming NULL:
 ```json
 {
   "properties": {
     "contact_email": {
-      "type": "string",
-      "x-special-type": "email",
-      "format": "email"
+      "type": "string"
     }
   },
   "x-transformations": {
@@ -268,17 +292,19 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 }
 ```
 
-### Special Types with PII Integration
+### Special Types with PII Marking
+`x-pii` is documentation only (see the [x-pii documentation](./X_PII_DOCUMENTATION.md)): the column is formatted, not masked, and the import warns that `x-pii` is not applied.
 ```json
 {
   "properties": {
     "employee_ssn": {
       "type": "string",
-      "x-special-type": "ssn",
-      "x-pii": {
-        "category": "direct_identifier",
-        "masking_required": true
-      }
+      "x-special-type": "ssn"
+    }
+  },
+  "x-pii": {
+    "fields": {
+      "employee_ssn": {"isPII": true, "category": "direct_identifier"}
     }
   }
 }
@@ -294,17 +320,16 @@ The same formatters are available per column as `ssn_formatting`, `zip_code_form
 ## Best Practices
 
 1. **Choose Appropriate Types**: Use most specific type available (zip-5 vs zip-permissive)
-2. **Combine with Constraints**: Use with constraint handling for robust error management
+2. **Combine with Rules**: add `required` or an `x-validation` rule when rows with an invalid value must be rejected (the formatter itself only produces NULL)
 3. **Document Expectations**: Clear descriptions help data providers
 4. **Test with Real Data**: Validate patterns work with actual data samples
-5. **Monitor Validation Rates**: Track success/failure rates for each special type
+5. **Monitor Validation Rates**: watch `INVALID_SPECIAL_VALUE:<column>` in `results.validation_summary`
 6. **Consider Performance**: Balance validation thoroughness with processing speed
 
 ## Error Handling
 
 When special type validation fails:
-- **Pattern Mismatch**: Data doesn't match expected format
-- **Invalid Values**: Data matches pattern but fails semantic validation
-- **Normalization Errors**: Unable to convert to standard format
-
-These errors integrate with the `x-constraintHandling` system for consistent error management across all data quality issues.
+- **Invalid Values**: the value becomes NULL (or, with an explicit step and `allow_invalid`, stays unchanged) and is counted as `INVALID_SPECIAL_VALUE:<column>`; the row is kept
+- **Missing Columns**: a property with `x-special-type` whose column is not in the file is skipped with a warning
+- **Configuration Errors**: an unknown option in an explicit `*_formatting` step raises `ValueError` before any output is written
+- **Rows**: rejected only through `required` (reason `required_value_missing`) or another rule that sees the NULL

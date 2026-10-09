@@ -86,6 +86,13 @@ class ImportConfig:
         excess_column_mode: How to handle rows with excess columns (default: TRUNCATE)
         include_value_statistics: Whether metadata may contain statistics that expose actual
             values (top/bottom values, min/max, quantiles, samples). Default False.
+        apply_schema_extensions: Whether the schema's ``x-...`` extensions are applied
+            (default: True): ``x-transformations``, ``x-columnMapping``, ``x-calculatedColumns``,
+            ``x-dataQuality``, ``x-validation``, ``x-primaryKey``, ``x-uniqueConstraints``,
+            per-property constraints (``minimum``, ``enum``, ``pattern``, ...),
+            ``x-constraintHandling`` and ``x-rowHash``. Rows rejected by validation or
+            constraints go to bad_rows.parquet with a ``_rejection_reason`` column. Set to False
+            to ignore them (types, null markers and ``required`` still apply).
     """
 
     input_path: Union[str, Path]
@@ -116,6 +123,7 @@ class ImportConfig:
     create_metadata: bool = True
     compression: str = "snappy"
     include_value_statistics: bool = False
+    apply_schema_extensions: bool = True
 
     def __post_init__(self) -> None:
         """Coerce string enum values and validate them."""

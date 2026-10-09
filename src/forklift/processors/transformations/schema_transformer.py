@@ -49,11 +49,19 @@ class SchemaBasedTransformer(BaseProcessor):
 
         # Explicit x-transformations first ...
         x_transformations = self.schema.get("x-transformations", {})
+        if not isinstance(x_transformations, dict):
+            raise ValueError("x-transformations must be an object")
         column_configs = x_transformations.get("column_transformations", {})
+        if not isinstance(column_configs, dict):
+            raise ValueError("x-transformations.column_transformations must be an object")
 
         for column_name, column_config in column_configs.items():
             column_transforms = transformations.get(column_name, [])
 
+            if not isinstance(column_config, dict):
+                raise ValueError(
+                    f"x-transformations.column_transformations.{column_name} must be an object"
+                )
             # Process each transformation type for this column
             for transform_type, config in column_config.items():
                 if isinstance(config, dict) and config.get("enabled", False):

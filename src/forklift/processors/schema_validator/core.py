@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from ...utils.arrow_compat import set_null_where
 from .._regex import compile_pattern
 from .base_local import BaseProcessor, ValidationResult
 from .config import NullabilityMode, SchemaValidationMode, SchemaValidatorConfig
@@ -506,7 +507,7 @@ class SchemaValidator(BaseProcessor):
 
         failed_set = set(failed_rows)
         failed_mask = pa.array([i in failed_set for i in range(len(column))], pa.bool_())
-        cleaned = pc.if_else(failed_mask, pa.scalar(None, column.type), column)
+        cleaned = set_null_where(column, failed_mask)
         return cleaned.cast(target), failed_rows
 
     def _process_batch_based_on_mode(

@@ -7,9 +7,11 @@ are not implemented (argparse itself also exits with 2 for invalid arguments).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
+import logging
 import sys
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Iterator, Optional, Sequence
 
 from .engine.forklift_core import (
     ForkliftCore,
@@ -32,6 +34,22 @@ EXIT_USAGE = 2
 
 def _warn(message: str) -> None:
     print(f"Warning: {message}", file=sys.stderr)
+
+
+@contextlib.contextmanager
+def _reported_by_cli(logger_name: str) -> Iterator[None]:
+    """Keep a library logger quiet while the CLI prints the same messages itself.
+
+    The import logs the warnings it collects (library users read the log) and also returns them in
+    ``results.warnings``, which ``_print_results`` prints; without this each line appeared twice.
+    """
+    target = logging.getLogger(logger_name)
+    previous = target.level
+    target.setLevel(logging.ERROR)
+    try:
+        yield
+    finally:
+        target.setLevel(previous)
 
 
 def _fail(message: str, code: int = EXIT_FAILURE) -> None:
@@ -62,6 +80,19 @@ def _print_results(results: Any) -> None:
         print(f"Manifest file: {results.manifest_file}")
     if results.metadata_file:
         print(f"Metadata file: {results.metadata_file}")
+
+    applied = getattr(results, "schema_extensions", None)
+    if isinstance(applied, list) and applied:
+        print(f"Schema extensions applied: {', '.join(applied)}")
+    summary = getattr(results, "validation_summary", None)
+    if isinstance(summary, dict) and summary:
+        print("Findings by the schema extensions:")
+        for key, count in sorted(summary.items(), key=lambda item: (-item[1], item[0])):
+            print(f"  {key}: {count}")
+    warnings = getattr(results, "warnings", None)
+    if isinstance(warnings, list):
+        for message in warnings:
+            _warn(message)
 
     errors = getattr(results, "errors", None)
     if isinstance(errors, list) and errors:
@@ -118,6 +149,15 @@ def _build_parser():
         help=(
             "Include statistics that expose real cell values (top values, min/max, quantiles) "
             "in the output metadata. Off by default because the metadata can hold PII."
+        ),
+    )
+    ingest.add_argument(
+        "--no-schema-extensions",
+        action="store_true",
+        help=(
+            "CSV only: ignore the schema's x-... extensions (x-transformations, x-columnMapping, "
+            "x-calculatedColumns, x-validation, x-primaryKey, x-uniqueConstraints, constraints, "
+            "x-rowHash). Column types, null markers and 'required' still apply."
         ),
     )
 
@@ -201,6 +241,8 @@ def _run_ingest(args: argparse.Namespace) -> None:
         _warn("--sheet only applies to --input-kind excel and is ignored")
     if args.include_value_stats and args.input_kind != "csv":
         _warn("--include-value-stats only affects the CSV output metadata and is ignored")
+    if args.no_schema_extensions and args.input_kind != "csv":
+        _warn("--no-schema-extensions only affects CSV imports and is ignored")
     if args.pre:
         _warn(f"Preprocessors not yet implemented in new ForkliftCore: {args.pre}")
 
@@ -213,9 +255,11 @@ def _run_ingest(args: argparse.Namespace) -> None:
             header_mode=HeaderMode(args.header_mode),
             encoding=args.encoding_priority[0] if args.encoding_priority else "utf-8",
             delimiter=args.delimiter or ",",
+            apply_schema_extensions=not args.no_schema_extensions,
             **_value_statistics_kwargs(ImportConfig, args.include_value_stats),
         )
-        results = ForkliftCore(config).process_csv()
+        with _reported_by_cli("forklift.engine.processors.extensions"):
+            results = ForkliftCore(config).process_csv()
     elif args.input_kind == "excel":
         excel_kwargs = {"sheet": args.sheet} if args.sheet else {}
         results = import_excel(args.source, args.dest, args.schema, **excel_kwargs)

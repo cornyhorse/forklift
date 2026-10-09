@@ -1,6 +1,6 @@
 """Main data validation processor."""
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 import pyarrow as pa
 
@@ -15,7 +15,27 @@ class ValidationProcessingError(RuntimeError):
 
 
 class BadRowsThresholdExceededError(ValidationProcessingError):
-    """More rows were rejected than ``BadRowsConfig.max_bad_rows_percent`` allows."""
+    """More rows were rejected than ``BadRowsConfig.max_bad_rows_percent`` allows.
+
+    Attributes:
+        whole_input_checked: True when every row was validated before the verdict
+            (``threshold_check="end_of_file"``); False when the import stopped early
+        bad_rows_file: Where the import kept the rejected rows, if it did (set by the import)
+    """
+
+    whole_input_checked: bool = False
+    bad_rows_file: Optional[str] = None
+
+
+class _RuleError(str):
+    """An error message (a plain ``str``) that remembers the column it is about."""
+
+    column: Optional[str]
+
+    def __new__(cls, message: str, column: Optional[str] = None) -> "_RuleError":
+        error = super().__new__(cls, message)
+        error.column = column
+        return error
 
 
 def _hashable(value: Any) -> Any:
@@ -53,6 +73,15 @@ class DataValidationProcessor(BaseProcessor):
       (or whose key was already emitted or already marked) is rejected, the first one included.
     A row only claims its keys when it passes *all* rules, so a row rejected for another reason
     never causes a later valid row to be rejected as a duplicate.
+
+    Every error of a rejected row becomes a ``ValidationResult`` with ``row_index`` (position in
+    the batch passed in), ``error_code`` ``VALIDATION_ERROR`` and ``column_name`` (the field the
+    rule belongs to). Messages do not contain cell values unless
+    ``ValidationConfig.include_values_in_errors`` is set.
+
+    Rejected rows are kept in ``bad_rows_handler`` only when ``BadRowsConfig.enabled`` is true;
+    with ``enabled=False`` they are only counted (the percentage threshold keeps working), which
+    keeps memory bounded when the caller writes the rejected rows itself.
     """
 
     def __init__(self, config: ValidationConfig):
@@ -123,6 +152,7 @@ class DataValidationProcessor(BaseProcessor):
                             error_message=error,
                             error_code="VALIDATION_ERROR",
                             row_index=row_idx,
+                            column_name=getattr(error, "column", None),
                         )
                     )
 
@@ -142,17 +172,74 @@ class DataValidationProcessor(BaseProcessor):
                 f"Validation processing failed ({type(exc).__name__}); the batch was not emitted"
             ) from exc
 
-        # Check if bad rows exceed threshold
-        if self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed):
-            bad_rows_percent = self.bad_rows_handler.get_bad_rows_percentage(
-                self.total_rows_processed
-            )
-            raise BadRowsThresholdExceededError(
-                f"Bad rows ({bad_rows_percent:.1f}%) exceed "
-                f"threshold ({self.config.bad_rows_config.max_bad_rows_percent}%)"
-            )
+        # "early": judge the rows seen so far after every batch ("end_of_file": check_threshold())
+        if (
+            self.config.bad_rows_config.threshold_check == "early"
+            and self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed)
+        ):
+            raise BadRowsThresholdExceededError(self._threshold_message(early=True))
 
         return clean_batch, validation_results
+
+    def check_threshold(self, reasons: Optional[Mapping[str, int]] = None) -> None:
+        """Judge the share of rejected rows once, after the last batch.
+
+        This is the check for ``BadRowsConfig(threshold_check="end_of_file")``; it also works for
+        ``"early"``. Nothing happens unless ``fail_on_exceed_threshold`` is set.
+
+        Args:
+            reasons: How often each kind of finding occurred (``CODE:column`` -> count), for the
+                message. Counts, never cell values.
+
+        Raises:
+            BadRowsThresholdExceededError: More than ``max_bad_rows_percent`` of the rows that
+                were validated were rejected.
+        """
+        if self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed):
+            error = BadRowsThresholdExceededError(
+                self._threshold_message(early=False, reasons=reasons)
+            )
+            error.whole_input_checked = True
+            raise error
+
+    def _threshold_message(
+        self, *, early: bool, reasons: Optional[Mapping[str, int]] = None
+    ) -> str:
+        """Why the import stops: counts, the limit, the setting that decides and the way out."""
+        config = self.config.bad_rows_config
+        total = self.total_rows_processed
+        bad = max(self.bad_rows_handler.bad_row_total, len(self.bad_rows_handler.bad_rows))
+        percent = self.bad_rows_handler.get_bad_rows_percentage(total)
+        limit = f"{config.max_bad_rows_percent}%"
+        settings = "x-validation.badRowsHandling"
+        if early:
+            return (
+                f"Bad rows ({percent:.1f}%) exceed threshold ({limit}): {bad} of the first "
+                f"{total} rows that were validated were rejected. The import stopped at the first "
+                f"batch that went over the limit because {settings}.thresholdMode is 'early'. "
+                f"Use 'end_of_file' (the default) to check the whole input first, and so see "
+                f"every reason, and the same verdict for any batch size. To keep going instead, "
+                f"raise maxBadRowsPercent or set failOnExceedThreshold to false (the import "
+                f"then finishes and keeps the data of the accepted rows)."
+            )
+        message = (
+            f"Bad rows ({percent:.1f}%) exceed threshold ({limit}): {bad} of {total} rows that "
+            f"were validated by x-validation were rejected."
+        )
+        if reasons:
+            top = sorted(reasons.items(), key=lambda item: (-item[1], item[0]))[:10]
+            message += " Findings by rule: " + ", ".join(f"{k} x{v}" for k, v in top)
+            message += (
+                f" (and {len(reasons) - len(top)} more)." if len(reasons) > len(top) else "."
+            )
+        return message + (
+            f" The whole input was checked and the import was aborted, so no data file was kept. "
+            f"To keep the data of the accepted rows as well (the rejected rows are in "
+            f"bad_rows.parquet either way) set {settings}.failOnExceedThreshold to false; to "
+            f"allow more bad rows raise {settings}.maxBadRowsPercent; to stop at the first "
+            f"batch that goes over the limit, which is faster for hopeless input, set "
+            f"{settings}.thresholdMode to 'early'."
+        )
 
     def _check_required_columns(self, batch: pa.RecordBatch) -> None:
         names = set(batch.schema.names)
@@ -204,7 +291,10 @@ class DataValidationProcessor(BaseProcessor):
             if rule.field_name not in names:
                 if rule.required:
                     errors.append(
-                        f"Field '{rule.field_name}' is required but the column is missing"
+                        _RuleError(
+                            f"Field '{rule.field_name}' is required but the column is missing",
+                            rule.field_name,
+                        )
                     )
                 continue
 
@@ -215,6 +305,9 @@ class DataValidationProcessor(BaseProcessor):
 
     def _field_errors(self, rule: FieldValidationRule, value: Any) -> List[str]:
         """Errors for one value against the non-uniqueness rules of a field."""
+        return [_RuleError(error, rule.field_name) for error in self._field_messages(rule, value)]
+
+    def _field_messages(self, rule: FieldValidationRule, value: Any) -> List[str]:
         include_values = self.config.include_values_in_errors
 
         # Required validation
@@ -278,10 +371,12 @@ class DataValidationProcessor(BaseProcessor):
 
     def _duplicate_message(self, field_name: str, detail: Optional[str] = None) -> str:
         if detail:
-            return f"Field '{field_name}' {detail}"
-        if self.config.uniqueness_strategy == "fail_on_duplicate":
-            return f"Field '{field_name}' value violates uniqueness constraint"
-        return f"Field '{field_name}' value is not unique (duplicate found)"
+            message = f"Field '{field_name}' {detail}"
+        elif self.config.uniqueness_strategy == "fail_on_duplicate":
+            message = f"Field '{field_name}' value violates uniqueness constraint"
+        else:
+            message = f"Field '{field_name}' value is not unique (duplicate found)"
+        return _RuleError(message, field_name)
 
     def _apply_uniqueness(self, batch: pa.RecordBatch, row_errors: List[List[str]]) -> None:
         """Batch-level uniqueness for ``last_wins`` and ``mark_all_duplicates``.

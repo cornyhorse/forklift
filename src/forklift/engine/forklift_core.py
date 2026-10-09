@@ -55,7 +55,8 @@ class ForkliftCore:
 
         Raises:
             Exception: Processing errors are recorded in ``results.errors`` and re-raised;
-                      no partial output files are left behind
+                      no partial output files are left behind (except that a run stopped by
+                      the ``x-validation`` threshold keeps a finished ``bad_rows.parquet``)
         """
         return self.csv_processor.process(self.config)
 

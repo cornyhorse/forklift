@@ -99,20 +99,7 @@
       "nulls": "bad_rows"
     },
     "uniqueConstraintViolations": "bad_rows",
-    "notNullViolations": "bad_rows",
-    "badRowsOutput": {
-      "enabled": true,
-      "format": "parquet",
-      "includeOriginalData": true,
-      "includeErrorDetails": true,
-      "maxBadRows": null,
-      "createSummary": true
-    },
-    "validationOptions": {
-      "continueOnError": true,
-      "collectAllErrors": true,
-      "maxErrorsPerRow": 10
-    }
+    "notNullViolations": "bad_rows"
   },
 
   "x-uniqueConstraints": [
@@ -289,14 +276,14 @@
       },
       {
         "name": "age_category",
-        "expression": "CASE WHEN age < 18 THEN 'minor' WHEN age < 65 THEN 'adult' ELSE 'senior' END",
+        "expression": "NULL if isnull(age) else ('minor' if age < 18 else ('adult' if age < 65 else 'senior'))",
         "dataType": "string",
         "dependencies": ["age"],
         "description": "Categorical age grouping for analytics"
       },
       {
         "name": "salary_tier",
-        "expression": "CASE WHEN salary < 50000 THEN 'entry' WHEN salary < 100000 THEN 'mid' ELSE 'senior' END",
+        "expression": "NULL if isnull(salary) else ('entry' if salary < 50000 else ('mid' if salary < 100000 else 'senior'))",
         "dataType": "string",
         "dependencies": ["salary"],
         "description": "Salary tier classification for reporting"
@@ -305,194 +292,67 @@
     "calculated": [
       {
         "name": "years_since_created",
-        "function": "years_from_timestamp",
+        "expression": "year(today()) - year(created_timestamp)",
         "dependencies": ["created_timestamp"],
         "dataType": "int32",
         "description": "Years elapsed since record creation"
       },
       {
         "name": "name_length",
-        "function": "string_length",
+        "expression": "length(name)",
         "dependencies": ["name"],
         "dataType": "int32",
         "description": "Character count of name field"
       }
-    ],
-    "partitionColumns": ["data_source", "load_date"],
-    "indexColumns": ["id", "name"],
-    "options": {
-      "skipIfExists": false,
-      "validateDependencies": true,
-      "allowNullDependencies": true
-    }
+    ]
   },
 
   "x-transformations": {
-    "description": "Data transformation and standardization configuration for comprehensive data cleaning and normalization",
-    "stringCleaning": {
-      "description": "String cleaning and normalization options",
-      "normalizeQuotes": true,
-      "normalizeDashes": true,
-      "normalizeSpaces": true,
-      "collapseWhitespace": true,
-      "stripWhitespace": true,
-      "removeZeroWidth": true,
-      "removeControlChars": true,
-      "preserveNewlines": true,
-      "unicodeNormalize": "NFKC"
-    },
-    "caseTransformation": {
-      "description": "Case normalization and transformation options",
-      "caseTransform": "title",
-      "fixCaseIssues": true,
-      "titleCaseExceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"],
-      "customCaseMappings": {
-        "ca": "CA",
-        "ny": "NY",
-        "tx": "TX",
-        "usa": "USA",
-        "uk": "UK"
-      },
-      "caseMappingMode": "exact"
-    },
-    "numericCleaning": {
-      "description": "Numeric field cleaning and standardization",
-      "thousandsSeparator": ",",
-      "decimalSeparator": ".",
-      "allowNaN": true,
-      "nanValues": ["", "N/A", "NA", "NULL", "null", "NaN", "nan", "#N/A", "#NULL!"],
-      "stripWhitespace": true
-    },
-    "moneyType": {
-      "description": "Currency and monetary value cleaning",
-      "currencySymbols": ["$", "€", "£", "¥", "₹", "₽", "¢"],
-      "thousandsSeparator": ",",
-      "decimalSeparator": ".",
-      "parenthesesNegative": true,
-      "stripWhitespace": true
-    },
-    "dateTimeParsing": {
-      "description": "DateTime parsing and standardization configuration",
-      "mode": "common_formats",
-      "allowFuzzy": false,
-      "fromEpoch": false,
-      "targetType": "datetime",
-      "timezone": "UTC",
-      "commonFormats": [
-        "%Y-%m-%d",
-        "%m/%d/%Y",
-        "%d/%m/%Y",
-        "%Y-%m-%d %H:%M:%S",
-        "%m/%d/%Y %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%SZ"
-      ]
-    },
-    "htmlXmlCleaning": {
-      "description": "HTML/XML tag and entity cleaning",
-      "stripTags": true,
-      "decodeEntities": true,
-      "preserveWhitespace": false
-    },
-    "stringPadding": {
-      "description": "String padding and formatting options",
-      "enabled": false,
-      "width": 10,
-      "fillChar": " ",
-      "side": "left"
-    },
-    "regexReplacements": [
-      {
-        "description": "Remove extra whitespace",
-        "pattern": "\\s+",
-        "replacement": " ",
-        "flags": 0
-      },
-      {
-        "description": "Standardize phone numbers",
-        "pattern": "[^\\d]",
-        "replacement": "",
-        "flags": 0,
-        "applyToColumns": ["phone", "mobile", "telephone"]
-      }
-    ],
-    "stringReplacements": [
-      {
-        "description": "Replace common abbreviations",
-        "old": "St.",
-        "new": "Street",
-        "applyToColumns": ["address", "street"]
-      },
-      {
-        "description": "Standardize state names",
-        "old": "California",
-        "new": "CA",
-        "applyToColumns": ["state", "state_name"]
-      }
-    ],
-    "columnSpecific": {
+    "description": "Per-column cleaning that runs on the text of the file before types are applied. Steps run in the order listed; SSN, ZIP, phone, e-mail, IP and MAC columns are formatted automatically from their x-special-type.",
+    "column_transformations": {
       "name": {
-        "transformations": ["stringCleaning", "caseTransformation"],
-        "caseTransform": "title"
+        "string_cleaning": {
+          "enabled": true,
+          "strip_whitespace": true,
+          "collapse_whitespace": true,
+          "remove_zero_width": true,
+          "remove_control_chars": true,
+          "unicode_normalize": "NFKC",
+          "fix_case_issues": true,
+          "case_transform": "title",
+          "title_case_exceptions": ["of", "the", "and", "or", "but", "in", "on", "at", "to", "for", "with"]
+        }
       },
-      "email": {
-        "transformations": ["stringCleaning"],
-        "caseTransform": "lower"
+      "email_address": {
+        "string_cleaning": {
+          "enabled": true,
+          "strip_whitespace": true,
+          "case_transform": "lower"
+        }
       },
       "salary": {
-        "transformations": ["moneyType", "numericCleaning"]
+        "money_conversion": {
+          "enabled": true,
+          "currency_symbols": ["$", "\u20ac", "\u00a3", "\u00a5", "\u20b9", "\u20bd", "\u00a2"],
+          "thousands_separator": ",",
+          "decimal_separator": ".",
+          "parentheses_negative": true,
+          "strip_whitespace": true
+        }
       },
       "birth_date": {
-        "transformations": ["dateTimeParsing"],
-        "dateTimeConfig": {
+        "datetime": {
+          "enabled": true,
           "mode": "specify_formats",
-          "formats": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"]
+          "formats": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y"],
+          "target_type": "date"
         }
       },
       "created_timestamp": {
-        "transformations": ["dateTimeParsing"],
-        "dateTimeConfig": {
+        "datetime": {
+          "enabled": true,
           "mode": "common_formats",
-          "targetType": "timestamp"
-        }
-      },
-      "ssn": {
-        "transformations": ["ssn_formatting"],
-        "ssnConfig": {
-          "format_with_dashes": true,
-          "zero_pad": true,
-          "validate": true,
-          "allow_invalid": false
-        }
-      },
-      "zip_code": {
-        "transformations": ["zip_code_formatting"],
-        "zipCodeConfig": {
-          "zip_type": "zip-permissive",
-          "format_with_dash": true,
-          "zero_pad": true,
-          "validate": true,
-          "allow_invalid": false
-        }
-      },
-      "zip_5": {
-        "transformations": ["zip_code_formatting"],
-        "zipCodeConfig": {
-          "zip_type": "zip-5",
-          "format_with_dash": false,
-          "zero_pad": true,
-          "validate": true,
-          "allow_invalid": false
-        }
-      },
-      "zip_9": {
-        "transformations": ["zip_code_formatting"],
-        "zipCodeConfig": {
-          "zip_type": "zip-9",
-          "format_with_dash": true,
-          "zero_pad": true,
-          "validate": true,
-          "allow_invalid": false
+          "target_type": "datetime"
         }
       }
     }
@@ -516,61 +376,26 @@
     "namingConvention": "snake_case",
     "caseSensitive": false,
     "allowUnmapped": true,
-    "dropUnmapped": false,
-    "standardizationRules": {
-      "removeSpecialChars": true,
-      "replaceSpaces": "_",
-      "maxLength": 64,
-      "reservedWords": ["index", "table", "column", "select", "from", "where"],
-      "reservedWordPrefix": "col_"
-    }
+    "dropUnmapped": false
   },
 
   "x-dataQuality": {
     "description": "Data quality validation and metrics configuration",
-    "completeness": {
-      "enabled": true,
-      "requiredFields": ["id", "name"],
-      "minimumFillRate": 0.95,
-      "reportMissingValues": true
-    },
-    "uniqueness": {
-      "enabled": true,
-      "uniqueFields": ["id", "email"],
-      "allowDuplicates": false,
-      "duplicateHandling": "error"
-    },
-    "consistency": {
-      "enabled": true,
-      "dataTypeValidation": true,
-      "formatValidation": true,
-      "rangeValidation": true
-    },
-    "accuracy": {
-      "enabled": true,
-      "emailValidation": true,
-      "phoneValidation": true,
-      "dateValidation": true,
-      "numericValidation": true
-    },
     "fieldSpecificRules": {
       "age": {
         "min": 0,
-        "max": 150,
-        "dataType": "integer"
+        "max": 150
       },
       "salary": {
         "min": 0,
-        "max": 10000000,
-        "dataType": "number"
+        "max": 10000000
       },
-      "email": {
+      "email_address": {
         "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
         "required": false
       },
-      "phone": {
-        "pattern": "^\\+?[1-9]\\d{1,14}$",
-        "standardizeFormat": true
+      "phone_number": {
+        "pattern": "^(1?\\(\\d{3}\\) \\d{3}-\\d{4}|\\d{10,11})$"
       }
     }
   },
@@ -579,10 +404,6 @@
     "description": "Comprehensive field validation rules with bad row handling for data quality enforcement",
     "badRowsHandling": {
       "enabled": true,
-      "outputPath": "bad_rows",
-      "fileFormat": "parquet",
-      "includeOriginalRow": true,
-      "includeValidationErrors": true,
       "maxBadRowsPercent": 10.0,
       "failOnExceedThreshold": true
     },
@@ -643,7 +464,7 @@
           "range": "bad_rows"
         }
       },
-      "email": {
+      "email_address": {
         "required": true,
         "unique": true,
         "stringValidation": {
@@ -737,30 +558,6 @@
         "onViolation": {
           "stringValidation": "bad_rows"
         }
-      }
-    },
-    "crossFieldValidations": [
-      {
-        "name": "salary_age_consistency",
-        "description": "Salary should be reasonable for age",
-        "rule": "IF age < 16 THEN salary MUST BE NULL OR 0",
-        "dependencies": ["age", "salary"],
-        "onViolation": "bad_rows"
-      },
-      {
-        "name": "birth_date_age_consistency",
-        "description": "Birth date should be consistent with age",
-        "rule": "CALCULATED_AGE(birth_date) SHOULD BE WITHIN 1 YEAR OF age",
-        "dependencies": ["birth_date", "age"],
-        "onViolation": "warning"
-      }
-    ],
-    "globalValidations": {
-      "maxNullFieldsPerRow": 3,
-      "requiredFieldsCompletePercent": 95.0,
-      "onViolation": {
-        "maxNullFieldsPerRow": "bad_rows",
-        "requiredFieldsCompletePercent": "warning"
       }
     }
   }

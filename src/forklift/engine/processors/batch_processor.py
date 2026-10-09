@@ -15,12 +15,18 @@ import pyarrow.csv as pv_csv
 from ...io import S3Path, UnifiedIOHandler, is_s3_path
 from ..config import ExcessColumnMode, ImportConfig
 from .text_utils import read_encoding, sanitize_arrow_error
-from .type_conversion import ColumnConverter
+from .type_conversion import ColumnConverter, visible_schema, with_raw_columns
 
 logger = logging.getLogger(__name__)
 
 # Receives an all-string batch of rows that must go to bad_rows
 RejectHandler = Callable[[pa.RecordBatch], None]
+# Receives every raw batch before the schema types are applied and returns it, possibly changed
+PreConvertHook = Callable[[pa.RecordBatch], pa.RecordBatch]
+
+#: Values of ``BatchProcessor.last_reject_reason``
+REJECT_TYPE_CONVERSION = "type_conversion_failed"
+REJECT_EXCESS_COLUMNS = "too_many_fields"
 
 
 class BatchProcessor:
@@ -35,6 +41,8 @@ class BatchProcessor:
         truncated_rows: Rows that had more fields than the header and were cut (TRUNCATE)
         rejected_rows: Rows rejected for excess fields (REJECT) or an unconvertible value
         established_schema: Schema of the first batch produced; later batches are cast to it
+        last_reject_reason: Why the batch most recently handed to ``reject_handler`` was rejected
+            (``REJECT_TYPE_CONVERSION`` or ``REJECT_EXCESS_COLUMNS``)
     """
 
     def __init__(
@@ -43,6 +51,7 @@ class BatchProcessor:
         io_handler: UnifiedIOHandler,
         converter: Optional[ColumnConverter] = None,
         reject_handler: Optional[RejectHandler] = None,
+        pre_convert: Optional[PreConvertHook] = None,
     ):
         """Initialize batch processor with configuration.
 
@@ -51,11 +60,15 @@ class BatchProcessor:
             io_handler: Unified I/O handler for file operations
             converter: Applies schema types and null markers (default: no schema)
             reject_handler: Called with an all-string batch for every group of rejected rows
+            pre_convert: Called with each raw batch before the schema types are applied (the
+                schema extensions use it to clean text columns); must keep the row count
         """
         self.config = config
         self.io_handler = io_handler
         self.converter = converter if converter is not None else ColumnConverter()
         self.reject_handler = reject_handler
+        self.pre_convert = pre_convert
+        self.last_reject_reason: Optional[str] = None
         self.truncated_rows = 0
         self.rejected_rows = 0
         self.established_schema: Optional[pa.Schema] = None
@@ -262,6 +275,10 @@ class BatchProcessor:
     def _finalize_batch(self, batch: pa.RecordBatch) -> Optional[pa.RecordBatch]:
         """Apply schema types/null markers and route unconvertible rows to the reject handler.
 
+        Whenever something can change the values of a row (a schema, null markers, the
+        pre-conversion hook), a hidden copy of the row as read travels with it, so rejected
+        rows can be written as the file had them (see ``with_raw_columns``).
+
         Returns:
             The converted batch, or None if no row of it is left
         """
@@ -269,19 +286,28 @@ class BatchProcessor:
             return batch  # not a real batch (callers that stub the row converter)
 
         converter = self.converter
-        if not converter.column_types and not converter.null_policy.configured:
+        schema_applies = bool(converter.column_types or converter.null_policy.configured)
+        if schema_applies or self.pre_convert is not None:
+            batch = with_raw_columns(batch)
+
+        if self.pre_convert is not None:
+            batch = self.pre_convert(batch)
+
+        if not schema_applies:
             # No schema to apply; the first batch only fixes the schema later ones must match
+            visible = visible_schema(batch.schema)
             if self.established_schema is None:
-                self.established_schema = batch.schema
-            if batch.schema.equals(self.established_schema):
+                self.established_schema = visible
+            if visible.equals(self.established_schema):
                 return batch if len(batch) > 0 else None
 
         converted, rejected = converter.convert(batch, self.established_schema)
         if self.established_schema is None:
-            self.established_schema = converted.schema
+            self.established_schema = visible_schema(converted.schema)
         if rejected is not None:
             self.rejected_rows += rejected.num_rows
             if self.reject_handler is not None:
+                self.last_reject_reason = REJECT_TYPE_CONVERSION
                 self.reject_handler(rejected)
         return converted if len(converted) > 0 else None
 
@@ -498,6 +524,7 @@ class BatchProcessor:
         self.rejected_rows += len(rows)
         if self.reject_handler is not None:
             # Stored in the shape of the header: fields beyond it are not kept
+            self.last_reject_reason = REJECT_EXCESS_COLUMNS
             self.reject_handler(self._convert_rows_to_batch(rows, len(column_names), column_names))
         rows.clear()
 

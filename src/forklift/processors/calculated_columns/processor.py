@@ -243,7 +243,7 @@ class CalculatedColumnsProcessor(BaseProcessor):
         new_arrays = [batch.column(i) for i in range(batch.num_columns)]
         new_arrays.append(column_array)
 
-        return pa.RecordBatch.from_arrays(new_arrays, new_schema)
+        return pa.RecordBatch.from_arrays(new_arrays, schema=new_schema)
 
     def get_calculated_columns_info(self) -> Dict[str, Any]:
         """Get information about calculated columns configuration."""

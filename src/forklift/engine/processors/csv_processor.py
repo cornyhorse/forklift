@@ -9,20 +9,29 @@ import os
 import time
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Union
+from typing import Any, Callable, List, Optional, Sequence, Union
 
 import pyarrow as pa
 import pyarrow.compute as pc
 
 from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
 from ...metadata import MetadataWriteError, OutputMetadataCollector
+from ...processors.data_validation.data_validation_processor import (
+    BadRowsThresholdExceededError,
+)
 from ..config import HeaderMode, ImportConfig, ProcessingResults
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
+from .extensions import (
+    REASON_COLUMN,
+    ExtensionPipeline,
+    build_extension_pipeline,
+    strip_hidden_columns,
+)
 from .header_detector import HeaderDetector
 from .schema_processor import SchemaProcessor
 from .text_utils import sanitize_arrow_error
-from .type_conversion import to_string_batch
+from .type_conversion import raw_rows
 
 logger = logging.getLogger(__name__)
 
@@ -42,12 +51,14 @@ class _ParquetOutputs:
         io_handler: UnifiedIOHandler,
         use_s3_output: bool,
         compression: str,
+        reason_column: bool = False,
     ):
         self.good_file = good_file
         self.bad_file = bad_file
         self._io_handler = io_handler
         self._use_s3_output = use_s3_output
         self._compression = compression
+        self._reason_column = reason_column
 
         self.good_writer = None
         self.bad_writer = None
@@ -76,21 +87,42 @@ class _ParquetOutputs:
         if len(batch) > 0:
             self.good_writer.write_table(pa.Table.from_batches([batch]))
 
-    def write_bad(self, batch: pa.RecordBatch) -> None:
+    def write_bad(
+        self, batch: pa.RecordBatch, reason: Union[str, Sequence[str], None] = None
+    ) -> None:
         """Append rejected rows to the bad rows file.
 
-        Rejected rows are stored as strings: a value that failed type conversion cannot live
-        in a typed column, and one stable schema lets rows from every batch share the file.
+        Rejected rows are stored as strings, as the input file had them: a value that failed type
+        conversion cannot live in a typed column, and one stable schema lets rows from every
+        batch share the file.
+        When the file has a reason column (the schema asks for validation or constraints),
+        ``reason`` is one text for all rows or one text per row.
         """
         if len(batch) == 0:
             return
-        batch = to_string_batch(batch)
+        batch = raw_rows(batch)
+        if self._reason_column:
+            batch = self._with_reason(batch, reason)
         if self.bad_writer is None:
             self.bad_writer = self._create_writer(self.bad_file, batch.schema)
             self.bad_schema = batch.schema
         elif not batch.schema.equals(self.bad_schema):
             batch = self._align(batch, self.bad_schema)
         self.bad_writer.write_table(pa.Table.from_batches([batch]))
+
+    @staticmethod
+    def _with_reason(
+        batch: pa.RecordBatch, reason: Union[str, Sequence[str], None]
+    ) -> pa.RecordBatch:
+        """Append the reason column (the last column of the bad rows file)."""
+        if isinstance(reason, str) or reason is None:
+            values = pa.array([reason or "rejected"] * len(batch), type=pa.string())
+        else:
+            values = pa.array(list(reason), type=pa.string())
+        return pa.RecordBatch.from_arrays(
+            list(batch.columns) + [values],
+            schema=pa.schema(list(batch.schema) + [pa.field(REASON_COLUMN, pa.string())]),
+        )
 
     @staticmethod
     def _align(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
@@ -124,6 +156,28 @@ class _ParquetOutputs:
                 self._abort_writer(writer, self.bad_file)
                 raise
             self.bad_written = True
+
+    def keep_bad_rows(self) -> Optional[str]:
+        """Finish the bad-rows file and discard the data file (for a run that stops on purpose).
+
+        A run that is aborted because too many rows were rejected keeps what explains it.
+
+        Returns:
+            The path of the finished bad-rows file, or None if there is none
+        """
+        if self.good_writer is not None:
+            writer, self.good_writer = self.good_writer, None
+            self._abort_writer(writer, self.good_file)
+        if self.bad_writer is None:
+            return None
+        writer, self.bad_writer = self.bad_writer, None
+        try:
+            writer.close()
+        except BaseException:
+            self._abort_writer(writer, self.bad_file)
+            raise
+        self.bad_written = True
+        return self.bad_file
 
     def abort(self) -> None:
         """Discard every writer that is still open (idempotent)."""
@@ -221,7 +275,10 @@ class CSVProcessor(BaseProcessor):
             Exception: Any failure is recorded in ``results.errors`` and re-raised. A failed run
                 leaves no partial ``data.parquet`` / ``bad_rows.parquet`` behind (local files
                 are removed, S3 uploads are not completed), and outputs of earlier runs in the
-                destination are removed when processing starts.
+                destination are removed when processing starts. One exception: a
+                ``BadRowsThresholdExceededError`` (``x-validation`` rejected more rows than
+                ``maxBadRowsPercent`` allows) discards ``data.parquet`` but keeps a finished
+                ``bad_rows.parquet`` and names it (``error.bad_rows_file``).
         """
         start_time = time.time()
         results = ProcessingResults()
@@ -244,6 +301,13 @@ class CSVProcessor(BaseProcessor):
             required_columns = self._required_columns(config)
             self._check_required_columns_present(required_columns, column_names)
 
+            # Schema extensions (x-transformations, x-columnMapping, x-calculatedColumns,
+            # x-validation, x-primaryKey, x-rowHash, ...). Misconfiguration fails here, before
+            # any output is written.
+            pipeline = self._build_extension_pipeline(
+                config, column_names, results, mark_nulls=converter.mark_nulls
+            )
+
             # Prepare output paths - support both local and S3 outputs
             good_file, bad_file, use_s3_output = self._prepare_output_paths(config)
 
@@ -252,7 +316,12 @@ class CSVProcessor(BaseProcessor):
 
             # Initialize parquet writers using unified I/O
             outputs = _ParquetOutputs(
-                good_file, bad_file, self.io_handler, use_s3_output, config.compression
+                good_file,
+                bad_file,
+                self.io_handler,
+                use_s3_output,
+                config.compression,
+                reason_column=bool(pipeline and pipeline.rejects_rows),
             )
 
             # Initialize output metadata collector if enabled
@@ -260,12 +329,18 @@ class CSVProcessor(BaseProcessor):
 
             def write_rejected(rejected_batch: pa.RecordBatch) -> None:
                 """Rows the reader could not turn into valid typed rows."""
-                outputs.write_bad(rejected_batch)
+                outputs.write_bad(
+                    rejected_batch, self.batch_processor.last_reject_reason or "rejected_by_reader"
+                )
                 results.invalid_rows += len(rejected_batch)
                 results.total_rows += len(rejected_batch)
 
             self.batch_processor = BatchProcessor(
-                config, self.io_handler, converter=converter, reject_handler=write_rejected
+                config,
+                self.io_handler,
+                converter=converter,
+                reject_handler=write_rejected,
+                pre_convert=pipeline.pre_convert if pipeline and pipeline.has_pre_stage else None,
             )
 
             # Process batches using extracted batch processor (no columns: nothing to read)
@@ -285,6 +360,17 @@ class CSVProcessor(BaseProcessor):
                     batch, schema, config, required_columns
                 )
 
+                # Schema extensions run on the rows that passed the required check
+                rejected_by_extensions = None
+                extension_reasons: List[str] = []
+                if pipeline is not None and pipeline.is_active:
+                    stage = pipeline.post_convert(valid_batch)
+                    valid_batch = stage.kept
+                    rejected_by_extensions = stage.rejected
+                    extension_reasons = stage.reasons
+                else:
+                    valid_batch = strip_hidden_columns(valid_batch)
+
                 # Initialize writers on first batch (to get schema)
                 outputs.ensure_good_writer(valid_batch.schema)
 
@@ -297,17 +383,29 @@ class CSVProcessor(BaseProcessor):
                     results.valid_rows += len(valid_batch)
 
                 if len(invalid_batch) > 0:
-                    outputs.write_bad(invalid_batch)
+                    outputs.write_bad(invalid_batch, "required_value_missing")
                     results.invalid_rows += len(invalid_batch)
+
+                if rejected_by_extensions is not None and len(rejected_by_extensions) > 0:
+                    outputs.write_bad(rejected_by_extensions, extension_reasons)
+                    results.invalid_rows += len(rejected_by_extensions)
 
                 results.total_rows += len(batch)
 
             # A header without rows (or only rejected rows) still yields an empty data file
             # that carries the schema
             if outputs.good_writer is None and column_names:
-                outputs.ensure_good_writer(
-                    self.batch_processor.established_schema or converter.empty_schema(column_names)
+                empty_schema = self.batch_processor.established_schema or converter.empty_schema(
+                    column_names
                 )
+                if pipeline is not None and pipeline.is_active:
+                    empty_schema = pipeline.output_schema(empty_schema)
+                outputs.ensure_good_writer(empty_schema)
+
+            if pipeline is not None:
+                # Constraints that judge the whole input (errorMode: fail_complete) report now
+                pipeline.finalize()
+                results.validation_summary = dict(pipeline.summary)
 
             results.truncated_rows = self.batch_processor.truncated_rows
             if results.truncated_rows:
@@ -326,6 +424,13 @@ class CSVProcessor(BaseProcessor):
 
             results.execution_time = time.time() - start_time
 
+        except BadRowsThresholdExceededError as e:
+            # Too many rows were rejected: the data file is discarded, the rejected rows are kept
+            # because they are what the user needs to see why
+            error = self._explain_kept_bad_rows(e, outputs)
+            results.errors.append(self._error_text(error))
+            results.execution_time = time.time() - start_time
+            raise error from None
         except Exception as e:
             error = self._friendly_error(e, config)
             results.errors.append(self._error_text(error))
@@ -339,6 +444,53 @@ class CSVProcessor(BaseProcessor):
                 outputs.abort()
 
         return results
+
+    def _build_extension_pipeline(
+        self,
+        config: ImportConfig,
+        column_names: Sequence[str],
+        results: ProcessingResults,
+        mark_nulls: Optional[Callable[[pa.RecordBatch], pa.RecordBatch]] = None,
+    ) -> Optional[ExtensionPipeline]:
+        """Create the schema extension pipeline (None when nothing is to be applied)."""
+        schema_dict = self.schema_processor.schema_dict
+        if not config.apply_schema_extensions or not schema_dict or not column_names:
+            return None
+        pipeline = build_extension_pipeline(
+            schema_dict,
+            column_names,
+            source_uri=str(config.input_path),
+            mark_nulls=mark_nulls,
+        )
+        if pipeline is not None:
+            results.warnings.extend(pipeline.warnings)
+            results.schema_extensions = list(pipeline.applied)
+        return pipeline
+
+    @staticmethod
+    def _explain_kept_bad_rows(
+        error: BadRowsThresholdExceededError, outputs: Optional[_ParquetOutputs]
+    ) -> BadRowsThresholdExceededError:
+        """Keep the rejected rows of an import that stopped on its threshold, say where."""
+        try:
+            kept = outputs.keep_bad_rows() if outputs is not None else None
+        except Exception:
+            logger.warning("Could not keep the rejected rows", exc_info=True)
+            kept = None
+        if kept is None:
+            return error
+        which = (
+            "All rows rejected by the checks"
+            if error.whole_input_checked
+            else "The rows rejected before the import stopped"
+        )
+        explained = BadRowsThresholdExceededError(
+            f"{error} {which} are in {kept}"
+            + (" (the _rejection_reason column says why)." if outputs._reason_column else ".")
+        )
+        explained.whole_input_checked = error.whole_input_checked
+        explained.bad_rows_file = kept
+        return explained
 
     @staticmethod
     def _friendly_error(error: Exception, config: ImportConfig) -> Exception:
@@ -613,6 +765,9 @@ class CSVProcessor(BaseProcessor):
             },
             "output_files": results.output_files,
             "bad_rows_file": results.bad_rows_file,
+            "schema_extensions": results.schema_extensions,
+            "validation_summary": results.validation_summary,
+            "warnings": results.warnings,
             "created_at": datetime.now().isoformat(),
         }
 

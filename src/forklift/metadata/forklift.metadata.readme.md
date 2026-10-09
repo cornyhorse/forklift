@@ -203,7 +203,7 @@ The metadata package is automatically integrated into Forklift's data processing
 
 1. **Initialization**: `CSVProcessor` creates an `OutputMetadataCollector` during setup
 2. **Configuration**: Collector settings are derived from schema metadata configuration
-3. **Collection**: Each valid batch processed through the pipeline is automatically analyzed
+3. **Collection**: Each valid batch processed through the pipeline is automatically analyzed, as it will be written: after the schema extensions of `import_csv` (renamed and calculated columns included, rejected rows left out)
 4. **Generation**: Metadata is generated and saved alongside output files
 
 ### Configuration Sources

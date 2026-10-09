@@ -127,6 +127,9 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   shared strict Parquet type grammar for all schema importers; `snake_case`/`camelCase` column
   name styles (accepted but ignored before).
 - `CHANGELOG.md`, `requirements-dev.txt`, `.github/dependabot.yml`.
+- Python 3.14 support: classifier and CI/publish test matrix. All dependencies and extras have 3.14
+  wheels (pyarrow 22 is the first release that does); the unit suite passes on 3.14.6 with pyarrow
+  22.0 and 26.0, also with deprecation warnings treated as errors.
 
 ### Fixed
 

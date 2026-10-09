@@ -43,8 +43,8 @@ Forklift is a comprehensive data processing tool that provides:
 pip install forklift-etl
 ```
 
-The core install is lean: it depends on `pyarrow` (>= 15, no upper cap, so current Python releases
-including 3.13 work), `jsonschema`, `boto3`/`botocore`, `python-dateutil`, `pytz`, `chardet` and
+The core install is lean: it depends on `pyarrow` (>= 16, no upper cap, so current Python releases
+including 3.13 and 3.14 work), `jsonschema`, `boto3`/`botocore`, `python-dateutil`, `pytz`, `chardet` and
 `charset-normalizer`.
 
 ### Optional Dependencies (extras)

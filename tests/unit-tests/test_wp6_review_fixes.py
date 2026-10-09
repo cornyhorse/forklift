@@ -1233,8 +1233,11 @@ class TestPackagingMetadata:
             _requirement_names(extras["dev"])
         )
 
-    def test_python_313_classifier(self, pyproject):
-        assert "Programming Language :: Python :: 3.13" in pyproject["project"]["classifiers"]
+    @pytest.mark.parametrize("version", ["3.12", "3.13", "3.14"])
+    def test_python_version_classifiers(self, pyproject, version):
+        assert (
+            f"Programming Language :: Python :: {version}" in pyproject["project"]["classifiers"]
+        )
 
     def test_requirements_txt_is_runtime_only_and_matches_pyproject(self, pyproject):
         lines = (REPO_ROOT / "requirements.txt").read_text().splitlines()
@@ -1356,7 +1359,11 @@ class TestWorkflows:
 
     def test_canonical_test_workflow(self, workflows):
         test = workflows["test.yml"]
-        assert test["jobs"]["test"]["strategy"]["matrix"]["python-version"] == ["3.12", "3.13"]
+        assert test["jobs"]["test"]["strategy"]["matrix"]["python-version"] == [
+            "3.12",
+            "3.13",
+            "3.14",
+        ]
         text = str(test)
         assert "--cov" in text and "codecov" in text and "coverage-report" in text
 

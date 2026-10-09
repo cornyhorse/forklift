@@ -38,6 +38,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Database",
@@ -46,7 +47,7 @@ classifiers = [
 requires-python = ">=3.8"
 dependencies = [
     # Only what src/ imports unconditionally or on a default code path. pyarrow has no upper
-    # cap: pyarrow<18 ships no Python 3.13 wheels. The floor is the oldest release the test
+    # cap: pyarrow<18 ships no Python 3.13 wheels and <22 none for 3.14. The floor is the oldest release the test
     # suite passes on (it builds batches with pa.record_batch(dict), added in 16); CI keeps it
     # honest in the "minimum versions" job.
     "pyarrow>=16.0.0",

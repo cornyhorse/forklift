@@ -8,7 +8,7 @@ GitHub release, and what the automated PyPI publish workflow checks before anyth
 Before starting a release, make sure you have:
 
 - [ ] Write access to the GitHub repository
-- [ ] All changes merged and tested on the release branch (CI green on Python 3.12 and 3.13)
+- [ ] All changes merged and tested on the release branch (CI green on Python 3.12, 3.13 and 3.14)
 - [ ] Release notes prepared (the `## [Unreleased]` section of `CHANGELOG.md`)
 - [ ] For a manual upload only: PyPI credentials (see [Manual upload](#manual-upload-fallback))
 
@@ -84,7 +84,7 @@ tar -tzf dist/forklift_etl-0.1.4.tar.gz      # source files, schema-standards/, 
 ```
 
 Also exercise the key functionality with real data and, if you can, the oldest and newest
-supported Python versions. CI runs the full suite on Python 3.12 and 3.13.
+supported Python versions. CI runs the full suite on Python 3.12, 3.13 and 3.14.
 
 ### 4. GitHub Release
 
@@ -132,7 +132,7 @@ repository). It stops before uploading anything if one of the checks below fails
    re-tag) and publish the release again.
 2. **Build and metadata** - `python -m build` builds the sdist and wheel and `twine check` verifies
    their metadata.
-3. **Install and test** - on Python 3.12 and 3.13 the built wheel is installed with its extras,
+3. **Install and test** - on Python 3.12, 3.13 and 3.14 the built wheel is installed with its extras,
    imported from outside the source tree, and `pytest tests/unit-tests` must pass.
 4. **Publish** - only if everything above passed; the job that uploads is the only one with the
    `id-token: write` permission.

@@ -1043,7 +1043,9 @@ true,true,true"""
             schema = generator.generate_schema()
 
             # Verify S3 path was handled
-            mock_open.assert_called_once_with("s3://bucket/file.csv", encoding="binary")
+            mock_open.assert_called_once_with(
+                "s3://bucket/file.csv", encoding="binary", seekable=False
+            )
 
             # Check schema was generated from the first nrows rows only
             assert "properties" in schema
@@ -1073,7 +1075,9 @@ true,true,true"""
             schema = generator.generate_schema()
 
             # Verify S3 path was handled
-            mock_open.assert_called_once_with("s3://bucket/file.csv", encoding="binary")
+            mock_open.assert_called_once_with(
+                "s3://bucket/file.csv", encoding="binary", seekable=False
+            )
             assert schema["x-generation"]["rows_analyzed"] == 2
 
     @patch("forklift.schema.generator.inference.is_s3_path")

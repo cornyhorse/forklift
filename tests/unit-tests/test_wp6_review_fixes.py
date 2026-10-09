@@ -1202,6 +1202,7 @@ class TestPackagingMetadata:
             "python-dateutil",
             "pytz",
             "chardet",
+            "charset-normalizer",
         }
         pyarrow_spec = next(
             dep for dep in pyproject["project"]["dependencies"] if dep.startswith("pyarrow")
@@ -1251,7 +1252,7 @@ class TestPackagingMetadata:
 
     def test_every_third_party_import_in_src_is_declared(self, pyproject):
         """pytz and chardet used to be imported without being declared anywhere."""
-        distribution = {"dateutil": "python-dateutil"}
+        distribution = {"dateutil": "python-dateutil", "charset_normalizer": "charset-normalizer"}
         declared = _requirement_names(pyproject["project"]["dependencies"])
         for extra in pyproject["project"]["optional-dependencies"].values():
             declared |= _requirement_names(extra)

@@ -533,8 +533,10 @@ class DataTypeInferrer:
         full local copy, so the CSV sampler can stop reading once it has ``nrows`` records.
         """
         if is_s3_path(str(input_path)):
+            if seekable:
+                return lambda: self.io_handler.open_for_read(str(input_path), encoding="binary")
             return lambda: self.io_handler.open_for_read(
-                str(input_path), encoding="binary", seekable=seekable
+                str(input_path), encoding="binary", seekable=False
             )
         return lambda: open(input_path, "rb")
 

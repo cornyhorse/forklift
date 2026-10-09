@@ -300,6 +300,8 @@ class SSNConfig:
     """Configuration for Social Security Number formatting."""
 
     format_with_dashes: bool = True  # Format as XXX-XX-XXXX
+    # zero_pad restores dropped leading zeros, but length is validated first: with validate=True a
+    # short value is rejected, so zero_pad only takes effect when validate=False.
     zero_pad: bool = True  # Zero-pad numbers with fewer than 9 digits
     validate: bool = True  # Validate that result has exactly 9 digits
     allow_invalid: bool = False  # If False, invalid SSNs become None
@@ -311,6 +313,8 @@ class ZipCodeConfig:
 
     zip_type: str = "zip-permissive"  # "zip-permissive", "zip-5", "zip-9"
     format_with_dash: bool = True  # Format ZIP+4 as XXXXX-XXXX
+    # zip-5 pads before validating ("2134" -> "02134"); zip-9 and zip-permissive validate the
+    # length first, so for them zero_pad only takes effect when validate=False.
     zero_pad: bool = True  # Zero-pad ZIP codes
     validate: bool = True  # Validate ZIP code format
     allow_invalid: bool = False  # If False, invalid ZIP codes become None

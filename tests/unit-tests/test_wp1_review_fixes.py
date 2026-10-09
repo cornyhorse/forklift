@@ -854,10 +854,16 @@ class TestColumnNames:
 
 
 class TestSsnAndZip:
-    def test_ssn_zero_pad_works_with_validate(self):
-        formatter = SSNFormatter(SSNConfig(zero_pad=True, validate=True))
-        assert formatter.format_value("12345678") == "012-34-5678"
-        assert formatter.format_value("123456789") == "123-45-6789"
+    def test_ssn_zero_pad_only_applies_when_not_validating(self):
+        # Length is validated before padding, so padding cannot turn short garbage into a
+        # plausible-looking SSN; zero_pad restores dropped zeros only for validate=False.
+        strict = SSNFormatter(SSNConfig(zero_pad=True, validate=True))
+        for short in ["0", "000", "12345", "12345678"]:
+            with pytest.raises(ValueError, match="exactly 9 digits"):
+                strict.format_value(short)
+        assert strict.format_value("123456789") == "123-45-6789"
+        lenient = SSNFormatter(SSNConfig(zero_pad=True, validate=False))
+        assert lenient.format_value("12345678") == "012-34-5678"
 
     def test_ssn_validation_still_checks_the_padded_length(self):
         formatter = SSNFormatter(SSNConfig(zero_pad=True, validate=True))
@@ -869,16 +875,19 @@ class TestSsnAndZip:
 
     def test_float_suffix_is_an_integer(self):
         assert SSNFormatter(SSNConfig()).format_value("123456789.0") == "123-45-6789"
-        assert SSNFormatter(SSNConfig()).format_value("12345678.0") == "012-34-5678"
+        assert SSNFormatter(SSNConfig(validate=False)).format_value("12345678.0") == "012-34-5678"
         assert ZipCodeFormatter(ZipCodeConfig(zip_type="zip-5")).format_value("2134.0") == "02134"
         assert ZipCodeFormatter(ZipCodeConfig()).format_value("02134.00") == "02134"
 
-    def test_zip_zero_pad_runs_before_validation(self):
-        zip9 = ZipCodeFormatter(ZipCodeConfig(zip_type="zip-9", zero_pad=True, validate=True))
-        assert zip9.format_value("21345678") == "02134-5678"
-        permissive = ZipCodeFormatter(ZipCodeConfig(zero_pad=True, validate=True))
-        assert permissive.format_value("501") == "00501"
-        assert permissive.format_value("5010001") == "00501-0001"
+    def test_zip_zero_pad_semantics(self):
+        # zip-5 pads before validating; zip-9 and zip-permissive validate the length first
+        assert ZipCodeFormatter(ZipCodeConfig(zip_type="zip-5")).format_value("2134") == "02134"
+        for config in (ZipCodeConfig(zip_type="zip-9"), ZipCodeConfig()):
+            with pytest.raises(ValueError):
+                ZipCodeFormatter(config).format_value("501")
+        lenient = ZipCodeFormatter(ZipCodeConfig(zero_pad=True, validate=False))
+        assert lenient.format_value("501") == "00501"
+        assert lenient.format_value("5010001") == "00501-0001"
 
     def test_zip_validation_without_padding_still_rejects(self):
         zip9 = ZipCodeFormatter(ZipCodeConfig(zip_type="zip-9", zero_pad=False, validate=True))

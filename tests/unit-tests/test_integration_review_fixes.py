@@ -166,3 +166,24 @@ class TestShippedSchemaStandardsLoad:
         from forklift.schema.fwf_schema_importer import FwfSchemaImporter
 
         FwfSchemaImporter(self.STANDARDS / name)  # raises on an invalid standard
+
+
+class TestShortIdentifiersAreNotFabricated:
+    """With validation on, short SSNs/ZIPs are invalid rather than padded into valid-looking ones."""
+
+    @pytest.mark.parametrize("garbage", ["0", "1", "000", "SSN: 000", "12345", "12345678"])
+    def test_validating_ssn_formatter_rejects_short_values(self, garbage):
+        from forklift.utils.transformations.configs import SSNConfig
+        from forklift.utils.transformations.format.ssn import SSNFormatter
+
+        with pytest.raises(ValueError):
+            SSNFormatter(SSNConfig()).format_value(garbage)
+
+    def test_special_type_pipeline_reports_them_as_invalid(self):
+        from forklift.utils.transformations.configs import SSNConfig
+        from forklift.utils.transformations.base import DataTransformer
+
+        column = pa.array(["123-45-6789", "garbage", None, "SSN: 000"])
+        out = DataTransformer().apply_ssn_formatting(column, SSNConfig())
+
+        assert out.to_pylist() == ["123-45-6789", None, None, None]

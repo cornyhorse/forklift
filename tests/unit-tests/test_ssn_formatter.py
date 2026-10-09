@@ -100,8 +100,9 @@ class TestSSNFormatter:
     def test_format_value_short_ssn_with_zero_padding(self, default_config):
         """Test formatting short SSN with zero padding enabled."""
         formatter = SSNFormatter(default_config)
-        # zero_pad pads first, then validation checks the padded result
-        assert formatter.format_value("12345") == "000-01-2345"
+        # Should not zero pad if validation is enabled and length is wrong
+        with pytest.raises(ValueError, match="SSN must have exactly 9 digits"):
+            formatter.format_value("12345")
 
     def test_format_value_short_ssn_no_zero_padding(self, permissive_config):
         """Test formatting short SSN without zero padding."""

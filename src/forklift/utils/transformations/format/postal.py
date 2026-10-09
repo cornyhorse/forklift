@@ -49,12 +49,11 @@ class ZipCodeFormatter(BaseFormatter, ValidationMixin):
 
     def _format_zip9(self, digits_only: str) -> str:
         """Format as 9-digit ZIP code."""
-        # Pad first (zero_pad restores dropped leading zeros), then validate the padded result
-        if self.config.zero_pad and len(digits_only) < 9:
-            digits_only = digits_only.zfill(9)
-
         if self.config.validate and len(digits_only) != 9:
             raise ValueError(f"ZIP-9 must have exactly 9 digits, got {len(digits_only)}")
+
+        if self.config.zero_pad and len(digits_only) < 9:
+            digits_only = digits_only.zfill(9)
 
         if self.config.format_with_dash and len(digits_only) == 9:
             return f"{digits_only[:5]}-{digits_only[5:]}"
@@ -63,16 +62,15 @@ class ZipCodeFormatter(BaseFormatter, ValidationMixin):
 
     def _format_zip_permissive(self, digits_only: str) -> str:
         """Format with permissive rules (5 or 9 digits)."""
-        # Pad first (zero_pad restores dropped leading zeros), then validate the padded result
+        if self.config.validate:
+            if len(digits_only) not in [5, 9]:
+                raise ValueError(f"ZIP code must have 5 or 9 digits, got {len(digits_only)}")
+
         if self.config.zero_pad:
             if len(digits_only) <= 5:
                 digits_only = digits_only.zfill(5)
             elif len(digits_only) <= 9:
                 digits_only = digits_only.zfill(9)
-
-        if self.config.validate:
-            if len(digits_only) not in [5, 9]:
-                raise ValueError(f"ZIP code must have 5 or 9 digits, got {len(digits_only)}")
 
         if len(digits_only) == 9 and self.config.format_with_dash:
             return f"{digits_only[:5]}-{digits_only[5:]}"

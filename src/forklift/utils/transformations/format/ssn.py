@@ -31,13 +31,14 @@ class SSNFormatter(BaseFormatter, ValidationMixin):
         if self.config.validate and self.has_letters(original_value):
             raise ValueError("SSN contains letters")
 
-        # Zero padding comes first, so that zero_pad=True actually restores leading zeros that a
-        # numeric column dropped; validation then checks the padded result.
-        if self.config.zero_pad and len(digits_only) < 9:
-            digits_only = digits_only.zfill(9)
-
+        # Length is validated before zero padding, so with validate=True a short value is rejected
+        # rather than padded into a plausible-looking SSN. zero_pad only takes effect with
+        # validate=False.
         if self.config.validate and len(digits_only) != 9:
             raise ValueError(f"SSN must have exactly 9 digits, got {len(digits_only)}")
+
+        if self.config.zero_pad and len(digits_only) < 9:
+            digits_only = digits_only.zfill(9)
 
         # Format with dashes
         if self.config.format_with_dashes:

@@ -204,7 +204,15 @@ class ExpressionEvaluator:
                     and (pa.types.is_temporal(data_type) and not pa.types.is_duration(data_type))
                     and all(v is None or isinstance(v, str) for v in values)
                 ):
-                    return pa.array(values, type=pa.string()).cast(data_type)
+                    text = pa.array(values, type=pa.string())
+                    try:
+                        return text.cast(data_type)
+                    except pa.ArrowInvalid:
+                        if not (pa.types.is_timestamp(data_type) and data_type.tz is None):
+                            raise
+                        # "2024-08-26T10:30:00Z" for a timestamp without time zone: keep the
+                        # UTC wall time (as the engine does for timestamp columns)
+                        return text.cast(pa.timestamp(data_type.unit, tz="UTC")).cast(data_type)
                 raise
         except (pa.ArrowException, TypeError, ValueError, OverflowError):
             # The Arrow message quotes the offending value; report only the target type.

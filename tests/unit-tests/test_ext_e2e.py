@@ -147,6 +147,19 @@ class TestTransformations:
         assert data(out).column("name").to_pylist() == ["ann"]
         assert any("name.string_cleaning" in w and "enabled" in w for w in results.warnings)
 
+    @pytest.mark.parametrize(
+        "block",
+        [
+            {"column_transformations": []},
+            {"column_transformations": {"name": ["string_cleaning"]}},
+        ],
+    )
+    def test_a_block_of_the_wrong_shape_is_a_value_error(self, tmp_path, block):
+        schema = schema_of({"name": {"type": "string"}}, **{"x-transformations": block})
+
+        with pytest.raises(ValueError, match="x-transformations"):
+            run(tmp_path, "name\nann\n", schema)
+
     def test_an_invalid_transformation_fails_before_any_output_is_written(self, tmp_path):
         schema = schema_of(
             {"name": {"type": "string"}},
@@ -404,6 +417,21 @@ class TestValidation:
 
         assert data(out).num_rows == 3
         assert any("'score'" in w and "not checked" in w for w in results.warnings)
+
+    def test_enabled_false_turns_the_block_off(self, tmp_path):
+        schema = schema_of(
+            PEOPLE_PROPERTIES,
+            **{
+                "x-validation": {
+                    "enabled": False,
+                    "fieldValidations": {"age": {"range": {"min": 0, "max": 150}}},
+                }
+            },
+        )
+
+        results, out = run(tmp_path, PEOPLE, schema)
+
+        assert data(out).num_rows == 4 and results.warnings == []
 
     def test_a_misspelled_column_is_an_error(self, tmp_path):
         schema = schema_of(

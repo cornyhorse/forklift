@@ -65,7 +65,8 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   - Configuration is checked before anything is written: invalid options, a key or unique
     constraint on a column that is not in the file, a name no `properties` entry declares in
     `x-validation`/`x-dataQuality`, a calculated or hash column that would overwrite a data column,
-    or a header starting with `__forklift_` raise `ValueError`.
+    or a header starting with `__forklift_` raise `ValueError`. A calculated column whose listed
+    `dependencies` the file lacks is left out with a warning when `properties` declares them.
   - Content that no processor reads (for example `x-pii`, or `x-transformations.stringCleaning`)
     is reported in `ProcessingResults.warnings`, logged and printed by the CLI instead of failing.
     `x-pii` masking is not implemented.
@@ -181,7 +182,7 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   (numbers); pyarrow 25 was not affected. `set_null_where` (`forklift.utils.arrow_compat`) is used
   by the converter, schema inference and the schema validator; tests cover several batch sizes and
   run in the minimum-versions CI job.
-- Calculated-column constants of a date or timestamp type accept ISO text (`"2024-08-26"`);
+- Calculated-column constants of a date or timestamp type accept ISO text (`"2024-08-26"`, also with `Z`);
   building the result no longer triggers pyarrow's `names=` deprecation warning.
 - `ColumnMapper` ignored `allowUnmapped: false`; `DataValidationProcessor` results did not carry
   the column; `EnhancedDataProcessor` miscounted violations once the validator bounded them.

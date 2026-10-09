@@ -57,6 +57,10 @@ This is the shape used by the shipped standard `schema-standards/20250826-csv.js
 
 ## Configuration Properties
 
+### `enabled`
+
+Top-level `enabled: false` turns the whole block off (default `true`).
+
 ### `badRowsHandling`
 
 #### `maxBadRowsPercent`
@@ -111,7 +115,7 @@ Details:
 - A violation never puts the cell value in the reason
 
 ### Not implemented (ignored with a warning)
-`crossFieldValidations`, `globalValidations`, `enabled` (top level), per-field `dataType` and any unknown key, in addition to the `badRowsHandling` keys and `onViolation` values named above. They are listed in `results.warnings` (`x-validation.<key> is not supported and is ignored`); the other rules still run. The shipped standard no longer contains them.
+`crossFieldValidations`, `globalValidations`, per-field `dataType` and any unknown key, in addition to the `badRowsHandling` keys and `onViolation` values named above. They are listed in `results.warnings` (`x-validation.<key> is not supported and is ignored`); the other rules still run. The shipped standard no longer contains them.
 
 ## In `import_csv`
 

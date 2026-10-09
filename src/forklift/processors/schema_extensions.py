@@ -675,8 +675,9 @@ def build_data_validator(
 ) -> Optional[DataValidationProcessor]:
     """Build a :class:`DataValidationProcessor` from ``x-validation``.
 
-    Reads ``fieldValidations`` (``required``, ``unique``, ``range``, ``stringValidation``,
-    ``enumValidation``, ``dateValidation``), ``uniquenessHandling.strategy`` and
+    ``enabled: false`` turns the block off. Reads ``fieldValidations`` (``required``, ``unique``,
+    ``range``, ``stringValidation``, ``enumValidation``, ``dateValidation``),
+    ``uniquenessHandling.strategy`` and
     ``badRowsHandling.maxBadRowsPercent``/``failOnExceedThreshold``.
 
     The processor drops the rejected rows from the batch and reports them as ``ValidationResult``
@@ -695,6 +696,8 @@ def build_data_validator(
         return None
     where = "x-validation"
     section = _dict(section, where)
+    if not _bool(section, "enabled", True, where):
+        return None
     resolve = _checked_resolver(resolve_column)
 
     bad_rows = section.get("badRowsHandling")
@@ -954,6 +957,7 @@ _PRIMARY_KEY_KEYS = frozenset({"columns", "type", "enforceUniqueness", "allowNul
 _UNIQUE_ITEM_KEYS = frozenset({"name", "columns", "ignoreNulls", "caseSensitive", "condition"})
 _VALIDATION_KEYS = frozenset(
     {
+        "enabled",
         "badRowsHandling",
         "uniquenessHandling",
         "fieldValidations",

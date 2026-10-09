@@ -62,7 +62,7 @@ Static values added to every row during processing.
 - `float32`, `double`: Floating-point values
 - `bool`: Boolean values
 - `date32` (or `date`): Date values; ISO text such as `"2024-08-26"` is accepted as the value
-- `timestamp[us]`: Timestamp values; ISO text without a UTC offset (`"2024-08-26T10:30:00"`, `"2024-08-26 10:30:00"`). A value with `Z` or an offset needs `timestamp[us, tz=UTC]`
+- `timestamp[us]`: Timestamp values; ISO text (`"2024-08-26T10:30:00"`, `"2024-08-26 10:30:00"`); a value with `Z` or an offset is converted to UTC and the wall time is kept. Use `timestamp[us, tz=UTC]` to keep the time zone
 - Any other type string the schema tooling knows (`decimal(10,2)`, `list<string>`, ...); an unknown one raises `ValueError`. When `dataType` is left out the type is inferred from the value
 
 #### Use Cases
@@ -285,7 +285,8 @@ object.
 - **Stage**: after the type conversion and `x-columnMapping`, before `x-dataQuality`, `x-validation`, the constraints and `x-rowHash`. Expressions see the **typed** values (a column typed `integer` is a number; a date column is a date) and the **output** column names (after `x-columnMapping`; a header name that was renamed is unknown there). Only names that are valid identifiers can be used in an expression
 - **Output**: the new columns are appended after the columns of the file, constants first, then the expressions and calculated entries. A column that uses another calculated column comes after it (columns are added in rounds: every column whose calculated dependencies already exist, in the listed order, then the next round)
 - **Name clashes**: a calculated column named like a column of the file (output name) or like another calculated column stops the import before any output is written (`x-calculatedColumns would overwrite existing column(s) [...]`)
-- **Dates and timestamps**: a constant or an expression result for a `date32` / `date` / `timestamp[us]` column may be ISO text (`"2024-08-26"`); a timestamp text with `Z` or an offset needs a `tz=UTC` type
+- **Columns the file lacks**: list the columns an expression uses in `dependencies`. A column whose `dependencies` include a column that is not in the file is left out with a warning when `properties` declares that column (as is every column that depends on it); a dependency that nothing declares raises `ValueError` before any output is written
+- **Dates and timestamps**: a constant or an expression result for a `date32` / `date` / `timestamp[us]` column may be ISO text (`"2024-08-26"`); a timestamp text with `Z` or an offset is stored as its UTC wall time (use a `tz=UTC` type to keep the zone)
 - **Rejected rows** do not get calculated columns: `bad_rows.parquet` has the columns of the input file only
 - **NULL**: `salary * 2` is NULL where `salary` is NULL. An empty cell in a `string` column is the empty string, not NULL, unless `x-csv.nulls` lists `""`; use `length(x) == 0` or `nullif(x, '')`
 

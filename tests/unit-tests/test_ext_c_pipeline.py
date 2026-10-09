@@ -301,3 +301,8 @@ class TestTemporalConstants:
     def test_text_is_not_turned_into_numbers(self):
         with pytest.raises(ValueError):
             self.constants("int32", "12").process_batch(people())
+
+    def test_utc_suffix_for_a_timestamp_without_time_zone(self):
+        out, _ = self.constants("timestamp[us]", "2024-08-26T10:30:00Z").process_batch(people())
+
+        assert out.column("c").to_pylist()[0].isoformat() == "2024-08-26T10:30:00"

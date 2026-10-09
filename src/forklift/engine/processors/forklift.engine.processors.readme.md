@@ -79,8 +79,19 @@ The primary processor implementation for CSV data processing. This is the most c
 **Key Methods:**
 - `process()` - Main processing orchestration method
 - `_detect_header_row()` - Determines header location
-- `_validate_batch()` - Validates data against schema
+- `_validate_batch()` - Validates data against schema (required columns are looked up by name;
+  null or, for text columns, empty values reject the row)
 - `_create_s3_manifest()` / `_create_s3_metadata()` - Output file generation
+
+**Outputs and failure behaviour:**
+- `data.parquet` holds accepted rows; `bad_rows.parquet` holds rejected rows (failed type
+  conversion, missing required value, excess fields in REJECT mode) as strings.
+  `ProcessingResults.bad_rows_file` names it; it is also still listed in `output_files`.
+- Outputs of an earlier run (those two file names) are removed when a run starts.
+- On any error the partial `data.parquet`/`bad_rows.parquet` is discarded (local file removed,
+  S3 upload not completed), the error is recorded in `results.errors` (Arrow messages are
+  stripped of row content) and re-raised.
+- A header without data rows produces an empty `data.parquet` carrying the schema.
 
 ### Specialized Processing Components
 
@@ -95,6 +106,14 @@ Handles the core batch processing logic for streaming large datasets efficiently
 - **S3 Streaming** - Fallback processing for S3 inputs
 - **Data Corruption Detection** - Identifies and handles corrupted data
 
+**Typing and null handling:** schema columns are read as raw strings and converted per batch
+by `type_conversion.ColumnConverter`, on both the Arrow path and the S3/fallback row path, so
+both produce the same Parquet schema (`00123` stays `00123` for a `string` column). A row whose
+value cannot be converted is passed to the reject handler instead of aborting the stream.
+Columns outside the schema keep Arrow inference on the local path (strings on the row path); if
+Arrow's column-count check forces the fallback reader mid-file, rows already delivered are
+skipped and the remaining batches are cast to the schema established so far.
+
 **Key Methods:**
 - `create_batch_reader()` - Creates PyArrow streaming reader for local files
 - `create_s3_batch_reader()` - Unified interface for both local and S3 files
@@ -103,9 +122,12 @@ Handles the core batch processing logic for streaming large datasets efficiently
 - `_create_filtered_file()` - Creates temporary files with footers removed
 
 **Excess Column Handling Modes:**
-- `REJECT` - Skip rows with extra columns
-- `TRUNCATE` - Remove excess columns from rows  
-- `PASSTHROUGH` - Keep all columns, extending schema as needed
+- `REJECT` - Rows with extra columns go to `bad_rows.parquet` (cut to the header width)
+- `TRUNCATE` - Remove excess columns from rows; the count is `results.truncated_rows`
+- `PASSTHROUGH` - Keep all columns, extending the schema until the first batch is written;
+  a wider row after that raises a `ValueError` naming the data row number
+
+Blank lines are skipped on every path.
 
 #### `header_detector.py`
 Specialized component for detecting and extracting header information from CSV files.
@@ -119,8 +141,13 @@ Specialized component for detecting and extracting header information from CSV f
 
 **Header Modes:**
 - `PRESENT` - Header expected at first non-comment row
-- `ABSENT` - No header present, use schema or generate names
+- `ABSENT` - No header present, use schema names or generate `col_1`..`col_N`
 - `AUTO` - Automatically detect header by analyzing content patterns
+
+A `ValueError` is raised if no header is found within `header_search_rows` rows. Only an empty
+(or blank/comment-only) file yields `(-1, [])`. A UTF-8 byte order mark is ignored. With
+`comment_rows=None` a row that is a single `#...` cell is a comment, while `#,name,amount` is a
+header; `comment_rows=[]` disables comment detection.
 
 **Key Methods:**
 - `detect_header_row()` - Main header detection orchestration

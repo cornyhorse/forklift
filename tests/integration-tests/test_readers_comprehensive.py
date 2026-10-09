@@ -125,10 +125,11 @@ class TestEdgeCases:
         """Test DataFrameReader with empty file list."""
         reader = DataFrameReader([])
 
-        # Should handle empty lists gracefully
+        # Should handle empty lists gracefully: an empty frame, not a concat([]) error
         with patch("polars.concat", return_value=MagicMock()) as mock_concat:
-            reader.as_polars()
-            mock_concat.assert_called_once_with([])
+            result = reader.as_polars()
+            mock_concat.assert_not_called()
+            assert result.is_empty()
 
     def test_reader_cleanup_multiple_calls(self):
         """Test that multiple cleanup calls don't cause issues."""

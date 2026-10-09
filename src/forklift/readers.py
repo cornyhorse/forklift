@@ -24,11 +24,29 @@ def _cleanup_temp_dirs():
 atexit.register(_cleanup_temp_dirs)
 
 
+def _data_files(results) -> list[str]:
+    """Parquet files with the accepted data of a processing run (rejected rows left out)."""
+    files = list(results.output_files)
+    bad_rows_file = getattr(results, "bad_rows_file", None)
+    if isinstance(bad_rows_file, str):
+        files = [f for f in files if f != bad_rows_file]
+    return files
+
+
 class DataFrameReader:
     """Reader that can convert processed data to Polars or Pandas DataFrames.
 
     This class manages temporary Parquet files created during processing and
     provides methods to convert them to popular DataFrame formats.
+
+    The temporary files live until ``close()`` is called (or the reader is used as a context
+    manager) or, at the latest, until the interpreter exits. They are deliberately *not*
+    removed when the reader is garbage collected, because a Polars ``LazyFrame`` returned by
+    ``as_polars(lazy=True)`` keeps reading from them after the reader itself is gone.
+
+    Example:
+        >>> with fl.read_csv("data.csv") as reader:  # noqa: F821
+        ...     df = reader.as_pandas()
     """
 
     def __init__(self, parquet_files: list[str], temp_dir: Optional[str] = None):
@@ -40,8 +58,17 @@ class DataFrameReader:
         """
         self.parquet_files = parquet_files
         self._temp_dir = temp_dir
+        self._closed = False
         if temp_dir:
             _temp_dirs.add(temp_dir)
+
+    def _check_open(self) -> None:
+        """Raise a clear error if the files were already deleted by close()."""
+        if self._closed:
+            raise ValueError(
+                "This DataFrameReader is closed: its temporary files were deleted. "
+                "Convert the data before calling close()."
+            )
 
     def as_polars(self, lazy: bool = False) -> "polars.DataFrame | polars.LazyFrame":  # noqa: F821
         """Return data as a Polars DataFrame or LazyFrame.
@@ -62,6 +89,12 @@ class DataFrameReader:
             raise ImportError(
                 "polars is required for as_polars(). Install with: pip install polars"
             )
+
+        self._check_open()
+
+        if not self.parquet_files:
+            # Nothing was written (e.g. an empty input): an empty frame
+            return pl.LazyFrame() if lazy else pl.DataFrame()
 
         if len(self.parquet_files) == 1:
             if lazy:
@@ -95,6 +128,11 @@ class DataFrameReader:
                 "pandas is required for as_pandas(). Install with: pip install pandas"
             )
 
+        self._check_open()
+
+        if not self.parquet_files:
+            return pd.DataFrame()
+
         if len(self.parquet_files) == 1:
             return pd.read_parquet(self.parquet_files[0], **kwargs)
         else:
@@ -115,13 +153,18 @@ class DataFrameReader:
                 "pyarrow is required for as_pyarrow(). Install with: pip install pyarrow"
             )
 
+        self._check_open()
+
+        import pyarrow as pa
+
+        if not self.parquet_files:
+            return pa.table({})
+
         if len(self.parquet_files) == 1:
             return pq.read_table(self.parquet_files[0])
         else:
             # Concatenate multiple tables
             tables = [pq.read_table(f) for f in self.parquet_files]
-            import pyarrow as pa
-
             return pa.concat_tables(tables)
 
     def cleanup(self):
@@ -130,9 +173,16 @@ class DataFrameReader:
             shutil.rmtree(self._temp_dir, ignore_errors=True)
             _temp_dirs.discard(self._temp_dir)
 
-    def __del__(self):
-        """Clean up on object deletion."""
+    def close(self):
+        """Delete the temporary files. Lazy frames created earlier become unusable."""
         self.cleanup()
+        self._closed = True
+
+    def __enter__(self) -> "DataFrameReader":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
 
 
 def read_csv(
@@ -179,7 +229,7 @@ def read_csv(
         )
 
         # Return reader with the generated parquet files
-        return DataFrameReader(results.output_files, temp_dir)
+        return DataFrameReader(_data_files(results), temp_dir)
 
     except Exception as e:
         # Clean up temp directory on error
@@ -224,7 +274,7 @@ def read_excel(
         )
 
         # Return reader with the generated parquet files
-        return DataFrameReader(results.output_files, temp_dir)
+        return DataFrameReader(_data_files(results), temp_dir)
 
     except Exception as e:
         # Clean up temp directory on error
@@ -261,7 +311,7 @@ def read_fwf(
         )
 
         # Return reader with the generated parquet files
-        return DataFrameReader(results.output_files, temp_dir)
+        return DataFrameReader(_data_files(results), temp_dir)
 
     except Exception as e:
         # Clean up temp directory on error
@@ -294,11 +344,14 @@ def read_sql(
     try:
         # Process SQL to Parquet
         results = import_sql(
-            input_path=input_path, output_path=temp_dir, schema_file=schema_file, **kwargs
+            connection_string=input_path,
+            output_path=temp_dir,
+            schema_file=schema_file,
+            **kwargs,
         )
 
         # Return reader with the generated parquet files
-        return DataFrameReader(results.output_files, temp_dir)
+        return DataFrameReader(_data_files(results), temp_dir)
 
     except Exception as e:
         # Clean up temp directory on error

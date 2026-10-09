@@ -45,7 +45,7 @@ The package initialization module that exposes the main public API. It provides 
 - `UnifiedIOHandler`: Unified interface for local/S3 operations
 - `UnifiedCSVWriter`: CSV writer supporting both local and S3 outputs
 - `S3ParquetWriter`: Parquet writer optimized for S3
-- Helper functions: `is_s3_path()`, `get_s3_client()`, `create_parquet_writer()`
+- Helper functions: `is_s3_path()`, `normalize_s3_uri()`, `get_s3_client()`, `create_parquet_writer()`
 
 ### `s3_streaming.py`
 
@@ -57,7 +57,10 @@ Core S3 streaming functionality built on top of boto3, providing efficient strea
 - Utility class for parsing and manipulating S3 URIs
 - Provides path operations similar to `pathlib.Path` but for S3
 - Features: parent directory access, path joining, name extraction
-- Validates S3 URI format and extracts bucket/key components
+- Validates S3 URI format and extracts bucket/key components. The URI is split on the first `/` after the bucket and the rest is the key, verbatim: a `?` or `#` inside a key is part of the key (it is not treated as a query string or fragment), and a bucket name containing whitespace, `?`, `#` or control characters is rejected
+- Accepts a `str`, an `os.PathLike` or another `S3Path`
+
+**Pass S3 URIs as `str`.** `pathlib.Path("s3://bucket/key")` collapses the double slash and stores `s3:/bucket/key`, which would be a relative local path. The helpers recognise that collapsed form of a path-like object and restore it (`normalize_s3_uri()`; `is_s3_path(Path("s3://bucket/key"))` is `True`), but `os.path.join`, `Path.parent` and similar operations on such an object produce nonsense, so keep S3 locations as strings (or `S3Path`) and join them with `S3Path.join()`. Where Forklift cannot recover the intent (an output location given as `s3:/bucket/...`) it raises `ValueError` rather than writing to a local directory named `s3:`.
 
 **`S3StreamingClient`**
 - Main client for S3 operations with streaming capabilities
@@ -71,10 +74,10 @@ Core S3 streaming functionality built on top of boto3, providing efficient strea
 
 **`S3StreamingWriter`**
 - Implements multipart upload for efficient large file uploads to S3
-- Automatically manages upload parts based on configurable part size (default: 100MB)
+- Automatically manages upload parts based on configurable part size (default: 100MB, minimum 5MB). An object that never reaches one part is stored with a single `put_object` (a zero-byte object included)
 - Supports both text and binary write modes
 - Provides file-like interface with proper context manager support
-- Handles upload completion and cleanup on errors
+- `abort()` discards everything written so far and aborts the multipart upload (idempotent, a no-op after `close()`). Used as a context manager, a clean exit completes the upload and an exit caused by an exception aborts it, so a partially written object is never published
 
 #### Key Functions:
 - `is_s3_path()`: Utility to detect S3 URIs
@@ -92,9 +95,9 @@ Provides a unified interface that abstracts local filesystem and S3 operations, 
 - Key capabilities:
   - File existence checking across storage types
   - Size retrieval for optimization decisions
-  - Unified file opening for read/write operations
-  - CSV reading/writing with format consistency
-  - Cross-storage file copying (local↔local, local↔S3, S3↔S3)
+  - Unified file opening for read/write operations. Text reads use `newline=""`, so line endings (CRLF) and line breaks inside quoted CSV fields are preserved exactly as stored. `open_for_read(path, encoding="binary")` (or `mode="rb"`) returns a binary file object for local files and S3 objects; for S3 the object is first copied into a temporary seekable file (Parquet and Excel readers need `seek`) unless `seekable=False` is passed, which returns the raw forward-only stream (this is how schema generation stops reading a large CSV early)
+  - CSV reading/writing with format consistency (a UTF-8 byte order mark is dropped when reading)
+  - Cross-storage file copying (local↔local, local↔S3, S3↔S3). The copy is binary (no re-encoding, no newline rewriting); a failed copy leaves no truncated destination
 
 **`UnifiedCSVWriter`**
 - Context manager for CSV writing that works with both local files and S3
@@ -107,7 +110,7 @@ Provides a unified interface that abstracts local filesystem and S3 operations, 
 - Uses temporary local files for Parquet generation, then uploads to S3
 - Supports PyArrow schema definition and compression options
 - Handles both table and batch writing modes
-- Provides proper resource cleanup and error handling
+- Provides proper resource cleanup and error handling: `abort()` closes the writer, deletes the temporary file and uploads nothing; as a context manager it aborts when the `with` body raised, so a failed run never publishes a partial Parquet file. The ordinary local `pyarrow.parquet.ParquetWriter` returned by `create_parquet_writer()` for local paths has no `abort()`, which is why the engine removes the partial local file itself
 
 #### Key Functions:
 - `create_parquet_writer()`: Factory function that returns appropriate writer based on path type
@@ -171,7 +174,7 @@ This I/O package is designed to integrate seamlessly with Forklift's data proces
 ## Performance Considerations
 
 - **Streaming Architecture**: Minimizes memory usage by processing data in chunks
-- **Multipart Uploads**: Large S3 uploads are optimized using parallel multipart uploads
+- **Multipart Uploads**: `S3StreamingWriter` uploads parts one at a time with a single part buffered in memory; `S3ParquetWriter` uploads its finished temporary file with boto3's managed `upload_fileobj`
 - **Configurable Chunk Sizes**: Allows tuning for different network and storage conditions
 - **Efficient Path Detection**: Fast S3 URI detection avoids unnecessary overhead for local operations
 
@@ -180,7 +183,7 @@ This I/O package is designed to integrate seamlessly with Forklift's data proces
 The package provides robust error handling:
 - S3 credential and permission errors are properly propagated
 - Network failures during streaming operations are handled gracefully  
-- Partial uploads are cleaned up automatically on failure
+- Partial uploads are cleaned up automatically on failure: writers have an idempotent `abort()` and abort themselves when a `with` block exits with an exception
 - File system errors maintain consistent behavior across storage types
 
 This package forms the critical foundation that enables Forklift to operate as a cloud-native data processing framework while maintaining compatibility with traditional file-based workflows.

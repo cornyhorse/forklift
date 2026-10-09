@@ -58,9 +58,10 @@ Manages database connections using pyodbc with proper error handling and timeout
 
 **Configuration Options:**
 - Connection string with driver specifications
-- Additional connection parameters
+- Additional connection parameters (appended as `key=value`; values containing `;`, `=`, `{` or `}` are brace-escaped, and a parameter name that could inject another attribute is rejected with `ValueError`)
 - Connection timeout settings
 - Query timeout configuration
+- `read_only` (default `True`): the connection is opened with `readonly=True`, which pyodbc maps to the driver's read-only access mode. A driver that cannot honour or rejects that attribute makes `connect()` fail with `ConnectionError`; pass `read_only=False` for such drivers
 
 ### SqlSchemaManager (schema.py)
 
@@ -71,7 +72,8 @@ Handles database schema discovery and PyArrow schema generation.
 - Column metadata extraction (types, sizes, nullability)
 - PyArrow schema generation with proper type mapping
 - Table specification parsing (schema.table format)
-- Database identifier quoting when needed
+- Catalog validation: every requested schema/table name is resolved against the database catalog (an exact match first, then a unique case-insensitive match) before it is used; an unknown table or a name that exists in several schemas raises `ValueError`. An explicit schema never falls back to a table of another schema
+- Database identifier quoting: identifiers are **always** quoted (using the quote character the driver reports, `"` if unknown) with embedded quote characters doubled
 
 **Supported Operations:**
 - List all available tables and views
@@ -87,7 +89,7 @@ Handles reading data from SQL databases and converting to PyArrow format with ba
 - Streaming data reads with configurable batch sizes
 - Automatic PyArrow RecordBatch generation
 - Memory-efficient processing of large datasets
-- Proper SQL query construction with quoted identifiers
+- Query construction from catalog-verified, always-quoted identifiers (`SELECT * FROM <quoted schema>.<quoted table>`)
 - Row-to-column transposition for PyArrow compatibility
 
 **Performance Options:**
@@ -100,19 +102,22 @@ Handles reading data from SQL databases and converting to PyArrow format with ba
 Handles conversion between SQL data types and PyArrow data types with comprehensive type mapping.
 
 **Supported Type Mappings:**
-- **Integer Types**: INT/INTEGER → int32, BIGINT → int64, SMALLINT → int16, TINYINT → int8
-- **Floating Point**: FLOAT/REAL → float32, DOUBLE → float64
-- **Decimal**: DECIMAL/NUMERIC → decimal128 (with precision/scale) or float64
+- **Integer Types**: INT/INTEGER → int32, BIGINT → int64, SMALLINT → int16, TINYINT → int16 (SQL Server's TINYINT is unsigned 0-255 and would overflow int8; MySQL's is signed; int16 holds both)
+- **Floating Point**: REAL → float32, FLOAT/DOUBLE → float64 (FLOAT is a double precision type on SQL Server, SQLite and Oracle, so it is not narrowed to float32)
+- **Decimal**: DECIMAL/NUMERIC → decimal128 with the column's precision and scale; a column that does not fit decimal128 (more than 38 digits) is read as string rather than failing the table; without precision information the column is float64
+- **Money**: MONEY → decimal128(19,4), SMALLMONEY → decimal128(10,4)
 - **Boolean**: BOOLEAN/BOOL/BIT → bool
-- **Date/Time**: DATE → date32, TIME → time64, TIMESTAMP → timestamp
-- **Binary**: BINARY/VARBINARY/BLOB → binary
-- **Text**: VARCHAR/CHAR/TEXT → string (default for unknown types)
+- **Date/Time**: DATE → date32, TIME → time64[us], TIMESTAMP/DATETIME/DATETIME2/SMALLDATETIME → timestamp[us], TIMESTAMPTZ → timestamp[us, UTC]
+- **Binary**: BINARY/VARBINARY/BLOB/BYTEA → binary
+- **Text**: VARCHAR/CHAR/TEXT → string (default for unknown types, and UNIQUEIDENTIFIER)
+
+A trailing `IDENTITY` in the reported type name (SQL Server reports `int identity`) is ignored.
 
 **Features:**
 - ODBC type constant conversion
 - Custom null value handling
-- Fallback to string type for conversion errors
-- Optional schema importer integration
+- String fallback for a text column whose values are not str; any other value that cannot be converted to the declared type raises `ValueError` (the message never contains the value)
+- `SqlSchemaImporter` can override the mapping through `x-sql.parquetTypeMapping.sqlToParquet`; the overrides are merged over the defaults (see the schema package)
 
 ## Configuration
 
@@ -127,9 +132,13 @@ config = SqlInputConfig(
     batch_size=1000,
     fetch_size=10000,
     null_values=["NULL", ""],
-    use_quoted_identifiers=True
+    read_only=True,
 )
 ```
+
+`repr(config)` leaves out `connection_string` and `connection_params`, because they usually hold
+credentials. The importers (`import_sql`) additionally redact the connection string in the
+`metadata.json` they write and in logged errors (`Pwd=***`).
 
 ### Configuration Parameters
 
@@ -140,7 +149,9 @@ config = SqlInputConfig(
 - **`batch_size`**: Number of rows per PyArrow RecordBatch
 - **`fetch_size`**: ODBC cursor fetch size for performance tuning
 - **`null_values`**: List of string values to treat as NULL
-- **`use_quoted_identifiers`**: Whether to quote database identifiers
+- **`use_quoted_identifiers`**: Accepted for backward compatibility only. Identifiers are always quoted, because they are interpolated into SQL text
+- **`read_only`**: Request a read-only connection (default: `True`)
+- **`schema_name`**, **`enable_streaming`**, **`date_formats`**, **`timestamp_formats`**: accepted by `SqlInputConfig` but not used by the reader at present (rows are always fetched in `batch_size` chunks and no date/time text formats are parsed)
 
 ## Database Support
 
@@ -166,8 +177,8 @@ Each database requires appropriate ODBC drivers:
 The package provides comprehensive error handling:
 
 - **Connection Errors**: Detailed error messages for connection failures
-- **Schema Errors**: Graceful handling of missing tables or columns
-- **Type Conversion Errors**: Automatic fallback to string types
+- **Schema Errors**: A missing or ambiguous table raises `ValueError`; a table without any column in the catalog raises `ValueError`
+- **Type Conversion Errors**: Text columns fall back to strings; other values that do not fit the declared type raise `ValueError`
 - **Query Errors**: Proper cleanup and error propagation
 - **Timeout Errors**: Configurable timeouts with appropriate error messages
 
@@ -191,7 +202,7 @@ Seamless integration with PyArrow for efficient data processing:
 1. **Use Context Managers**: Always use `with` statements for automatic resource cleanup
 2. **Configure Batch Sizes**: Tune batch_size and fetch_size based on available memory
 3. **Handle Timeouts**: Set appropriate connection and query timeouts
-4. **Quote Identifiers**: Enable quoted identifiers for databases with reserved words
+4. **Qualify table names**: Use `schema.table` for tables that exist in several schemas (a bare ambiguous name raises)
 5. **Test Connections**: Validate database connectivity before production use
 6. **Monitor Performance**: Use logging to monitor query execution times
 
@@ -201,8 +212,9 @@ Seamless integration with PyArrow for efficient data processing:
 
 **Import Error for pyodbc**:
 ```bash
-pip install pyodbc
+pip install "forklift-etl[sql]"   # or: pip install pyodbc
 ```
+pyodbc also needs the unixODBC runtime library (`libodbc`) on the system.
 
 **Driver Not Found**:
 - Verify ODBC driver installation
@@ -217,7 +229,7 @@ pip install pyodbc
 **Schema Discovery Issues**:
 - Verify user permissions for metadata queries
 - Check schema/database names in connection
-- Enable quoted identifiers for case-sensitive names
+- Names are matched exactly first and then case-insensitively; if two tables differ only by case, pass the exact spelling
 
 **Performance Issues**:
 - Adjust batch_size for memory constraints

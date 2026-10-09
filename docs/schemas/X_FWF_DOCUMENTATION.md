@@ -26,6 +26,30 @@ The `x-fwf` extension provides comprehensive Fixed Width File processing configu
 }
 ```
 
+## Runtime Status and Behaviour
+
+Fixed-width parsing is implemented by `FwfSchemaImporter` (schema validation) and `FwfInputHandler` (`forklift.inputs.fwf`, reading). It is **not wired into the engine yet**: `forklift.import_fwf()` and `forklift.read_fwf()` raise `NotImplementedError`, and `forklift ingest --input-kind fwf` exits with status 2. Use the handler directly:
+
+```python
+from pathlib import Path
+from forklift.inputs.fwf import FwfInputHandler
+from forklift.inputs.fwf_utils import create_fwf_config_from_schema
+
+handler = FwfInputHandler(create_fwf_config_from_schema(Path("fwf_schema.json")))
+table = handler.create_arrow_table(Path("mainframe_export.txt"))   # pyarrow.Table
+
+print(handler.errors)          # values that could not be converted (line number + field name only)
+print(handler.rejected_lines)  # lines dropped: no matching conditional schema / required field blank
+```
+
+- **Nothing is dropped silently.** A value that does not match its declared type becomes null and is listed in `handler.errors` (`{"line_number", "field", "error": "invalid_value", "type"}`). A line that is dropped is listed in `handler.rejected_lines` with `"no_matching_schema"` (conditional schemas) or `"required_missing"` (a `required` field is blank). The lists contain line numbers and field names, never the data.
+- **Conversion is strict.** An `int*` field must hold an integer that fits the width (`12A` or `70000` in an `int16` is invalid, not `0`); a `bool` field accepts `true/false/1/0/yes/no/y/n/t/f` (any case) and anything else is invalid, not `False`. Blank values are null without being an error.
+- A UTF-8 byte order mark on the first line is ignored (it would shift every field of the first record by one).
+- The layout is validated when the handler is created (`ValueError` for empty names, `start` < 1, `length` < 1, duplicate names, overlapping fields, unknown types, ...).
+- With conditional schemas the flag column is populated for every record, even when the matched variant does not list it among its own fields. A column declared in several variants must have compatible types: `FwfSchemaImporter` unifies them to the wider type (`int32` and `double` give `double`) and rejects combinations that cannot be unified (a `ConditionalSchemaError` / schema validation error).
+- Lines are read with `\r\n` / `\n` stripped; `encoding: "auto"` detects the encoding (verified against the whole file).
+- The Parquet types understood by the FWF converter are the ones in the table of the [x-csv documentation](./X_CSV_DOCUMENTATION.md#parquet-type-mapping); types are parsed strictly when the schema is validated (an unknown unit or malformed `decimal128(...)` is a schema error).
+
 ## Configuration Properties
 
 ### File-Level Settings
@@ -34,19 +58,19 @@ The `x-fwf` extension provides comprehensive Fixed Width File processing configu
 - **Type**: String
 - **Description**: Character encoding of the fixed-width file
 - **Default**: `"utf-8"`
-- **Common Values**: `"utf-8"`, `"ascii"`, `"latin-1"`, `"cp1252"`, `"ebcdic"`
+- **Common Values**: any text encoding Python's `codecs` module knows: `"utf-8"`, `"ascii"`, `"latin-1"`, `"cp1252"`, `"cp037"` (EBCDIC), `"utf-16"` ... An unknown name is a schema validation error
 
 #### `trim`
 Global trimming configuration applied to all fields.
 
 ##### `lstrip`
 - **Type**: Boolean
-- **Description**: Remove leading whitespace from all fields
+- **Description**: Validated as a boolean, but not used when reading: see `rstrip`
 - **Default**: `false`
 
 ##### `rstrip`
 - **Type**: Boolean
-- **Description**: Remove trailing whitespace from all fields
+- **Description**: Global switch for whitespace trimming. `create_fwf_config_from_schema()` reads it into `FwfInputConfig.trim_whitespace`; when it is true every field is stripped of leading and trailing whitespace unless the field sets `"trim": false`
 - **Default**: `true`
 
 ### Field Definitions
@@ -87,6 +111,16 @@ Global trimming configuration applied to all fields.
 - **Description**: Padding character used for field alignment
 - **Default**: `" "` (space)
 - **Common Values**: `" "` (space), `"0"` (zero), `"*"` (asterisk)
+
+##### `required` (optional)
+- **Type**: Boolean
+- **Description**: A blank value rejects the whole line (listed in `handler.rejected_lines`)
+- **Default**: `false`
+
+##### `trim` (optional)
+- **Type**: Boolean
+- **Description**: Strip whitespace from this field (also needs the global `trim.rstrip`)
+- **Default**: `true`
 
 ##### `parquetType` (optional)
 - **Type**: String
@@ -168,62 +202,41 @@ Fields:   [T][id][last_name ][first ][M][dob    ][ssn          ][state][active]
 ## Advanced Features
 
 ### Conditional Field Processing
-Some FWF files have conditional fields based on record type:
+Some FWF files have different layouts depending on a record-type flag. Use `conditionalSchemas` (instead of `fields`) with a `flagColumn` and one schema per flag value; a line whose flag matches none of them is rejected (`no_matching_schema`):
 
 ```json
 {
-  "x-fwf-conditional": {
-    "recordTypeField": { "start": 1, "length": 1 },
-    "fieldSets": {
-      "A": [
-        { "name": "customer_id", "start": 2, "length": 10 },
-        { "name": "customer_name", "start": 12, "length": 30 }
-      ],
-      "B": [
-        { "name": "order_id", "start": 2, "length": 10 },
-        { "name": "order_date", "start": 12, "length": 8 },
-        { "name": "amount", "start": 20, "length": 12 }
+  "x-fwf": {
+    "conditionalSchemas": {
+      "flagColumn": { "name": "record_type", "start": 1, "length": 1, "parquetType": "string" },
+      "schemas": [
+        {
+          "flagValue": "A",
+          "description": "Customer record",
+          "fields": [
+            { "name": "customer_id", "start": 2, "length": 10 },
+            { "name": "customer_name", "start": 12, "length": 30 }
+          ]
+        },
+        {
+          "flagValue": "B",
+          "description": "Order record",
+          "fields": [
+            { "name": "order_id", "start": 2, "length": 10 },
+            { "name": "order_date", "start": 12, "length": 8 },
+            { "name": "amount", "start": 20, "length": 12, "parquetType": "double" }
+          ]
+        }
       ]
     }
   }
 }
 ```
 
-### Packed Decimal Fields
-For mainframe data with packed decimal fields:
+The output has one column for every field of every variant (plus the flag column); fields that a record's variant does not have are null.
 
-```json
-{
-  "fields": [
-    {
-      "name": "amount",
-      "start": 15,
-      "length": 8,
-      "dataFormat": "packed_decimal",
-      "precision": 13,
-      "scale": 2,
-      "parquetType": "decimal128(13,2)"
-    }
-  ]
-}
-```
-
-### Binary Fields
-For fields containing binary data:
-
-```json
-{
-  "fields": [
-    {
-      "name": "flags",
-      "start": 50,
-      "length": 4,
-      "dataFormat": "binary",
-      "parquetType": "binary"
-    }
-  ]
-}
-```
+### Not supported
+Packed decimal (COMP-3) and raw binary fields are not implemented: there is no `dataFormat`, `precision` or `scale` field property. Fields are read as text and converted to the declared `parquetType`. EBCDIC text files can be read by naming a Python codec such as `cp037` in `encoding`.
 
 ## Integration with Other Features
 
@@ -236,12 +249,9 @@ For fields containing binary data:
     ]
   },
   "x-transformations": {
-    "fieldSpecific": {
+    "column_transformations": {
       "name": {
-        "transformations": ["stringCleaning", "caseTransformation"],
-        "fieldPosition": { "start": 1, "length": 30 },
-        "alignment": "left",
-        "paddingChar": " "
+        "string_cleaning": { "enabled": true, "case_transform": "title" }
       }
     }
   }
@@ -314,10 +324,10 @@ For fields containing binary data:
 ```json
 {
   "x-fwf": {
-    "encoding": "ebcdic",
+    "encoding": "cp037",
     "fields": [
       { "name": "account_num", "start": 1, "length": 12, "align": "right", "pad": "0" },
-      { "name": "balance", "start": 13, "length": 15, "dataFormat": "packed_decimal", "precision": 13, "scale": 2 },
+      { "name": "balance", "start": 13, "length": 15, "align": "right", "pad": " ", "parquetType": "double" },
       { "name": "status", "start": 28, "length": 1 }
     ]
   }
@@ -375,15 +385,14 @@ For fields containing binary data:
 
 ### Data Quality
 1. **Validation**: Combine with constraint handling for data validation
-2. **Error Tracking**: Monitor parsing errors and field extraction issues
+2. **Error Tracking**: Monitor `handler.errors` and `handler.rejected_lines`
 3. **Sample Testing**: Test with representative data samples
 4. **Format Verification**: Verify field formats match expectations
 
 ### Performance
 1. **Essential Fields**: Only extract needed fields to reduce processing time
 2. **Type Optimization**: Use smallest appropriate numeric types
-3. **Batch Size**: Optimize processing batch sizes for available memory
-4. **Parallel Processing**: Enable parallel processing for large files
+3. **Check the error lists**: inspect `handler.errors` and `handler.rejected_lines` after reading
 
 ### Maintenance
 1. **Version Control**: Track changes to field definitions

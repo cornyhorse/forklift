@@ -92,6 +92,13 @@ The primary processor implementation for CSV data processing. This is the most c
   S3 upload not completed), the error is recorded in `results.errors` (Arrow messages are
   stripped of row content) and re-raised.
 - A header without data rows produces an empty `data.parquet` carrying the schema.
+- `manifest.json` (file names and sizes) and `metadata.json` (processing summary, including
+  `truncated_rows`) are written next to the data. `output_data_metadata.json` (column statistics
+  from `OutputMetadataCollector`) is written when `create_metadata` is on and at least one row was
+  accepted. It contains no cell values unless `ImportConfig.include_value_statistics=True`, and its
+  provenance (`input_path`, `schema_file`, output files) is recorded as base names. The data files
+  are finished before it is written, so a failure to write it is logged and appended to
+  `results.errors` without raising.
 
 ### Specialized Processing Components
 
@@ -128,6 +135,18 @@ skipped and the remaining batches are cast to the schema established so far.
   a wider row after that raises a `ValueError` naming the data row number
 
 Blank lines are skipped on every path.
+
+#### `type_conversion.py`
+`ColumnConverter` applies the schema's column types and null markers (`x-csv.nulls`) to each
+batch and splits off rows that cannot be converted. `parse_arrow_type()` reads
+`x-csv.parquetTypeMapping` type names (`int32`, `decimal128(10,2)`, `timestamp[us]`, ...); a mapping
+entry wins over the JSON `type`/`format`. Nested types and anything text cannot be converted to stay
+`string`. `to_string_batch()` produces the all-string shape of `bad_rows.parquet`.
+
+#### `text_utils.py`
+`read_encoding()` (reads plain UTF-8 as `utf-8-sig` so a byte order mark never sticks to the first
+column name) and `sanitize_arrow_error()` (removes row content from Arrow error messages before they
+are logged or stored in `results.errors`).
 
 #### `header_detector.py`
 Specialized component for detecting and extracting header information from CSV files.

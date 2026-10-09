@@ -70,13 +70,15 @@ schema = generator.generate_schema()
 
 Samples are read with PyArrow only (no pandas):
 
-- **CSV**: streamed with `pyarrow.csv.open_csv` as all-string columns and closed after `nrows` rows (local files and `s3://` objects alike, honouring the configured encoding and quoted newlines). Forklift's own type inference then runs over the strings, so `nrows=None` and `nrows=1000` give the same types for the same data:
-  - `integer` only for `^-?(0|[1-9]\d*)$`, so identifiers such as `02134` or `00123` stay strings
-  - `number`, `boolean` (`true`/`false`), `date` (`YYYY-MM-DD`) and `timestamp` (`YYYY-MM-DD[T ]HH:MM[:SS[.f]]`, optionally with a UTC offset) are detected from patterns; everything else is `string`
+- **CSV**: streamed with `pyarrow.csv.open_csv` as all-string columns and closed after `nrows` rows (local files and `s3://` objects alike, honouring the configured encoding and quoted newlines). Forklift's own type inference then runs over the strings, so the result depends only on the rows that were sampled, not on how Arrow happened to block the file (a file with fewer rows than `nrows` gives the same schema for any `nrows`, including `None`; `nrows` must be a positive integer or `None`, anything else raises `ValueError`):
+  - `integer` only for `^-?(0|[1-9]\d*)$`, so identifiers such as `02134` or `00123` stay strings (values beyond 64 bits stay strings too)
+  - `number`, `boolean` (`true`/`false`), `date` (`YYYY-MM-DD`, becomes `date32` / `format: date`) and `timestamp` (`YYYY-MM-DD[T ]HH:MM[:SS[.f]]`, optionally with a UTC offset, becomes `timestamp[unit]` / `format: date-time`) are detected from patterns; everything else is `string`
+  - Parquet type strings keep their parameters: `decimal128(10,2)`, `timestamp[us, tz=UTC]`, `duration[ns]`, `list<int64>`
   - nulls are the empty string and `NULL`, `null`, `N/A`, `n/a`, `#N/A`, `NaN`, `nan`. `NA` is deliberately *not* a null token (it is a valid value)
 - **Excel**: `openpyxl` in read-only mode, limited to `nrows + 1` rows; cells keep their Excel types. Legacy `.xls` workbooks are not supported
 - **Parquet**: only as many row groups as `nrows` requires are read; the file's own types are kept
 - Only local paths and `s3://` URIs are accepted: `http://`, `ftp://`, `file://` and other URL-like inputs raise `ValueError`
+- A primary key is only inferred for a column that is non-null, 100% unique in the sample and has a key-like name (a whole word token such as `id`, `key`, `pk`, `uuid`)
 
 ### Metadata Generation (processors/metadata.py)
 
@@ -132,18 +134,17 @@ The schema package is deeply integrated with Forklift's core processing engine:
 
 ### Processing Configuration
 
-Generated schemas include format-specific processing instructions:
+Generated schemas include a format-specific extension (`x-csv`, `x-excel`) that documents the layout that was analysed:
 
 ```json
 {
   "x-csv": {
+    "encodingPriority": ["utf-8", "utf-8-sig", "utf-8", "latin-1"],
     "delimiter": ",",
-    "encoding": "utf-8",
+    "quotechar": "\"",
     "nulls": {
-      "global": ["", "NA", "NULL"],
-      "perColumn": {
-        "salary": ["0.00", "N/A"]
-      }
+      "global": ["", "NA", "N/A", "-", "NULL", "null"],
+      "perColumn": {}
     },
     "dataTypes": {
       "customer_id": "int64",
@@ -153,6 +154,8 @@ Generated schemas include format-specific processing instructions:
   }
 }
 ```
+
+`forklift.import_csv()` takes its read settings (`delimiter`, `encoding`, `header_mode`, ...) from `ImportConfig`, not from `x-csv`; from a schema file it uses the column types (`x-csv.parquetTypeMapping`, otherwise each property's JSON `type`/`format`), `x-csv.nulls`, `required` and `x-metadata-generation`. The generated `nulls.global` list is a suggestion: it includes `NA`, which the sampler itself does not treat as null.
 
 ### Validation Framework
 
@@ -165,7 +168,7 @@ Schemas provide the foundation for Forklift's multi-layer validation:
 
 ## Schema Standards Compliance
 
-The schema package generates schemas that fully comply with [Forklift Schema Standards](../docs/SCHEMA_STANDARDS.md):
+The schema package generates schemas that follow the [Forklift Schema Standards](../../../docs/schemas/SCHEMA_STANDARDS.md):
 
 ### Base JSON Schema
 
@@ -175,24 +178,30 @@ All schemas follow JSON Schema Draft 2020-12 specification with proper `$schema`
 
 Custom `x-` prefixed properties provide Forklift-specific functionality:
 
-- **x-primaryKey**: Primary key definitions and constraints
-- **x-uniqueConstraints**: Additional unique constraint definitions
-- **x-metadata**: Rich statistical metadata for each field
+- **x-primaryKey**: Primary key definitions and constraints (user-specified or inferred)
+- **x-metadata**: Statistical metadata for each field (value statistics only with `include_value_statistics`)
 - **x-csv/x-excel**: Format-specific processing configurations
+- **x-transformations**: Suggested cleaning steps per column (`column_transformations`)
+- **x-generation**: When and from which file (name only) the schema was generated
+- **x-sample**: Sample rows, only with `include_sample_data`
+
+`x-uniqueConstraints` and the other constraint/quality extensions are part of the schema standard but are not generated.
 
 ## Usage Patterns
 
 ### Command Line Interface
 
 ```bash
-# Generate schema from CSV
-forklift schema generate data.csv --output schema.json
+# Generate schema from CSV (the whole file is analysed unless --nrows is given)
+forklift generate-schema data.csv --file-type csv --output file --output-path schema.json
 
-# Generate with metadata and primary key inference
-forklift schema generate data.csv --metadata --infer-pk --output schema.json
+# Generate with primary key inference and value statistics (they copy cell values into the schema)
+forklift generate-schema data.csv --file-type csv --infer-primary-key --include-value-stats \
+  --output file --output-path schema.json
 
-# Analyze Excel file with specific sheet
-forklift schema generate data.xlsx --sheet "CustomerData" --output schema.json
+# Analyze Excel file with specific sheet (name)
+forklift generate-schema data.xlsx --file-type excel --sheet "CustomerData" \
+  --output file --output-path schema.json
 ```
 
 ### Programmatic Usage
@@ -218,7 +227,7 @@ config = SchemaGenerationConfig(
     enum_threshold=0.05,
     uniqueness_threshold=0.98
 )
-schema = generator.generate_schema()
+schema = SchemaGenerator(config).generate_schema()
 ```
 
 ## Performance and Scalability
@@ -226,9 +235,8 @@ schema = generator.generate_schema()
 The schema package is designed for efficient analysis of large datasets:
 
 - **Streaming Analysis**: CSV, Excel and Parquet samples are streamed with PyArrow/openpyxl and reading stops after `nrows` rows
-- **Configurable Sampling**: Analyzes the first `nrows` rows (default 1000 for `SchemaGenerationConfig`; the `generate_schema_from_csv`/`generate_schema_from_parquet` API functions default to `None`, i.e. the whole file)
-- **S3 Integration**: Supports direct analysis of cloud-stored files
-- **Batch Processing**: Processes data in configurable batch sizes
+- **Configurable Sampling**: Analyzes the first `nrows` rows (default 1000 for `SchemaGenerationConfig` and `generate_schema_from_excel`; the `generate_schema_from_csv`/`generate_schema_from_parquet` API functions and the CLI default to `None`, i.e. the whole file)
+- **S3 Integration**: Supports direct analysis of cloud-stored files; CSV is streamed and the read stops after `nrows` rows, Parquet and Excel are first copied to a temporary local file because they need random access
 
 ## Quality Assurance
 
@@ -241,10 +249,10 @@ The schema generation process includes multiple quality checks:
 
 ## Related Documentation
 
-- **[Schema Standards](../docs/SCHEMA_STANDARDS.md)**: Complete specification of Forklift schema format
-- **[Usage Guide](../docs/USAGE.md)**: Comprehensive examples and workflows
-- **[API Reference](../docs/API_REFERENCE.md)**: Detailed API documentation
-- **[Constraint Validation](../docs/CONSTRAINT_VALIDATION_IMPLEMENTATION.md)**: Validation system details
+- **[Schema Standards](../../../docs/schemas/SCHEMA_STANDARDS.md)**: Complete specification of Forklift schema format
+- **[Usage Guide](../../../docs/guides/USAGE.md)**: Comprehensive examples and workflows
+- **[API Reference](../../../docs/api/API_REFERENCE.md)**: Detailed API documentation
+- **[Constraint Validation](../../../docs/integration/CONSTRAINT_VALIDATION_IMPLEMENTATION.md)**: Validation system details
 
 ## Examples
 
@@ -283,7 +291,7 @@ config = SchemaGenerationConfig(
     infer_primary_key_from_metadata=True
 )
 
-schema = generator.generate_schema()
+schema = SchemaGenerator(config).generate_schema()
 
 # Schema will include:
 # - Excel-specific processing configuration

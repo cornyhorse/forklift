@@ -32,7 +32,8 @@ The utils subpackage provides common functionality that is shared across other F
 
 ## Naming Conventions Supported
 
-- **postgres**: PostgreSQL-compatible column names (lowercase, underscores)
-- **snake_case**: Python-style snake_case naming
-- **camelCase**: JavaScript-style camelCase naming
-- **Custom**: Extensible framework for additional naming conventions
+- **postgres**: PostgreSQL-compatible column names (lowercase ASCII, underscores, at most 63 characters, accents transliterated)
+- **snake_case**: Python-style snake_case naming (`User ID` -> `user_id`, `customerName` -> `customer_name`)
+- **camelCase**: JavaScript-style camelCase naming (`user_id` -> `userId`)
+
+Deduplication (`suffix`, `prefix` or `error`) runs after standardization; with `postgres` the suffixed names are kept within the 63-character limit.

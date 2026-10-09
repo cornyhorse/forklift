@@ -16,12 +16,7 @@ A comprehensive formatting utility that handles the presentation and structure o
 - **Source Attribution**: `x-generation.source_file` holds the file name only, never the directory
 
 ### SchemaValidationError
-Custom exception class for schema-related validation errors:
-- **Detailed Error Messages**: Provides comprehensive error descriptions with context
-- **Error Categorization**: Classifies errors by type (structure, data, configuration)
-- **Validation Context**: Includes information about where validation failures occurred
-- **Recovery Suggestions**: Offers actionable suggestions for resolving validation issues
-- **Error Aggregation**: Supports collecting multiple validation errors in a single exception
+Exception raised by `validate_schema_structure()` in `helpers.py` when a schema dictionary lacks `$schema`, `type` or `properties`, or when `properties` is not a dictionary. It is a plain `Exception` subclass carrying a message. (The CSV, Excel, SQL and FWF schema importers define their own `SchemaValidationError` classes, which collect every problem found, with its location, into one message.)
 
 ## Utility Functions
 
@@ -33,74 +28,11 @@ Custom exception class for schema-related validation errors:
 - **`to_json_safe`**: converts values to strict-JSON-safe ones (NaN/infinity -> `null`, dates -> ISO strings, decimals -> strings, bytes -> base64)
 - **`source_basename`**: reduces a local, Windows or `s3://` path to its file name
 
-### Schema Structure Helpers
-- **Base Schema Templates**: Pre-configured schema templates for different file types
-- **Property Merging**: Intelligent merging of schema properties from multiple sources
-- **Reference Resolution**: Handles JSON Schema $ref references and definitions
-- **Schema Normalization**: Standardizes schema structures for consistent processing
-- **Validation Rule Integration**: Incorporates validation rules into schema definitions
-
-### Formatting Operations
-- **JSON Schema Compliance**: Ensures generated schemas conform to JSON Schema specifications
-- **Pretty Printing**: Formats schemas for human readability
-- **Compact Serialization**: Generates minimal schema representations for production use
-- **YAML Export**: Converts JSON schemas to YAML format for configuration files
-- **Documentation Generation**: Creates human-readable schema documentation
-
-### Validation Utilities
-- **Schema Structure Validation**: Validates schema compliance with JSON Schema standards
-- **Cross-Reference Checking**: Verifies internal schema references and dependencies
-- **Constraint Validation**: Validates constraint definitions and logical consistency
-- **Format Verification**: Checks format strings and pattern validity
-- **Extension Validation**: Validates custom schema extensions and x-properties
-
-## Error Handling
-
-### Exception Hierarchy
-- **SchemaValidationError**: Base exception for schema validation issues
-- **StructureError**: Schema structure and format violations
-- **DataCompatibilityError**: Data-schema compatibility issues
-- **ConfigurationError**: Invalid configuration parameters
-- **ProcessingError**: Runtime processing failures
-
-### Error Context
-- **Location Information**: Precise location of validation failures within schemas
-- **Suggested Fixes**: Actionable recommendations for resolving issues
-- **Related Errors**: Links to related validation problems
-- **Severity Levels**: Classification of error severity (warning, error, critical)
-- **Recovery Strategies**: Automated and manual recovery options
-
-## Schema Enhancement
-
-### Metadata Addition
-- **Generation Timestamps**: Adds creation and modification timestamps
-- **Version Information**: Tracks schema version and compatibility information
-- **Processing Statistics**: Includes analysis statistics and confidence metrics
-- **Source Attribution**: Records data source information and processing history
-- **Quality Metrics**: Embeds data quality assessment results
-
-### Extension Support
-- **File Format Extensions**: Handles x-csv, x-excel, x-parquet extensions
-- **Transformation Extensions**: Manages x-transformations configuration
-- **Custom Extensions**: Framework for adding domain-specific extensions
-- **Validation Extensions**: Custom validation rule definitions
-- **Processing Hints**: Performance and processing optimization hints
-
-## Output Formatting
-
-### JSON Schema Output
-- **Draft-07 Compliance**: Ensures compatibility with JSON Schema Draft-07
-- **Proper Escaping**: Handles special characters and unicode in schemas
-- **Indentation Control**: Configurable indentation for readability
-- **Property Ordering**: Consistent property ordering for diff-friendly output
-- **Minification**: Compact output for production environments
-
-### Alternative Formats
-- **YAML Export**: Human-readable YAML schema representations
-- **Markdown Documentation**: Generated documentation from schemas
-- **HTML Reports**: Interactive schema documentation with examples
-- **CSV Summaries**: Tabular summaries of schema properties
-- **XML Schema**: Conversion to XML Schema format when needed
+### Other helpers
+- **`validate_schema_structure(schema)`**: raises `SchemaValidationError` if `$schema`, `type` or `properties` is missing
+- **`SchemaFormatter.create_base_schema(file_type)`**: the JSON Schema 2020-12 skeleton (`$schema`, `$id` under `https://github.com/cornyhorse/forklift/schema-standards/`, `title`, `type: object`, empty `properties` / `required`)
+- **`SchemaFormatter.add_generation_metadata(schema, source_file, rows_analyzed)`**: adds `x-generation` (timestamp, file name, rows analysed, generator version)
+- **`SchemaFormatter.format_schema_json(schema, indent=2)`**: strict JSON text
 
 ## Usage Patterns
 
@@ -108,33 +40,20 @@ Custom exception class for schema-related validation errors:
 ```python
 from forklift.schema.utils import SchemaFormatter
 
-formatter = SchemaFormatter()
-base_schema = formatter.create_base_schema("csv")
-formatted_schema = formatter.add_generation_metadata(schema, config)
+base_schema = SchemaFormatter.create_base_schema("csv")
+schema = SchemaFormatter.add_generation_metadata(base_schema, "/data/customers.csv", 1000)
+print(schema["x-generation"]["source_file"])   # customers.csv  (file name only)
+print(SchemaFormatter.format_schema_json(schema))
 ```
 
 ### Error Handling
 ```python
-from forklift.schema.utils import SchemaValidationError
+from forklift.schema.utils.helpers import validate_schema_structure, SchemaValidationError
 
 try:
-    # Schema processing operation
-    process_schema(schema)
+    validate_schema_structure({"properties": {}})
 except SchemaValidationError as e:
-    print(f"Validation failed: {e.message}")
-    print(f"Suggestions: {e.suggestions}")
-```
-
-### Output Formatting
-```python
-# Pretty-print JSON schema
-formatted_json = formatter.format_json(schema, indent=2)
-
-# Export to YAML
-yaml_output = formatter.to_yaml(schema)
-
-# Generate documentation
-docs = formatter.generate_documentation(schema)
+    print(f"Validation failed: {e}")   # Missing required field: $schema
 ```
 
 ## Integration Points
@@ -145,31 +64,5 @@ docs = formatter.generate_documentation(schema)
 - `forklift.schema.types.*` - Type system integration
 
 ### External Dependencies
-- **JSON Schema**: Validation against JSON Schema specifications
-- **PyYAML**: YAML format support
-- **Jinja2**: Template engine for documentation generation
-- **Markdown**: Documentation formatting support
-
-## Configuration Options
-
-### Formatting Preferences
-- **Indentation Style**: Spaces vs tabs, indentation width
-- **Property Ordering**: Alphabetical, logical, or custom ordering
-- **Comment Inclusion**: Whether to include explanatory comments
-- **Example Data**: Inclusion of example values in schemas
-- **Validation Strictness**: Level of validation rule enforcement
-
-### Output Options
-- **Format Selection**: JSON, YAML, or custom format selection
-- **Compression**: Schema minification and compression options
-- **Encoding**: Character encoding preferences
-- **Line Endings**: Platform-specific line ending handling
-- **Metadata Verbosity**: Level of metadata inclusion
-
-## Performance Features
-
-- **Lazy Formatting**: Deferred formatting operations for large schemas
-- **Template Caching**: Cached templates for repeated operations
-- **Streaming Output**: Memory-efficient output for large schemas
-- **Parallel Processing**: Multi-threaded formatting for complex schemas
-- **Memory Optimization**: Minimal memory footprint during processing
+- **PyArrow**: type objects for `get_parquet_type_string()`
+- Standard library only otherwise (`json`, `re`, `decimal`, `base64`); pandas is not used

@@ -130,17 +130,16 @@ A dedicated sub-module providing formatters for specific data types:
 
 ### Basic String Transformation
 ```python
-from forklift.utils.transformations.base import DataTransformer
+import pyarrow as pa
+from forklift.utils.transformations import DataTransformer
 from forklift.utils.transformations.configs import StringCleaningConfig
 
-config = StringCleaningConfig(
-    strip_whitespace=True,
-    normalize_case="lower",
-    remove_punctuation=True
-)
+column_data = pa.array(["  Hello   WORLD  ", None])
+config = StringCleaningConfig(strip_whitespace=True, case_transform="lower")
 
 transformer = DataTransformer()
 result = transformer.apply_string_cleaning(column_data, config)
+print(result.to_pylist())   # ['hello world', None]
 ```
 
 ### DateTime Processing
@@ -148,26 +147,48 @@ result = transformer.apply_string_cleaning(column_data, config)
 from forklift.utils.transformations.configs import DateTimeTransformConfig
 
 config = DateTimeTransformConfig(
-    input_format="%m/%d/%Y",
-    output_format="iso",
-    timezone="UTC"
+    mode="specify_formats",
+    formats=["%m/%d/%Y"],
+    target_type="date",      # "datetime" (default), "date", "timestamp" or "string"
 )
 
-result = transformer.apply_datetime_transformation(column_data, config)
+dates = pa.array(["12/25/2023", "garbage", None])
+result = transformer.apply_datetime_transformation(dates, config)
+print(result.to_pylist())   # [datetime.date(2023, 12, 25), None, None]
 ```
+
+A cell that cannot be parsed becomes NULL. The result type follows `target_type`: `datetime` gives
+`timestamp[us, tz=UTC]`, `date` gives `date32`, `timestamp` gives float64 epoch seconds and `string`
+gives text (`output_format` is the strftime pattern).
 
 ### Multiple Transformations
 ```python
-# Configure multiple transformations for different columns
-transformations = {
-    'email_column': EmailConfig(normalize_case=True),
-    'phone_column': PhoneNumberConfig(format_style="standard"),
-    'date_column': DateTimeTransformConfig(output_format="iso")
-}
+from forklift.utils.transformations.configs import EmailConfig, PhoneNumberConfig
 
-# Apply all transformations
-results = transformer.apply_transformations(data_table, transformations)
+# One call per column; each returns an Arrow array of the same length
+emails = transformer.apply_email_formatting(pa.array(["A@B.COM", "bad"]), EmailConfig())
+phones = transformer.apply_phone_number_formatting(
+    pa.array(["5551234567", "x"]), PhoneNumberConfig(format_style="us-standard")
+)
+print(emails.to_pylist())   # ['a@b.com', None]
+print(phones.to_pylist())   # ['(555) 123-4567', None]
 ```
+
+### From a configuration dictionary
+```python
+from forklift.utils.transformations import create_transformation_from_config
+
+clean_names = create_transformation_from_config(
+    "string_cleaning", {"enabled": True, "case_transform": "title"}
+)
+result = clean_names(pa.array(["alice smith"]))
+```
+
+The transformation names are `string_cleaning`, `regex_replace`, `string_replace`, `string_padding`,
+`string_trimming`, `html_xml_cleaning`, `money_conversion`, `numeric_cleaning` (with `target_type`),
+`datetime`, `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`,
+`ip_address_formatting` and `mac_address_formatting`; the options are the fields of the matching
+config class in `configs.py`.
 
 ## Integration with Forklift
 
@@ -217,6 +238,17 @@ All transformations use a consistent configuration system:
 - **Datetime**: `timezone` is validated when the configuration is created (IANA names via
   `zoneinfo`, falling back to `pytz` if installed); unparseable cells become NULL, anything else
   raises. `dayfirst` (default `True`) resolves dates such as `03-04-2024`.
+- **Money**: `apply_money_conversion` returns `float64` (NULL for text that is not a number);
+  parentheses mean negative when `parentheses_negative` is set. `NumericCleaningConfig.allow_nan=True`
+  (default) turns unparseable or overflowing values into NULL; with `allow_nan=False` they raise
+  `ValueError` naming the row number, never the cell content.
+- **Format transformers** (SSN, ZIP, phone, email, IP, MAC): a value that fails validation becomes NULL,
+  or stays as it was when `allow_invalid=True`. `zero_pad` is applied before validation, so it
+  restores leading zeros that a numeric column dropped (`"2134"` -> ZIP `02134`, `"12345678"` -> SSN
+  `012-34-5678`), and a float rendering such as `"2134.0"` is read as `2134`.
+- **Not applied by `import_csv`**: these classes are building blocks. The engine's `import_csv` does not
+  run `x-transformations` from a schema; apply the transformers to your Arrow data yourself or through
+  `forklift.processors.transformations`.
 
 ## Error Handling
 

@@ -85,9 +85,13 @@ from forklift.utils.date_parser import parse_date, coerce_date
 is_valid = parse_date("2023-12-25")  # Returns True
 is_valid = parse_date("invalid")     # Returns False
 
-# Convert to ISO date format
+# Convert to ISO date format (an unparseable value raises ValueError)
 iso_date = coerce_date("12/25/2023")  # Returns "2023-12-25"
 iso_date = coerce_date("Dec 25, 2023")  # Returns "2023-12-25"
+
+# Ambiguous numeric dates: day first by default
+coerce_date("03-04-2024")                  # "2024-04-03"
+coerce_date("03-04-2024", dayfirst=False)  # "2024-03-04"
 ```
 
 ### Custom Format Specification
@@ -103,17 +107,21 @@ result = coerce_date("December 25, 2023", formats=formats)
 ```python
 from forklift.utils.date_parser import coerce_datetime
 
-# Convert to ISO datetime format
-datetime_str = coerce_datetime("2023-12-25 14:30:00")
-# Returns "2023-12-25T14:30:00"
+# Returns a datetime.datetime (or an int epoch with to_epoch=...)
+parsed = coerce_datetime("2023-12-25 14:30:00")
+# datetime.datetime(2023, 12, 25, 14, 30)
+
+coerce_datetime("1703520000")                       # epoch auto-detected (10/13/16/19 digits), UTC
+coerce_datetime("2023-12-25", to_epoch="seconds")   # 1703462400
+coerce_datetime("2024010112", fmt="%Y%m%d%H")       # an explicit fmt disables epoch auto-detection
 ```
 
 ### Epoch Timestamp Handling
 ```python
-from forklift.utils.date_parser.epoch import convert_epoch
+from forklift.utils.date_parser.epoch import is_epoch_timestamp, parse_epoch_timestamp
 
-# Convert Unix timestamp
-date_str = convert_epoch(1703520000)  # Returns ISO date
+is_epoch_timestamp("1703520000")     # True: exactly 10, 13, 16 or 19 ASCII digits, no leading zero
+parse_epoch_timestamp("1703520000")  # datetime(2023, 12, 25, 16, 0, tzinfo=utc)
 ```
 
 ## Integration with Forklift

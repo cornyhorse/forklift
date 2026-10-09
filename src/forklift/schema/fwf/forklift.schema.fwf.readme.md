@@ -17,13 +17,13 @@ The FWF package is organized into specialized subpackages, each handling specifi
 
 ### Subpackages
 
-#### [`fields`](./forklift.schema.fwf.fields.readme.md)
+#### [`fields`](./fields/forklift.schema.fwf.fields.readme.md)
 Handles field-level operations including:
 - Field position calculation and validation
 - Column name processing and standardization
 - Field mapping and configuration management
 
-#### [`validation`](./forklift.schema.fwf.validation.readme.md)
+#### [`validation`](./validation/forklift.schema.fwf.validation.readme.md)
 Provides comprehensive validation capabilities:
 - JSON Schema compliance validation
 - FWF extension validation (`x-fwf`)
@@ -31,13 +31,13 @@ Provides comprehensive validation capabilities:
 - Parquet type mapping validation
 - Cross-format compatibility validation
 
-#### [`conditional`](./forklift.schema.fwf.conditional.readme.md)
+#### [`conditional`](./conditional/forklift.schema.fwf.conditional.readme.md)
 Manages conditional schema processing:
 - Multi-schema support within single files
 - Flag-based schema selection
 - Dynamic schema switching based on record types
 
-#### [`utils`](./forklift.schema.fwf.utils.readme.md)
+#### [`utils`](./utils/forklift.schema.fwf.utils.readme.md)
 Provides utility functions and helper classes:
 - Column name standardization and deduplication
 - Parquet format mapping utilities
@@ -57,11 +57,11 @@ Provides utility functions and helper classes:
 
 ### Data Type Handling
 - Comprehensive mapping from FWF field types to Parquet data types
-- Type validation and compatibility checking
+- Type validation and compatibility checking: the Parquet type grammar is strict (unit, precision and scale are parsed, so `timestamp[xx]` or a malformed `decimal128(...)` is rejected), and a column that appears in several conditional variants must have types that unify (`int32` and `double` give `double`)
 - Support for complex data types and transformations
 
 ### Flexible Configuration
-- Support for multiple naming conventions (PostgreSQL, snake_case, camelCase)
+- Support for multiple naming conventions (`postgres`, `snake_case`, `camelCase`; all three are implemented)
 - Configurable field alignment, padding, and trimming options
 - Extensible architecture for custom processing requirements
 
@@ -78,13 +78,20 @@ from forklift.schema.fwf import FwfSchemaImporter
 # Load and validate a FWF schema
 importer = FwfSchemaImporter("path/to/schema.json")
 
-# Access field configurations
+# Access field configurations (a schema that fails validation raises SchemaValidationError
+# listing every problem with its location)
 fields = importer.get_fields()
 column_names = importer.get_column_names()
+positions = importer.get_field_positions()
 
-# Get Parquet type mappings
-parquet_schema = importer.get_parquet_schema()
+# For conditional schemas: one Parquet type per column across all record variants
+unified = importer.get_unified_parquet_schema()
 ```
+
+This package only describes and validates the layout. Reading data with it is done by
+`forklift.inputs.fwf.FwfInputHandler`, which is not wired into `forklift.import_fwf()` yet (that
+function raises `NotImplementedError`). The handler records unconvertible values in `handler.errors`
+and dropped lines in `handler.rejected_lines` instead of discarding them silently.
 
 ## Schema Structure
 
@@ -100,9 +107,9 @@ FWF schemas extend standard JSON Schema with the `x-fwf` extension:
         "name": "field_name",
         "start": 1,
         "length": 10,
-        "type": "string",
-        "alignment": "left",
-        "padding": " "
+        "parquetType": "string",
+        "align": "left",
+        "pad": " "
       }
     ]
   }
@@ -120,9 +127,8 @@ The FWF package integrates with other Forklift components:
 ## Error Handling
 
 The package provides detailed error reporting through:
-- Schema validation errors with specific field and position information
-- Type conversion errors with suggested corrections
-- Position overlap detection with conflict resolution guidance
-- Comprehensive logging for debugging and monitoring
+- Schema validation errors with specific field and position information; all problems found are collected into one `SchemaValidationError` message (with the path of each problem)
+- Position overlap detection
+- The encoding may be any text codec Python knows (`utf-8`, `cp037`, `utf-16`, ...)
 
 This FWF package enables robust processing of fixed-width files while maintaining data integrity, type safety, and compatibility with modern data processing workflows.

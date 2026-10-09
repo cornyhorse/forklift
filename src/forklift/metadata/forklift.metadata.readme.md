@@ -10,8 +10,8 @@ The metadata package integrates seamlessly into Forklift's streaming data proces
 
 ### Integration Points
 
-- **Processing Pipeline**: Automatically collects metadata during CSV, Excel, FWF, and SQL data imports
-- **Output Generation**: Generates comprehensive metadata files alongside processed data outputs
+- **Processing Pipeline**: Collects metadata during CSV imports (`CSVProcessor`). The Excel and SQL importers write Parquet without it, and the engine does not import fixed-width files yet
+- **Output Generation**: Writes `output_data_metadata.json` next to the processed data (local directory or `s3://` prefix)
 - **Schema Processing**: Works with Forklift's schema validation and inference systems
 - **Quality Assurance**: Provides data quality metrics for monitoring and validation
 
@@ -47,16 +47,22 @@ OutputMetadataCollector(
 ```
 
 **Privacy:** by default the metadata contains no cell values: only counts, null counts, distinct
-counts, types, string length statistics and the aggregate mean / standard deviation / variance of
-numeric columns. `top_values`, numeric/temporal `min_value`/`max_value`, `median`, `mode` and
-`quantiles` are only written with `include_value_statistics=True`.
+counts, types, string length statistics (`min_length`/`max_length`, which are lengths, not values)
+and the aggregate mean / standard deviation / variance of numeric columns. `top_values`,
+numeric/temporal `min_value`/`max_value`, `median`, `mode` and `quantiles` copy real cell values into
+the file, which is usually stored with weaker access control than the data, so they are only
+written with `include_value_statistics=True`. Through the engine that is
+`ImportConfig(include_value_statistics=True)` (or `import_csv(..., include_value_statistics=True)`);
+on the command line it is `forklift ingest --include-value-stats`. Even with the default, a mean or
+variance over a column with only one or two non-null values still reveals those values.
 
 **Statistics honesty:** distinct values are tracked exactly up to `max_distinct_tracked`; beyond
 that `distinct_count_is_lower_bound` is `true` and `uniqueness_ratio`, `likely_categorical` and
 `too_unique` are `null`. Count/min/max/mean/variance are exact (finite values only; NaN/inf are
 counted in `non_finite_count`). Median and quantiles come from a seeded reservoir sample of
 `sample_size` values (exact while the column has no more values than that, otherwise
-`quantiles_are_estimated` is `true`). NaN/inf never appear in the JSON.
+`quantiles_are_estimated` is `true`); the quantile keys are `p25`, `p50`, `p99.9`, ... NaN/inf never
+appear in the JSON.
 
 #### Data Collection Process
 
@@ -84,49 +90,99 @@ counted in `non_finite_count`). Median and quantiles come from a seeded reservoi
 
 #### Output Metadata Structure
 
-The generated metadata follows a structured format:
+The generated metadata follows a structured format. This is what a default run (without
+`include_value_statistics`) writes; `source_info` is whatever the caller passes (the CSV processor
+records base names only, never directories):
 
 ```json
 {
   "generation_timestamp": "2025-10-19T10:30:00",
   "source_info": {
-    "output_path": "/path/to/output",
-    "filename": "processed_data.parquet",
-    "generation_method": "output_metadata_collector"
+    "input_path": "sales.csv",
+    "processing_type": "csv_processing",
+    "schema_file": "sales_schema.json",
+    "total_batches_processed": "streaming",
+    "final_output_files": ["data.parquet"]
   },
   "data_summary": {
     "total_rows": 1000000,
     "total_columns": 15,
     "batches_processed": 100,
-    "schema": {...}
+    "schema": {"fields": [{"name": "order_id", "type": "int64", "nullable": true}, "..."]}
   },
   "column_statistics": {
-    "column_name": {
+    "order_id": {
       "data_type": "int64",
       "total_values": 1000000,
       "null_count": 50,
-      "null_percentage": 0.005,
+      "non_null_count": 999950,
+      "null_percentage": 0.01,
       "unique_values_count": 950000,
+      "distinct_count_is_lower_bound": false,
       "uniqueness_ratio": 0.95,
       "likely_categorical": false,
       "too_unique": true,
-      "min_value": 1,
-      "max_value": 1000000,
       "numeric_statistics": {
         "mean": 500000.5,
-        "median": 500000,
         "standard_deviation": 288675.1345,
-        "quantiles": {...}
+        "variance": 83333416666.6667
       }
+    },
+    "customer_name": {
+      "data_type": "string",
+      "total_values": 1000000,
+      "null_count": 0,
+      "non_null_count": 1000000,
+      "null_percentage": 0.0,
+      "unique_values_count": 10000,
+      "distinct_count_is_lower_bound": true,
+      "uniqueness_ratio": null,
+      "likely_categorical": null,
+      "too_unique": null,
+      "min_length": 2,
+      "max_length": 64
     }
   },
   "data_quality": {
     "overall_null_percentage": 2.5,
+    "columns_with_nulls": 3,
+    "columns_with_nulls_percentage": 20.0,
     "data_completeness_score": 97.5,
     "high_null_columns": [...],
     "too_unique_columns": [...],
     "likely_categorical_columns": [...]
+  },
+  "profiling_config": {
+    "enum_threshold": 0.1,
+    "uniqueness_threshold": 0.95,
+    "top_n_values": 10,
+    "quantiles": [0.25, 0.5, 0.75, 0.9, 0.95, 0.99],
+    "include_value_statistics": false,
+    "max_distinct_tracked": 10000,
+    "sample_size": 10000
   }
+}
+```
+
+`customer_name` shows a column that reached `max_distinct_tracked`: its distinct count is a lower
+bound, so the ratios are `null` instead of a misleading number. String columns report
+`min_length`/`max_length` (never the smallest/largest string).
+
+With `include_value_statistics=True` the entries additionally contain `top_values`
+(`value`/`count`/`percentage`, only while the distinct count is exact; otherwise
+`top_values_unavailable` explains why), `min_value`/`max_value` for numeric and temporal columns,
+and, inside `numeric_statistics`, `median`, `mode`, `quantiles`, `quantiles_are_estimated` and
+`sample_size`:
+
+```json
+"numeric_statistics": {
+  "mean": 500000.5,
+  "standard_deviation": 288675.1345,
+  "variance": 83333416666.6667,
+  "median": 500000,
+  "quantiles": {"p25": 250000, "p50": 500000, "p75": 750000},
+  "quantiles_are_estimated": true,
+  "sample_size": 10000
 }
 ```
 
@@ -158,10 +214,17 @@ Metadata collector configuration can come from multiple sources:
 2. **Default Values**: Sensible defaults are applied when no configuration is provided
 3. **Runtime Parameters**: Configuration can be modified programmatically
 
+The schema file configures it through the `x-metadata-generation` extension. The CSV processor reads
+`enabled`, `enum_detection.uniqueness_threshold`, `statistics.categorical.top_n_values` and
+`statistics.numeric.quantiles`; the remaining keys of that extension are not used by the collector.
+Whether value statistics are written is deliberately not a schema setting: it is the
+`include_value_statistics` option of `ImportConfig` (or the collector), so a schema file cannot
+switch on PII-bearing statistics by itself.
+
 Example schema metadata configuration:
 ```json
 {
-  "metadata": {
+  "x-metadata-generation": {
     "enabled": true,
     "enum_detection": {
       "uniqueness_threshold": 0.15
@@ -183,8 +246,8 @@ Example schema metadata configuration:
 When metadata collection is enabled, the following files are generated:
 
 - **Primary Output**: Main processed data file (e.g., `data.parquet`)
-- **Metadata File**: Comprehensive metadata JSON (e.g., `output_metadata.json`)
-- **Manifest Files**: Processing manifests and logs (generated by other components)
+- **Metadata File**: Comprehensive metadata JSON (`output_data_metadata.json` in the CSV pipeline; `save_metadata` defaults to `output_metadata.json`)
+- **Manifest and Processing Metadata**: `manifest.json` and `metadata.json` (generated by the CSV processor, not by the collector)
 
 ## Use Cases
 

@@ -13,6 +13,9 @@ from ._regex import compile_pattern
 from .base import BaseProcessor, ValidationResult
 from .schema_validator.constraints import ConstraintValidator as ValueConstraintValidator
 
+#: Default for ``ConstraintConfig.max_retained_violations``.
+DEFAULT_MAX_RETAINED_VIOLATIONS = 1000
+
 
 class ErrorMode(Enum):
     """Error handling modes for constraint validation."""
@@ -20,6 +23,28 @@ class ErrorMode(Enum):
     FAIL_FAST = "fail_fast"
     FAIL_COMPLETE = "fail_complete"
     BAD_ROWS = "bad_rows"
+
+
+def coerce_error_mode(value: Any) -> ErrorMode:
+    """``ErrorMode`` from an ``ErrorMode`` or its string value (case-insensitive).
+
+    Raises:
+        ValueError: For anything else, naming the valid values.
+    """
+    if isinstance(value, ErrorMode):
+        return value
+    if isinstance(value, str):
+        try:
+            return ErrorMode(value.strip().lower())
+        except ValueError:
+            pass
+    shown = repr(value) if isinstance(value, str) else type(value).__name__
+    raise ValueError(f"Invalid error mode {shown}; expected one of {_VALID_ERROR_MODES}")
+
+
+_VALID_ERROR_MODES = " | ".join(
+    mode.value for mode in (ErrorMode.BAD_ROWS, ErrorMode.FAIL_FAST, ErrorMode.FAIL_COMPLETE)
+)
 
 
 @dataclass
@@ -30,14 +55,34 @@ class ConstraintConfig:
     ``min``/``max``, ``enum``, ``pattern`` (unanchored search), ``minLength``/``maxLength`` and
     ``nullable`` (``False`` forbids NULL). ``unique_constraints`` lists column names (or tuples
     of names for composite keys) that must be unique; NULL keys are not compared.
+
+    ``error_mode`` accepts an ``ErrorMode`` or its string value (``"bad_rows"``, ``"fail_fast"``,
+    ``"fail_complete"``, case-insensitive) and is stored as an ``ErrorMode``; anything else raises
+    ``ValueError``.
+
+    Memory: the validator keeps an exact running total of violations but retains at most
+    ``max_retained_violations`` of them (the first ones; ``None`` = no limit), and does not keep
+    the offending cell values in them unless ``include_values`` is true (they may be personal
+    data). The set of unique keys seen so far is inherently proportional to the number of
+    distinct keys.
     """
 
     error_mode: ErrorMode = ErrorMode.BAD_ROWS
     check_constraints: Dict[str, Any] = None
     unique_constraints: List[str] = None
     foreign_key_constraints: Dict[str, Any] = None
+    max_retained_violations: Optional[int] = DEFAULT_MAX_RETAINED_VIOLATIONS
+    include_values: bool = False
 
     def __post_init__(self):
+        self.error_mode = coerce_error_mode(self.error_mode)
+        limit = self.max_retained_violations
+        if limit is not None and (
+            isinstance(limit, bool) or not isinstance(limit, int) or limit < 0
+        ):
+            raise ValueError("max_retained_violations must be a non-negative integer or None")
+        if not isinstance(self.include_values, bool):
+            raise ValueError("include_values must be a boolean")
         if self.check_constraints is None:
             self.check_constraints = {}
         if self.unique_constraints is None:
@@ -50,7 +95,9 @@ class ConstraintConfig:
 class ConstraintViolation:
     """Represents a constraint violation found during data validation.
 
-    ``row_index`` is the position of the row in the batch that was validated.
+    ``row_index`` is the position of the row in the batch that was validated. ``values`` holds
+    the offending cell value(s) only when ``ConstraintConfig.include_values`` is true (else it is
+    an empty list).
     """
 
     violation_type: str
@@ -82,7 +129,11 @@ class ConstraintValidator(BaseProcessor):
       raises ``ValueError`` if there were any;
     - ``fail_fast``: the first violation raises ``ValueError`` from ``process_batch``.
 
-    ``violations`` accumulates across batches (``batch_violations`` holds the last batch's).
+    ``violation_count`` is the exact number of violations found so far. ``violations``
+    accumulates across batches but retains at most ``config.max_retained_violations`` of them (the
+    first ones; ``violations_truncated`` tells whether some were not kept), whereas
+    ``batch_violations`` holds *all* of the last batch's. Rows are removed in ``bad_rows`` mode and
+    ``finalize()`` fails in ``fail_complete`` mode regardless of the retention limit.
     A row only registers its unique keys when it violates nothing, so a row rejected for another
     reason never makes a later valid row look like a duplicate.
     """
@@ -96,6 +147,7 @@ class ConstraintValidator(BaseProcessor):
         self.config = config
         self.violations: List[ConstraintViolation] = []
         self.batch_violations: List[ConstraintViolation] = []
+        self.violation_count = 0
         self.rows_seen = 0
         self._seen_keys: Dict[str, Set[Any]] = {}
 
@@ -126,7 +178,10 @@ class ConstraintValidator(BaseProcessor):
         self._unique_constraints(batch, found)
 
         self.batch_violations = found
-        self.violations.extend(found)
+        self.violation_count += len(found)
+        limit = self.config.max_retained_violations
+        room = len(found) if limit is None else max(0, limit - len(self.violations))
+        self.violations.extend(found[:room])
         self.rows_seen += batch.num_rows
 
         validation_results = [
@@ -192,7 +247,11 @@ class ConstraintValidator(BaseProcessor):
                         violation_type=_HELPER_VIOLATION_TYPES.get(result.error_code, "check"),
                         error_message=self._describe(result.error_code, col_name, name),
                         columns=[col_name],
-                        values=[column[result.row_index].as_py()],
+                        values=(
+                            [column[result.row_index].as_py()]
+                            if self.config.include_values
+                            else []
+                        ),
                         constraint_name=name,
                         row_index=result.row_index,
                     )
@@ -207,7 +266,7 @@ class ConstraintValidator(BaseProcessor):
                                 error_message=f"Column '{col_name}' must not be null "
                                 f"(constraint '{name}')",
                                 columns=[col_name],
-                                values=[None],
+                                values=[None] if self.config.include_values else [],
                                 constraint_name=name,
                                 row_index=row_idx,
                             )
@@ -263,7 +322,11 @@ class ConstraintValidator(BaseProcessor):
                             error_message=f"Duplicate value in unique column(s) "
                             f"{', '.join(columns)}",
                             columns=columns,
-                            values=list(key) if isinstance(key, tuple) else [key],
+                            values=(
+                                (list(key) if isinstance(key, tuple) else [key])
+                                if self.config.include_values
+                                else []
+                            ),
                             constraint_name=f"{key_name}_unique",
                             row_index=row_idx,
                         )
@@ -274,24 +337,34 @@ class ConstraintValidator(BaseProcessor):
 
     # --------------------------------------------------------------------------- results
 
+    @property
+    def violations_truncated(self) -> bool:
+        """Whether more violations were found than ``violations`` retains."""
+        return self.violation_count > len(self.violations)
+
     def get_all_violations(self) -> List[ConstraintViolation]:
-        """Get all constraint violations found during validation."""
+        """Get the retained constraint violations (at most ``max_retained_violations``).
+
+        The exact total is ``violation_count``.
+        """
         return self.violations.copy()
 
     def reset(self) -> None:
         """Forget violations, row counts and unique keys (start a new dataset)."""
         self.violations.clear()
         self.batch_violations = []
+        self.violation_count = 0
         self.rows_seen = 0
         self._seen_keys.clear()
 
     def finalize(self):
         """Finalize validation and potentially raise exceptions based on error mode."""
-        if self.violations and self.config.error_mode in [
+        # the exact count; the retained list can only be longer if a caller appended to it
+        violation_count = max(self.violation_count, len(self.violations))
+        if violation_count and self.config.error_mode in [
             ErrorMode.FAIL_FAST,
             ErrorMode.FAIL_COMPLETE,
         ]:
-            violation_count = len(self.violations)
             raise ValueError(f"Constraint validation failed with {violation_count} violations")
 
 
@@ -318,11 +391,12 @@ def create_constraint_config_from_schema(schema_dict: Dict[str, Any]) -> Constra
         error_mode_str = schema_dict["x-constraintHandling"].get("errorMode", "bad_rows")
 
     try:
-        error_mode = ErrorMode(error_mode_str)
+        error_mode = coerce_error_mode(error_mode_str)
     except ValueError:
+        shown = repr(error_mode_str) if isinstance(error_mode_str, str) else "(not a string)"
         raise ValueError(
-            f"Invalid x-constraintHandling errorMode '{error_mode_str}'; "
-            f"expected one of {[mode.value for mode in ErrorMode]}"
+            f"Invalid x-constraintHandling errorMode {shown}; "
+            f"expected one of {_VALID_ERROR_MODES}"
         ) from None
 
     check_constraints = {}

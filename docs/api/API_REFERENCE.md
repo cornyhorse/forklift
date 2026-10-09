@@ -429,7 +429,13 @@ class ConstraintConfig:
     check_constraints: Dict[str, Any] = None
     unique_constraints: List[str] = None
     foreign_key_constraints: Dict[str, Any] = None
+    max_retained_violations: Optional[int] = 1000  # None = keep every violation
+    include_values: bool = False                  # keep offending cell values in violations
 ```
+
+`error_mode` also accepts the strings `"bad_rows"`, `"fail_fast"` and `"fail_complete"` (case-insensitive); anything else raises `ValueError`.
+
+**Memory use on large inputs.** The validator keeps an exact running total (`violation_count`; `finalize()` and the `fail_complete` mode use it) but retains at most `max_retained_violations` `ConstraintViolation` objects in `violations` / `get_all_violations()` (the first ones; `violations_truncated` says whether some were left out). `batch_violations` always holds every violation of the last batch, and `bad_rows` mode drops every violating row whatever the limit. Retained violations carry an empty `values` list unless `include_values=True` (cell values may be personal data). The state that checks `unique_constraints` is inherently proportional to the number of distinct keys seen so far (one entry per distinct key per constraint), so memory grows with the number of distinct keys, not with the number of rows or violations.
 
 ## Result Classes
 

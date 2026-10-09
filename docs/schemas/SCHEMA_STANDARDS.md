@@ -3,13 +3,24 @@
 Forklift uses JSON Schema as the foundation for data validation and processing configuration, with custom extensions to support advanced data processing features.
 
 > **Status of the examples.** This page is an overview of the schema vocabulary. The extensions that
-> have their own page (`x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling`, `x-csv`, `x-fwf`,
-> `x-special-type`, `x-transformations`, `x-calculatedColumns`, `x-rowHash`, `x-pii`, `x-columnMapping`,
-> `x-dataQuality`, `x-metadata-generation`) are specified there, and each of those pages says what the
-> code does with it; start from [README.md](./README.md#what-the-engine-applies-today). The sections
-> below on `x-json`, `x-parquet`, `x-constraints` and `x-processing` are illustrative designs: no code in
-> this version reads those four extensions. `import_csv` itself applies the property types, `required`,
-> `x-csv.parquetTypeMapping`, `x-csv.nulls` and `x-metadata-generation`.
+> have their own page (`x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling`, `x-validation`,
+> `x-csv`, `x-fwf`, `x-special-type`, `x-transformations`, `x-calculatedColumns`, `x-rowHash`, `x-pii`,
+> `x-columnMapping`, `x-dataQuality`, `x-metadata-generation`) are specified there, and each of those
+> pages says what the code does with it; start from
+> [README.md](./README.md#what-the-engine-applies-today). The sections below on `x-json`, `x-parquet`,
+> `x-constraints` and `x-processing` are illustrative designs: no code in this version reads those four
+> extensions (`import_csv` ignores them silently).
+>
+> **What `import_csv` applies.** The CSV engine (`import_csv`, `read_csv`, `forklift ingest --input-kind csv`)
+> applies the property types, `required`, `x-csv.parquetTypeMapping`, `x-csv.nulls` and
+> `x-metadata-generation`, and also runs `x-transformations` (`column_transformations`), `x-special-type`,
+> `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality`, `x-validation`, `x-primaryKey`,
+> `x-uniqueConstraints`, the per-property constraints (`minimum`, `maximum`, `minLength`, `maxLength`,
+> `pattern`, `enum`, `x-unique`), `x-constraintHandling.errorMode` and `x-rowHash` on every batch, in the
+> order given in the README. Rejected rows go to `bad_rows.parquet` with a `_rejection_reason`. Schema
+> content that no processor reads (`x-pii`, unknown keys) is reported in `results.warnings`. Excel, SQL
+> and fixed-width imports do not apply these extensions. `apply_schema_extensions=False` /
+> `--no-schema-extensions` switches them off.
 
 ## Table of Contents
 
@@ -85,10 +96,12 @@ Defines primary key constraints for the data:
 ```
 
 **Properties:**
-- `columns`: Array of column names that form the primary key
-- `type`: `"single"` or `"composite"` 
-- `enforceUniqueness`: Boolean, enforce uniqueness constraint
-- `allowNulls`: Boolean, allow null values in primary key columns
+- `columns` (required): Array of column names that form the primary key
+- `type` (optional): `"single"` or `"composite"`; only checked against the number of columns
+- `enforceUniqueness` (optional, default `true`): Boolean, enforce uniqueness constraint
+- `allowNulls` (optional, default `false`): Boolean, allow null values in primary key columns
+
+`import_csv` keeps the first row of a key and rejects later duplicates and NULL keys to `bad_rows.parquet` (see [X_PRIMARY_KEY_DOCUMENTATION.md](./X_PRIMARY_KEY_DOCUMENTATION.md)).
 
 ### Unique Constraints (`x-uniqueConstraints`)
 
@@ -110,6 +123,8 @@ Define additional unique constraints:
   ]
 }
 ```
+
+A key with a NULL part is never compared; `condition`, `ignoreNulls: false` and `caseSensitive: false` are not implemented (see [X_UNIQUE_CONSTRAINTS_DOCUMENTATION.md](./X_UNIQUE_CONSTRAINTS_DOCUMENTATION.md)).
 
 ### Metadata Information (`x-metadata`)
 
@@ -216,9 +231,11 @@ documentation](./X_METADATA_GENERATION_DOCUMENTATION.md).
 
 See the [x-csv documentation](./X_CSV_DOCUMENTATION.md) for the exact values (`header.mode` is `present`,
 `absent`, `auto` or `stability_scan`; `footer.mode` is `regex` or `blank_line`) and for which parts the
-engine applies: the column types (`parquetTypeMapping`, falling back to each property's `type` /
-`format`) and `nulls`. Bad rows are always written to `bad_rows.parquet` in the output directory; there
-is no `validation` or `preprocessing` block.
+engine reads from `x-csv`: the column types (`parquetTypeMapping`, falling back to each property's
+`type` / `format`) and `nulls` (the other `x-...` extensions of the schema are applied as described
+above). Bad rows are always written to `bad_rows.parquet` in the output directory; there is no
+`validation` or `preprocessing` block in `x-csv` (row validation is the separate `x-validation`
+extension).
 
 ### Excel Configuration (`x-excel`)
 
@@ -362,7 +379,7 @@ Single-layout files use a plain `"fields": [...]` list instead. Fixed-width impo
 
 Forklift provides comprehensive data transformation capabilities through the `x-transformations` property.
 
-> **Reading the examples in this section.** Each example is written as `"<column>": {"type": "<transformation>", "config": {...}}` for brevity. The form the processor (`SchemaBasedTransformer`) reads is `"x-transformations": {"column_transformations": {"<column>": {"<transformation>": {"enabled": true, ...config}}}}`, and the `config` options are exactly the fields of the matching config class in `forklift.utils.transformations.configs` (an unknown option raises `ValueError`). Transformation names: `string_cleaning`, `regex_replace`, `string_replace`, `string_padding`, `string_trimming`, `html_xml_cleaning`, `money_conversion`, `numeric_cleaning`, `datetime`, `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting`, `mac_address_formatting`. `import_csv` does not execute these transformations; see [X_TRANSFORMATIONS_DOCUMENTATION.md](./X_TRANSFORMATIONS_DOCUMENTATION.md).
+> **Reading the examples in this section.** The form the code reads is `"x-transformations": {"column_transformations": {"<column>": {"<transformation>": {"enabled": true, ...config}}}}`, and the config options are exactly the fields of the matching config class in `forklift.utils.transformations.configs` (an unknown option raises `ValueError`). Transformation names: `string_cleaning`, `regex_replace`, `string_replace`, `string_padding`, `string_trimming`, `html_xml_cleaning`, `money_conversion`, `numeric_cleaning`, `datetime`, `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting`, `mac_address_formatting`. `import_csv` runs these transformations on the text of the file before the types are applied (column names are the header names); other `x-transformations` keys are ignored with a warning. See [X_TRANSFORMATIONS_DOCUMENTATION.md](./X_TRANSFORMATIONS_DOCUMENTATION.md).
 
 ### String Transformations
 
@@ -371,23 +388,27 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "name": {
-      "type": "string_cleaning",
-      "config": {
-        "normalize_quotes": true,
-        "normalize_dashes": true,
-        "normalize_spaces": true,
-        "collapse_whitespace": true,
-        "strip_whitespace": true,
-        "remove_zero_width": true,
-        "remove_control_chars": true,
-        "unicode_normalize": "NFKC",
-        "case_transform": "proper",
-        "title_case_exceptions": ["of", "the", "and"],
-        "custom_case_mapping": {"california": "CA"},
-        "acronyms": ["NASA", "API", "CEO"],
-        "remove_accents": false,
-        "fix_encoding_errors": true
+    "column_transformations": {
+      "name": {
+        "string_cleaning": {
+          "enabled": true,
+          "normalize_quotes": true,
+          "normalize_dashes": true,
+          "normalize_spaces": true,
+          "collapse_whitespace": true,
+          "strip_whitespace": true,
+          "remove_zero_width": true,
+          "remove_control_chars": true,
+          "unicode_normalize": "NFKC",
+          "case_transform": "proper",
+          "title_case_exceptions": ["of", "the", "and"],
+          "custom_case_mapping": {
+            "california": "CA"
+          },
+          "acronyms": ["NASA", "API", "CEO"],
+          "remove_accents": false,
+          "fix_encoding_errors": true
+        }
       }
     }
   }
@@ -399,20 +420,22 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "product_code": {
-      "type": "string_padding",
-      "config": {
-        "width": 10,
-        "fillchar": "0",
-        "side": "left"
-      }
-    },
-    "description": {
-      "type": "regex_replace",
-      "config": {
-        "pattern": "\\s+",
-        "replacement": " ",
-        "flags": 0
+    "column_transformations": {
+      "product_code": {
+        "string_padding": {
+          "enabled": true,
+          "width": 10,
+          "fillchar": "0",
+          "side": "left"
+        }
+      },
+      "description": {
+        "regex_replace": {
+          "enabled": true,
+          "pattern": "\\s+",
+          "replacement": " ",
+          "flags": 0
+        }
       }
     }
   }
@@ -426,14 +449,16 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "price": {
-      "type": "money_conversion",
-      "config": {
-        "currency_symbols": ["$", "€", "£"],
-        "thousands_separator": ",",
-        "decimal_separator": ".",
-        "parentheses_negative": true,
-        "strip_whitespace": true
+    "column_transformations": {
+      "price": {
+        "money_conversion": {
+          "enabled": true,
+          "currency_symbols": ["$", "€", "£"],
+          "thousands_separator": ",",
+          "decimal_separator": ".",
+          "parentheses_negative": true,
+          "strip_whitespace": true
+        }
       }
     }
   }
@@ -445,14 +470,16 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "quantity": {
-      "type": "numeric_cleaning",
-      "config": {
-        "thousands_separator": ",",
-        "decimal_separator": ".",
-        "allow_nan": true,
-        "nan_values": ["", "N/A", "NULL"],
-        "target_type": "int64"
+    "column_transformations": {
+      "quantity": {
+        "numeric_cleaning": {
+          "enabled": true,
+          "thousands_separator": ",",
+          "decimal_separator": ".",
+          "allow_nan": true,
+          "nan_values": ["", "N/A", "NULL"],
+          "target_type": "int64"
+        }
       }
     }
   }
@@ -466,23 +493,25 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "event_date": {
-      "type": "datetime",
-      "config": {
-        "mode": "common_formats",
-        "allow_fuzzy": false,
-        "from_epoch": false,
-        "target_type": "datetime",
-        "timezone": "UTC",
-        "output_format": "YYYY-MM-DD HH:mm:ss"
-      }
-    },
-    "timestamp": {
-      "type": "datetime",
-      "config": {
-        "mode": "enforce",
-        "format": "%Y-%m-%d %H:%M:%S",
-        "to_epoch": "seconds"
+    "column_transformations": {
+      "event_date": {
+        "datetime": {
+          "enabled": true,
+          "mode": "common_formats",
+          "allow_fuzzy": false,
+          "from_epoch": false,
+          "target_type": "string",
+          "timezone": "UTC",
+          "output_format": "%Y-%m-%d %H:%M:%S"
+        }
+      },
+      "timestamp": {
+        "datetime": {
+          "enabled": true,
+          "mode": "enforce",
+          "format": "%Y-%m-%d %H:%M:%S",
+          "to_epoch": "seconds"
+        }
       }
     }
   }
@@ -496,13 +525,15 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "ssn": {
-      "type": "ssn_formatting",
-      "config": {
-        "format_with_dashes": true,
-        "zero_pad": true,
-        "validate": true,
-        "allow_invalid": false
+    "column_transformations": {
+      "ssn": {
+        "ssn_formatting": {
+          "enabled": true,
+          "format_with_dashes": true,
+          "zero_pad": true,
+          "validate": true,
+          "allow_invalid": false
+        }
       }
     }
   }
@@ -514,12 +545,14 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "zip_code": {
-      "type": "zip_code_formatting",
-      "config": {
-        "zip_type": "zip-5",
-        "validate": true,
-        "zero_pad": true
+    "column_transformations": {
+      "zip_code": {
+        "zip_code_formatting": {
+          "enabled": true,
+          "zip_type": "zip-5",
+          "validate": true,
+          "zero_pad": true
+        }
       }
     }
   }
@@ -531,12 +564,14 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "phone": {
-      "type": "phone_number_formatting",
-      "config": {
-        "format_style": "us-standard",
-        "validate": true,
-        "allow_invalid": false
+    "column_transformations": {
+      "phone": {
+        "phone_number_formatting": {
+          "enabled": true,
+          "format_style": "us-standard",
+          "validate": true,
+          "allow_invalid": false
+        }
       }
     }
   }
@@ -548,12 +583,14 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "email": {
-      "type": "email_formatting",
-      "config": {
-        "normalize_case": true,
-        "validate_format": true,
-        "allow_invalid": false
+    "column_transformations": {
+      "email": {
+        "email_formatting": {
+          "enabled": true,
+          "normalize_case": true,
+          "validate_format": true,
+          "allow_invalid": false
+        }
       }
     }
   }
@@ -565,20 +602,22 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "ip_address": {
-      "type": "ip_address_formatting",
-      "config": {
-        "ip_version": "both",
-        "compress_ipv6": true,
-        "validate": true
-      }
-    },
-    "mac_address": {
-      "type": "mac_address_formatting",
-      "config": {
-        "format_style": "colon",
-        "case_style": "upper",
-        "validate": true
+    "column_transformations": {
+      "ip_address": {
+        "ip_address_formatting": {
+          "enabled": true,
+          "ip_version": "both",
+          "compress_ipv6": true,
+          "validate": true
+        }
+      },
+      "mac_address": {
+        "mac_address_formatting": {
+          "enabled": true,
+          "format_style": "colon",
+          "case_style": "upper",
+          "validate": true
+        }
       }
     }
   }
@@ -592,12 +631,14 @@ Forklift provides comprehensive data transformation capabilities through the `x-
 ```json
 {
   "x-transformations": {
-    "description": {
-      "type": "html_xml_cleaning",
-      "config": {
-        "strip_tags": true,
-        "decode_entities": true,
-        "preserve_whitespace": false
+    "column_transformations": {
+      "description": {
+        "html_xml_cleaning": {
+          "enabled": true,
+          "strip_tags": true,
+          "decode_entities": true,
+          "preserve_whitespace": false
+        }
       }
     }
   }
@@ -610,7 +651,7 @@ HTML/XML cleaning is text extraction, not a security sanitizer: tags are strippe
 
 ### Constraint Validation (`x-constraints`)
 
-> Illustrative only: the constraint extensions that exist are `x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling` and `x-dataQuality`; no code reads `x-constraints`.
+> Illustrative only: the validation extensions that exist are `x-validation` (rules that reject rows), `x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling`, the per-property constraints (`minimum`, `maxLength`, `pattern`, `enum`, ...) and `x-dataQuality` (report only); no code reads `x-constraints`. See [X_VALIDATION_DOCUMENTATION.md](./X_VALIDATION_DOCUMENTATION.md).
 
 Define various data constraints:
 
@@ -679,7 +720,7 @@ Define various data constraints:
 
 ### Enhanced Processing (`x-processing`)
 
-> Illustrative only: no code reads `x-processing`. The extensions that exist are `x-calculatedColumns`, `x-rowHash`, `x-columnMapping` and `x-dataQuality`.
+> Illustrative only: no code reads `x-processing`. The extensions that exist are the top-level `x-calculatedColumns` (`constants`, `expressions`; expressions are Python-like, not SQL such as `CONCAT` or `UPPER`), `x-rowHash`, `x-columnMapping` (`explicitMappings`, `namingConvention`) and `x-dataQuality` (`fieldSpecificRules`); there is no deduplication extension (use `x-primaryKey` / `x-uniqueConstraints`).
 
 Configure comprehensive data transformation and processing:
 
@@ -747,19 +788,15 @@ Configure comprehensive data transformation and processing:
 
 ### Row Hash Configuration
 
-Generate unique identifiers for data lineage and change detection:
+Generate unique identifiers for data lineage and change detection (the real extension is the top-level `x-rowHash`, see [X_ROW_HASH_DOCUMENTATION.md](./X_ROW_HASH_DOCUMENTATION.md); `import_csv` applies it):
 
 ```json
 {
-  "x-processing": {
-    "rowHash": {
-      "enabled": true,
-      "algorithm": "sha256",
-      "columns": ["customer_id", "name", "email"],
-      "includeAllColumns": false,
-      "excludeColumns": ["created_date", "modified_date"],
-      "outputColumn": "row_hash"
-    }
+  "x-rowHash": {
+    "enabled": true,
+    "algorithm": "sha256",
+    "includeColumns": ["customer_id", "name", "email"],
+    "columnName": "row_hash"
   }
 }
 ```
@@ -768,252 +805,157 @@ Generate unique identifiers for data lineage and change detection:
 
 ### Complete Customer Schema with All Features
 
+A schema that uses the extensions the CSV engine applies (it runs as it is with `import_csv`):
+
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.com/schemas/customers-comprehensive.json",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/customers-comprehensive.json",
   "title": "Comprehensive Customer Data Schema",
-  "description": "Advanced schema demonstrating all Forklift features",
+  "description": "Advanced schema demonstrating the Forklift features the CSV engine applies",
   "type": "object",
   "properties": {
-    "customer_id": {
-      "type": "integer",
-      "description": "Unique customer identifier"
-    },
-    "name": {
-      "type": "string",
-      "maxLength": 100,
-      "description": "Customer full name"
-    },
-    "email": {
-      "type": "string",
-      "format": "email",
-      "description": "Customer email address"
-    },
-    "phone": {
-      "type": "string",
-      "description": "Customer phone number"
-    },
-    "ssn": {
-      "type": "string",
-      "description": "Social Security Number"
-    },
-    "salary": {
-      "type": "string",
-      "description": "Annual salary (currency format)"
-    },
-    "signup_date": {
-      "type": "string",
-      "format": "date",
-      "description": "Date customer signed up"
-    },
-    "status": {
-      "type": "string",
-      "enum": ["active", "inactive", "pending"],
-      "description": "Customer status"
-    }
+    "customer_id": {"type": "integer", "description": "Unique customer identifier"},
+    "name": {"type": "string", "maxLength": 100, "description": "Customer full name"},
+    "email": {"type": "string", "x-special-type": "email", "description": "Customer email address"},
+    "phone": {"type": "string", "x-special-type": "phone", "description": "Customer phone number"},
+    "ssn": {"type": "string", "x-special-type": "ssn", "description": "Social Security Number"},
+    "salary": {"type": "number", "description": "Annual salary"},
+    "signup_date": {"type": "string", "format": "date", "description": "Date customer signed up"},
+    "status": {"type": "string", "enum": ["active", "inactive", "pending"], "description": "Customer status"}
   },
   "required": ["customer_id", "name", "email"],
-  
+
   "x-primaryKey": {
     "columns": ["customer_id"],
     "type": "single",
     "enforceUniqueness": true,
     "allowNulls": false
   },
-  
+
   "x-uniqueConstraints": [
-    {
-      "name": "unique_email",
-      "columns": ["email"]
-    },
-    {
-      "name": "unique_ssn",
-      "columns": ["ssn"]
-    }
+    {"name": "unique_email", "columns": ["email"]},
+    {"name": "unique_ssn", "columns": ["ssn"]}
   ],
-  
+
   "x-csv": {
     "encodingPriority": ["utf-8", "utf-8-sig", "latin-1"],
     "delimiter": ",",
     "header": {"mode": "present"},
     "nulls": {
       "global": ["", "NA", "NULL"],
-      "perColumn": {
-        "salary": ["", "0.00", "N/A"]
-      }
+      "perColumn": {"salary": ["", "0.00", "N/A"]}
     },
-    "dataTypes": {
+    "parquetTypeMapping": {
       "customer_id": "int64",
-      "name": "string",
-      "email": "string",
-      "phone": "string",
-      "ssn": "string",
-      "salary": "string",
-      "signup_date": "date32",
-      "status": "string"
-    },
-    "validation": {
-      "enabled": true,
-      "onError": "bad_rows",
-      "badRowsPath": "./validation_errors/"
+      "salary": "double",
+      "signup_date": "date32"
     }
   },
-  
+
   "x-transformations": {
-    "name": {
-      "type": "string_cleaning",
-      "config": {
-        "case_transform": "proper",
-        "normalize_quotes": true,
-        "strip_whitespace": true
-      }
-    },
-    "email": {
-      "type": "email_formatting",
-      "config": {
-        "normalize_case": true,
-        "validate": true
-      }
-    },
-    "phone": {
-      "type": "phone_formatting",
-      "config": {
-        "format": "national",
-        "country_code": "US",
-        "validate": true
-      }
-    },
-    "ssn": {
-      "type": "ssn_formatting",
-      "config": {
-        "format": "dashed",
-        "validate": true
-      }
-    },
-    "salary": {
-      "type": "money_conversion",
-      "config": {
-        "currency_symbols": ["$"],
-        "thousands_separator": ",",
-        "decimal_separator": "."
-      }
-    },
-    "signup_date": {
-      "type": "datetime",
-      "config": {
-        "mode": "common_formats",
-        "target_type": "date"
+    "column_transformations": {
+      "name": {
+        "string_cleaning": {"enabled": true, "case_transform": "title", "normalize_quotes": true, "strip_whitespace": true}
+      },
+      "salary": {
+        "money_conversion": {"enabled": true, "currency_symbols": ["$"], "thousands_separator": ",", "decimal_separator": "."}
+      },
+      "signup_date": {
+        "datetime": {"enabled": true, "mode": "common_formats", "target_type": "date"}
       }
     }
   },
-  
-  "x-constraints": {
-    "fieldValidation": {
-      "customer_id": [
-        {
-          "type": "range",
-          "min": 1,
-          "message": "Customer ID must be positive"
-        }
-      ],
-      "email": [
-        {
-          "type": "regex",
-          "pattern": "^[\\w\\.-]+@[\\w\\.-]+\\.[a-zA-Z]{2,}$",
-          "message": "Invalid email format"
-        }
-      ]
-    },
-    "crossFieldValidation": [
-      {
-        "type": "conditional",
-        "condition": "status == 'active'",
-        "requirement": "email IS NOT NULL",
-        "message": "Active customers must have an email address"
-      }
+
+  "x-columnMapping": {
+    "explicitMappings": {"phone": "phone_number"}
+  },
+
+  "x-validation": {
+    "badRowsHandling": {"maxBadRowsPercent": 50},
+    "fieldValidations": {
+      "customer_id": {"range": {"min": 1}},
+      "email": {"stringValidation": {"pattern": "^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$"}}
+    }
+  },
+
+  "x-calculatedColumns": {
+    "constants": [
+      {"name": "process_timestamp", "value": "2024-01-15T10:00:00Z", "dataType": "timestamp[us, tz=UTC]"}
+    ],
+    "expressions": [
+      {"name": "name_upper", "expression": "upper(name)", "dataType": "string", "dependencies": ["name"]}
     ]
   },
-  
-  "x-processing": {
-    "calculatedColumns": [
-      {
-        "name": "full_name_upper",
-        "type": "expression",
-        "expression": "UPPER(name)",
-        "dataType": "string"
-      },
-      {
-        "name": "process_timestamp",
-        "type": "constant",
-        "value": "2024-01-15T10:00:00Z",
-        "dataType": "timestamp"
-      },
-      {
-        "name": "customer_hash",
-        "type": "hash",
-        "algorithm": "sha256",
-        "columns": ["customer_id", "name", "email"],
-        "dataType": "string"
-      }
-    ],
-    "columnMapping": {
-      "cust_id": "customer_id",
-      "customer_name": "name"
-    },
-    "deduplication": {
-      "enabled": true,
-      "strategy": "keep_first",
-      "columns": ["customer_id"]
-    }
+
+  "x-rowHash": {
+    "enabled": true,
+    "columnName": "customer_hash",
+    "includeColumns": ["customer_id", "name", "email"]
   }
 }
 ```
 
+With this input:
+
+```
+customer_id,name,email,phone,ssn,salary,signup_date,status
+1,"  jane   o'neil ",Jane@Example.com,5551234567,123456789,"$85,000.00",2024-01-05,active
+2,JOHN SMITH,john@example.com,(555) 123-4567,987-65-4321,"$72,500.00",03/15/2023,pending
+3,Jim Roe,jane@example.com,555-123-4567,not-an-ssn,N/A,2022-11-30,inactive
+4,Sue Poe,sue@example.com,5559876543,NA,"$61,000.00",2021-07-01,archived
+```
+
+`data.parquet` has the rows 1 and 2, with the columns `customer_id`, `name`, `email`, `phone_number` (renamed from `phone`), `ssn`, `salary`, `signup_date`, `status`, then `process_timestamp`, `name_upper` and `customer_hash`:
+
+| customer_id | name | email | phone_number | ssn | salary | signup_date | name_upper |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | Jane O'Neil | jane@example.com | (555) 123-4567 | 123-45-6789 | 85000.0 | 2024-01-05 | JANE O'NEIL |
+| 2 | John Smith | john@example.com | (555) 123-4567 | 987-65-4321 | 72500.0 | 2023-03-15 | JOHN SMITH |
+
+`bad_rows.parquet` has the rows 3 (`UNIQUE_VIOLATION:email`: the cleaned e-mail of row 1 is the same) and 4 (`ENUM_VIOLATION:status`: `archived` is not in the list), in the shape of the input file. `results.validation_summary` is `{'INVALID_SPECIAL_VALUE:ssn': 1, 'ENUM_VIOLATION:status': 1, 'UNIQUE_VIOLATION:email': 1}` (the invalid SSN of row 3 became NULL, the ordinary null marker `NA` of row 4 is not a finding) and `results.warnings` is empty.
+
 ### Multi-Format Processing Schema
 
-This example demonstrates how different file formats can be processed with format-specific configurations:
+A schema can carry the settings of several file formats side by side; each importer reads its own block (`x-csv` for `import_csv`, `x-excel` for `import_excel`). The shared parts (`properties`, `required`) are used by both. The processing extensions (`x-transformations`, `x-validation`, `x-primaryKey`, ...) are applied by the CSV engine only; `import_excel` ignores them. `x-json` is illustrative (JSON input is not implemented).
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Multi-Format Transaction Schema",
-  "description": "Schema supporting CSV, Excel, and JSON formats",
-  
+  "description": "Schema supporting CSV and Excel (and, illustratively, JSON) formats",
+  "type": "object",
+  "properties": {
+    "amount": {"type": "number"},
+    "transaction_date": {"type": "string", "format": "date"}
+  },
+
   "x-csv": {
     "delimiter": ",",
-    "header": {"mode": "present"},
-    "validation": {"enabled": true}
+    "header": {"mode": "present"}
   },
-  
+
   "x-excel": {
     "sheet": "Transactions",
-    "skipRows": 1,
-    "validation": {"enabled": true}
+    "header": {"row": 1}
   },
-  
+
   "x-json": {
     "mode": "lines",
-    "flattenNested": true,
-    "validation": {"enabled": true}
+    "flattenNested": true
   },
-  
+
   "x-transformations": {
-    "amount": {
-      "type": "money_conversion",
-      "config": {
-        "currency_symbols": ["$", "€", "£"]
-      }
-    },
-    "transaction_date": {
-      "type": "datetime",
-      "config": {
-        "mode": "common_formats",
-        "target_type": "date"
+    "column_transformations": {
+      "amount": {
+        "money_conversion": {"enabled": true, "currency_symbols": ["$", "€", "£"]}
+      },
+      "transaction_date": {
+        "datetime": {"enabled": true, "mode": "common_formats", "target_type": "date"}
       }
     }
   }
 }
 ```
 
-This comprehensive documentation covers all available features in Forklift, highlighting the unique capabilities of each file format and data transformation type. The schema standards provide a complete reference for implementing data processing pipelines with full validation, transformation, and quality control capabilities.
+This documentation gives an overview of the schema vocabulary; the per-extension pages listed in [README.md](./README.md) specify each extension and what the engine does with it.

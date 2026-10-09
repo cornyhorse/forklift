@@ -3,7 +3,7 @@
 ## Overview
 The `x-pii` extension provides comprehensive Personally Identifiable Information (PII) field marking and handling for data privacy, masking, and compliance applications. This feature enables automatic identification, classification, and protection of sensitive personal data according to privacy regulations like GDPR, CCPA, and HIPAA.
 
-> **Status**: `x-pii` is part of the schema standard (marking and masking vocabulary). No code in this version reads it: `import_csv` and the processors neither mask nor hash the marked columns, and nothing is flagged automatically. Use it as machine-readable documentation, or implement masking with the transformers in `forklift.utils.transformations` (for example `regex_replace` or `string_replace`) in your own pipeline.
+> **Status**: `x-pii` is part of the schema standard (marking and masking vocabulary) and **documentation only**. No code reads its content: `import_csv` and the processors neither mask nor hash the marked columns, and nothing is flagged automatically. When `import_csv` (or `forklift ingest --input-kind csv`) loads a schema that has `x-pii`, it says so: `results.warnings` contains `x-pii is documentation only: no masking is applied` (also in `metadata.json`, and the CLI prints it on stderr). The import is otherwise unaffected, and the value of the warning is that nobody assumes the output is masked. Use `x-pii` as machine-readable documentation, or mask the data yourself with the transformers in `forklift.utils.transformations` (for example `regex_replace` or `string_replace` in `x-transformations.column_transformations`, which `import_csv` does apply) or in your own pipeline; `x-rowHash` hashes whole rows, not marked columns.
 
 > **What Forklift does to avoid leaking values today**: schema generation and the output metadata file (`output_data_metadata.json`) contain no cell values by default (no top/bottom values, min/max, quantiles, enum value lists or sample rows). They are only written when you opt in with `include_value_statistics=True` (CLI `--include-value-stats`) or `include_sample_data=True`, because those values can be PII. Provenance in generated files is recorded as base file names, and error messages carry row numbers and column names rather than cell content.
 
@@ -127,7 +127,7 @@ Technical identifiers used by systems.
 ### `isPII`
 - **Type**: Boolean
 - **Description**: Whether the field contains personally identifiable information
-- **Implementation**: Fields marked `true` are subject to PII handling rules
+- **Implementation**: none; the marking is not read by any code
 - **Default**: `false`
 
 ### `category`
@@ -154,6 +154,8 @@ Technical identifiers used by systems.
 - **Use**: Position-aware masking in fixed-width formats
 
 ## Masking Rules
+
+> The methods below (`hash`, `generalize`, `range`, `redact`) are vocabulary. None of them is implemented as a `maskingRules` method; `import_csv` ignores `maskingRules` and the rest of `x-pii`.
 
 ### Hash Masking (`"hash"`)
 Replaces PII with cryptographic hash values.
@@ -286,7 +288,9 @@ Pattern:   "555-123-4567" → "XXX-XXX-XXXX"
 
 ## Implementation Details
 
-### Processing Pipeline
+> **Not implemented.** This section and the compliance, usage and integration sections below describe the intended use of the vocabulary. No pipeline, audit log, consent handling or role-based masking exists in the code; they are listed here only so schema authors can use consistent names.
+
+### Processing Pipeline (intended)
 1. **PII Detection**: Identify fields marked as PII
 2. **Classification**: Apply category-based rules
 3. **Masking Application**: Execute appropriate masking method
@@ -307,6 +311,8 @@ Pattern:   "555-123-4567" → "XXX-XXX-XXXX"
 - **Reporting**: PII handling reports for compliance teams
 
 ## Usage Examples
+
+> All examples in this section are vocabulary: they can be stored in a schema, but no code reads them (the import only warns that `x-pii` is not applied). The keys `environments`, `accessRoles`, `complianceFramework`, `lawfulBasis` and `dataRetention` are not part of any processing.
 
 ### Basic PII Configuration
 ```json
@@ -423,6 +429,8 @@ Pattern:   "555-123-4567" → "XXX-XXX-XXXX"
 
 ## Compliance Frameworks
 
+> Background only; Forklift does not implement any of these frameworks' requirements.
+
 ### GDPR (General Data Protection Regulation)
 - **Lawful Basis**: Contract, consent, legitimate interest, etc.
 - **Data Subject Rights**: Access, rectification, erasure, portability
@@ -454,8 +462,9 @@ Pattern:   "555-123-4567" → "XXX-XXX-XXXX"
 
 ## Integration with Other Features
 
-- **x-special-type**: Automatically classify special types as PII
-- **x-transformations**: Apply PII masking after data transformations
-- **x-constraintHandling**: Handle PII validation errors appropriately
+- **x-special-type**: Special types are not classified as PII automatically; mark the columns yourself
+- **x-transformations**: Masking has to be written as transformation steps (`regex_replace`, `string_replace`, ...) per column; `import_csv` runs them before the types are applied
+- **x-constraintHandling**: Not related; it only handles constraint violations
 - **x-metadata-generation**: Metadata contains no cell values unless `include_value_statistics` is enabled; leave it off for columns marked as PII
-- **x-calculatedColumns**: Mark derived PII columns appropriately
+- **x-calculatedColumns**: Mark derived PII columns appropriately (by hand)
+- **bad_rows.parquet**: rejected rows are written with their (cleaned) cell values, PII columns included; `_rejection_reason` never contains values, but the file is as sensitive as the input

@@ -1,275 +1,148 @@
 # x-columnMapping Documentation
 
 ## Overview
-The `x-columnMapping` extension provides comprehensive column name mapping and standardization capabilities for data processing. This feature enables automatic column name transformation, legacy system integration, and standardization of column names across different data sources with varying naming conventions.
+The `x-columnMapping` extension renames the columns of the data (and can drop columns). `import_csv` applies it to every batch right after the type conversion; every extension that runs after it (`x-calculatedColumns`, `x-dataQuality`, `x-validation`, the keys and constraints, `x-rowHash`) and the output file use the new names.
 
 ## Schema Structure
 ```json
 {
   "x-columnMapping": {
     "description": "Column name mapping and standardization configuration",
-    "globalMappings": {
-      "emp_id": "employee_id",
-      "fname": "first_name",
-      "lname": "last_name",
-      "dob": "birth_date",
-      "addr": "address",
-      "ph_num": "phone_number"
+    "explicitMappings": {
+      "FirstName": "first_name",
+      "DOB": "birth_date",
+      "Email": "email_address"
     },
-    "tableMappings": {
-      "employees": {
-        "emp_num": "employee_id",
-        "dept": "department_code"
-      },
-      "customers": {
-        "cust_id": "customer_id",
-        "cust_name": "customer_name"
-      }
-    },
-    "patternMappings": [
-      {
-        "pattern": "^(.+)_dt$",
-        "replacement": "${1}_date",
-        "description": "Convert _dt suffix to _date"
-      },
-      {
-        "pattern": "^(.+)_amt$",
-        "replacement": "${1}_amount",
-        "description": "Convert _amt suffix to _amount"
-      }
-    ],
-    "standardization": {
-      "caseConversion": "snake_case",
-      "removeSpecialChars": true,
-      "maxLength": 63,
-      "reservedWords": ["user", "order", "group"],
-      "reservedWordSuffix": "_field"
-    },
-    "validation": {
-      "requireMapping": false,
-      "allowUnmapped": true,
-      "logUnmapped": true,
-      "duplicateHandling": "suffix"
-    }
+    "namingConvention": "snake_case",
+    "caseSensitive": true,
+    "allowUnmapped": true,
+    "dropUnmapped": false
   }
 }
 ```
 
 ## Configuration Properties
 
-### Global Mappings
-
-#### `globalMappings`
-- **Type**: Object (key-value pairs)
-- **Description**: Direct column name mappings applied across all tables/files
-- **Implementation**: Simple string replacement from source to target column names
+### `explicitMappings`
+- **Type**: Object (source name -> target name)
+- **Description**: Direct column renames. Keys are the names in the file header, targets are non-empty strings
 - **Use Cases**:
   - Legacy system abbreviations
   - Standardizing common field names
   - Correcting typos in source systems
+- A column that is not in the file is simply not renamed
 
 ```json
 {
-  "globalMappings": {
+  "explicitMappings": {
     "emp_id": "employee_id",
     "fname": "first_name",
     "lname": "last_name",
-    "dob": "birth_date",
-    "ssn": "social_security_number",
-    "addr": "address",
-    "ph_num": "phone_number",
-    "email_addr": "email_address",
-    "hire_dt": "hire_date",
-    "term_dt": "termination_date",
-    "sal": "salary",
-    "dept": "department",
-    "mgr_id": "manager_id"
+    "dob": "birth_date"
   }
 }
 ```
 
-### Table-Specific Mappings
-
-#### `tableMappings`
-- **Type**: Object with table names as keys
-- **Description**: Column mappings that apply only to specific tables
-- **Implementation**: Overrides global mappings for specific tables
-- **Priority**: Table-specific mappings take precedence over global mappings
-
-```json
-{
-  "tableMappings": {
-    "employees": {
-      "emp_num": "employee_id",
-      "dept_code": "department_code",
-      "pos_title": "position_title",
-      "sal_grade": "salary_grade"
-    },
-    "customers": {
-      "cust_id": "customer_id",
-      "cust_name": "customer_name",
-      "acct_num": "account_number",
-      "cred_limit": "credit_limit"
-    },
-    "orders": {
-      "ord_id": "order_id",
-      "ord_dt": "order_date",
-      "ship_dt": "ship_date",
-      "tot_amt": "total_amount"
-    }
-  }
-}
-```
-
-### Pattern-Based Mappings
-
-#### `patternMappings`
-- **Type**: Array of pattern objects
-- **Description**: Regular expression-based column name transformations
-- **Implementation**: Applied after direct mappings, enables flexible transformations
-
-#### Pattern Object Properties
-
-##### `pattern` (required)
-- **Type**: String (regular expression)
-- **Description**: Regex pattern to match column names
-- **Capture Groups**: Use parentheses to capture parts for replacement
-
-##### `replacement` (required)
+### `namingConvention`
 - **Type**: String
-- **Description**: Replacement pattern using captured groups
-- **Syntax**: Use `${1}`, `${2}`, etc. for captured groups
+- **Description**: Naming convention applied to **every** column name after the explicit mapping (to the target of an explicit mapping as well: `FirstName` -> `GivenName` -> `given_name` with `snake_case`)
+- **Values** (anything else raises a `ValueError`):
+  - `"snake_case"`, `"camelCase"`, `"PascalCase"`, `"lowercase"`, `"UPPERCASE"`
+- **Default**: none (names are kept)
 
-##### `description` (optional)
-- **Type**: String
-- **Description**: Human-readable explanation of the transformation
+| Header | `snake_case` | `camelCase` | `PascalCase` | `lowercase` | `UPPERCASE` |
+| --- | --- | --- | --- | --- | --- |
+| `Last Name` | `last_name` | `lastName` | `LastName` | `last name` | `LAST NAME` |
+| `customerName` | `customer_name` | `customerName` | `CustomerName` | `customername` | `CUSTOMERNAME` |
+| `HTTPServer` | `http_server` | `httpServer` | `HttpServer` | `httpserver` | `HTTPSERVER` |
+| `order-id` | `order_id` | `orderId` | `OrderId` | `order-id` | `ORDER-ID` |
+| `ID` | `id` | `id` | `Id` | `id` | `ID` |
 
-```json
-{
-  "patternMappings": [
-    {
-      "pattern": "^(.+)_dt$",
-      "replacement": "${1}_date",
-      "description": "Convert _dt suffix to _date"
-    },
-    {
-      "pattern": "^(.+)_amt$",
-      "replacement": "${1}_amount",
-      "description": "Convert _amt suffix to _amount"
-    },
-    {
-      "pattern": "^(.+)_num$",
-      "replacement": "${1}_number",
-      "description": "Convert _num suffix to _number"
-    },
-    {
-      "pattern": "^(.+)_cd$",
-      "replacement": "${1}_code",
-      "description": "Convert _cd suffix to _code"
-    },
-    {
-      "pattern": "^(.+)_desc$",
-      "replacement": "${1}_description",
-      "description": "Convert _desc suffix to _description"
-    }
-  ]
-}
-```
+`snake_case`, `camelCase` and `PascalCase` split words at spaces, hyphens, underscores and case changes and treat non-ASCII letters as separators (`Années` becomes `ann_es`); `lowercase` and `UPPERCASE` only change the case.
 
-### Standardization Rules
-
-#### `standardization`
-Configuration for automatic column name standardization.
-
-##### `caseConversion`
-- **Type**: String
-- **Description**: Case conversion strategy for column names
-- **Values**:
-  - `"snake_case"`: Convert to snake_case (recommended for most databases)
-  - `"camelCase"`: Convert to camelCase
-  - `"PascalCase"`: Convert to PascalCase
-  - `"kebab-case"`: Convert to kebab-case
-  - `"UPPER_CASE"`: Convert to UPPER_CASE
-  - `"lower_case"`: Convert to lowercase
-  - `"none"`: No case conversion
-
-##### `removeSpecialChars`
+### `caseSensitive`
 - **Type**: Boolean
-- **Description**: Remove special characters from column names
-- **Implementation**: Removes characters not allowed in target system
+- **Description**: Whether the keys of `explicitMappings` are matched case-sensitively against the header names
+- **Default**: `true`. With `false`, `FirstName` also renames a header `FIRSTNAME`; two keys that differ only in case but map to different names are an error
+
+### `allowUnmapped`
+- **Type**: Boolean
 - **Default**: `true`
+- **Description**: With `false` the columns without an entry in `explicitMappings` are dropped (same effect as `dropUnmapped: true`)
 
-##### `maxLength`
-- **Type**: Integer
-- **Description**: Maximum allowed length for column names
-- **Implementation**: Truncates or abbreviates names exceeding limit
-- **Common Values**: 63 (PostgreSQL), 30 (Oracle), 128 (SQL Server)
-
-##### `reservedWords`
-- **Type**: Array of strings
-- **Description**: Database reserved words that cannot be used as column names
-- **Implementation**: Automatically modifies names that conflict with reserved words
-
-##### `reservedWordSuffix`
-- **Type**: String
-- **Description**: Suffix to append to reserved words
-- **Default**: `"_field"`
-- **Example**: "user" becomes "user_field"
-
-### Validation Options
-
-#### `validation`
-Configuration for mapping validation and error handling.
-
-##### `requireMapping`
+### `dropUnmapped`
 - **Type**: Boolean
-- **Description**: Whether all columns must have explicit mappings
 - **Default**: `false`
-- **Implementation**: When `true`, unmapped columns cause errors
+- **Description**: Drop the columns that have no entry in `explicitMappings`. A column counts as mapped when it matches an entry, even an identity entry such as `"A": "A"`; a naming convention does not make a column mapped
 
-##### `allowUnmapped`
-- **Type**: Boolean
-- **Description**: Whether to allow columns without mappings to pass through
-- **Default**: `true`
-- **Implementation**: When `false`, unmapped columns are dropped
-
-##### `logUnmapped`
-- **Type**: Boolean
-- **Description**: Whether to log warnings for unmapped columns
-- **Default**: `true`
-- **Use**: Helps identify potential mapping issues
-
-##### `duplicateHandling`
+### `description` (optional)
 - **Type**: String
-- **Description**: Strategy for handling duplicate column names after mapping
-- **Values**:
-  - `"suffix"`: Add numeric suffix (name_1, name_2)
-  - `"prefix"`: Add numeric prefix (1_name, 2_name)
-  - `"error"`: Raise error on duplicates
-  - `"ignore"`: Keep first occurrence
+- **Description**: Free text, ignored
+
+### Not implemented (ignored with a warning)
+
+The earlier versions of this page described more keys. No code reads them; each one is reported in `results.warnings` (`x-columnMapping.<key> is not supported and is ignored`) and the mapping works without it:
+
+| Key | Use instead |
+| --- | --- |
+| `globalMappings` | `explicitMappings` |
+| `tableMappings` | a schema per file (an `x-columnMapping` has no table context) |
+| `patternMappings` | `explicitMappings` for the columns concerned, or `namingConvention` for systematic changes |
+| `standardization` (`caseConversion`, `removeSpecialChars`, `maxLength`, `reservedWords`, `reservedWordSuffix`) and `standardizationRules` | `namingConvention` |
+| `validation` (`requireMapping`, `allowUnmapped`, `logUnmapped`, `duplicateHandling`) | `allowUnmapped` / `dropUnmapped` at the top level of `x-columnMapping`; two columns with the same output name are always an error |
+
+## In `import_csv`
+
+### Naming rule
+`properties` (types, constraints), `required`, `x-csv` (`nulls`, `parquetTypeMapping`) and `x-transformations` run **before** the rename and use the names in the file header. Everything after the rename uses the output names. A header name that was renamed is also accepted by `x-validation`, `x-dataQuality`, `x-primaryKey`, `x-uniqueConstraints` and the per-property constraints (it is resolved to its output name); `x-calculatedColumns` expressions and `x-rowHash.includeColumns` / `excludeColumns` need the output names.
+
+A `properties` entry that is declared under the *new* name does not apply to the renamed column (the type, the constraints and `required` are matched by header name). The import warns: `column 'Score' is renamed to 'score' by x-columnMapping, but the schema properties are matched by the names in the file: the definition of 'score' is not applied to it (declare the property as 'Score')`.
+
+### Collisions and errors
+- Two columns that end up with the same output name (after the mapping and the naming convention) stop the import with `Column mapping creates duplicate output column names: ...`, before any output is written
+- An invalid configuration (unknown `namingConvention`, wrong types) raises a `ValueError` naming the key
+- `bad_rows.parquet` keeps the **input** names (it is in the shape of the file); the reasons in it use the output names, for example `VALIDATION_ERROR:age`
+
+### Example
+
+```
+FirstName,Last Name,Years,Notes
+Ann,Lee,30,x
+Bob,Ray,41,y
+```
+
+with
+
+```json
+{
+  "type": "object",
+  "properties": {"Years": {"type": "integer"}},
+  "x-columnMapping": {
+    "explicitMappings": {"FirstName": "given_name", "Years": "age"},
+    "namingConvention": "snake_case"
+  }
+}
+```
+
+`data.parquet` has the columns `given_name`, `last_name`, `age`, `notes` (`age` is an integer because the property `Years` was applied under the header name):
+
+| given_name | last_name | age | notes |
+| --- | --- | --- | --- |
+| Ann | Lee | 30 | x |
+| Bob | Ray | 41 | y |
+
+With `"dropUnmapped": true` instead of the naming convention the columns are `given_name` and `age` only. If the schema also has `"x-validation": {"badRowsHandling": {"maxBadRowsPercent": 100}, "fieldValidations": {"age": {"range": {"max": 40}}}}`, the row of Bob goes to `bad_rows.parquet` with the columns `FirstName`, `Last Name`, `Years`, `Notes` and the reason `VALIDATION_ERROR:age`.
 
 ## Implementation Details
 
 ### Processing Order
-1. **Input Column Detection**: Identify all column names in source data
-2. **Table-Specific Mappings**: Apply table-specific mappings first
-3. **Global Mappings**: Apply global mappings to unmapped columns
-4. **Pattern Mappings**: Apply regex-based transformations
-5. **Standardization**: Apply case conversion and character cleanup
-6. **Validation**: Check for duplicates and reserved words
-7. **Final Mapping**: Generate final column name mapping
+1. **Input Column Detection**: the header names of the file
+2. **Explicit Mappings**: `explicitMappings` (case-insensitive lookup with `caseSensitive: false`)
+3. **Naming Convention**: applied to the result of step 2
+4. **Dropping**: columns without an explicit entry are removed when `dropUnmapped` is true or `allowUnmapped` is false
+5. **Collision check**: two remaining columns with the same name raise an error
 
-### Mapping Priority
-1. **Table-Specific Mappings** (highest priority)
-2. **Global Mappings**
-3. **Pattern Mappings**
-4. **Standardization Rules** (lowest priority)
-
-### Conflict Resolution
-- **Multiple Mappings**: First matching mapping wins
-- **Duplicate Results**: Handled according to `duplicateHandling` setting
-- **Reserved Words**: Automatically modified with suffix
-- **Length Limits**: Intelligent truncation preserving meaning
+The new names are worked out once from the header (`ColumnMapper.output_names`), before the first batch, so a mistake is reported before any output is written.
 
 ## Usage Examples
 
@@ -277,7 +150,7 @@ Configuration for mapping validation and error handling.
 ```json
 {
   "x-columnMapping": {
-    "globalMappings": {
+    "explicitMappings": {
       "EMPNO": "employee_id",
       "ENAME": "employee_name",
       "JOB": "job_title",
@@ -287,39 +160,20 @@ Configuration for mapping validation and error handling.
       "COMM": "commission",
       "DEPTNO": "department_id"
     },
-    "standardization": {
-      "caseConversion": "snake_case",
-      "removeSpecialChars": true
-    }
+    "namingConvention": "snake_case"
   }
 }
 ```
 
-### Multi-Source Data Harmonization
+### Keep Only the Mapped Columns
 ```json
 {
   "x-columnMapping": {
-    "tableMappings": {
-      "system_a_customers": {
-        "cust_num": "customer_id",
-        "cust_nm": "customer_name",
-        "addr1": "address_line_1",
-        "addr2": "address_line_2"
-      },
-      "system_b_clients": {
-        "client_id": "customer_id", 
-        "client_name": "customer_name",
-        "street_addr": "address_line_1",
-        "suite_num": "address_line_2"
-      }
+    "explicitMappings": {
+      "cust_id": "customer_id",
+      "cust_name": "customer_name"
     },
-    "patternMappings": [
-      {
-        "pattern": "^(.+)_nm$",
-        "replacement": "${1}_name",
-        "description": "Standardize _nm to _name"
-      }
-    ]
+    "dropUnmapped": true
   }
 }
 ```
@@ -328,51 +182,13 @@ Configuration for mapping validation and error handling.
 ```json
 {
   "x-columnMapping": {
-    "globalMappings": {
+    "explicitMappings": {
       "CreatedOn": "created_at",
       "ModifiedOn": "updated_at",
       "CreatedBy": "created_by_user_id",
       "ModifiedBy": "updated_by_user_id"
     },
-    "patternMappings": [
-      {
-        "pattern": "^(.+)ID$",
-        "replacement": "${1}_id",
-        "description": "Convert CamelCase ID suffix to snake_case"
-      }
-    ],
-    "standardization": {
-      "caseConversion": "snake_case",
-      "maxLength": 63,
-      "reservedWords": ["user", "order", "group", "index"]
-    }
-  }
-}
-```
-
-### Financial Data Standardization
-```json
-{
-  "x-columnMapping": {
-    "globalMappings": {
-      "acct_no": "account_number",
-      "bal": "balance",
-      "avail_bal": "available_balance",
-      "tx_amt": "transaction_amount",
-      "tx_dt": "transaction_date"
-    },
-    "patternMappings": [
-      {
-        "pattern": "^(.+)_bal$",
-        "replacement": "${1}_balance",
-        "description": "Expand balance abbreviations"
-      },
-      {
-        "pattern": "^tx_(.+)$",
-        "replacement": "transaction_${1}",
-        "description": "Expand transaction abbreviations"
-      }
-    ]
+    "namingConvention": "snake_case"
   }
 }
 ```
@@ -380,17 +196,18 @@ Configuration for mapping validation and error handling.
 ## Integration with Other Features
 
 ### With Transformations
+`x-transformations` runs before the rename, so it uses the header names:
 ```json
 {
   "x-columnMapping": {
-    "globalMappings": {
+    "explicitMappings": {
       "emp_name": "employee_name"
     }
   },
   "x-transformations": {
-    "fieldSpecific": {
-      "employee_name": {
-        "transformations": ["stringCleaning", "caseTransformation"]
+    "column_transformations": {
+      "emp_name": {
+        "string_cleaning": {"enabled": true, "strip_whitespace": true}
       }
     }
   }
@@ -398,20 +215,21 @@ Configuration for mapping validation and error handling.
 ```
 
 ### With Special Types
+`x-special-type` formats the column under the header name (as part of the transformations), so declare the property under the header name:
 ```json
 {
   "x-columnMapping": {
-    "globalMappings": {
+    "explicitMappings": {
       "ssn_num": "social_security_number",
       "email_addr": "email_address"
     }
   },
   "properties": {
-    "social_security_number": {
+    "ssn_num": {
       "type": "string",
       "x-special-type": "ssn"
     },
-    "email_address": {
+    "email_addr": {
       "type": "string",
       "x-special-type": "email"
     }
@@ -419,119 +237,39 @@ Configuration for mapping validation and error handling.
 }
 ```
 
-### With PII Handling
+### With Keys and Validation
+Use the new names (or the header names) in `x-primaryKey`, `x-uniqueConstraints`, `x-validation` and `x-dataQuality`:
 ```json
 {
-  "x-columnMapping": {
-    "globalMappings": {
-      "ssn": "social_security_number",
-      "sin": "social_insurance_number"
-    }
-  },
-  "x-pii": {
-    "fields": {
-      "social_security_number": {
-        "isPII": true,
-        "category": "direct_identifier"
-      },
-      "social_insurance_number": {
-        "isPII": true,
-        "category": "direct_identifier"
-      }
-    }
-  }
+  "x-columnMapping": {"explicitMappings": {"Id": "id"}},
+  "x-primaryKey": {"columns": ["id"]}
 }
 ```
+
+### With PII Handling
+`x-pii` is documentation only (it is not read), so it can use any of the names.
 
 ## Best Practices
 
 ### Mapping Design
 1. **Consistent Naming**: Establish and follow consistent naming conventions
 2. **Business Terminology**: Use business-friendly column names
-3. **Future-Proofing**: Design mappings that accommodate future changes
+3. **Declare properties under the header name**: types, `required` and constraints are matched before the rename
 4. **Documentation**: Document the business meaning of mapped column names
-
-### Performance Considerations
-1. **Mapping Complexity**: Complex regex patterns can impact performance
-2. **Large Mappings**: Many mappings can slow processing
-3. **Caching**: Mapping results are cached for performance
-4. **Memory Usage**: Large mapping tables consume memory
 
 ### Maintenance Strategy
 1. **Version Control**: Track changes to mapping configurations
 2. **Testing**: Test mappings with representative data samples
-3. **Monitoring**: Monitor for unmapped columns in production
-4. **Regular Review**: Periodically review and update mappings
-
-### Error Handling
-1. **Validation**: Enable appropriate validation for your use case
-2. **Logging**: Use logging to identify mapping issues
-3. **Fallback**: Design fallback strategies for unmapped columns
-4. **Alerts**: Set up alerts for high rates of unmapped columns
-
-## Common Patterns
-
-### Abbreviation Expansion
-```json
-{
-  "globalMappings": {
-    "addr": "address",
-    "qty": "quantity",
-    "amt": "amount",
-    "desc": "description",
-    "num": "number",
-    "dt": "date",
-    "tm": "time"
-  }
-}
-```
-
-### System Prefix Removal
-```json
-{
-  "patternMappings": [
-    {
-      "pattern": "^sys_(.+)$",
-      "replacement": "${1}",
-      "description": "Remove system prefix"
-    },
-    {
-      "pattern": "^app_(.+)$",
-      "replacement": "${1}",
-      "description": "Remove application prefix"
-    }
-  ]
-}
-```
-
-### Unit Suffix Addition
-```json
-{
-  "patternMappings": [
-    {
-      "pattern": "^(.+)_weight$",
-      "replacement": "${1}_weight_kg",
-      "description": "Add weight unit"
-    },
-    {
-      "pattern": "^(.+)_distance$",
-      "replacement": "${1}_distance_km",
-      "description": "Add distance unit"
-    }
-  ]
-}
-```
+3. **Review the warnings**: `results.warnings` lists ignored keys and renames onto declared properties
 
 ## Troubleshooting
 
 ### Common Issues
-1. **Mapping Conflicts**: Multiple mappings for same source column
-2. **Circular Mappings**: Mappings that reference each other
-3. **Reserved Word Conflicts**: Mapped names conflict with database reserved words
-4. **Length Violations**: Mapped names exceed database limits
+1. **`duplicate output column names`**: two columns map to the same name; rename one of them explicitly
+2. **A property is not applied after a rename**: declare it under the header name (see the warning text above)
+3. **A calculated column or a hash column cannot find a column**: use the output name there
 
 ### Debugging Tips
-1. **Enable Logging**: Use `logUnmapped: true` to identify issues
-2. **Test Incrementally**: Test mappings with small data samples
-3. **Validate Results**: Check final column names match expectations
-4. **Monitor Performance**: Track mapping processing time
+1. **Check `data.parquet`'s columns** against the names you used in the later extensions
+2. **Read `results.warnings`** for ignored keys
+3. **Use `ColumnMapper.output_names(header)`** (`forklift.processors.schema_extensions.build_column_mapper(schema)`) to see the renaming without data

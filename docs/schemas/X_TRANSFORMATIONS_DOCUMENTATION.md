@@ -26,56 +26,124 @@ The transformers live in `forklift.utils.transformations` (`DataTransformer`, `c
 }
 ```
 
-Available `transform_type` keys: `string_cleaning`, `regex_replace`, `string_replace`, `string_padding`, `string_trimming`, `html_xml_cleaning`, `money_conversion`, `numeric_cleaning`, `datetime`, `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting` and `mac_address_formatting`. Each accepts the fields of the matching config class (`forklift/utils/transformations/configs.py`); **an unknown option raises `ValueError` listing the valid ones** instead of being ignored. Properties marked with `x-special-type` (`ssn`, `zip-permissive`/`zip-5`/`zip-9`, `phone`, `email`, `ipv4`/`ipv6`/`ip`, `mac-address`) get the matching formatter automatically. If a column's transformation raises, the processor reports it as a validation result (`SCHEMA_TRANSFORMATION_ERROR`) and leaves the column unchanged; a value that cannot be parsed by a transformer becomes NULL.
+Available `transform_type` keys: `string_cleaning`, `regex_replace`, `string_replace`, `string_padding`, `string_trimming`, `html_xml_cleaning`, `money_conversion`, `numeric_cleaning`, `datetime`, `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting` and `mac_address_formatting`. Each accepts the fields of the matching config class (`forklift/utils/transformations/configs.py`); **an unknown option or an unknown transformation name raises `ValueError` listing the valid ones** instead of being ignored. Properties marked with `x-special-type` (`ssn`, `zip-permissive`/`zip-5`/`zip-9`, `phone`, `email`, `ipv4`/`ipv6`/`ip`, `mac-address`) get the matching formatter automatically, after the explicit steps of their column. If a column's transformation raises, `SchemaBasedTransformer` raises `ValueError` (it never returns a column left untransformed); a value that cannot be parsed by a transformer becomes NULL instead.
 
-The generator (`forklift generate-schema`) writes suggestions in this same `column_transformations` form. The camelCase block names used in the rest of this document (`stringCleaning`, `caseTransformation`, `numericCleaning`, `moneyType`, `dateTimeParsing`, `fieldSpecific`) are the schema-standard vocabulary; the processor does not read them, so use the snake_case column form when you want the transformations applied. The option descriptions below apply to both spellings (`normalizeQuotes` is `normalize_quotes`, and so on).
+The generator (`forklift generate-schema`) writes suggestions in this same `column_transformations` form. The camelCase block names that earlier versions of this page used (`stringCleaning`, `caseTransformation`, `numericCleaning`, `moneyType`, `dateTimeParsing`, `fieldSpecific`) are **not read by any code**: `import_csv` ignores them and warns (`x-transformations.stringCleaning is not read (use x-transformations.column_transformations.<column>.string_cleaning)`). The option descriptions below keep the camelCase names of that vocabulary; in a schema write the snake_case spelling (`normalizeQuotes` is `normalize_quotes`, `titleCaseExceptions` is `title_case_exceptions`, and so on).
 
-> **`import_csv` does not run transformations.** The engine entry points (`import_csv`, `read_csv`) apply the schema's types, null markers and `required` list; they do not execute `x-transformations`. Apply the transformers (or `SchemaBasedTransformer`) to your Arrow data explicitly.
+## In `import_csv`
+
+`import_csv` (also `read_csv` and `forklift ingest --input-kind csv`) applies `x-transformations.column_transformations` and the automatic `x-special-type` formatting to the **text read from the file**, before the schema types are applied. Excel, SQL and fixed-width imports do not apply them.
+
+| Part of the schema | Supported | Notes |
+| --- | --- | --- |
+| `x-transformations.column_transformations.<column>.<transform_type>` with `enabled: true` | yes | the 15 transform types above; the steps of a column run in the order written |
+| `x-special-type` on a property | yes | automatic formatter, runs after the explicit steps of the column; an invalid value becomes NULL and is counted as `INVALID_SPECIAL_VALUE:<column>` |
+| `x-transformations` keys other than `column_transformations` (`stringCleaning`, `caseTransformation`, `numericCleaning`, `moneyType`, `dateTimeParsing`, `fieldSpecific`, ...) | no | warning; use the per-column form |
+| `x-transformations.description` | ignored | |
+
+- **Stage and order**: for each batch: the null markers of `x-csv` are applied to the text (so a step sees NULL where the file said `NA`), then the transformations run, then the engine converts the result to the types of `properties` (`x-csv.parquetTypeMapping`), then `required` is checked. The null markers are applied once more together with the type conversion
+- **Names**: the column names are the names in the file header, like `properties`; they run before `x-columnMapping`. A column that is not in the file is skipped with a warning (`x-transformations (and x-special-type) steps for column(s) 'nickname' are not applied: the columns are not in the input`); a column name that only exists after a rename does the same
+- **Result types**: a step may return a typed array (`money_conversion` and `numeric_cleaning` give numbers, `datetime` a date or timestamp). The engine then converts the result to the property's type: `1234.0` becomes `1234` in an `integer` column, `1234.5` is a type conversion failure (the row goes to `bad_rows.parquet`). Without a property type for the column a local file keeps the transformed type. A `string` property receives the text of a date (`2024-01-02`)
+- **Failures**: a value a step cannot parse is NULL; with `required` that rejects the row (`required_value_missing`, the bad row shows the NULL). A step that raises (for example `numeric_cleaning` with `allow_nan: false` on a bad value) stops the import with `ValueError: Schema-based transformation failed for column '...'` and leaves no output. A misspelled option or transformation name raises before any output is written
+- **`bad_rows.parquet`** shows the values as the failing stage saw them: cleaned text, not the original
+- **Row hash**: `x-rowHash`'s input hash is computed on the text of the file before the null markers and the transformations
+- A header name starting with `__forklift_` is reserved and raises a `ValueError` when `x-transformations` is used
+
+### Example
+
+```
+name,salary,hired
+"  ann   LEE ","$1,234.50",1/2/2024
+bob ray,($10.00),2024-03-04
+cy,0.00,
+```
+
+with
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {"type": "string"},
+    "salary": {"type": "number"},
+    "hired": {"type": "string", "format": "date"}
+  },
+  "x-csv": {"nulls": {"perColumn": {"salary": ["0.00"]}}},
+  "x-transformations": {
+    "column_transformations": {
+      "name": {"string_cleaning": {"enabled": true, "strip_whitespace": true, "collapse_whitespace": true, "case_transform": "title"}},
+      "salary": {"money_conversion": {"enabled": true}},
+      "hired": {"datetime": {"enabled": true, "mode": "specify_formats", "formats": ["%m/%d/%Y", "%Y-%m-%d"], "target_type": "date"}}
+    }
+  }
+}
+```
+
+gives
+
+| name | salary | hired |
+| --- | --- | --- |
+| Ann Lee | 1234.5 | 2024-01-02 |
+| Bob Ray | -10.0 | 2024-03-04 |
+| Cy | (null) | (null) |
+
+`0.00` is a null marker of `salary`, so the third row is NULL before `money_conversion` runs; the empty `hired` cell is NULL for the date column.
 
 ## Schema Structure
+The structure the code reads is the one shown at the top of this page (`column_transformations` per column). The sections below describe the options of each transformation; their names are given in camelCase, as in the earlier standard, and in a schema they are written in snake_case:
+
 ```json
 {
   "x-transformations": {
-    "description": "Data transformation and standardization configuration",
-    "stringCleaning": {
-      "normalizeQuotes": true,
-      "normalizeDashes": true,
-      "normalizeSpaces": true,
-      "collapseWhitespace": true,
-      "stripWhitespace": true,
-      "removeZeroWidth": true,
-      "removeControlChars": true,
-      "preserveNewlines": true,
-      "unicodeNormalize": "NFKC"
-    },
-    "caseTransformation": {
-      "caseTransform": "title",
-      "fixCaseIssues": true,
-      "titleCaseExceptions": ["of", "the", "and", "or", "but"],
-      "customCaseMappings": {
-        "ca": "CA",
-        "ny": "NY",
-        "usa": "USA"
+    "description": "Per-column cleaning that runs on the text of the file before types are applied",
+    "column_transformations": {
+      "name": {
+        "string_cleaning": {
+          "enabled": true,
+          "normalize_quotes": true,
+          "normalize_dashes": true,
+          "normalize_spaces": true,
+          "collapse_whitespace": true,
+          "strip_whitespace": true,
+          "remove_zero_width": true,
+          "remove_control_chars": true,
+          "preserve_newlines": true,
+          "unicode_normalize": "NFKC",
+          "case_transform": "title",
+          "fix_case_issues": true,
+          "title_case_exceptions": ["of", "the", "and", "or", "but"],
+          "custom_case_mapping": {"ca": "CA", "ny": "NY", "usa": "USA"}
+        }
+      },
+      "quantity": {
+        "numeric_cleaning": {
+          "enabled": true,
+          "thousands_separator": ",",
+          "decimal_separator": ".",
+          "allow_nan": true,
+          "nan_values": ["", "N/A", "NULL"],
+          "strip_whitespace": true,
+          "target_type": "double"
+        }
+      },
+      "salary": {
+        "money_conversion": {
+          "enabled": true,
+          "currency_symbols": ["$", "€", "£"],
+          "thousands_separator": ",",
+          "decimal_separator": ".",
+          "parentheses_negative": true
+        }
+      },
+      "birth_date": {
+        "datetime": {
+          "enabled": true,
+          "mode": "specify_formats",
+          "allow_fuzzy": false,
+          "target_type": "date",
+          "formats": ["%Y-%m-%d", "%m/%d/%Y"]
+        }
       }
-    },
-    "numericCleaning": {
-      "thousandsSeparator": ",",
-      "decimalSeparator": ".",
-      "allowNaN": true,
-      "nanValues": ["", "N/A", "NULL"],
-      "stripWhitespace": true
-    },
-    "moneyType": {
-      "currencySymbols": ["$", "€", "£"],
-      "thousandsSeparator": ",",
-      "decimalSeparator": ".",
-      "parenthesesNegative": true
-    },
-    "dateTimeParsing": {
-      "mode": "specify_formats",
-      "allowFuzzy": false,
-      "targetType": "date",
-      "formats": ["%Y-%m-%d", "%m/%d/%Y"]
     }
   }
 }
@@ -314,7 +382,7 @@ This is **text extraction, not a security sanitizer**. Tags are removed first wi
 ### Format Transformations
 `ssn_formatting`, `zip_code_formatting`, `phone_number_formatting`, `email_formatting`, `ip_address_formatting` and `mac_address_formatting` validate and normalise structured identifiers; a value that fails validation becomes NULL (or is kept unchanged with `allow_invalid`). Notes:
 
-- **`zero_pad`** (SSN, ZIP, MAC): padding is applied *before* validation, so it restores leading zeros dropped by a numeric column (`"2134"` becomes ZIP `02134`, `"12345678"` becomes SSN `012-34-5678`); a float rendering such as `"2134.0"` is read as `2134`. For MAC addresses it pads single-digit octets (`0:1a:2b:3:4:5`); input that is not exactly 12 hex digits is rejected, never padded or truncated.
+- **`zero_pad`** (SSN, ZIP, MAC): restores the leading zeros that a numeric column drops. With `validate` on (the default, and what the automatic `x-special-type` step uses) the number of digits is checked *before* padding, except for `zip-5`: `"2134"` becomes ZIP `02134` for `zip-5`, but a short SSN (`"12345678"`) or a short `zip-9` / `zip-permissive` ZIP is invalid (NULL). With `"validate": false` the same input is padded (`"12345678"` becomes SSN `012-34-5678`, `"2134"` becomes `02134`). A float rendering such as `"2134.0"` is read as `2134`. For MAC addresses it pads single-digit octets (`0:1a:2b:3:4:5`); input that is not exactly 12 hex digits is rejected, never padded or truncated.
 - **Phone** (`format_style`: `us-standard`, `international`, `digits-only`, `preserve`): a number with a `+` country code other than `+1` is validated against E.164 length limits (7-15 digits) and written as `+<digits>`; `+1` is never added to it.
 - **Email**: lower-cases (`normalize_case`), optional whitespace strip, trailing dots removed from the domain; validation rejects doubled, leading or trailing dots in the local part and empty or hyphen-edged domain labels.
 
@@ -346,9 +414,9 @@ The transformations of one column run in the order they are listed. The `fwfSpec
 ## Implementation Details
 
 ### Processing Pipeline
-1. **Special types**: columns with `x-special-type` get their formatter
-2. **Column transformations**: each column's enabled transformations run in order on the batch column
-3. **Result**: the column is replaced in the batch; a transformation that raises is reported as a validation result and the column is left unchanged
+1. **Column transformations**: each column's enabled transformations run in the order written on the batch column
+2. **Special types**: columns with `x-special-type` then get their automatic formatter (an explicit step such as `regex_replace` can strip a prefix like `SSN: ` before the value is validated); an invalid value becomes NULL and is reported as `INVALID_SPECIAL_VALUE`
+3. **Result**: the column is replaced in the batch; a transformation that raises makes `SchemaBasedTransformer` raise `ValueError` (the batch is never returned with a column left untransformed)
 
 ### Performance
 - Transformers work on whole Arrow arrays; string cleaning, regex replacement and the format validators iterate the values in Python, so they cost more than Arrow compute kernels
@@ -356,7 +424,8 @@ The transformations of one column run in the order they are listed. The `fwfSpec
 
 ### Error Handling
 - **Unparseable values** (numbers, dates, formatted identifiers) become NULL; with `allow_invalid` a format transformer keeps the original text
-- **Invalid configuration** (unknown option, bad timezone, bad regex, equal separators) raises `ValueError` when the transformation is created
+- **Invalid configuration** (unknown option or transformation name, bad timezone, bad regex, equal separators) raises `ValueError` when the transformation is created (in `import_csv`: before any output is written)
+- **A step that raises** at run time (for example `numeric_cleaning` with `allow_nan: false` on a bad value) stops the import with `Schema-based transformation failed for column '...'` and leaves no output
 - **No cell values in errors**: exception messages carry row numbers and option names, not data
 
 ## Usage Examples
@@ -365,11 +434,16 @@ The transformations of one column run in the order they are listed. The `fwfSpec
 ```json
 {
   "x-transformations": {
-    "stringCleaning": {
-      "normalizeQuotes": true,
-      "collapseWhitespace": true,
-      "stripWhitespace": true,
-      "unicodeNormalize": "NFKC"
+    "column_transformations": {
+      "customer_name": {
+        "string_cleaning": {
+          "enabled": true,
+          "normalize_quotes": true,
+          "collapse_whitespace": true,
+          "strip_whitespace": true,
+          "unicode_normalize": "NFKC"
+        }
+      }
     }
   }
 }
@@ -379,13 +453,18 @@ The transformations of one column run in the order they are listed. The `fwfSpec
 ```json
 {
   "x-transformations": {
-    "caseTransformation": {
-      "caseTransform": "title",
-      "titleCaseExceptions": ["of", "the", "and", "LLC", "Inc"],
-      "customCaseMappings": {
-        "llc": "LLC",
-        "inc": "Inc",
-        "corp": "Corp"
+    "column_transformations": {
+      "company": {
+        "string_cleaning": {
+          "enabled": true,
+          "case_transform": "title",
+          "title_case_exceptions": ["of", "the", "and", "LLC", "Inc"],
+          "custom_case_mapping": {
+            "llc": "LLC",
+            "inc": "Inc",
+            "corp": "Corp"
+          }
+        }
       }
     }
   }
@@ -396,14 +475,23 @@ The transformations of one column run in the order they are listed. The `fwfSpec
 ```json
 {
   "x-transformations": {
-    "moneyType": {
-      "currencySymbols": ["$"],
-      "thousandsSeparator": ",",
-      "parenthesesNegative": true
-    },
-    "numericCleaning": {
-      "allowNaN": false,
-      "nanValues": ["", "N/A", "--"]
+    "column_transformations": {
+      "price": {
+        "money_conversion": {
+          "enabled": true,
+          "currency_symbols": ["$"],
+          "thousands_separator": ",",
+          "parentheses_negative": true
+        }
+      },
+      "quantity": {
+        "numeric_cleaning": {
+          "enabled": true,
+          "allow_nan": false,
+          "nan_values": ["", "N/A", "--"],
+          "target_type": "int64"
+        }
+      }
     }
   }
 }
@@ -413,21 +501,20 @@ The transformations of one column run in the order they are listed. The `fwfSpec
 ```json
 {
   "x-transformations": {
-    "dateTimeParsing": {
-      "mode": "specify_formats",
-      "formats": [
-        "%Y-%m-%d",
-        "%m/%d/%Y", 
-        "%d/%m/%Y",
-        "%Y%m%d"
-      ],
-      "targetType": "date"
+    "column_transformations": {
+      "transaction_date": {
+        "datetime": {
+          "enabled": true,
+          "mode": "specify_formats",
+          "formats": ["%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%Y%m%d"],
+          "target_type": "date"
+        }
+      }
     }
   }
 }
 ```
-
-(In the per-column form: `"datetime": {"enabled": true, "mode": "specify_formats", "formats": [...], "target_type": "date"}`.)
+With several formats the first one that parses a value wins, so the order decides ambiguous dates: `03/04/2024` is read as 4 March by `%m/%d/%Y` and never reaches `%d/%m/%Y`, while `25/12/2024` fails the first and is read by the second (25 December).
 
 ## Best Practices
 
@@ -437,4 +524,4 @@ The transformations of one column run in the order they are listed. The `fwfSpec
 4. **Monitor Transformation Success**: Track rates of successful transformations
 5. **Field-Specific Rules**: Use field-specific configurations for complex requirements
 6. **Performance Testing**: Benchmark transformation performance with large datasets
-7. **Preserve Originals**: Consider keeping original values for audit trails
+7. **Preserve Originals**: the cleaned values replace the file's text; `x-rowHash` with `inputHashEnabled` records a hash of the row as it was read, and the source file stays the record of the original values

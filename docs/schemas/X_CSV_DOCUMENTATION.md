@@ -11,6 +11,17 @@ The `x-csv` extension provides comprehensive CSV file processing configuration w
 - `nulls` (`global` and `perColumn`): text values that become NULL
 - the schema's `required` list (matched by column name; null and empty strings reject the row)
 
+The rest of the schema is read by the other extensions, which `import_csv` also applies (see [README.md](./README.md#what-the-engine-applies-today) for the table): `x-transformations`, `x-special-type`, `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality`, `x-validation`, `x-primaryKey`, `x-uniqueConstraints`, `x-constraintHandling`, the per-property constraints and `x-rowHash`. The order per batch is:
+
+1. read the text of the rows with the `ImportConfig` settings (delimiter, encoding, header, footer, ...); hidden row-number / input-hash columns for `x-rowHash` are added
+2. **`x-csv.nulls`**: the marker text becomes NULL (header names are used for `perColumn`). This early step only matters when `x-transformations` or `x-special-type` is used; otherwise the markers are applied in step 4
+3. `x-transformations` and the automatic `x-special-type` formatting (header names)
+4. **type conversion** with `parquetTypeMapping` / the property types (the null markers are applied once more here); unconvertible rows go to `bad_rows.parquet`
+5. **`required`** check; failing rows go to `bad_rows.parquet`
+6. `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality`, `x-validation`, the constraints, `x-rowHash` (output names)
+
+`ImportConfig(apply_schema_extensions=False)` / `--no-schema-extensions` skips every extension except steps 2, 4 and 5. Excel, SQL and fixed-width imports do not apply them.
+
 Everything else here (`encodingPriority`, `delimiter`, `quotechar`, `escapechar`, `multiline`, `header`, `footer`, `case`) documents the file layout and is validated, but the engine takes its read settings from `ImportConfig` (`encoding`, `delimiter`, `quote_char`, `escape_char`, `header_mode`, `comment_rows`, `footer_detection`, ...). In particular there is no encoding fallback chain and no delimiter auto-detection in the engine; the CLI's `--encoding-priority` accepts a list but only its first entry is used.
 
 Property definitions may declare `type` as a string, a nullable array (`["integer", "null"]`) or a nullable `anyOf` / `oneOf` union; `required` must list names of defined properties. Validation errors name the field, for example `Invalid type 'foo' for field 'age'` or `required[1] refers to unknown property 'x'`.
@@ -155,7 +166,7 @@ Property definitions may declare `type` as a string, a nullable array (`["intege
 - **Type**: Array of strings
 - **Description**: Global null value representations
 - **Default**: none. `get_null_values()` returns `[""]` when the key is absent, and without an `x-csv.nulls` block the engine only applies Arrow's own null markers to non-string columns (string columns keep every text value, including the empty string)
-- **Implementation**: These string values are converted to null across all columns. The generated schemas suggest `["", "NA", "N/A", "-", "NULL", "null"]`; note that the schema sampler itself does not treat `NA` as null (it can be a real value)
+- **Implementation**: These string values are converted to null across all columns. In `import_csv` they are applied to the text of the file **before** `x-transformations` (so a transformation, the `required` check and the rules see NULL, not `NA`) and once more together with the type conversion (a transformation that produces a marker text yields NULL). The generated schemas suggest `["", "NA", "N/A", "-", "NULL", "null"]`; note that the schema sampler itself does not treat `NA` as null (it can be a real value)
 
 #### `nulls.perColumn`
 - **Type**: Object
@@ -175,7 +186,7 @@ Property definitions may declare `type` as a string, a nullable array (`["intege
   - `"postgres"`: PostgreSQL naming (lowercase ASCII, underscores, accents transliterated, at most 63 characters)
   - `"snake_case"`: Snake case formatting (`User ID` -> `user_id`, `customerName` -> `customer_name`)
   - `"camelCase"`: Camel case formatting (`user_id` -> `userId`)
-- **Where it applies**: `CsvSchemaImporter.standardize_column_names()`; `import_csv` does not rename columns
+- **Where it applies**: `CsvSchemaImporter.standardize_column_names()`; `import_csv` does not rename columns from `case`. To rename columns in the import use `x-columnMapping` (`explicitMappings`, `namingConvention`)
 
 #### `case.dedupeNames`
 - **Type**: String
@@ -215,7 +226,7 @@ When Parquet types are not explicitly specified, the system automatically infers
 ### Error Recovery
 - **Malformed Rows**: Rows with fewer fields are padded; rows with more fields follow `ImportConfig.excess_column_mode` (`TRUNCATE` to the header width and count them in `truncated_rows`, `REJECT` to `bad_rows.parquet`, or `PASSTHROUGH` into extra `col_N` columns)
 - **Encoding Errors**: A file that is not valid in the configured encoding raises a `ValueError` that names the byte offset and asks for the right `encoding`; there is no retry with other encodings
-- **Type Conversion Errors**: The whole row goes to `bad_rows.parquet` (all-string columns in the shape of the header)
+- **Type Conversion Errors**: The whole row goes to `bad_rows.parquet` (all-string columns in the shape of the header; when `x-validation` or a constraint is configured the file has a `_rejection_reason` column and these rows carry `type_conversion_failed`)
 - **Blank lines** are skipped
 
 ### Performance Optimization
@@ -316,6 +327,7 @@ When Parquet types are not explicitly specified, the system automatically infers
 ## Integration with Other Features
 
 ### With Transformations
+The null markers are applied first, then the per-column transformations (see [x-transformations](./X_TRANSFORMATIONS_DOCUMENTATION.md)):
 ```json
 {
   "x-csv": {
@@ -323,13 +335,13 @@ When Parquet types are not explicitly specified, the system automatically infers
     "nulls": { "global": ["", "NULL"] }
   },
   "x-transformations": {
-    "stringCleaning": {
-      "stripWhitespace": true,
-      "collapseWhitespace": true
-    },
-    "numericCleaning": {
-      "thousandsSeparator": ",",
-      "decimalSeparator": "."
+    "column_transformations": {
+      "name": {
+        "string_cleaning": { "enabled": true, "strip_whitespace": true, "collapse_whitespace": true }
+      },
+      "amount": {
+        "numeric_cleaning": { "enabled": true, "thousands_separator": ",", "decimal_separator": "." }
+      }
     }
   }
 }
@@ -342,15 +354,13 @@ When Parquet types are not explicitly specified, the system automatically infers
     "delimiter": ",",
     "header": { "mode": "present" }
   },
+  "x-primaryKey": {"columns": ["id"]},
   "x-constraintHandling": {
-    "errorMode": "bad_rows",
-    "badRowsOutput": {
-      "enabled": true,
-      "includeOriginalData": true
-    }
+    "errorMode": "bad_rows"
   }
 }
 ```
+Rows that break the key go to `bad_rows.parquet` with `_rejection_reason` (see [x-constraintHandling](./X_CONSTRAINT_HANDLING_DOCUMENTATION.md)).
 
 ### With Special Types
 ```json

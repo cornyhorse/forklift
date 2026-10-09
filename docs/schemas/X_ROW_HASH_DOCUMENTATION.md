@@ -125,6 +125,7 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
 - **Type**: String
 - **Description**: Column name for source URI
 - **Default**: `"_source_uri"`
+- **In `import_csv`**: the value is the input path as it was given, not a `file://` URL
 
 ### Processing Metadata
 
@@ -158,6 +159,49 @@ The `x-rowHash` extension provides comprehensive row-level hash generation and m
 - **Description**: Column name for processing order row number: the 1-based count of the rows this processor has emitted
 - **Default**: `"_rownum"`
 - **Implementation**: Sequential numbering of the rows the processor receives, continuing across batches (an empty batch consumes no numbers); it is independent of `source_row_numbers`. Both row-number columns restart at 1 whenever a new source is started (`set_source_context`)
+
+## In `import_csv`
+
+`import_csv` (also `read_csv` and `forklift ingest --input-kind csv`) runs `x-rowHash` as the **last** stage of every batch, after the type conversion, `x-columnMapping`, `x-calculatedColumns`, `x-validation` and the constraints. Excel, SQL and fixed-width imports do not apply it. All the options above are supported; the engine-specific facts are:
+
+- **Columns**: the hash and metadata columns are appended last, in this order: `columnName` (`row_hash`), `inputHashColumnName`, `sourceUriColumnName`, `ingestedAtColumnName`, `sourceRowNumberColumnName`, `processingRowNumberColumnName` (each only when enabled). They are in `data.parquet` only; `bad_rows.parquet` has the columns of the input file. An empty input still gets the columns
+- **What is hashed**: the final data columns (typed values, output names, calculated columns included) except the metadata columns and `excludeColumns`. `includeColumns` / `excludeColumns` take the **output** names (a name that is not in the data is ignored; if nothing is left to hash the import stops with a `ValueError`)
+- **Input hash** (`inputHashEnabled`): computed from the raw text of the row as read from the file, over every column of the file under its header name, **before** the null markers and the transformations; so it identifies the row as it arrived, whatever the later stages do to it. Rows rejected later do not matter
+- **Source row number** (`rowNumberEnabled`): the 1-based position of the row among the data rows of the source file (the header is not counted). Rows that were rejected earlier (type conversion, `required`, `x-validation`, constraints) leave gaps. `_rownum` counts the rows that were written, continuing across batches
+- **`_source_uri`** (`sourceUriEnabled`) is the `input_path` as it was given (a path or an `s3://` URI), **`_ingested_at_utc`** (`ingestedAtEnabled`) is an ISO 8601 UTC timestamp string, the same for every row of the import (taken when it starts)
+- **Name clashes**: a hash or metadata column that has the name of a column of the file or a calculated column stops the import before any output is written (`x-rowHash would overwrite existing column(s) [...]`; change `columnName` and the other names). Header names starting with `__forklift_` are reserved (`ValueError`)
+- **Switch off**: `apply_schema_extensions=False` / `--no-schema-extensions`
+
+### Example
+
+```
+id,name,age
+1,Ann,30
+2,Bob,200
+2,Bo,22
+3,Di,60
+```
+
+with
+
+```json
+{
+  "type": "object",
+  "properties": {"id": {"type": "integer"}, "name": {"type": "string"}, "age": {"type": "integer"}},
+  "x-primaryKey": {"columns": ["id"]},
+  "x-rowHash": {"enabled": true, "inputHashEnabled": true, "rowNumberEnabled": true}
+}
+```
+
+`data.parquet` (the hashes are 64 hexadecimal characters; the first 8 are shown):
+
+| id | name | age | row_hash | _input_hash | _rownum_in_source_file | _rownum |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | Ann | 30 | ee4fea2b... | 8e6fb7f1... | 1 | 1 |
+| 2 | Bob | 200 | 09a0066a... | 6535e777... | 2 | 2 |
+| 3 | Di | 60 | 8d8ea28e... | 7b3c2933... | 4 | 3 |
+
+The row `2,Bo,22` was rejected by the primary key (it is in `bad_rows.parquet` with `UNIQUE_VIOLATION:id`), so the source row numbers are 1, 2, 4 while `_rownum` counts 1, 2, 3. The hash column carries the Arrow field metadata `forklift.row_hash.version` = `2` and `forklift.row_hash.algorithm` = `sha256`.
 
 ## Implementation Details
 
@@ -353,7 +397,8 @@ to version 2, recompute the stored baseline (or keep `legacyEncoding: true` unti
 }
 ```
 
-### With PII Masking
+### With PII Marking
+`x-pii` is documentation only (nothing is masked); `excludeColumns` is what keeps the column out of the hash:
 ```json
 {
   "x-pii": {

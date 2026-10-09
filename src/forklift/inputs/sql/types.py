@@ -130,7 +130,9 @@ class SqlTypeConverter:
         elif sql_type in ("SMALLINT", "INT2"):
             return pa.int16()
         elif sql_type in ("TINYINT", "INT1"):
-            return pa.int8()
+            # SQL Server TINYINT is unsigned (0-255) and overflows int8; MySQL TINYINT is
+            # signed (-128..127). int16 holds both losslessly.
+            return pa.int16()
         elif sql_type in ("REAL", "FLOAT4"):
             return pa.float32()
         elif sql_type in ("FLOAT", "DOUBLE", "DOUBLE PRECISION", "FLOAT8"):

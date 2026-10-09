@@ -375,7 +375,7 @@ class TestSqlInputHandlerComplete:
         assert sql_handler._sql_type_to_pyarrow("INTEGER") == pa.int32()
         assert sql_handler._sql_type_to_pyarrow("BIGINT") == pa.int64()
         assert sql_handler._sql_type_to_pyarrow("SMALLINT") == pa.int16()
-        assert sql_handler._sql_type_to_pyarrow("TINYINT") == pa.int8()
+        assert sql_handler._sql_type_to_pyarrow("TINYINT") == pa.int16()
 
     def test_sql_type_to_pyarrow_float_types(self, sql_handler):
         """Test SQL to PyArrow type conversion for float types."""

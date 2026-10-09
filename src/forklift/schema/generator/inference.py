@@ -100,7 +100,9 @@ class DataTypeInferrer:
         except LookupError:
             raise ValueError(f"Unknown encoding: {encoding!r}") from None
 
-        raw = self._read_string_csv(self._binary_opener(input_path), nrows, delimiter, encoding)
+        raw = self._read_string_csv(
+            self._binary_opener(input_path, seekable=False), nrows, delimiter, encoding
+        )
         return self.infer_types_from_strings(raw)
 
     def _read_string_csv(
@@ -522,10 +524,18 @@ class DataTypeInferrer:
             raise ValueError("nrows must be a positive integer or None")
         return int(nrows)
 
-    def _binary_opener(self, input_path: Union[str, Path]) -> Callable[[], ContextManager]:
-        """Factory for binary file objects of a local file or an S3 object."""
+    def _binary_opener(
+        self, input_path: Union[str, Path], seekable: bool = True
+    ) -> Callable[[], ContextManager]:
+        """Factory for binary file objects of a local file or an S3 object.
+
+        ``seekable=False`` asks the IO layer for the raw forward-only S3 stream instead of a
+        full local copy, so the CSV sampler can stop reading once it has ``nrows`` records.
+        """
         if is_s3_path(str(input_path)):
-            return lambda: self.io_handler.open_for_read(str(input_path), encoding="binary")
+            return lambda: self.io_handler.open_for_read(
+                str(input_path), encoding="binary", seekable=seekable
+            )
         return lambda: open(input_path, "rb")
 
     @staticmethod

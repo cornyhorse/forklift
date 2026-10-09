@@ -931,10 +931,7 @@ class TestCliExitCodes:
         source = REPO_ROOT / "tests" / "test-files" / "excel" / "excel-data.xlsx"
         if not source.exists():
             pytest.skip("excel test file missing")
-        try:
-            main(["ingest", str(source), "--dest", str(tmp_path / "out"), "--input-kind", "excel"])
-        except (AttributeError, NotImplementedError):
-            pytest.skip("ExcelInputHandler.get_sheet_info/process_sheets arrive with WP4")
+        main(["ingest", str(source), "--dest", str(tmp_path / "out"), "--input-kind", "excel"])
 
         assert "Processing complete" in capsys.readouterr().out
         assert list((tmp_path / "out").glob("*.parquet"))
@@ -1030,8 +1027,7 @@ class TestCliValueStatsFlag:
         from forklift.schema.schema_generator import SchemaGenerationConfig
 
         for cls in (ImportConfig, SchemaGenerationConfig):
-            if "include_value_statistics" not in {f.name for f in dataclasses.fields(cls)}:
-                pytest.skip("config pass-through is wired during integration")
+            assert "include_value_statistics" in {f.name for f in dataclasses.fields(cls)}
         with patch("forklift.cli.ForkliftCore") as core:
             core.return_value.process_csv.return_value = Mock(
                 errors=[], total_rows=0, valid_rows=0, invalid_rows=0, output_files=[]

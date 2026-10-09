@@ -15,7 +15,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
-from ...metadata import OutputMetadataCollector
+from ...metadata import MetadataWriteError, OutputMetadataCollector
 from ..config import HeaderMode, ImportConfig, ProcessingResults
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
@@ -444,6 +444,7 @@ class CSVProcessor(BaseProcessor):
             quantiles=metadata_config.get("statistics", {})
             .get("numeric", {})
             .get("quantiles", [0.25, 0.5, 0.75, 0.9, 0.95, 0.99]),
+            include_value_statistics=config.include_value_statistics,
         )
 
     def _validate_batch(
@@ -536,31 +537,23 @@ class CSVProcessor(BaseProcessor):
                 # Generate comprehensive metadata about the final output data
                 metadata = output_metadata_collector.generate_metadata(output_schema, source_info)
 
-                # Save output metadata to separate file
-                if is_s3_path(config.output_path):
-                    output_metadata_path = self._save_output_metadata_s3(
-                        config.output_path, output_metadata_collector, metadata
-                    )
-                else:
+                # Save output metadata to separate file (local directory or S3 prefix). The data
+                # files are already written at this point, so a failure here is recorded in
+                # results.errors and logged rather than discarding a finished run.
+                try:
                     output_metadata_path = output_metadata_collector.save_metadata(
                         str(config.output_path), "output_data_metadata.json"
                     )
+                except MetadataWriteError as e:
+                    logger.error("Output metadata was not written: %s", e)
+                    results.errors.append(str(e))
+                    output_metadata_path = None
 
                 if output_metadata_path:
-                    print(f"Output data metadata saved to: {output_metadata_path}")
+                    logger.info("Output data metadata saved to: %s", output_metadata_path)
 
             # Still create the traditional processing metadata
             results.metadata_file = self._create_s3_metadata(config.output_path, results)
-
-    def _save_output_metadata_s3(
-        self, output_path: Union[str, Path], collector: OutputMetadataCollector, metadata: dict
-    ) -> Optional[str]:
-        """Write the collector's metadata next to the S3 outputs."""
-        if not collector.enabled or not metadata:
-            return None
-        return self._write_json(
-            self._join_output(output_path, "output_data_metadata.json"), metadata
-        )
 
     @staticmethod
     def _join_output(output_path: Union[str, Path], name: str) -> str:

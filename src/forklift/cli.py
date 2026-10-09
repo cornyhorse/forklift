@@ -130,7 +130,9 @@ def _build_parser():
         required=True,
         help="Type of input file",
     )
-    schema_gen.add_argument("--nrows", type=int, help="Number of rows to analyze (default: 1000)")
+    schema_gen.add_argument(
+        "--nrows", type=int, help="Number of rows to analyze (default: the whole file)"
+    )
     schema_gen.add_argument(
         "--output", choices=["stdout", "file", "clipboard"], default="stdout", help="Output target"
     )

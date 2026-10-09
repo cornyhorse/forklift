@@ -554,15 +554,16 @@ def _calculated_columns_for_input(
     functions = set(get_available_functions())
     builtin = set(get_constants())
 
-    # name -> names the expression uses as values (empty when it does not compile: the
-    # processor reports that, with the expression's own message)
+    # id(entry) -> names the expression uses as values
     uses: Dict[int, List[str]] = {}
     for entry in pending:
         source = entry.get("expression", entry.get("function", ""))
         try:
             compiled = compile_expression(source) if isinstance(source, str) else None
-        except ExpressionError:
-            compiled = None
+        except ExpressionError as error:
+            raise ValueError(
+                f"x-calculatedColumns column '{entry.get('name')}': Invalid expression: {error}"
+            ) from None
         # ``names`` also lists the targets of calls; those are checked as functions below
         called = set(compiled.function_names) if compiled else set()
         uses[id(entry)] = [n for n in compiled.names if n not in called] if compiled else []

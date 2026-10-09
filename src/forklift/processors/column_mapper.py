@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import pyarrow as pa
 
 from .base import BaseProcessor, ValidationResult
+
+#: Valid values of ``ColumnMappingConfig.naming_convention``.
+NAMING_CONVENTIONS = ("snake_case", "camelCase", "PascalCase", "lowercase", "UPPERCASE")
 
 
 @dataclass
@@ -39,7 +42,7 @@ class ColumnMappingConfig:
         if self.explicit_mappings is None:
             self.explicit_mappings = {}
 
-        valid_conventions = {"snake_case", "camelCase", "PascalCase", "lowercase", "UPPERCASE"}
+        valid_conventions = set(NAMING_CONVENTIONS)
         if self.naming_convention and self.naming_convention not in valid_conventions:
             raise ValueError(
                 f"naming_convention must be one of {valid_conventions}"
@@ -98,20 +101,9 @@ class ColumnMapper(BaseProcessor):
         # Get current column names and work out the output names. A mapping that produces two
         # columns with the same name is a configuration error and always raises.
         current_columns = batch.schema.names
-        new_column_names = []
-        columns_to_keep = []
-
-        for i, col_name in enumerate(current_columns):
-            mapped_name = self._map_column_name(col_name)
-
-            if mapped_name is None:
-                # Column should be dropped
-                continue
-
-            new_column_names.append(mapped_name)
-            columns_to_keep.append(i)
-
-        self._check_output_names([current_columns[i] for i in columns_to_keep], new_column_names)
+        mapped_names = self._mapped_names(current_columns)
+        new_column_names = [name for name in mapped_names if name is not None]
+        columns_to_keep = [i for i, name in enumerate(mapped_names) if name is not None]
 
         try:
             # Create new batch with mapped columns
@@ -157,6 +149,33 @@ class ColumnMapper(BaseProcessor):
                 )
             )
             return batch, validation_results
+
+    def output_names(self, names: Sequence[str]) -> Dict[str, Optional[str]]:
+        """Output name of each input column, without touching any data.
+
+        This is exactly the renaming ``process_batch`` applies to a batch whose columns are
+        ``names`` (explicit mappings, naming convention, custom transform, ``drop_unmapped``).
+
+        Args:
+            names: Input column names, in batch order.
+
+        Returns:
+            ``{input name: output name}``; the output name is ``None`` for a column that
+            ``process_batch`` drops.
+
+        Raises:
+            ValueError: If two columns would get the same output name (as ``process_batch``
+                does), or if ``custom_transform`` returns something that is not a usable name.
+        """
+        names = list(names)
+        return dict(zip(names, self._mapped_names(names)))
+
+    def _mapped_names(self, names: Sequence[str]) -> List[Optional[str]]:
+        """Output name (``None`` = dropped) per input name; raises on duplicate output names."""
+        mapped = [self._map_column_name(name) for name in names]
+        kept = [(name, out) for name, out in zip(names, mapped) if out is not None]
+        self._check_output_names([name for name, _ in kept], [out for _, out in kept])
+        return mapped
 
     def _map_column_name(self, column_name: str) -> Optional[str]:
         """Map a single column name according to configuration.

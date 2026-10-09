@@ -219,7 +219,8 @@ class RowHashProcessor(BaseProcessor):
         ``input_batch``, in its schema order, under its own name).
 
         Call this on the batch as it entered the pipeline, before any row is dropped, and pass
-        the result (kept aligned with the surviving rows) as ``process_batch(..., input_hash=...)``.
+        the result (kept aligned with the surviving rows) as
+        ``process_batch(..., input_hash=...)``.
         It does not depend on ``input_hash_enabled`` and does not change any processor state.
         """
         return self._compute_row_hashes(

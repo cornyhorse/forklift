@@ -8,10 +8,6 @@ import pyarrow as pa
 import pytest
 
 from forklift.processors.base import ValidationResult
-from forklift.processors.data_validation.data_validation_processor import (
-    BadRowsThresholdExceededError,
-    ValidationProcessingError,
-)
 from forklift.processors.data_validation import (
     BadRowsConfig,
     DataValidationProcessor,
@@ -21,6 +17,10 @@ from forklift.processors.data_validation import (
     RangeValidation,
     StringValidation,
     ValidationConfig,
+)
+from forklift.processors.data_validation.data_validation_processor import (
+    BadRowsThresholdExceededError,
+    ValidationProcessingError,
 )
 
 

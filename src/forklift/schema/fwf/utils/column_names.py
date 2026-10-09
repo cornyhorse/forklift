@@ -43,6 +43,10 @@ class ColumnNameProcessor:
                 processed_names = [camel_case_name(name) for name in processed_names]
 
         if dedupe_method:
-            processed_names = dedupe_column_names(processed_names, dedupe_method)
+            # Postgres identifiers are limited to 63 characters, including dedupe suffixes
+            max_length = 63 if standardize_method == "postgres" else None
+            processed_names = dedupe_column_names(
+                processed_names, dedupe_method, max_length=max_length
+            )
 
         return processed_names

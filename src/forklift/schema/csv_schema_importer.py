@@ -394,7 +394,9 @@ class CsvSchemaImporter:
         standardized = apply_name_style(column_names, self.standardize_names)
 
         if self.dedupe_names:
-            return dedupe_column_names(standardized, self.dedupe_names)
+            # Postgres identifiers are limited to 63 characters, including dedupe suffixes
+            max_length = 63 if self.standardize_names == "postgres" else None
+            return dedupe_column_names(standardized, self.dedupe_names, max_length=max_length)
 
         return standardized
 

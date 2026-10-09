@@ -113,3 +113,23 @@ class TestSchemaGenerationSamplingOverS3:
         props = schema["properties"]
         assert props["zip"]["type"] == "string"  # leading zeros survive
         assert props["amount"]["type"] == "number"
+
+
+class TestPostgresNamesStayWithinLimitAfterDedupe:
+    def test_csv_importer_keeps_deduped_names_within_63_characters(self):
+        from forklift.schema.csv_schema_importer import CsvSchemaImporter
+
+        importer = CsvSchemaImporter(
+            {
+                "type": "object",
+                "properties": {},
+                "x-csv": {"case": {"standardizeNames": "postgres", "dedupeNames": "suffix"}},
+            },
+            validate=False,
+        )
+        long_name = "a_very_long_column_name_" * 4
+
+        names = importer.standardize_column_names([long_name, long_name, long_name])
+
+        assert len(set(names)) == 3
+        assert all(len(n) <= 63 for n in names)

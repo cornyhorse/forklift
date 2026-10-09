@@ -346,8 +346,16 @@ class ExtensionPipeline:
         """Call after the last batch: stages that can only judge the whole input report now.
 
         Raises:
+            BadRowsThresholdExceededError: ``x-validation`` rejected more than
+                ``maxBadRowsPercent`` of the rows (``thresholdMode: end_of_file``)
             ValueError: ``errorMode: fail_complete`` and constraints were violated
         """
+        if self.validator is not None:
+            # x-validation.badRowsHandling.thresholdMode "end_of_file": the verdict is given
+            # here, once every row has been checked ("early" already raised in post_convert)
+            self.validator.check_threshold(
+                {k: v for k, v in self.summary.items() if k.startswith("VALIDATION_ERROR")}
+            )
         if self.constraints is not None:
             self.constraints.finalize()
 

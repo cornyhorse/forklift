@@ -86,12 +86,23 @@ class FieldValidationRule:
             self.on_violation = {}
 
 
+#: When the bad-row percentage is judged (see ``BadRowsConfig.threshold_check``).
+THRESHOLD_CHECKS = ("early", "end_of_file")
+
+
 @dataclass
 class BadRowsConfig:
     """Configuration for bad rows handling.
 
     ``include_original_row=False`` keeps the original (possibly personal) data out of the bad
     rows output: only the error columns and the row number are kept.
+
+    ``threshold_check`` says when ``max_bad_rows_percent`` is judged (only with
+    ``fail_on_exceed_threshold``): ``"early"`` after every batch, against the rows seen so far
+    (stops a hopeless input quickly, but the verdict depends on the order of the rows and the
+    batch size), or ``"end_of_file"`` once, when the caller asks with
+    :meth:`DataValidationProcessor.check_threshold` after the last batch (the same verdict for
+    any batching, and the whole input has been checked, so the message can say what was wrong).
     """
 
     enabled: bool = True
@@ -101,6 +112,14 @@ class BadRowsConfig:
     include_validation_errors: bool = True
     max_bad_rows_percent: float = 10.0
     fail_on_exceed_threshold: bool = True
+    threshold_check: str = "early"
+
+    def __post_init__(self):
+        if self.threshold_check not in THRESHOLD_CHECKS:
+            raise ValueError(
+                f"Invalid threshold_check {self.threshold_check!r}; "
+                f"valid values are: {', '.join(THRESHOLD_CHECKS)}"
+            )
 
 
 @dataclass

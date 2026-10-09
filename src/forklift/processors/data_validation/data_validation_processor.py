@@ -1,6 +1,6 @@
 """Main data validation processor."""
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple
 
 import pyarrow as pa
 
@@ -163,17 +163,71 @@ class DataValidationProcessor(BaseProcessor):
                 f"Validation processing failed ({type(exc).__name__}); the batch was not emitted"
             ) from exc
 
-        # Check if bad rows exceed threshold
-        if self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed):
-            bad_rows_percent = self.bad_rows_handler.get_bad_rows_percentage(
-                self.total_rows_processed
-            )
-            raise BadRowsThresholdExceededError(
-                f"Bad rows ({bad_rows_percent:.1f}%) exceed "
-                f"threshold ({self.config.bad_rows_config.max_bad_rows_percent}%)"
-            )
+        # "early": judge the rows seen so far after every batch ("end_of_file": check_threshold())
+        if (
+            self.config.bad_rows_config.threshold_check == "early"
+            and self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed)
+        ):
+            raise BadRowsThresholdExceededError(self._threshold_message(early=True))
 
         return clean_batch, validation_results
+
+    def check_threshold(self, reasons: Optional[Mapping[str, int]] = None) -> None:
+        """Judge the share of rejected rows once, after the last batch.
+
+        This is the check for ``BadRowsConfig(threshold_check="end_of_file")``; it also works for
+        ``"early"``. Nothing happens unless ``fail_on_exceed_threshold`` is set.
+
+        Args:
+            reasons: How often each kind of finding occurred (``CODE:column`` -> count), for the
+                message. Counts, never cell values.
+
+        Raises:
+            BadRowsThresholdExceededError: More than ``max_bad_rows_percent`` of the rows that
+                were validated were rejected.
+        """
+        if self.bad_rows_handler.is_threshold_exceeded(self.total_rows_processed):
+            raise BadRowsThresholdExceededError(
+                self._threshold_message(early=False, reasons=reasons)
+            )
+
+    def _threshold_message(
+        self, *, early: bool, reasons: Optional[Mapping[str, int]] = None
+    ) -> str:
+        """Why the import stops: counts, the limit, the setting that decides and the way out."""
+        config = self.config.bad_rows_config
+        total = self.total_rows_processed
+        bad = max(self.bad_rows_handler.bad_row_total, len(self.bad_rows_handler.bad_rows))
+        percent = self.bad_rows_handler.get_bad_rows_percentage(total)
+        limit = f"{config.max_bad_rows_percent}%"
+        settings = "x-validation.badRowsHandling"
+        if early:
+            return (
+                f"Bad rows ({percent:.1f}%) exceed threshold ({limit}): {bad} of the first "
+                f"{total} rows that were validated were rejected. The import stopped at the first "
+                f"batch that went over the limit because {settings}.thresholdMode is 'early'. "
+                f"Use 'end_of_file' (the default) to check the whole input first, and so see "
+                f"every reason, and the same verdict for any batch size. To keep going instead, "
+                f"raise maxBadRowsPercent or set failOnExceedThreshold to false (the rejected "
+                f"rows are then written to bad_rows.parquet)."
+            )
+        message = (
+            f"Bad rows ({percent:.1f}%) exceed threshold ({limit}): {bad} of {total} rows that "
+            f"were validated by x-validation were rejected."
+        )
+        if reasons:
+            top = sorted(reasons.items(), key=lambda item: (-item[1], item[0]))[:10]
+            message += " Findings by rule: " + ", ".join(f"{k} x{v}" for k, v in top)
+            message += (
+                f" (and {len(reasons) - len(top)} more)." if len(reasons) > len(top) else "."
+            )
+        return message + (
+            f" The whole input was checked and no output was kept. To keep the output and the "
+            f"rejected rows (bad_rows.parquet) set {settings}.failOnExceedThreshold to false; to "
+            f"allow more bad rows raise {settings}.maxBadRowsPercent; to stop at the first "
+            f"batch that goes over the limit, which is faster for hopeless input, set "
+            f"{settings}.thresholdMode to 'early'."
+        )
 
     def _check_required_columns(self, batch: pa.RecordBatch) -> None:
         names = set(batch.schema.names)

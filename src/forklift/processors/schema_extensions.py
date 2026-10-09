@@ -104,6 +104,7 @@ from .data_validation import (
     ValidationConfig,
     ValidationRules,
 )
+from .data_validation.validation_config import THRESHOLD_CHECKS
 from .quality import DataQualityProcessor
 
 __all__ = [
@@ -701,7 +702,7 @@ def build_data_validator(
     resolve = _checked_resolver(resolve_column)
 
     bad_rows = section.get("badRowsHandling")
-    max_percent, fail_on_exceed = 10.0, True
+    max_percent, fail_on_exceed, threshold_check = 10.0, True, "end_of_file"
     if bad_rows is not None:
         bad_rows = _dict(bad_rows, f"{where}.badRowsHandling")
         _bool(bad_rows, "enabled", True, f"{where}.badRowsHandling")
@@ -714,6 +715,15 @@ def build_data_validator(
                     f"{where}.badRowsHandling.maxBadRowsPercent: must be between 0 and 100"
                 )
         fail_on_exceed = _bool(bad_rows, "failOnExceedThreshold", True, f"{where}.badRowsHandling")
+        if bad_rows.get("thresholdMode") is not None:
+            threshold_check = bad_rows["thresholdMode"]
+            if threshold_check not in THRESHOLD_CHECKS:
+                raise ValueError(
+                    f"{where}.badRowsHandling.thresholdMode: must be one of "
+                    f"{list(THRESHOLD_CHECKS)} ('end_of_file' checks the whole input and then "
+                    f"judges the share of bad rows; 'early' stops at the first batch that "
+                    f"goes over the limit), got {threshold_check!r}"
+                )
 
     strategy = "first_wins"
     uniqueness = section.get("uniquenessHandling")
@@ -745,6 +755,7 @@ def build_data_validator(
                 include_validation_errors=False,
                 max_bad_rows_percent=float(max_percent),
                 fail_on_exceed_threshold=fail_on_exceed,
+                threshold_check=threshold_check,
             ),
             uniqueness_strategy=strategy,
         )
@@ -966,7 +977,9 @@ _VALIDATION_KEYS = frozenset(
     }
 )
 _BAD_ROWS_IGNORED = ("outputPath", "fileFormat", "includeOriginalRow", "includeValidationErrors")
-_BAD_ROWS_KEYS = frozenset({"enabled", "maxBadRowsPercent", "failOnExceedThreshold"})
+_BAD_ROWS_KEYS = frozenset(
+    {"enabled", "maxBadRowsPercent", "failOnExceedThreshold", "thresholdMode"}
+)
 _FIELD_RULE_KEYS = frozenset(
     {
         "required",

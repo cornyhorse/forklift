@@ -1294,19 +1294,30 @@ class TestBadRowsHandling:
         assert config.max_bad_rows_percent == 25.0
         assert config.fail_on_exceed_threshold is False
 
-    def test_default_threshold_stops_the_import(self):
+    def test_default_threshold_is_judged_at_the_end(self):
         processor = build_data_validator(validation_schema(self.FIELDS))
         batch = make_batch(x=[1, 2, 3, 4, -1, 5, 6, 7, 8, -2])  # 20 % bad
+
+        processor.process_batch(batch)  # no verdict while batches are still coming
+
+        with pytest.raises(BadRowsThresholdExceededError, match=r"\(20.0%\) exceed threshold"):
+            processor.check_threshold()
+
+    def test_early_mode_stops_at_the_batch(self):
+        schema = validation_schema(self.FIELDS, badRowsHandling={"thresholdMode": "early"})
+        processor = build_data_validator(schema)
         with pytest.raises(BadRowsThresholdExceededError):
-            processor.process_batch(batch)
+            processor.process_batch(make_batch(x=[1, 2, 3, 4, -1, 5, 6, 7, 8, -2]))
 
     def test_configured_threshold_is_applied(self):
         schema = validation_schema(self.FIELDS, badRowsHandling={"maxBadRowsPercent": 25})
         processor = build_data_validator(schema)
         kept, results = processor.process_batch(make_batch(x=[1, 2, 3, 4, -1, 5, 6, 7, 8, -2]))
         assert kept.num_rows == 8 and len(results) == 2
+        processor.check_threshold()  # 20 % of 10 rows: within 25 %
+        processor.process_batch(make_batch(x=[-1, -2, -3, -4, 1]))  # 6 of 15 rows
         with pytest.raises(BadRowsThresholdExceededError):
-            processor.process_batch(make_batch(x=[-1, -2, -3, -4, 1]))
+            processor.check_threshold()
 
     def test_fail_on_exceed_threshold_false_never_raises(self):
         schema = validation_schema(

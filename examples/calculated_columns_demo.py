@@ -1,5 +1,6 @@
 """Comprehensive example demonstrating calculated columns functionality across all schema types."""
 
+from pathlib import Path
 import pyarrow as pa
 from datetime import datetime, date
 import json
@@ -214,7 +215,9 @@ def demo_schema_driven_processing():
     print("=" * 50)
 
     # Load schema and create processor
-    schema_path = "/Users/matt/PycharmProjects/forklift/schema-standards/20250826-csv.json"
+    schema_path = str(
+        Path(__file__).resolve().parent.parent / "schema-standards" / "20250826-csv.json"
+    )
     importer = CsvSchemaImporter(schema_path)
 
     if importer.has_calculated_columns():

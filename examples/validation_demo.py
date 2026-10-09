@@ -1,5 +1,6 @@
 """Comprehensive demonstration of data validation with bad rows handling."""
 
+from pathlib import Path
 import pyarrow as pa
 from datetime import datetime, date
 import json
@@ -397,7 +398,9 @@ def demo_schema_driven_validation():
     print("=" * 50)
 
     # Load validation configuration from updated schema
-    schema_path = "/Users/matt/PycharmProjects/forklift/schema-standards/20250826-csv.json"
+    schema_path = str(
+        Path(__file__).resolve().parent.parent / "schema-standards" / "20250826-csv.json"
+    )
 
     try:
         validation_config = get_validation_config_from_schema_file(schema_path)

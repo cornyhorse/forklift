@@ -368,7 +368,8 @@ class S3StreamingWriter:
             return_count = len(data_bytes)
         else:
             raise TypeError(
-                f"Unsupported data type: {type(data)}. Expected str, bytes, bytearray or memoryview."
+                f"Unsupported data type: {type(data)}. "
+                "Expected str, bytes, bytearray or memoryview."
             )
 
         # Write to buffer

@@ -157,14 +157,16 @@
     }
   },
 
-  "x-csv": {
-    "encodingPriority": ["utf-8-sig", "utf-8", "latin-1"],
-    "delimiter": "auto",
-    "quotechar": "\"",
-    "escapechar": "\\",
-    "multiline": true,
-    "header": { "mode": "stability_scan", "keywords": ["id", "name", "age", "salary"] },
-    "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" },
+  "x-excel": {
+    "valuesOnly": true,
+    "dateSystem": "1900",
+    "sheets": [
+      {
+        "select": { "name": "Sheet1" },
+        "hasHeader": true,
+        "footer": { "mode": "regex", "pattern": "^(total|summary)\\b" }
+      }
+    ],
     "nulls": {
       "global": ["", "NA", "N/A", "-", "NULL"],
       "perColumn": {

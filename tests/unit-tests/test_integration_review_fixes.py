@@ -133,3 +133,36 @@ class TestPostgresNamesStayWithinLimitAfterDedupe:
 
         assert len(set(names)) == 3
         assert all(len(n) <= 63 for n in names)
+
+
+class TestShippedSchemaStandardsLoad:
+    """The schema-standards files are what users copy; each must load with its importer."""
+
+    STANDARDS = (
+        pytest.importorskip("pathlib").Path(__file__).resolve().parents[2] / "schema-standards"
+    )
+
+    def test_csv_standard(self):
+        from forklift.schema.csv_schema_importer import CsvSchemaImporter
+
+        importer = CsvSchemaImporter(self.STANDARDS / "20250826-csv.json", validate=True)
+        assert importer.validation_errors == []
+
+    def test_excel_standard_defines_x_excel(self):
+        from forklift.schema.excel_schema_importer import ExcelSchemaImporter
+
+        importer = ExcelSchemaImporter(self.STANDARDS / "20250826-excel.json", validate=True)
+        assert importer.validation_errors == []
+        assert importer.sheets, "the Excel standard must describe at least one sheet"
+
+    def test_sql_standard(self):
+        from forklift.schema.sql_schema_importer import SqlSchemaImporter
+
+        importer = SqlSchemaImporter(self.STANDARDS / "20250826-sql.json", validate=True)
+        assert importer.validation_errors == []
+
+    @pytest.mark.parametrize("name", ["20250826-fwf.json", "20250826-fwf-conditional.json"])
+    def test_fwf_standards(self, name):
+        from forklift.schema.fwf_schema_importer import FwfSchemaImporter
+
+        FwfSchemaImporter(self.STANDARDS / name)  # raises on an invalid standard

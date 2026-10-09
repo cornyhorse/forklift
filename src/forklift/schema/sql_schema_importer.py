@@ -131,7 +131,7 @@ class SqlSchemaImporter:
         "INTEGER": "int64",
         "BIGINT": "int64",
         "SMALLINT": "int16",
-        "TINYINT": "int8",
+        "TINYINT": "int16",
         "DECIMAL": "decimal128(38,9)",
         "NUMERIC": "decimal128(38,9)",
         "FLOAT": "double",

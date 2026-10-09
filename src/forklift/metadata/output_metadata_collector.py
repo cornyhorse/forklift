@@ -653,6 +653,9 @@ class OutputMetadataCollector:
         output_path: Union[str, Path],
         filename: str = "output_metadata.json",
         s3_client=None,
+        *,
+        schema: Optional[pa.Schema] = None,
+        source_info: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """Save collected metadata to a JSON file (local directory or ``s3://`` prefix).
 
@@ -660,6 +663,8 @@ class OutputMetadataCollector:
             output_path: Directory (or S3 prefix such as ``s3://bucket/prefix``) for the file
             filename: Name of the metadata file
             s3_client: Optional S3 client used for ``s3://`` destinations
+            schema: Schema of the output data (defaults to the schema seen while collecting)
+            source_info: Provenance recorded in the file (defaults to the output location)
 
         Returns:
             Path/URI of the saved metadata file, or None if there is nothing to save
@@ -682,8 +687,9 @@ class OutputMetadataCollector:
         try:
             # Generate metadata without schema (will use stored schema)
             metadata = self.generate_metadata(
-                None,
-                {
+                schema,
+                source_info
+                or {
                     "output_path": output_text,
                     "filename": filename,
                     "generation_method": "output_metadata_collector",

@@ -75,7 +75,7 @@ python run_coverage_simple.py batch_processor
 If you prefer to run pytest directly:
 
 ```bash
-# From project root (/Users/matt/PycharmProjects/forklift):
+# From the project root:
 
 # All tests with terminal report
 python -m pytest tests/ --cov=src/forklift/ --cov-report=term-missing -v

@@ -11,6 +11,7 @@ Creates/overwrites a dev_output directory beside this script containing:
 Environment variables (optional):
   DEST: override output directory path.
 """
+
 from __future__ import annotations
 
 import argparse

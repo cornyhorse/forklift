@@ -522,27 +522,27 @@ class CSVProcessor(BaseProcessor):
         if config.create_metadata:
             # Generate and save output metadata if we collected it
             if output_metadata_collector and output_metadata_collector.total_rows > 0:
-                # Get the schema of the data file if available
-                output_schema = outputs.good_schema
-
-                # Generate source info for metadata
+                # Provenance recorded in the metadata file. Base names only: absolute paths
+                # would leak local directory names into a file that is often shared.
                 source_info = {
-                    "input_path": str(config.input_path),
+                    "input_path": os.path.basename(str(config.input_path)),
                     "processing_type": "csv_processing",
-                    "schema_file": str(config.schema_file) if config.schema_file else None,
+                    "schema_file": (
+                        os.path.basename(str(config.schema_file)) if config.schema_file else None
+                    ),
                     "total_batches_processed": "streaming",
-                    "final_output_files": results.output_files,
+                    "final_output_files": [os.path.basename(str(f)) for f in results.output_files],
                 }
 
-                # Generate comprehensive metadata about the final output data
-                metadata = output_metadata_collector.generate_metadata(output_schema, source_info)
-
-                # Save output metadata to separate file (local directory or S3 prefix). The data
-                # files are already written at this point, so a failure here is recorded in
-                # results.errors and logged rather than discarding a finished run.
+                # Save output metadata to a separate file (local directory or S3 prefix). The
+                # data files are already written at this point, so a failure here is recorded
+                # in results.errors and logged rather than discarding a finished run.
                 try:
                     output_metadata_path = output_metadata_collector.save_metadata(
-                        str(config.output_path), "output_data_metadata.json"
+                        str(config.output_path),
+                        "output_data_metadata.json",
+                        schema=outputs.good_schema,
+                        source_info=source_info,
                     )
                 except MetadataWriteError as e:
                     logger.error("Output metadata was not written: %s", e)

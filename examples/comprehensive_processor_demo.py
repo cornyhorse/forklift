@@ -1,5 +1,6 @@
 """Comprehensive demonstration of all processor features documented in schema standards."""
 
+from pathlib import Path
 import pyarrow as pa
 from datetime import datetime, date
 import json
@@ -153,7 +154,9 @@ def demo_schema_standard_features():
     print("=" * 60)
 
     # Load updated schema to show new features
-    schema_path = "/Users/matt/PycharmProjects/forklift/schema-standards/20250826-csv.json"
+    schema_path = str(
+        Path(__file__).resolve().parent.parent / "schema-standards" / "20250826-csv.json"
+    )
 
     with open(schema_path, "r") as f:
         schema_data = json.load(f)

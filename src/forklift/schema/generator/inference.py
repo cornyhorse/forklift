@@ -29,6 +29,7 @@ import pyarrow.csv as pv_csv
 import pyarrow.parquet as pq
 
 from ...io import UnifiedIOHandler, is_s3_path
+from ...utils.arrow_compat import set_null_where
 
 # Strings that are read as null when inferring types from CSV text, in addition to the empty
 # string. "NA" is deliberately absent: it is a legitimate value (country code of Namibia,
@@ -335,7 +336,7 @@ class DataTypeInferrer:
                 columns.append(column)
                 continue
             is_null_token = pc.is_in(column, value_set=token_set)
-            nulled = pc.if_else(is_null_token, pa.scalar(None, column.type), column)
+            nulled = set_null_where(column, is_null_token)
             columns.append(self._infer_string_column(nulled))
         return pa.Table.from_arrays(columns, names=table.column_names)
 

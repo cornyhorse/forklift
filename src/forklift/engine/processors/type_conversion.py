@@ -19,6 +19,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.csv as pv_csv
 
+from ...utils.arrow_compat import set_null_where
+
 # Values Arrow's own CSV reader treats as null in non-string columns
 ARROW_DEFAULT_NULL_VALUES: FrozenSet[str] = frozenset(pv_csv.ConvertOptions().null_values)
 
@@ -262,7 +264,7 @@ class ColumnConverter:
         if not values:
             return column
         mask = pc.is_in(column, value_set=pa.array(sorted(values), type=column.type))
-        return pc.if_else(mask, pa.scalar(None, type=column.type), column)
+        return set_null_where(column, mask)
 
 
 def _cast_text(array: pa.Array, target: pa.DataType) -> pa.Array:

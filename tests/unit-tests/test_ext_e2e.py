@@ -593,6 +593,66 @@ class TestOptOut:
         assert "Schema extensions applied" in capsys.readouterr().out
 
 
+# ------------------------------------------------------------------------------- many batches
+
+
+class TestManyBatches:
+    """Input split into many small batches (slices of Arrow's blocks) keeps every value."""
+
+    SCHEMA = schema_of(
+        {
+            "id": {"type": "integer"},
+            "code": {"type": "string"},
+            "amount": {"type": "number"},
+        },
+        **{"x-csv": {"nulls": {"global": ["NA", "-"]}}},
+    )
+
+    @staticmethod
+    def rows(count):
+        return "".join(
+            f"{i},{'NA' if i % 5 == 0 else 'c' + str(i)},{'-' if i % 7 == 0 else i / 2}\n"
+            for i in range(count)
+        )
+
+    @pytest.mark.parametrize("batch_size", [1, 3, 7, 40, 10000])
+    def test_values_and_null_markers_do_not_depend_on_the_batch_size(self, tmp_path, batch_size):
+        count = 40
+        results, out = run(
+            tmp_path, "id,code,amount\n" + self.rows(count), self.SCHEMA, batch_size=batch_size
+        )
+
+        table = data(out)
+        assert results.total_rows == results.valid_rows == count
+        assert table.column("id").to_pylist() == list(range(count))
+        assert table.column("code").to_pylist() == [
+            None if i % 5 == 0 else f"c{i}" for i in range(count)
+        ]
+        assert table.column("amount").to_pylist() == [
+            None if i % 7 == 0 else i / 2 for i in range(count)
+        ]
+
+    def test_extensions_see_every_row_of_every_batch(self, tmp_path):
+        schema = dict(self.SCHEMA)
+        schema["x-calculatedColumns"] = {
+            "expressions": [
+                {
+                    "name": "twice",
+                    "expression": "id * 2",
+                    "dataType": "int64",
+                    "dependencies": ["id"],
+                }
+            ]
+        }
+        schema["x-primaryKey"] = {"columns": ["id"]}
+
+        _, out = run(tmp_path, "id,code,amount\n" + self.rows(40), schema, batch_size=6)
+
+        table = data(out)
+        assert table.column("twice").to_pylist() == [i * 2 for i in range(40)]
+        assert table.column("code").to_pylist()[5] is None  # NA, in a later batch
+
+
 # ----------------------------------------------------------------------------- warnings
 
 

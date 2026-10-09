@@ -244,3 +244,24 @@ class TestBookkeeping:
 
         assert strip_hidden_columns(batch).schema.names == ["id"]
         assert strip_hidden_columns(strip_hidden_columns(batch)).schema.names == ["id"]
+
+
+class TestEnhancedProcessorWithBoundedViolations:
+    """The constraint validator keeps only some violations; the totals must stay exact."""
+
+    def test_totals_and_per_batch_attribution_do_not_depend_on_the_cap(self):
+        from forklift.processors.enhanced_processor import EnhancedDataProcessor
+
+        config = ConstraintConfig(unique_constraints=["id"], max_retained_violations=3)
+        processor = EnhancedDataProcessor(
+            pa.schema([pa.field("id", pa.int64())]), constraint_config=config, strict_mode=False
+        )
+        batch = pa.RecordBatch.from_pydict({"id": [1] * 20})  # 19 duplicates of the first row
+
+        kept, _ = processor.process_batch(batch)
+
+        assert kept.num_rows == 1
+        assert processor.finalize()["constraint_violations"] == 19
+        summary = processor.get_constraint_violations_summary()
+        assert summary["total_violations"] == 19 and summary["retained_violations"] == 3
+        assert processor.bad_rows_handler.bad_row_count == 19

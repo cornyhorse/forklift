@@ -71,8 +71,7 @@ class EnhancedDataProcessor(BaseProcessor):
         # Extract error handling mode from schema
         self.error_mode = self._extract_error_handling_mode()
 
-        # Bookkeeping: violations already attributed to batches, row-level schema failures
-        self._violations_attributed = 0
+        # Bookkeeping: row-level schema failures
         self._schema_row_errors = 0
 
     def process_batch(
@@ -122,13 +121,11 @@ class EnhancedDataProcessor(BaseProcessor):
             working_batch = schema_valid_batch.take(pa.array(keep_idx, type=pa.int64()))
 
         # Step 2: Constraint validation on schema-valid data
-        already_attributed = self._violations_attributed
         constraint_valid_batch, constraint_validation_results = (
             self.constraint_validator.process_batch(working_batch)
         )
-        violations = self.constraint_validator.get_all_violations()
-        new_violations = list(violations[already_attributed:])
-        self._violations_attributed = len(violations)
+        # All violations of this batch (the validator only retains a bounded number overall)
+        new_violations = list(self.constraint_validator.batch_violations)
 
         # Report positions relative to the batch that was passed in
         if keep_idx is not None:
@@ -254,7 +251,7 @@ class EnhancedDataProcessor(BaseProcessor):
         """
         results = {
             "processing_summary": self.bad_rows_handler.get_summary(),
-            "constraint_violations": len(self.constraint_validator.get_all_violations()),
+            "constraint_violations": self._violation_total(),
             "has_bad_rows": self.bad_rows_handler.has_bad_rows(),
         }
 
@@ -286,12 +283,24 @@ class EnhancedDataProcessor(BaseProcessor):
 
         return results
 
+    def _violation_total(self) -> int:
+        """Exact number of constraint violations seen (the validator retains only some)."""
+        return max(
+            self.constraint_validator.violation_count,
+            len(self.constraint_validator.get_all_violations()),
+        )
+
     def get_constraint_violations_summary(self) -> Dict[str, Any]:
-        """Get a summary of constraint violations."""
+        """Get a summary of constraint violations.
+
+        ``total_violations`` is exact; ``violation_types`` and ``sample_violations`` describe the
+        violations the validator retained (at most ``max_retained_violations``).
+        """
         violations = self.constraint_validator.get_all_violations()
 
         summary = {
-            "total_violations": len(violations),
+            "total_violations": self._violation_total(),
+            "retained_violations": len(violations),
             "violation_types": {},
             "affected_constraints": set(),
             "sample_violations": [],

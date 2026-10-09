@@ -1,4 +1,21 @@
-"""Core parsing utilities for date and datetime parsing."""
+"""Core parsing utilities for date and datetime parsing.
+
+``coerce_date_value``, ``coerce_datetime_value`` and ``parse_date_value`` share one resolution
+order so they cannot disagree about the same text:
+
+1. ``from_epoch=True``: the value must be an epoch timestamp.
+2. An explicit ``fmt`` / ``formats`` list: only those formats are tried. Epoch auto-detection and
+   the common-format fallbacks are *not* used, so ``fmt='%Y%m%d%H'`` really parses ``2024010112``
+   and a 10-digit phone-like ID is never reinterpreted as an epoch when a format was requested.
+3. Otherwise: conservative epoch auto-detection (10/13/16/19 plain digits), timezone-aware text
+   through dateutil, the common datetime formats, the common date formats, and finally dateutil.
+   The dateutil fallback only accepts text that carries a full year, month and day; it never fills
+   missing parts from today's date.
+
+Ambiguous numeric dates such as ``03-04-2024`` follow ``dayfirst`` (default True: 3 April).
+
+Error messages never contain the offending value (it may be personal data).
+"""
 
 import datetime
 import re
@@ -8,82 +25,165 @@ from dateutil import parser as dateutil_parser
 
 from .constants import COMMON_DATE_FORMATS, COMMON_DATETIME_FORMATS
 from .epoch import datetime_to_epoch, is_epoch_timestamp, parse_epoch_timestamp
-from .format_utils import matches_format_exact, normalize_format, try_strptime
+from .format_utils import (
+    format_accepts_unpadded,
+    matches_format_exact,
+    normalize_format,
+    ordered_formats,
+    try_strptime,
+)
+
+# Text that ends in a time followed by a timezone designator (Z, +05:00, -0800, UTC, GMT). A bare
+# trailing "-2024" in "03-04-2024" is a year, not an offset, hence the required time component.
+_TZ_AWARE = re.compile(
+    r"\d:\d{2}(?::\d{2}(?:[.,]\d+)?)?\s*(?:Z|[+-]\d{2}(?::?\d{2})?|UTC|GMT)$", re.IGNORECASE
+)
+
+# Text that starts with a four-digit year (ISO-style YYYY-MM-DD ...)
+_YEAR_FIRST = re.compile(r"\s*\d{4}(?!\d)")
+
+# Two different defaults reveal which date parts dateutil had to invent (see _dateutil_complete)
+_DEFAULT_A = datetime.datetime(1904, 1, 1)
+_DEFAULT_B = datetime.datetime(1905, 2, 2)
+
+
+def _dateutil_complete(
+    value: str, fuzzy: bool = False, dayfirst: bool = True
+) -> Optional[datetime.datetime]:
+    """Parse with dateutil, but only if year, month and day are all present in the text.
+
+    dateutil fills whatever is missing from a default date (today by default), which turns
+    ``'12'``, ``'Mon'``, ``'Mar'``, ``'2024'`` or ``'10:30'`` into plausible-looking dates.
+    The text is parsed with two different defaults; if the date part differs between the two
+    results, a component came from the default and the value is rejected.
+    """
+    if dayfirst and _YEAR_FIRST.match(value):
+        # dateutil reads "2024-06-01" as year-day-month when dayfirst=True; a leading four-digit
+        # year is unambiguous, so the day-first preference must not apply to it.
+        dayfirst = False
+    try:
+        first = dateutil_parser.parse(value, default=_DEFAULT_A, fuzzy=fuzzy, dayfirst=dayfirst)
+        second = dateutil_parser.parse(value, default=_DEFAULT_B, fuzzy=fuzzy, dayfirst=dayfirst)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    if (first.year, first.month, first.day) != (second.year, second.month, second.day):
+        return None
+    return first
+
+
+def _parse_explicit(
+    value: str, fmt: Optional[str], formats: Optional[List[str]]
+) -> Optional[datetime.datetime]:
+    """Parse ``value`` with the explicitly requested format(s); None if none matches.
+
+    ``fmt`` is enforced exactly (zero-padded fields) unless it is a schema-token format with
+    single-letter tokens (``YYYY-M-D``). Entries of ``formats`` use plain strptime matching.
+    """
+    candidates = []
+    if fmt:
+        strict = "%" in fmt or not format_accepts_unpadded(fmt)
+        candidates.append((normalize_format(fmt), strict))
+    if formats:
+        candidates.extend((normalize_format(f), False) for f in formats)
+
+    for candidate, strict in candidates:
+        try:
+            parsed = datetime.datetime.strptime(value, candidate)
+        except (ValueError, TypeError, re.error):
+            continue  # re.error: a malformed format is "no match", never an escaping exception
+        if strict and not matches_format_exact(value, candidate):
+            continue
+        return parsed
+    return None
+
+
+def _resolve_default(value: str, fuzzy: bool, dayfirst: bool) -> Optional[datetime.datetime]:
+    """Resolve text without an explicit format (shared by date and datetime coercion)."""
+    if _TZ_AWARE.search(value):
+        # Keep the offset: strptime with a literal "Z" would return a naive datetime
+        parsed = _dateutil_complete(value, fuzzy=fuzzy, dayfirst=dayfirst)
+        if parsed is not None:
+            return parsed
+
+    parsed = try_strptime(value, ordered_formats(COMMON_DATETIME_FORMATS, dayfirst))
+    if parsed is None:
+        parsed = try_strptime(value, ordered_formats(COMMON_DATE_FORMATS, dayfirst))
+    if parsed is None:
+        parsed = _dateutil_complete(value, fuzzy=fuzzy, dayfirst=dayfirst)
+    return parsed
+
+
+def _parse(
+    value: str,
+    fmt: Optional[str],
+    formats: Optional[List[str]],
+    from_epoch: bool,
+    fuzzy: bool,
+    dayfirst: bool,
+    kind: str,
+) -> datetime.datetime:
+    """Parse a stripped, non-empty string to a datetime (ValueError if impossible)."""
+    if from_epoch:
+        if not is_epoch_timestamp(value):
+            raise ValueError("Invalid epoch timestamp")
+        return parse_epoch_timestamp(value)
+
+    if fmt or formats:
+        parsed = _parse_explicit(value, fmt, formats)
+        if parsed is None:
+            if kind == "datetime" and fmt:
+                raise ValueError(f"Value does not match required format '{fmt}'")
+            if kind == "datetime":
+                raise ValueError("Value does not match any of the specified formats")
+            raise ValueError(f"bad {kind}")
+        return parsed
+
+    if is_epoch_timestamp(value):
+        try:
+            return parse_epoch_timestamp(value)
+        except ValueError:
+            pass  # fall through to the other parsing methods
+
+    parsed = _resolve_default(value, fuzzy, dayfirst)
+    if parsed is None:
+        raise ValueError(f"bad {kind}")
+    return parsed
 
 
 def parse_date_value(
-    value: Any, fmt: Optional[str] = None, formats: Optional[List[str]] = None
+    value: Any,
+    fmt: Optional[str] = None,
+    formats: Optional[List[str]] = None,
+    dayfirst: bool = True,
 ) -> bool:
     """Check if a value can be parsed as a date.
+
+    Answers exactly the question "would ``coerce_date_value`` succeed?" (same rules, same
+    resolution order), so the two can never disagree, including when ``formats`` is given.
 
     Args:
         value: Value to check (typically a string)
         fmt: Specific format to use (strptime or schema tokens)
         formats: List of formats to try
+        dayfirst: Resolve ambiguous dates such as 03-04-2024 as day-month-year
 
     Returns:
         True if value can be parsed as a date, False otherwise
     """
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value.strip():
         return False
-
-    # Clean whitespace
-    value = value.strip()
-    if not value:
-        return False
-
-    # Check if it's an epoch timestamp
-    if is_epoch_timestamp(value):
-        try:
-            parse_epoch_timestamp(value)
-            return True
-        except ValueError:
-            return False
-
-    # Try specific format if provided (strict matching)
-    if fmt:
-        normalized_fmt = normalize_format(fmt)
-        try:
-            datetime.datetime.strptime(value, normalized_fmt)
-            # For strict format enforcement, check exact match
-            return matches_format_exact(value, normalized_fmt)
-        except (ValueError, TypeError):
-            return False
-
-    # Try list of formats if provided (strict matching)
-    if formats:
-        normalized_formats = [normalize_format(f) for f in formats]
-        for normalized_fmt in normalized_formats:
-            try:
-                datetime.datetime.strptime(value, normalized_fmt)
-                return True
-            except (ValueError, TypeError):
-                continue
-        # If formats list was provided but none matched, still try fallback parsing
-        # (This allows for more flexible parsing when a formats list is provided)
-
-    # Try common date formats
-    if try_strptime(value, COMMON_DATE_FORMATS):
-        return True
-
-    # Fallback to dateutil parser, but be more restrictive
-    # Reject obviously invalid inputs that dateutil might accept
-    if value.isdigit() and len(value) < 4:
-        # Reject pure numeric values that are too short to be reasonable years
-        return False
-
     try:
-        parsed = dateutil_parser.parse(value)
-        # Additional validation: reject years that are unreasonably old or future
-        if parsed.year < 1000 or parsed.year > 9999:
-            return False
-        return True
-    except (ValueError, TypeError, OverflowError):
+        coerce_date_value(value, fmt, formats, dayfirst)
+    except ValueError:
         return False
+    return True
 
 
 def coerce_date_value(
-    value: Any, fmt: Optional[str] = None, formats: Optional[List[str]] = None
+    value: Any,
+    fmt: Optional[str] = None,
+    formats: Optional[List[str]] = None,
+    dayfirst: bool = True,
 ) -> str:
     """Coerce a value to ISO date format (YYYY-MM-DD).
 
@@ -91,6 +191,8 @@ def coerce_date_value(
         value: Value to coerce (typically a string)
         fmt: Specific format to use (strptime or schema tokens)
         formats: List of formats to try
+        dayfirst: Resolve ambiguous dates such as 03-04-2024 as day-month-year (default) instead
+            of month-day-year
 
     Returns:
         ISO formatted date string (YYYY-MM-DD)
@@ -101,96 +203,8 @@ def coerce_date_value(
     if not isinstance(value, str) or not value or not value.strip():
         raise ValueError("empty date")
 
-    # Clean whitespace
-    value = value.strip()
-
-    # Check if it's an epoch timestamp
-    if is_epoch_timestamp(value):
-        try:
-            dt = parse_epoch_timestamp(value)
-            return dt.date().isoformat()
-        except ValueError:
-            pass  # Fall through to other parsing methods
-
-    # Build list of format candidates
-    candidates = []
-
-    if fmt:
-        normalized_fmt = normalize_format(fmt)
-        candidates.append(normalized_fmt)
-
-        # For schema token formats with single character tokens (M, D, H, S),
-        # also try variations that account for both zero-padded and non-zero-padded values
-        if "%" not in fmt:  # Original was schema tokens, not strptime
-            # Check if format contains single character tokens that need flexible parsing
-            has_single_chars = any(
-                token in fmt and token * 2 not in fmt
-                for token in ["M", "D", "H", "S", "m", "d", "h", "s"]
-            )
-
-            if has_single_chars:
-                # Create additional format variations for flexible parsing
-                # Replace single digit patterns with flexible alternatives
-                flexible_fmt = normalized_fmt
-                # For single digit months/days/hours/seconds, try both padded and unpadded
-                flexible_fmt = re.sub(r"(?<!%)(%[mdhs])(?![a-zA-Z])", r"(?:\1|%\1)", flexible_fmt)
-                # This doesn't work with strptime, so we'll handle it differently
-
-                # Instead, we'll just be more lenient with exact matching for single char formats
-                pass
-
-    if formats:
-        candidates.extend(normalize_format(f) for f in formats)
-
-    # Try candidate formats first with strict matching
-    if candidates:
-        for candidate_fmt in candidates:
-            try:
-                parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
-                # For strict format enforcement when fmt is specified, check exact match
-                if fmt and "%" in fmt:
-                    # Original format was strptime - always check exact match
-                    if not matches_format_exact(value, candidate_fmt):
-                        continue
-                elif fmt:
-                    # Original format was schema tokens - need precise matching logic
-                    # For formats like "YYYY-MM-DD", the MM requires zero-padding
-                    # For formats like "YYYY-M-DD", the M allows flexible padding
-
-                    has_single_tokens = any(
-                        token in fmt and token * 2 not in fmt
-                        for token in ["M", "D", "H", "S", "m", "d", "h", "s"]
-                    )
-
-                    if has_single_tokens:
-                        # Format has single character tokens - allow flexible parsing
-                        # Only require exact match if parsing failed completely
-                        pass
-                    else:
-                        # Format uses only double character tokens - require exact match
-                        if not matches_format_exact(value, candidate_fmt):
-                            continue
-                return parsed_dt.date().isoformat()
-            except (ValueError, TypeError):
-                continue
-
-    # If specific formats were provided but none matched, raise error
-    if fmt or formats:
-        raise ValueError(f"bad date: {value}")
-
-    # Try common date formats
-    parsed_dt = try_strptime(value, COMMON_DATE_FORMATS)
-    if parsed_dt:
-        return parsed_dt.date().isoformat()
-
-    # Fallback to dateutil parser
-    try:
-        dt = dateutil_parser.parse(value)
-        return dt.date().isoformat()
-    except (ValueError, TypeError, OverflowError):
-        pass
-
-    raise ValueError(f"bad date: {value}")
+    parsed = _parse(value.strip(), fmt, formats, False, False, dayfirst, "date")
+    return parsed.date().isoformat()
 
 
 def coerce_datetime_value(
@@ -201,6 +215,7 @@ def coerce_datetime_value(
     to_epoch: Optional[str] = None,
     fuzzy: bool = False,
     allow_fuzzy: Optional[bool] = None,
+    dayfirst: bool = True,
 ) -> Union[datetime.datetime, int]:
     """Coerce a value to datetime object or epoch timestamp.
 
@@ -213,6 +228,8 @@ def coerce_datetime_value(
                  ('seconds', 'milliseconds', 'microseconds', 'nanoseconds')
         fuzzy: If True, allow fuzzy parsing with dateutil
         allow_fuzzy: Legacy parameter, same as fuzzy
+        dayfirst: Resolve ambiguous dates such as 03-04-2024 as day-month-year (default) instead
+            of month-day-year
 
     Returns:
         Datetime object or epoch timestamp (int)
@@ -227,107 +244,7 @@ def coerce_datetime_value(
     if allow_fuzzy is not None:
         fuzzy = allow_fuzzy
 
-    # Clean whitespace
-    value = value.strip()
-
-    parsed_dt = None
-
-    # Handle explicit epoch conversion
-    if from_epoch:
-        if not is_epoch_timestamp(value):
-            raise ValueError(f"Invalid epoch timestamp: {value}")
-        parsed_dt = parse_epoch_timestamp(value)
-    else:
-        # Check if it's an epoch timestamp (auto-detect)
-        if is_epoch_timestamp(value):
-            try:
-                parsed_dt = parse_epoch_timestamp(value)
-            except ValueError:
-                pass  # Fall through to other parsing methods
-
-        if not parsed_dt:
-            # Check if the string appears to be timezone-aware
-            # If so, use dateutil parser to preserve timezone info
-            is_timezone_aware = (
-                value.endswith("Z")  # UTC indicator
-                or "+" in value[-6:]  # Timezone offset like +05:00
-                or "-" in value[-6:]  # Timezone offset like -05:00
-                or value.endswith(("UTC", "GMT"))  # Named timezones
-            )
-
-            if is_timezone_aware and not fmt and not formats:
-                # For timezone-aware strings without explicit format requirements,
-                # use dateutil parser to preserve timezone information
-                try:
-                    parsed_dt = dateutil_parser.parse(value, fuzzy=fuzzy)
-                except (ValueError, TypeError, OverflowError):
-                    pass
-
-            if not parsed_dt:
-                # Build list of format candidates
-                candidates = []
-
-                if fmt:
-                    candidates.append(normalize_format(fmt))
-
-                if formats:
-                    candidates.extend(normalize_format(f) for f in formats)
-
-                # Try candidate formats first with exact matching
-                if candidates:
-                    for candidate_fmt in candidates:
-                        try:
-                            parsed_dt = datetime.datetime.strptime(value, candidate_fmt)
-                            # For strict format enforcement with schema
-                            # tokens (no %), always check exact match
-                            if fmt and "%" not in fmt:
-                                # This is a schema token format like
-                                # "YYYY-MM-DD", enforce exact match
-                                if not matches_format_exact(value, candidate_fmt):
-                                    parsed_dt = None
-                                    continue
-                            # For strptime formats with %, also check
-                            # exact match if it was the original format
-                            elif (
-                                fmt
-                                and "%" in fmt
-                                and not matches_format_exact(value, candidate_fmt)
-                            ):
-                                parsed_dt = None
-                                continue
-                            break
-                        except (ValueError, TypeError):
-                            continue
-
-                    # If specific formats were provided but none matched, raise error
-                    if not parsed_dt and (fmt or formats):
-                        if fmt:
-                            raise ValueError(
-                                f"Value '{value}' does not match required format '{fmt}'"
-                            )
-                        else:
-                            raise ValueError(
-                                f"Value '{value}' does not match any of the specified formats"
-                            )
-
-                # If no specific format was provided, try common formats
-                if not parsed_dt and not fmt and not formats:
-                    # Try common datetime formats
-                    parsed_dt = try_strptime(value, COMMON_DATETIME_FORMATS)
-
-                    # Try common date formats (will give time 00:00:00)
-                    if not parsed_dt:
-                        parsed_dt = try_strptime(value, COMMON_DATE_FORMATS)
-
-                # Fallback to dateutil parser
-                if not parsed_dt:
-                    try:
-                        parsed_dt = dateutil_parser.parse(value, fuzzy=fuzzy)
-                    except (ValueError, TypeError, OverflowError):
-                        pass
-
-    if not parsed_dt:
-        raise ValueError(f"bad datetime: {value}")
+    parsed_dt = _parse(value.strip(), fmt, formats, from_epoch, fuzzy, dayfirst, "datetime")
 
     # Convert to epoch if requested
     if to_epoch:

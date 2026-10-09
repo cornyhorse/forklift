@@ -1,6 +1,10 @@
 """String transformation utilities.
 
 This module provides string cleaning, formatting, and case transformation capabilities.
+
+All transformers work directly on Arrow data (no pandas): nulls are ``None``, results keep the
+Arrow string type of the input column (``string`` stays ``string``, ``large_string`` stays
+``large_string``) and both flavours are accepted as input.
 """
 
 from __future__ import annotations
@@ -9,9 +13,10 @@ import re
 import unicodedata
 from typing import Optional
 
-import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 
+from ._arrow_utils import is_string_like, string_array
 from .configs import (
     RegexReplaceConfig,
     StringCleaningConfig,
@@ -19,85 +24,136 @@ from .configs import (
     StringReplaceConfig,
 )
 
+# Characters (as seen after a wrong cp1252/latin-1 decode) that can follow the lead byte of a UTF-8
+# multi-byte sequence: C1 controls, U+00A0..U+00BF and the cp1252 specials mapped from 0x80..0x9F.
+_CP1252_SPECIALS = (
+    "\u20ac\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u017d"
+    "\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u017e\u0178"
+)
+# A UTF-8 lead byte (0xC2..0xF4) followed by a continuation byte, both read as cp1252/latin-1.
+_MOJIBAKE_MARKER = re.compile("[\u00c2-\u00f4][\u0080-\u00bf" + _CP1252_SPECIALS + "]")
+# A genuine repair of Western text never yields Syriac/Thaana/NKo letters or C1 controls; combining
+# marks (category Mn/Me) are rejected too. If the round trip produces them, the "mojibake" was
+# probably legitimate text such as ``Weiß“`` or ``Ö”``.
+_IMPLAUSIBLE_REPAIR = re.compile("[\u0080-\u009f\u0700-\u07ff]")
+_IMPLAUSIBLE_CATEGORIES = frozenset({"Mn", "Me", "Cn", "Co", "Cs"})
+
+# Letters joined by apostrophes ("don't", "O'Brien") form one word for title casing.
+_TITLE_WORD = re.compile("[^\\W\\d_]+(?:['\u2019][^\\W\\d_]+)*")
+_ORDINAL_SUFFIXES = {"st", "nd", "rd", "th"}
+
+
+def _as_array(result) -> pa.Array:
+    """Return a plain ``pa.Array`` (kernels hand back a ChunkedArray for chunked input)."""
+    if isinstance(result, pa.ChunkedArray):
+        return result.combine_chunks()
+    return result
+
 
 class StringTransformer:
     """Specialized transformer for string operations."""
 
     def apply_regex_replace(self, column: pa.Array, config: RegexReplaceConfig) -> pa.Array:
-        """Apply regex replace transformation to a string column."""
-        if not pa.types.is_string(column.type):
+        """Apply regex replace transformation to a string column.
+
+        Uses the stdlib ``re`` engine (Python regex and replacement syntax). ``re`` has no
+        timeout, so patterns must come from trusted schemas.
+        """
+        if not is_string_like(column.type):
             return column
 
-        pandas_series = column.to_pandas()
-        transformed_series = pandas_series.str.replace(
-            config.pattern, config.replacement, regex=True, flags=config.flags
-        )
-        return pa.array(transformed_series)
+        try:
+            pattern = re.compile(config.pattern, config.flags)
+            values = [
+                None if value is None else pattern.sub(config.replacement, value)
+                for value in column.to_pylist()
+            ]
+        except re.error as exc:
+            raise ValueError(f"Invalid regex_replace configuration: {exc}") from exc
+        return string_array(values, column.type)
 
     def apply_string_replace(self, column: pa.Array, config: StringReplaceConfig) -> pa.Array:
-        """Apply simple string replace transformation."""
-        if not pa.types.is_string(column.type):
+        """Apply simple (literal, non-regex) string replace transformation."""
+        if not is_string_like(column.type):
             return column
 
-        pandas_series = column.to_pandas()
-        if config.count == -1:
-            transformed_series = pandas_series.str.replace(config.old, config.new)
-        else:
-            transformed_series = pandas_series.str.replace(config.old, config.new, n=config.count)
-        return pa.array(transformed_series)
+        if config.old == "":
+            # Python semantics for an empty needle (insert between characters). The Arrow kernel
+            # does not terminate for an empty pattern, so this edge case stays in Python.
+            count = config.count
+            values = [
+                None if value is None else value.replace(config.old, config.new, count)
+                for value in column.to_pylist()
+            ]
+            return string_array(values, column.type)
+
+        max_replacements = None if config.count < 0 else config.count
+        return _as_array(
+            pc.replace_substring(
+                column,
+                pattern=config.old,
+                replacement=config.new,
+                max_replacements=max_replacements,
+            )
+        )
 
     def apply_string_padding(self, column: pa.Array, config: StringPaddingConfig) -> pa.Array:
         """Apply string padding operations (lstrip, rstrip, lpad, rpad)."""
-        if not pa.types.is_string(column.type):
+        if not is_string_like(column.type):
             return column
 
-        pandas_series = column.to_pandas()
-
-        if config.side == "left":
-            transformed_series = pandas_series.str.rjust(config.width, config.fillchar)
-        elif config.side == "right":
-            transformed_series = pandas_series.str.ljust(config.width, config.fillchar)
-        elif config.side == "both":
-            transformed_series = pandas_series.str.center(config.width, config.fillchar)
-        else:
-            transformed_series = pandas_series.str.rjust(config.width, config.fillchar)
-
-        return pa.array(transformed_series)
+        width = max(config.width, 0)
+        if config.side == "both":
+            # Arrow's centre kernel puts the odd pad character on the other side than str.center
+            values = [
+                None if value is None else value.center(width, config.fillchar)
+                for value in column.to_pylist()
+            ]
+            return string_array(values, column.type)
+        if config.side == "right":
+            return _as_array(pc.utf8_rpad(column, width=width, padding=config.fillchar))
+        # "left" and (historically) any unknown side pad on the left
+        return _as_array(pc.utf8_lpad(column, width=width, padding=config.fillchar))
 
     def apply_string_trimming(
         self, column: pa.Array, side: str = "both", chars: Optional[str] = None
     ) -> pa.Array:
         """Apply string trimming operations (lstrip, rstrip, strip)."""
-        if not pa.types.is_string(column.type):
+        if not is_string_like(column.type):
             return column
 
-        pandas_series = column.to_pandas()
+        if chars == "":
+            return column  # str.strip("") strips nothing
 
-        if side == "left":
-            transformed_series = pandas_series.str.lstrip(chars)
-        elif side == "right":
-            transformed_series = pandas_series.str.rstrip(chars)
-        elif side == "both":
-            transformed_series = pandas_series.str.strip(chars)
+        if chars is None:
+            if side == "left":
+                result = pc.utf8_ltrim_whitespace(column)
+            elif side == "right":
+                result = pc.utf8_rtrim_whitespace(column)
+            else:
+                result = pc.utf8_trim_whitespace(column)
         else:
-            transformed_series = pandas_series.str.strip(chars)
-
-        return pa.array(transformed_series)
+            if side == "left":
+                result = pc.utf8_ltrim(column, characters=chars)
+            elif side == "right":
+                result = pc.utf8_rtrim(column, characters=chars)
+            else:
+                result = pc.utf8_trim(column, characters=chars)
+        return _as_array(result)
 
     def apply_string_cleaning(self, column: pa.Array, config: StringCleaningConfig) -> pa.Array:
         """Apply comprehensive string cleaning operations."""
-        if not pa.types.is_string(column.type):
+        if not is_string_like(column.type):
             return column
 
-        pandas_series = column.to_pandas()
         transformed_values = []
 
-        for value in pandas_series:
-            if pd.isna(value) or value is None:
-                transformed_values.append(value)
+        for value in column.to_pylist():
+            if value is None:
+                transformed_values.append(None)
                 continue
 
-            str_value = str(value)
+            str_value = value
 
             # Fix common encoding errors FIRST
             if config.fix_encoding_errors:
@@ -181,7 +237,9 @@ class StringTransformer:
             elif config.case_transform in {"title", "proper"}:
                 if config.case_transform == "title":
                     parts = re.split(r"(\s+|-)", str_value)
-                    transformed_parts = [part.title() if part.strip() else part for part in parts]
+                    transformed_parts = [
+                        self._title_case(part) if part.strip() else part for part in parts
+                    ]
                     str_value = "".join(transformed_parts)
                 else:  # proper
                     str_value = (
@@ -211,40 +269,79 @@ class StringTransformer:
 
             transformed_values.append(str_value)
 
-        return pa.array(transformed_values)
+        return string_array(transformed_values, column.type)
 
     def _fix_encoding_errors(self, text: str) -> str:
-        """Fix common encoding errors."""
-        if "Donâ€™t" in text:
-            text = text.replace("Donâ€™t", "Don't")
+        """Repair mojibake: UTF-8 text that was decoded as cp1252/latin-1.
 
-        fixes = {
-            "â€™": "'",
-            "â€œ": '"',
-            "â€": '"',
-            'â€"': "—",
-            "â€¦": "…",
-            'âœ"': "✓",
-            "Ã¡": "á",
-            "Ã©": "é",
-            "Ã­": "í",
-            "Ã³": "ó",
-            "Ãº": "ú",
-            "Ã±": "ñ",
-            "Ã¼": "ü",
-            "Ã ": "à",
-            "Ã¨": "è",
-            "Ã¬": "ì",
-            "Ã²": "ò",
-            "Ã¹": "ù",
-            "Â": "",
-        }
+        Only text that contains a typical mojibake pair (a UTF-8 lead byte followed by a
+        continuation byte, e.g. ``Ã©`` or ``â€™``) is touched. The text is re-encoded with the
+        wrong codec and decoded as UTF-8; if that round trip does not succeed (or produces
+        implausible characters) the text is returned unchanged. Legitimate letters such as the
+        ``Â`` in ``Âge`` or the ``Ã`` in ``IRMÃ DO`` are never deleted or rewritten. Repairs
+        encoding only; quote/dash normalisation is a separate option.
+        """
+        if not text or not _MOJIBAKE_MARKER.search(text):
+            return text
 
-        for wrong, right in fixes.items():
-            if wrong in text:
-                text = text.replace(wrong, right)
+        raw = bytearray()
+        for char in text:
+            code = ord(char)
+            if code < 0x80:
+                raw.append(code)
+                continue
+            try:
+                raw += char.encode("cp1252")
+            except UnicodeEncodeError:
+                if 0x80 <= code <= 0xFF:
+                    raw.append(
+                        code
+                    )  # latin-1 style byte (e.g. C1 controls cp1252 leaves undefined)
+                else:
+                    return text
+        try:
+            fixed = bytes(raw).decode("utf-8")
+        except UnicodeDecodeError:
+            return text
 
-        return text
+        if _IMPLAUSIBLE_REPAIR.search(fixed) or any(
+            unicodedata.category(char) in _IMPLAUSIBLE_CATEGORIES
+            for char in fixed
+            if ord(char) > 127
+        ):
+            return text
+        return fixed
+
+    def _title_case(self, text: str) -> str:
+        """Title-case ``text`` word by word.
+
+        Unlike ``str.title`` this does not capitalise after apostrophes in contractions
+        (``don't`` -> ``Don't``, not ``Don'T``) or after digits in ordinals (``1st``, not
+        ``1St``), while keeping name prefixes such as ``O'Brien`` and ``L'Oréal``.
+        """
+
+        def convert(match: "re.Match[str]") -> str:
+            word = match.group(0)
+            start = match.start()
+            if start > 0 and text[start - 1].isdigit() and word.lower() in _ORDINAL_SUFFIXES:
+                return word.lower()
+
+            pieces = re.split("(['\u2019])", word)
+            result = []
+            previous = ""
+            for index, piece in enumerate(pieces):
+                if piece in ("'", "\u2019"):
+                    result.append(piece)
+                    continue
+                # Capitalise the first segment and a segment after a one-letter prefix (O', D', L')
+                if index == 0 or (len(previous) == 1 and len(piece) > 1):
+                    result.append(piece[:1].upper() + piece[1:].lower())
+                else:
+                    result.append(piece.lower())
+                previous = piece
+            return "".join(result)
+
+        return _TITLE_WORD.sub(convert, text)
 
     def _normalize_quotes(self, text: str) -> str:
         """Normalize smart quotes to ASCII quotes."""
@@ -455,7 +552,7 @@ class StringTransformer:
                             fixed_parts.append(part.upper())
                         elif j == 0:
                             # Only the first part of a hyphenated compound gets title case
-                            fixed_parts.append(part.title())
+                            fixed_parts.append(self._title_case(part))
                         elif part_clean.lower() in title_case_exceptions:
                             fixed_parts.append(part.lower())
                         else:
@@ -464,7 +561,7 @@ class StringTransformer:
                     fixed_words.append("-".join(fixed_parts))
                 else:
                     # Regular first word - convert to title case
-                    fixed_words.append(word.title())
+                    fixed_words.append(self._title_case(word))
             elif word_clean.lower() in title_case_exceptions:
                 # Use lowercase for exception words (but not the first word)
                 result = ""
@@ -486,7 +583,7 @@ class StringTransformer:
                             fixed_parts.append(part.upper())
                         elif j == 0:
                             # Only the first part of a hyphenated compound gets title case
-                            fixed_parts.append(part.title())
+                            fixed_parts.append(self._title_case(part))
                         elif part_clean.lower() in title_case_exceptions:
                             fixed_parts.append(part.lower())
                         else:
@@ -495,6 +592,6 @@ class StringTransformer:
                     fixed_words.append("-".join(fixed_parts))
                 else:
                     # Regular word - convert to title case
-                    fixed_words.append(word.title())
+                    fixed_words.append(self._title_case(word))
 
         return " ".join(fixed_words)

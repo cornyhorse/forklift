@@ -28,6 +28,17 @@ from .configs import (
     StringReplaceConfig,
     ZipCodeConfig,
 )
+from .numeric_transformations import resolve_numeric_target_type
+
+
+def _reject_unknown_keys(transform_type: str, config_dict: Dict[str, Any], valid_keys) -> None:
+    """Raise ``ValueError`` naming the valid options if ``config_dict`` has unknown keys."""
+    unknown = sorted(str(key) for key in set(config_dict) - set(valid_keys))
+    if unknown:
+        raise ValueError(
+            f"Unknown option(s) {unknown} for transformation '{transform_type}'. "
+            f"Valid options: {sorted(valid_keys)}"
+        )
 
 
 def create_transformation_from_config(
@@ -44,9 +55,13 @@ def create_transformation_from_config(
     """
     transformer = DataTransformer()
 
-    # Helper function to filter config to only include expected parameters
+    # Helper function to validate the config keys and return the ones the class accepts
     def filter_config_for_class(config_class, config_dict):
-        """Filter config dict to only include fields that the config class accepts."""
+        """Return the config entries for ``config_class``; unknown keys raise ``ValueError``.
+
+        A misspelled option (``{"zeropad": False}``) used to be dropped silently, so the
+        transformation ran with the default instead of the intended setting.
+        """
         if hasattr(config_class, "__dataclass_fields__"):
             # For dataclasses, get field names
             valid_fields = set(config_class.__dataclass_fields__.keys())
@@ -55,6 +70,7 @@ def create_transformation_from_config(
             sig = inspect.signature(config_class.__init__)
             valid_fields = set(sig.parameters.keys()) - {"self"}
 
+        _reject_unknown_keys(transform_type, config_dict, valid_fields)
         return {k: v for k, v in config_dict.items() if k in valid_fields}
 
     # Remove 'enabled' from config since it's not part of any transformation config
@@ -78,6 +94,7 @@ def create_transformation_from_config(
     elif transform_type == "numeric_cleaning":
         # Extract target_type before filtering since it's not part of NumericCleaningConfig
         target_type = clean_config.pop("target_type", "double")
+        resolve_numeric_target_type(target_type)  # unknown names fail now, not mid-batch
         filtered_config = filter_config_for_class(NumericCleaningConfig, clean_config)
         numeric_config = NumericCleaningConfig(**filtered_config)
         return lambda col: transformer.apply_numeric_cleaning(col, numeric_config, target_type)
@@ -88,7 +105,8 @@ def create_transformation_from_config(
         return lambda col: transformer.apply_string_padding(col, padding_config)
 
     elif transform_type == "string_trimming":
-        # string_trimming doesn't use a config class, so filter manually
+        # string_trimming doesn't use a config class, so validate the keys manually
+        _reject_unknown_keys(transform_type, clean_config, {"side", "chars"})
         side = clean_config.get("side", "both")
         chars = clean_config.get("chars", None)
         return lambda col: transformer.apply_string_trimming(col, side, chars)

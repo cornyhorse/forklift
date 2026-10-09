@@ -1,10 +1,30 @@
-"""Epoch timestamp parsing utilities."""
+"""Epoch timestamp parsing utilities.
+
+All conversions use integer arithmetic. Going through ``float`` (``timestamp / 1e9``,
+``dt.timestamp() * 1e9``) silently loses digits for microsecond and nanosecond epochs.
+"""
 
 import datetime
+
+_UTC = datetime.timezone.utc
+_EPOCH = datetime.datetime(1970, 1, 1, tzinfo=_UTC)
+
+# Number of digits -> ticks per second (10: seconds, 13: ms, 16: microseconds, 19: nanoseconds)
+_TICKS_PER_SECOND = {10: 1, 13: 1_000, 16: 1_000_000, 19: 1_000_000_000}
+
+_MICROSECONDS_PER_UNIT = {
+    "seconds": 1_000_000,
+    "milliseconds": 1_000,
+    "microseconds": 1,
+}
 
 
 def is_epoch_timestamp(value: str) -> bool:
     """Check if a string represents an epoch timestamp.
+
+    Auto-detection is deliberately conservative: only plain ASCII digit strings of exactly 10,
+    13, 16 or 19 digits (no leading zero) qualify. Callers must not use this when an explicit
+    format was requested; the format always wins.
 
     Args:
         value: String to check
@@ -15,40 +35,21 @@ def is_epoch_timestamp(value: str) -> bool:
     if not value:
         return False
 
-    # Check if all characters are digits (no decimals or other characters)
-    if not value.isdigit():
+    # Only ASCII digits: str.isdigit() also accepts e.g. Arabic-Indic digits and superscripts
+    if not value.isascii() or not value.isdigit():
         return False
 
-    # Check for valid epoch timestamp lengths:
-    # 10 digits: seconds since epoch (1970-2038 range)
+    # Only accept specific valid lengths
+    # 10 digits: seconds since epoch (2001-2286 range)
     # 13 digits: milliseconds since epoch
     # 16 digits: microseconds since epoch
     # 19 digits: nanoseconds since epoch
     length = len(value)
-
-    # Only accept specific valid lengths
-    if length not in [10, 13, 16, 19]:
+    if length not in _TICKS_PER_SECOND:
         return False
 
-    try:
-        timestamp = int(value)
-    except ValueError:
-        return False
-
-    if length == 10:
-        # Validate it's in reasonable range (after 2001, before 2286)
-        return 1000000000 <= timestamp <= 9999999999
-    elif length == 13:
-        # Milliseconds - validate reasonable range
-        return 1000000000000 <= timestamp <= 9999999999999
-    elif length == 16:
-        # Microseconds - validate reasonable range
-        return 1000000000000000 <= timestamp <= 9999999999999999
-    elif length == 19:
-        # Nanoseconds - validate reasonable range
-        return 1000000000000000000 <= timestamp <= 9999999999999999999
-
-    return False
+    # A leading zero means fewer significant digits, i.e. not a timestamp of that precision
+    return value[0] != "0"
 
 
 def parse_epoch_timestamp(value: str) -> datetime.datetime:
@@ -64,60 +65,42 @@ def parse_epoch_timestamp(value: str) -> datetime.datetime:
         ValueError: If timestamp cannot be parsed
     """
     if not is_epoch_timestamp(value):
-        raise ValueError(f"Invalid epoch timestamp: {value}")
+        raise ValueError("Invalid epoch timestamp")
+
+    ticks = int(value)
+    ticks_per_second = _TICKS_PER_SECOND[len(value)]
+    seconds, remainder = divmod(ticks, ticks_per_second)
+    # datetime resolution is one microsecond; sub-microsecond digits are truncated
+    microseconds = remainder * 1_000_000 // ticks_per_second
 
     try:
-        timestamp = int(value)
-    except ValueError:
-        raise ValueError(f"Invalid epoch timestamp: {value}")
-
-    length = len(value)
-
-    try:
-        if length == 10:
-            # Seconds
-            dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
-        elif length == 13:
-            # Milliseconds
-            dt = datetime.datetime.fromtimestamp(timestamp / 1000, tz=datetime.timezone.utc)
-        elif length == 16:
-            # Microseconds
-            dt = datetime.datetime.fromtimestamp(timestamp / 1000000, tz=datetime.timezone.utc)
-        elif length == 19:
-            # Nanoseconds
-            dt = datetime.datetime.fromtimestamp(timestamp / 1000000000, tz=datetime.timezone.utc)
-        else:
-            raise ValueError(f"Unsupported epoch timestamp length: {length}")
-    except (ValueError, OSError, OverflowError) as e:
-        raise ValueError(f"Invalid epoch timestamp: {value}") from e
-
-    return dt
+        return _EPOCH + datetime.timedelta(seconds=seconds, microseconds=microseconds)
+    except OverflowError as e:
+        raise ValueError("Invalid epoch timestamp") from e
 
 
 def datetime_to_epoch(dt: datetime.datetime, unit: str) -> int:
     """Convert datetime to epoch timestamp.
 
     Args:
-        dt: Datetime object
+        dt: Datetime object (naive datetimes are treated as UTC)
         unit: Target unit ('seconds', 'milliseconds', 'microseconds', 'nanoseconds')
 
     Returns:
-        Epoch timestamp as integer
+        Epoch timestamp as integer (truncated toward zero), computed exactly with integers
     """
-    # Convert to UTC if timezone-aware
-    if dt.tzinfo is not None:
-        epoch_seconds = dt.timestamp()
-    else:
-        # Treat naive datetime as UTC
-        epoch_seconds = dt.replace(tzinfo=datetime.timezone.utc).timestamp()
-
-    if unit == "seconds":
-        return int(epoch_seconds)
-    elif unit == "milliseconds":
-        return int(epoch_seconds * 1000)
-    elif unit == "microseconds":
-        return int(epoch_seconds * 1000000)
-    elif unit == "nanoseconds":
-        return int(epoch_seconds * 1000000000)
-    else:
+    if unit not in ("seconds", "milliseconds", "microseconds", "nanoseconds"):
         raise ValueError(f"Invalid epoch unit: {unit}")
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_UTC)
+
+    delta = dt - _EPOCH
+    total_microseconds = (delta.days * 86_400 + delta.seconds) * 1_000_000 + delta.microseconds
+
+    if unit == "nanoseconds":
+        return total_microseconds * 1_000
+
+    per_unit = _MICROSECONDS_PER_UNIT[unit]
+    quotient = abs(total_microseconds) // per_unit
+    return quotient if total_microseconds >= 0 else -quotient

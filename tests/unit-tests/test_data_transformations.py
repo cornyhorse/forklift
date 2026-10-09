@@ -511,7 +511,8 @@ class TestDataTransformer:
         config = NumericCleaningConfig()
 
         result = self.transformer.apply_numeric_cleaning(column, config, target_type="int64")
-        expected = [123, 456]
+        # "456.78" is not an integer: NULL, no silent truncation
+        expected = [123, None]
 
         assert result.to_pylist() == expected
 

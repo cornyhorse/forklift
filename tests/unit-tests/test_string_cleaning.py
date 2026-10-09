@@ -283,10 +283,9 @@ class TestStringCleaningTransformations:
         result = self.transformer.apply_string_cleaning(column, config)
         result_list = result.to_pylist()
 
-        # Should fix the first case
-        assert (
-            "Don't worry" in result_list[0] or result_list[0] == "Donâ€™t worry"
-        )  # May or may not fix depending on specific encoding
+        # The mojibake is repaired (quote folding is the separate, here disabled, normalize_quotes)
+        assert result_list[0] == "Don\u2019t worry"
+        assert result_list[2] == "Café"
 
     def test_comprehensive_cleaning(self):
         """Test comprehensive string cleaning with all options enabled."""

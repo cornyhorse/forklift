@@ -59,7 +59,9 @@ class FwfFieldValidator:
             "uint64",
             "float32",
             "float64",
+            "double",  # alias of float64
             "bool",
+            "utf8",  # alias of string
             "date32",
             "date64",
             "timestamp",
@@ -196,9 +198,15 @@ class FwfConfigValidator:
         if config.conditional_schemas and not config.flag_column:
             raise ValueError("Flag column must be specified when using conditional schemas")
 
-        # Validate field overlaps for simple fields
+        # Simple fields get the same checks as conditional-schema fields
         if config.fields:
+            for field in config.fields:
+                FwfFieldValidator.validate_field_spec(field)
             FwfSchemaValidator.validate_field_positions(config.fields)
+            FwfSchemaValidator.validate_field_names(config.fields)
+
+        if config.flag_column:
+            FwfFieldValidator.validate_field_spec(config.flag_column)
 
         # Validate conditional schema fields
         if config.conditional_schemas:

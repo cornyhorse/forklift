@@ -22,8 +22,8 @@ class TestFwfUltimateCoverage:
         # Force a TypeError by mocking int() to raise an exception
         with patch("builtins.int", side_effect=TypeError("Mocked error")):
             result = handler.convert_value("123", "int64")
-            # Should return original value when conversion fails
-            assert result == "123"
+            # A failed conversion yields None (the parser records the error)
+            assert result is None
 
     def test_comment_pattern_match(self):
         """Test comment pattern matching (line 335)."""

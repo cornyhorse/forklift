@@ -70,6 +70,7 @@ def create_fwf_config_from_schema(schema_path: Path) -> FwfInputConfig:
                     align=field_spec.get("align", "left"),
                     pad=field_spec.get("pad", " "),
                     parquet_type=field_spec.get("parquetType", "string"),
+                    required=field_spec.get("required", False),
                     trim=field_spec.get("trim", True),
                 )
                 fields.append(field)

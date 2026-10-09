@@ -213,9 +213,9 @@ class TestFwfCoverageCompletion:
         assert handler.convert_value("", "float64") is None
         assert handler.convert_value("", "bool") is None
 
-        # Test invalid conversions that should return original value
-        assert handler.convert_value("invalid", "int64") == "invalid"
-        assert handler.convert_value("invalid", "float64") == "invalid"
+        # Invalid conversions yield None (and are recorded as errors when parsing lines)
+        assert handler.convert_value("invalid", "int64") is None
+        assert handler.convert_value("invalid", "float64") is None
 
     def test_parse_line_with_footer_detection(self):
         """Test parse_line with footer row detection."""
@@ -291,14 +291,16 @@ class TestFwfCoverageCompletion:
 
         try:
             # Mock import error for chardet
-            with patch("builtins.__import__") as mock_import:
+            import builtins
 
-                def import_side_effect(name, *args, **kwargs):
-                    if name == "chardet":
-                        raise ImportError("chardet not available")
-                    return __import__(name, *args, **kwargs)
+            real_import = builtins.__import__
 
-                mock_import.side_effect = import_side_effect
+            def import_side_effect(name, *args, **kwargs):
+                if name in ("chardet", "charset_normalizer"):
+                    raise ImportError("detector not available")
+                return real_import(name, *args, **kwargs)
+
+            with patch("builtins.__import__", side_effect=import_side_effect):
 
                 # Should fall back to utf-8
                 encoding = handler.detect_encoding(temp_path)

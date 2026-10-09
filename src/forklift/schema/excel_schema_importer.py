@@ -3,7 +3,16 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
+
+from .types.data_types import is_valid_parquet_type
+from .validation_utils import (
+    bounds_inverted,
+    regex_error,
+    required_names,
+    resolve_json_types,
+    validate_required,
+)
 
 
 class SchemaValidationError(Exception):
@@ -64,20 +73,27 @@ class ExcelSchemaImporter:
         if isinstance(schema, (str, Path)):
             with open(schema, "r", encoding="utf-8") as f:
                 self.schema: Dict[str, Any] = json.load(f)
+            if not isinstance(self.schema, dict):
+                raise SchemaValidationError(f"{schema}: schema root must be a JSON object")
         elif isinstance(schema, dict):
             self.schema = schema
         else:
             raise TypeError("schema must be path-like or dict")
 
-        # Extract core schema components
-        self.excel_ext: Dict[str, Any] = self.schema.get("x-excel", {})
+        # Extract core schema components (malformed values are kept so validation can report
+        # them; the accessors below never assume more than what was validated)
+        excel_ext = self.schema.get("x-excel", {})
+        self.excel_ext: Dict[str, Any] = excel_ext if isinstance(excel_ext, dict) else {}
         self.field_map: Dict[str, Any] = self.schema.get("properties", {})
-        self.required: List[str] = list(self.schema.get("required", []))
+        self.required: List[str] = required_names(self.schema.get("required", []))
         self.additional_properties: bool = bool(self.schema.get("additionalProperties", True))
 
-        # Extract Excel-specific configurations
-        self.sheets: List[Dict[str, Any]] = self.excel_ext.get("sheets", [])
-        self.nulls: Dict[str, Any] = self.excel_ext.get("nulls", {})
+        # Extract Excel-specific configurations. Both the explicit ``sheets`` list and the single
+        # ``sheet`` form emitted by the schema generator are accepted.
+        self.sheets: List[Dict[str, Any]]
+        self.sheets, self._sheet_errors = self._resolve_sheets(self.excel_ext)
+        nulls = self.excel_ext.get("nulls", {})
+        self.nulls: Dict[str, Any] = nulls if isinstance(nulls, dict) else {}
         self.values_only: bool = self.excel_ext.get("valuesOnly", True)
         self.date_system: str = self.excel_ext.get("dateSystem", "1900")
 
@@ -85,6 +101,45 @@ class ExcelSchemaImporter:
         self.validation_errors: List[str] = []
         if validate:
             self.validate_schema()
+
+    @staticmethod
+    def _resolve_sheets(excel_ext: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Normalise ``x-excel.sheets`` / ``x-excel.sheet`` into a list of sheet definitions.
+
+        The generator writes ``"sheet": <name or 0-based index>`` plus sheet-level ``header`` keys
+        directly under ``x-excel``; that is expanded to a one-element ``sheets`` list.
+        """
+        has_sheets = "sheets" in excel_ext
+        has_sheet = "sheet" in excel_ext
+        if has_sheets and has_sheet:
+            return [], ["x-excel must specify either 'sheets' or 'sheet', not both"]
+        if has_sheets:
+            sheets = excel_ext["sheets"]
+            if not isinstance(sheets, list):
+                return [], ["x-excel.sheets must be an array"]
+            return sheets, []
+        if not has_sheet:
+            return [], []
+
+        sheet = excel_ext["sheet"]
+        if isinstance(sheet, bool):
+            select: Any = None
+        elif isinstance(sheet, str) and sheet:
+            select = {"name": sheet}
+        elif isinstance(sheet, int):
+            select = {"index": sheet}
+        elif isinstance(sheet, dict):
+            select = sheet
+        else:
+            select = None
+        if select is None:
+            return [], ["x-excel.sheet must be a sheet name, a 0-based index or a select object"]
+
+        definition: Dict[str, Any] = {"select": select}
+        for key in ("header", "columns", "dataStartRow"):
+            if key in excel_ext:
+                definition[key] = excel_ext[key]
+        return [definition], []
 
     def validate_schema(self) -> None:
         """Perform comprehensive schema validation and collect all errors."""
@@ -122,11 +177,12 @@ class ExcelSchemaImporter:
         elif self.schema["$schema"] != "https://json-schema.org/draft/2020-12/schema":
             errors.append("Schema must reference JSON Schema 2020-12 standard")
 
-        if not self.schema.get("$id"):
+        schema_id = self.schema.get("$id")
+        if not schema_id:
             errors.append("Missing required '$id' field")
-        elif not self.schema["$id"].startswith(
-            "https://github.com/cornyhorse/forklift/schema-standards/"
-        ):
+        elif not isinstance(schema_id, str):
+            errors.append("'$id' must be a string")
+        elif not schema_id.startswith("https://github.com/cornyhorse/forklift/schema-standards/"):
             errors.append("Schema $id must follow the standard GitHub URL pattern")
 
         if not self.schema.get("title"):
@@ -138,11 +194,29 @@ class ExcelSchemaImporter:
         if not isinstance(self.field_map, dict):
             errors.append("Properties must be a dictionary")
 
+        known_fields = set(self.field_map) if isinstance(self.field_map, dict) else set()
+        known_fields.update(self._sheet_column_names())
+        errors.extend(validate_required(self.schema.get("required"), known_fields))
+
         return errors
+
+    def _sheet_column_names(self) -> List[str]:
+        """Names of the columns declared in the sheet definitions (valid ``required`` targets)."""
+        names = []
+        for sheet in self.sheets:
+            columns = sheet.get("columns") if isinstance(sheet, dict) else None
+            for column in columns if isinstance(columns, list) else []:
+                if isinstance(column, dict) and isinstance(column.get("name"), str):
+                    names.append(column["name"])
+        return names
 
     def _validate_excel_extension(self) -> List[str]:
         """Validate x-excel extension structure and values."""
         errors = []
+
+        if "x-excel" in self.schema and not isinstance(self.schema["x-excel"], dict):
+            errors.append("x-excel must be an object")
+            return errors
 
         if not self.excel_ext:
             errors.append("Missing required 'x-excel' extension")
@@ -157,7 +231,11 @@ class ExcelSchemaImporter:
             errors.append("valuesOnly must be a boolean")
 
         # Validate nulls configuration
-        if self.nulls:
+        if self.excel_ext.get("nulls") is not None and not isinstance(
+            self.excel_ext.get("nulls"), dict
+        ):
+            errors.append("x-excel.nulls must be an object")
+        elif self.nulls:
             if "global" in self.nulls and not isinstance(self.nulls["global"], list):
                 errors.append("x-excel.nulls.global must be a list")
             if "perColumn" in self.nulls and not isinstance(self.nulls["perColumn"], dict):
@@ -167,10 +245,14 @@ class ExcelSchemaImporter:
 
     def _validate_sheets(self) -> List[str]:
         """Validate sheet configurations."""
-        errors = []
+        errors = list(self._sheet_errors)
+        if errors:
+            return errors
 
         if not self.sheets:
-            errors.append("x-excel.sheets array is required and cannot be empty")
+            errors.append(
+                "x-excel.sheets array is required and cannot be empty (or give a single 'sheet')"
+            )
             return errors
 
         for i, sheet in enumerate(self.sheets):
@@ -185,6 +267,7 @@ class ExcelSchemaImporter:
             elif isinstance(select, dict):
                 if not any(key in select for key in ["name", "index", "regex"]):
                     errors.append(f"Sheet {i} select must have 'name', 'index', or 'regex'")
+                errors.extend(self._validate_sheet_select(select, i))
             else:
                 errors.append(f"Sheet {i} select must be a dictionary")
 
@@ -211,6 +294,33 @@ class ExcelSchemaImporter:
             if data_start and not isinstance(data_start, int):
                 errors.append(f"Sheet {i} dataStartRow must be an integer")
 
+            # Validate footer configuration
+            footer = sheet.get("footer")
+            if footer is not None and not isinstance(footer, dict):
+                errors.append(f"Sheet {i} footer must be an object")
+            elif footer and footer.get("pattern") is not None:
+                reason = regex_error(footer["pattern"])
+                if reason:
+                    errors.append(f"Sheet {i} footer.pattern {reason}")
+
+        return errors
+
+    @staticmethod
+    def _validate_sheet_select(select: Dict[str, Any], sheet_index: int) -> List[str]:
+        """Validate the value types of a sheet ``select`` (name / 0-based index / regex)."""
+        errors = []
+        if "name" in select and not (isinstance(select["name"], str) and select["name"]):
+            errors.append(f"Sheet {sheet_index} select.name must be a non-empty string")
+        if "index" in select and (
+            isinstance(select["index"], bool)
+            or not isinstance(select["index"], int)
+            or select["index"] < 0
+        ):
+            errors.append(f"Sheet {sheet_index} select.index must be a non-negative integer")
+        if "regex" in select:
+            reason = regex_error(select["regex"])
+            if reason:
+                errors.append(f"Sheet {sheet_index} select.regex {reason}")
         return errors
 
     def _validate_sheet_columns(
@@ -229,6 +339,8 @@ class ExcelSchemaImporter:
             name = column.get("name")
             if not name:
                 errors.append(f"Sheet {sheet_index} column {j} missing required 'name'")
+            elif not isinstance(name, str):
+                errors.append(f"Sheet {sheet_index} column {j} name must be a string")
 
             position = column.get("position")
             if position is None:
@@ -251,12 +363,14 @@ class ExcelSchemaImporter:
                 else:
                     positions_used.add(position)
 
-            # Validate column type
-            col_type = column.get("type")
-            if col_type:
-                valid_types = {"string", "integer", "number", "boolean", "array", "object"}
-                if col_type not in valid_types:
+            # Validate column type (string, nullable array such as ["string", "null"], anyOf)
+            col_types: List[str] = []
+            if column.get("type") or "anyOf" in column or "oneOf" in column:
+                col_types, invalid_types, problems = resolve_json_types(column)
+                for col_type in invalid_types:
                     errors.append(f"Sheet {sheet_index} column {j} invalid type '{col_type}'")
+                for problem in problems:
+                    errors.append(f"Sheet {sheet_index} column {j}: {problem}")
 
             # Validate Parquet type
             parquet_type = column.get("parquetType")
@@ -267,9 +381,9 @@ class ExcelSchemaImporter:
 
             # Validate format
             format_val = column.get("format")
-            if format_val and col_type == "string":
+            if format_val and "string" in col_types:
                 valid_formats = {"date", "date-time", "email", "uri", "uuid"}
-                if format_val not in valid_formats:
+                if not (isinstance(format_val, str) and format_val in valid_formats):
                     errors.append(f"Sheet {sheet_index} column {j} invalid format '{format_val}'")
 
         return errors
@@ -282,6 +396,8 @@ class ExcelSchemaImporter:
             if not isinstance(sheet, dict):
                 continue  # Skip invalid sheets, will be caught by sheet validation
             columns = sheet.get("columns", [])
+            if not isinstance(columns, list):
+                continue  # reported by sheet validation
             for j, column in enumerate(columns):
                 if isinstance(column, dict):
                     parquet_type = column.get("parquetType")
@@ -294,7 +410,7 @@ class ExcelSchemaImporter:
 
     def _validate_properties(self) -> List[str]:
         """Validate field properties and their constraints."""
-        errors = []
+        errors: List[str] = []
 
         if not isinstance(self.field_map, dict):
             return errors  # This will be caught by JSON schema structure validation
@@ -304,64 +420,71 @@ class ExcelSchemaImporter:
                 errors.append(f"Field '{field_name}' definition must be a dictionary")
                 continue
 
-            field_type = field_def.get("type")
-            valid_types = {"string", "integer", "number", "boolean", "array", "object"}
-            if field_type not in valid_types:
+            # "type" may be a string, a nullable array (["string", "null"]) or an anyOf/oneOf union
+            _, invalid_types, problems = resolve_json_types(field_def)
+            for field_type in invalid_types:
                 errors.append(f"Invalid type '{field_type}' for field '{field_name}'")
+            for problem in problems:
+                errors.append(f"Field '{field_name}': {problem}")
 
-            # Validate constraints based on type
-            if field_type == "integer":
-                minimum = field_def.get("minimum")
-                maximum = field_def.get("maximum")
-                if minimum is not None and not isinstance(minimum, (int, float)):
-                    errors.append(f"Invalid minimum value for integer field '{field_name}'")
-                if maximum is not None and not isinstance(maximum, (int, float)):
-                    errors.append(f"Invalid maximum value for integer field '{field_name}'")
-
-            elif field_type == "string":
-                min_length = field_def.get("minLength")
-                max_length = field_def.get("maxLength")
-                pattern = field_def.get("pattern")
-
-                if min_length is not None and (not isinstance(min_length, int) or min_length < 0):
-                    errors.append(f"Invalid minLength for string field '{field_name}'")
-                if max_length is not None and (not isinstance(max_length, int) or max_length < 0):
-                    errors.append(f"Invalid maxLength for string field '{field_name}'")
-                if pattern is not None:
-                    try:
-                        re.compile(pattern)
-                    except re.error:
-                        errors.append(f"Invalid regex pattern for field '{field_name}'")
-
-            elif field_type == "array":
-                items = field_def.get("items")
-                if items and not isinstance(items, dict):
-                    errors.append(f"Array field '{field_name}' items must be an object")
+            errors.extend(self._validate_constraints(field_name, field_def))
 
         return errors
 
-    def _is_valid_parquet_type(self, parquet_type: str) -> bool:
-        """Check if a Parquet type is valid."""
-        if parquet_type in self.SUPPORTED_PARQUET_TYPES:
-            return True
+    def _validate_constraints(self, field_name: str, field_def: Dict[str, Any]) -> List[str]:
+        """Validate the type-specific constraints of a property (and of its union branches)."""
+        errors: List[str] = []
+        types, _, _ = resolve_json_types(field_def)
 
-        # Check for parameterized types like decimal128(precision,scale)
-        if parquet_type.startswith("decimal128(") and parquet_type.endswith(")"):
-            return True
+        for kind in ("integer", "number"):
+            if kind not in types:
+                continue
+            minimum = field_def.get("minimum")
+            maximum = field_def.get("maximum")
+            if minimum is not None and not isinstance(minimum, (int, float)):
+                errors.append(f"Invalid minimum value for {kind} field '{field_name}'")
+            if maximum is not None and not isinstance(maximum, (int, float)):
+                errors.append(f"Invalid maximum value for {kind} field '{field_name}'")
+            if bounds_inverted(minimum, maximum):
+                errors.append(f"minimum must not exceed maximum for {kind} field '{field_name}'")
 
-        # Check for timestamp with timezone
-        if parquet_type.startswith("timestamp[") and parquet_type.endswith("]"):
-            return True
+        if "string" in types:
+            min_length = field_def.get("minLength")
+            max_length = field_def.get("maxLength")
+            pattern = field_def.get("pattern")
 
-        # Check for list types
-        if parquet_type.startswith("list<") and parquet_type.endswith(">"):
-            return True
+            if min_length is not None and (not isinstance(min_length, int) or min_length < 0):
+                errors.append(f"Invalid minLength for string field '{field_name}'")
+            if max_length is not None and (not isinstance(max_length, int) or max_length < 0):
+                errors.append(f"Invalid maxLength for string field '{field_name}'")
+            if (
+                isinstance(min_length, int)
+                and isinstance(max_length, int)
+                and min_length > max_length
+            ):
+                errors.append(
+                    f"minLength must not exceed maxLength for string field '{field_name}'"
+                )
+            if pattern is not None and regex_error(pattern):
+                errors.append(f"Invalid regex pattern for field '{field_name}'")
 
-        # Check for dictionary types
-        if parquet_type.startswith("dictionary<") and parquet_type.endswith(">"):
-            return True
+        if "array" in types:
+            items = field_def.get("items")
+            if items and not isinstance(items, dict):
+                errors.append(f"Array field '{field_name}' items must be an object")
 
-        return False
+        for key in ("anyOf", "oneOf"):
+            branches = field_def.get(key)
+            if isinstance(branches, list):
+                for branch in branches:
+                    if isinstance(branch, dict):
+                        errors.extend(self._validate_constraints(field_name, branch))
+
+        return errors
+
+    def _is_valid_parquet_type(self, parquet_type: Any) -> bool:
+        """Check if a Parquet type is valid (strict: units and parameters are parsed)."""
+        return is_valid_parquet_type(parquet_type)
 
     def get_field_map(self) -> Dict[str, Any]:
         """Get the field mapping from the schema."""

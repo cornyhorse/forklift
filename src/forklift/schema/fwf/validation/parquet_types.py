@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import List, Set
 
+from ...types.data_types import is_valid_parquet_type, unify_parquet_types
+
 
 class ParquetTypeValidator:
     """Validates Parquet data types."""
@@ -43,40 +45,24 @@ class ParquetTypeValidator:
     def is_valid_parquet_type(cls, parquet_type: str) -> bool:
         """Check if a Parquet type is valid.
 
+        Delegates to the strict parser shared by all schema importers, so units, precision/scale
+        and nested types are checked, not just the type-name prefix.
+
         Args:
             parquet_type: The Parquet type string to validate
 
         Returns:
             True if the type is valid, False otherwise
         """
-        if parquet_type in cls.SUPPORTED_PARQUET_TYPES:
-            return True
-
-        # Check for parameterized types like decimal128(precision,scale)
-        if parquet_type.startswith("decimal128(") and parquet_type.endswith(")"):
-            return True
-
-        # Check for timestamp with timezone
-        if parquet_type.startswith("timestamp[") and parquet_type.endswith("]"):
-            return True
-
-        # Check for duration types
-        if parquet_type.startswith("duration[") and parquet_type.endswith("]"):
-            return True
-
-        # Check for list types
-        if parquet_type.startswith("list<") and parquet_type.endswith(">"):
-            return True
-
-        # Check for dictionary types
-        if parquet_type.startswith("dictionary<") and parquet_type.endswith(">"):
-            return True
-
-        return False
+        return is_valid_parquet_type(parquet_type)
 
     @classmethod
     def are_types_compatible(cls, types: List[str]) -> bool:
         """Check if different Parquet types are compatible for the same logical field.
+
+        Types are compatible when they can be unified into one common type (see
+        ``unify_parquet_types``): all numeric, all decimal, all date/timestamp (same time zone),
+        all duration, or all string/binary types.
 
         Args:
             types: List of Parquet type strings to check for compatibility
@@ -84,48 +70,6 @@ class ParquetTypeValidator:
         Returns:
             True if all types are compatible, False otherwise
         """
-        if len(set(types)) == 1:
+        if not types:
             return True
-
-        # Define compatibility groups
-        numeric_types = {
-            "int8",
-            "int16",
-            "int32",
-            "int64",
-            "uint8",
-            "uint16",
-            "uint32",
-            "uint64",
-            "float32",
-            "double",
-        }
-        temporal_types = {
-            "date32",
-            "date64",
-            "timestamp[s]",
-            "timestamp[ms]",
-            "timestamp[us]",
-            "timestamp[ns]",
-        }
-        duration_types = {"duration[s]", "duration[ms]", "duration[us]", "duration[ns]"}
-        string_types = {"string", "binary"}
-
-        # Check if all types belong to the same compatibility group
-        types_set = set(types)
-
-        if types_set.issubset(numeric_types):
-            return True
-        elif types_set.issubset(temporal_types):
-            return True
-        elif types_set.issubset(duration_types):
-            return True
-        elif types_set.issubset(string_types):
-            return True
-
-        # Special cases for decimal types
-        decimal_types = [t for t in types if t.startswith("decimal128")]
-        if len(decimal_types) == len(types):
-            return True  # All decimal types are compatible
-
-        return False
+        return unify_parquet_types(types) is not None

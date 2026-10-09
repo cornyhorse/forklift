@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from ..validation_utils import required_names, validate_required
 from .conditional import ConditionalSchemaManager, VariantManager
 from .exceptions import SchemaValidationError
 from .fields import FieldMapper, FieldParser, PositionCalculator
@@ -39,15 +40,19 @@ class FwfSchemaImporter:
         if isinstance(schema, (str, Path)):
             with open(schema, "r", encoding="utf-8") as f:
                 self.schema: Dict[str, Any] = json.load(f)
+            if not isinstance(self.schema, dict):
+                raise SchemaValidationError(f"{schema}: schema root must be a JSON object")
         elif isinstance(schema, dict):
             self.schema = schema
         else:
             raise TypeError("schema must be path-like or dict")
 
-        # Extract core schema components
-        self.fwf_ext: Dict[str, Any] = self.schema.get("x-fwf", {})
+        # Extract core schema components (malformed values are replaced by empty ones here and
+        # reported by validation)
+        fwf_ext = self.schema.get("x-fwf", {})
+        self.fwf_ext: Dict[str, Any] = fwf_ext if isinstance(fwf_ext, dict) else {}
         self.field_map: Dict[str, Any] = self.schema.get("properties", {})
-        self.required: List[str] = list(self.schema.get("required", []))
+        self.required: List[str] = required_names(self.schema.get("required", []))
         self.additional_properties: bool = bool(self.schema.get("additionalProperties", True))
 
         # Extract FWF-specific configurations
@@ -59,7 +64,10 @@ class FwfSchemaImporter:
         self.footer_rows: int = self.fwf_ext.get("footerRows", 0)
 
         # Extract conditional schema configurations
-        self.conditional_schemas: Dict[str, Any] = self.fwf_ext.get("conditionalSchemas", {})
+        conditional_schemas = self.fwf_ext.get("conditionalSchemas", {})
+        self.conditional_schemas: Dict[str, Any] = (
+            conditional_schemas if isinstance(conditional_schemas, dict) else {}
+        )
         self.has_conditional_schemas: bool = bool(self.conditional_schemas)
 
         # Initialize conditional schema manager if needed
@@ -92,7 +100,10 @@ class FwfSchemaImporter:
         errors.extend(JsonSchemaValidator.validate(self.schema))
 
         # Validate FWF-specific extension
-        errors.extend(FwfExtensionValidator.validate(self.fwf_ext))
+        if "x-fwf" in self.schema and not isinstance(self.schema["x-fwf"], dict):
+            errors.append("x-fwf must be an object")
+        else:
+            errors.extend(FwfExtensionValidator.validate(self.fwf_ext))
 
         # Validate field configurations
         errors.extend(self._validate_fields())
@@ -103,6 +114,9 @@ class FwfSchemaImporter:
         # Validate properties and data types
         errors.extend(self._validate_properties())
 
+        # Validate the required list against the known properties/fields
+        errors.extend(validate_required(self.schema.get("required"), self._known_field_names()))
+
         self.validation_errors = errors
         if errors:
             error_msg = "Schema validation failed with the following errors:\n" + "\n".join(
@@ -110,12 +124,33 @@ class FwfSchemaImporter:
             )
             raise SchemaValidationError(error_msg)
 
+    def _known_field_names(self) -> List[str]:
+        """Names a ``required`` entry may refer to: properties and the x-fwf fields."""
+        names = list(self.field_map) if isinstance(self.field_map, dict) else []
+        field_lists = [self.fields]
+        if self.has_conditional_schemas:
+            flag_column = self.conditional_schemas.get("flagColumn")
+            field_lists.append([flag_column])
+            variants = self.conditional_schemas.get("schemas")
+            for variant in variants if isinstance(variants, list) else []:
+                if isinstance(variant, dict):
+                    field_lists.append(variant.get("fields"))
+        for field_list in field_lists:
+            for field in field_list if isinstance(field_list, list) else []:
+                if isinstance(field, dict) and isinstance(field.get("name"), str):
+                    names.append(field["name"])
+        return names
+
     def _validate_fields(self) -> List[str]:
         """Validate field configurations."""
+        # Repeated names are only acceptable when case.dedupeNames will disambiguate them
+        options = (
+            {"allow_duplicate_names": True} if self.dedupe_names in ("suffix", "prefix") else {}
+        )
         if self.has_conditional_schemas:
-            return FieldValidator.validate_conditional_fields(self.conditional_schemas)
+            return FieldValidator.validate_conditional_fields(self.conditional_schemas, **options)
         else:
-            return FieldValidator.validate_traditional_fields(self.fields)
+            return FieldValidator.validate_traditional_fields(self.fields, **options)
 
     def _validate_parquet_types(self) -> List[str]:
         """Validate Parquet type mappings in field configurations."""

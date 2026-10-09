@@ -9,7 +9,10 @@ This directory contains shell scripts for common development tasks. All scripts 
 | `run-tests.sh` | Test runner with coverage by default | `--integration`, `--no-coverage`, `--no-html`, `--performance` |
 | `lint.sh` | Code formatting and linting | `--apply-black`, `--black-only`, `--flake8-only` |
 | `manage-databases.sh` | Database container management | `start`, `stop`, `wipe`, `status`, `logs` |
-| `setup-dev.sh` | Development environment bootstrap | No flags (setup script) |
+| `setup-dev.sh` | Development environment bootstrap (`pip install -e ".[all,dev]"` + pre-commit hooks from `.pre-commit-config.yaml`) | No flags (setup script) |
+
+The scripts find the repository from their own location (`git rev-parse --show-toplevel`, falling back to
+the parent of `scripts/`), so they can be started from any directory and any checkout.
 
 ---
 

@@ -15,6 +15,10 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}🚀 Setting up Forklift development environment...${NC}"
 echo ""
 
+# Everything below runs from the repository root (where .pre-commit-config.yaml lives)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || (cd "$SCRIPT_DIR/.." && pwd))"
+
 # Install pre-commit if not already installed
 if ! command -v pre-commit &> /dev/null; then
     echo -e "${YELLOW}📦 Installing pre-commit...${NC}"
@@ -28,9 +32,10 @@ echo -e "${YELLOW}🔧 Installing pre-commit hooks...${NC}"
 pre-commit install
 pre-commit install --hook-type pre-push
 
-# Install development dependencies
+# Install the package (editable) with every optional format plus the development tooling
+# (same set as requirements-dev.txt; the pre-commit hooks are configured in .pre-commit-config.yaml)
 echo -e "${YELLOW}📚 Installing development dependencies...${NC}"
-pip install black isort flake8 pytest pytest-cov
+pip install -e ".[all,dev]"
 
 # Make scripts executable
 echo -e "${YELLOW}🔐 Making scripts executable...${NC}"
@@ -43,7 +48,7 @@ echo -e "${BLUE}🎯 What happens now:${NC}"
 echo -e "  • Black and isort will auto-format your code before each commit"
 echo -e "  • flake8 will check for linting issues before commits"
 echo -e "  • Tests will run before pushes (pre-push hook)"
-echo -e "  • GitHub Actions will also auto-format and test on push"
+echo -e "  • GitHub Actions check formatting on pull requests (and auto-format feature-branch pushes), and run the tests on Python 3.12 and 3.13"
 echo ""
 echo -e "${BLUE}💡 Available developer scripts:${NC}"
 echo -e "  • ${YELLOW}./scripts/run-tests.sh${NC}          # Run tests with coverage by default"

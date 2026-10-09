@@ -13,7 +13,10 @@ Both importers output data in Apache Parquet format for efficient storage and pr
 directory or an `s3://bucket/prefix` URI. They are the public `import_excel()` / `import_sql()`
 functions of `forklift`. Neither runs the CSV row-validation pipeline: there is no `bad_rows.parquet`,
 no manifest and no output-metadata (`output_data_metadata.json`) file, so `include_value_statistics`
-does not apply to them. Excel and SQL are optional extras (`pip install "forklift-etl[excel]"`,
+does not apply to them. They do not apply the schema extensions that `import_csv` runs either
+(`x-transformations`, `x-columnMapping`, `x-calculatedColumns`, `x-validation`, `x-primaryKey`,
+`x-uniqueConstraints`, per-property constraints, `x-rowHash`): nothing under `forklift.engine.importers` or
+`forklift.inputs` reads them. Excel and SQL are optional extras (`pip install "forklift-etl[excel]"`,
 `pip install "forklift-etl[sql]"`).
 
 ## ExcelImporter
@@ -249,6 +252,8 @@ class ProcessingResults:
     output_files: List[str]  # List of generated output file paths
     errors: List[str]        # Failed tables, as "schema.table: ExceptionClass"
 ```
+
+The other fields of `ProcessingResults` (`warnings`, `validation_summary`, `schema_extensions`, ...) exist but stay empty here: they are filled by `import_csv`.
 
 ## Dependencies
 

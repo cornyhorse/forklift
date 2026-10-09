@@ -22,7 +22,7 @@ Raw Data → Importer → Processor → Validated Output
 ```
 
 Processors sit between the raw imported data and the final output, providing:
-- **Schema validation** and constraint checking
+- **Schema validation**, constraint checking and (CSV) the schema's `x-...` extensions through `extensions.py`
 - **Batch processing** for memory-efficient handling of large datasets
 - **Header detection** and column mapping
 - **Error handling** with separate good/bad data streams
@@ -63,6 +63,7 @@ The primary processor implementation for CSV data processing. This is the most c
 - **S3 Integration** - Supports both local files and S3 input/output
 - **Header Detection** - Automatic detection of header rows
 - **Schema Validation** - Validates data against JSON schemas
+- **Schema Extensions** - Runs the schema's `x-...` extensions through the `ExtensionPipeline` (see `extensions.py` below)
 - **Error Separation** - Splits valid and invalid data into separate output streams
 - **Metadata Generation** - Creates comprehensive metadata about processed data
 - **Manifest Creation** - Generates file manifests for output tracking
@@ -71,21 +72,27 @@ The primary processor implementation for CSV data processing. This is the most c
 1. Initialize components (schema processor, header detector, batch processor)
 2. Load schema from file (if provided)
 3. Detect header row location and column names
-4. Process data in streaming batches
-5. Validate each batch against schema
+4. Build the schema extension pipeline (`extensions.py`) from the schema and the header; a misconfigured extension raises `ValueError` here, before any output is written (skipped when `ImportConfig.apply_schema_extensions` is false)
+5. Process data in streaming batches: pre stage (null markers, `x-transformations`), type conversion, `required` check, post stage (mapping, calculated columns, validation, constraints, row hash)
 6. Write valid/invalid data to separate Parquet files
-7. Generate metadata and manifest files
+7. Finalize the pipeline (`errorMode: fail_complete` raises here) and generate metadata and manifest files
 
 **Key Methods:**
 - `process()` - Main processing orchestration method
 - `_detect_header_row()` - Determines header location
 - `_validate_batch()` - Validates data against schema (required columns are looked up by name;
   null or, for text columns, empty values reject the row)
+- `_build_extension_pipeline()` - Builds the `ExtensionPipeline` (`None` when `apply_schema_extensions` is false or there is no schema); copies its warnings and the names of the active extensions into the results
 - `_create_s3_manifest()` / `_create_s3_metadata()` - Output file generation
 
 **Outputs and failure behaviour:**
-- `data.parquet` holds accepted rows; `bad_rows.parquet` holds rejected rows (failed type
-  conversion, missing required value, excess fields in REJECT mode) as strings.
+- `data.parquet` holds accepted rows (with the columns the schema extensions renamed, added or hashed);
+  `bad_rows.parquet` holds rejected rows (failed type conversion, missing required value, excess fields in
+  REJECT mode, and the rows `x-validation`, keys and constraints reject) as strings, with the input's column
+  names. When the pipeline has `x-validation` or a constraint (`ExtensionPipeline.rejects_rows`) the file gets
+  a last column `_rejection_reason` for every row: `type_conversion_failed`, `too_many_fields`,
+  `required_value_missing` or `CODE` / `CODE:column` (several joined by `; `, cut at 200 characters, never a
+  cell value).
   `ProcessingResults.bad_rows_file` names it; it is also still listed in `output_files`.
 - Outputs of an earlier run (those two file names) are removed when a run starts.
 - On any error the partial `data.parquet`/`bad_rows.parquet` is discarded (local file removed,
@@ -93,9 +100,10 @@ The primary processor implementation for CSV data processing. This is the most c
   stripped of row content) and re-raised.
 - A header without data rows produces an empty `data.parquet` carrying the schema.
 - `manifest.json` (file names and sizes) and `metadata.json` (processing summary, including
-  `truncated_rows`) are written next to the data. `output_data_metadata.json` (column statistics
-  from `OutputMetadataCollector`) is written when `create_metadata` is on and at least one row was
-  accepted. It contains no cell values unless `ImportConfig.include_value_statistics=True`, and its
+  `truncated_rows`, and `schema_extensions`, `validation_summary` and `warnings` from the schema
+  extension pipeline) are written next to the data. `output_data_metadata.json` (column statistics
+  from `OutputMetadataCollector`, taken from the final output rows) is written when `create_metadata`
+  is on and at least one row was accepted. It contains no cell values unless `ImportConfig.include_value_statistics=True`, and its
   provenance (`input_path`, `schema_file`, output files) is recorded as base names. The data files
   are finished before it is written, so a failure to write it is logged and appended to
   `results.errors` without raising.
@@ -121,6 +129,12 @@ Columns outside the schema keep Arrow inference on the local path (strings on th
 Arrow's column-count check forces the fallback reader mid-file, rows already delivered are
 skipped and the remaining batches are cast to the schema established so far.
 
+**Hooks for the schema extensions:** `BatchProcessor(..., pre_convert=hook)` calls `hook(batch)` on every
+raw (all-text) batch before the schema types are applied (the pipeline's pre stage: null markers,
+`x-transformations`, hidden row-id / input-hash columns; it must keep the row count). When the reject handler
+is called, `last_reject_reason` says why (`type_conversion_failed` or `too_many_fields`); the CSV processor
+stores it in the `_rejection_reason` column.
+
 **Key Methods:**
 - `create_batch_reader()` - Creates PyArrow streaming reader for local files
 - `create_s3_batch_reader()` - Unified interface for both local and S3 files
@@ -142,6 +156,38 @@ batch and splits off rows that cannot be converted. `parse_arrow_type()` reads
 `x-csv.parquetTypeMapping` type names (`int32`, `decimal128(10,2)`, `timestamp[us]`, ...); a mapping
 entry wins over the JSON `type`/`format`. Nested types and anything text cannot be converted to stay
 `string`. `to_string_batch()` produces the all-string shape of `bad_rows.parquet`.
+`ColumnConverter.mark_nulls(batch)` applies only the null markers (it is `convert`'s first step), so the
+pipeline's pre stage can let `x-transformations` see NULL where the file said `NA`, `-` or `0.00`.
+
+#### `extensions.py`
+`ExtensionPipeline` turns the `x-...` extensions of the schema into the processors of `forklift.processors`
+and runs them on every batch of a CSV import; `build_extension_pipeline(schema, header_names, ...)` creates it
+(or returns `None` when the schema asks for nothing and there is nothing to warn about). Import it from
+`forklift.engine.processors.extensions`.
+
+Order per batch (`pre_convert` runs on the raw text, `post_convert` on the typed rows that passed `required`):
+
+| Stage | Names | Step |
+|---|---|---|
+| PRE | header | hidden row-id / input-hash columns (only if `x-rowHash` asks); `x-csv` null markers; `x-transformations` + automatic `x-special-type` formatting |
+| engine | header | type conversion (`properties`, `x-csv.parquetTypeMapping`), `required` |
+| POST | output | `x-columnMapping`, `x-calculatedColumns`, `x-dataQuality` (findings only), `x-validation` (drops rows), constraints (`x-primaryKey`, `x-uniqueConstraints`, per-property constraints, `x-constraintHandling.errorMode`; drop rows), `x-rowHash` (appends columns, last) |
+
+`post_convert` returns a `PostStageResult` (`kept`, `rejected`, `reasons`): `rejected` has the rows in the
+shape they had when they entered the post stage, so `bad_rows.parquet` keeps the input's column names.
+`finalize()` lets `errorMode: fail_complete` raise after the last batch. Attributes: `warnings` (set when
+building), `summary` (counts of non-valid results per `CODE` / `CODE:column`, at most 200 distinct keys and
+then `OTHER`), `applied` (names of the active extensions), `rejects_rows` (whether `bad_rows.parquet` gets
+`_rejection_reason`). `describe()` is what goes into `metadata.json`.
+
+Building checks the references before anything is written: `x-primaryKey` / `x-uniqueConstraints` naming a
+column the file lacks, or `x-validation` / `x-dataQuality` naming a column that is neither in the file nor
+in `properties`, raise `ValueError`; a column declared in `properties` that this file lacks only adds a
+warning and the rules for it (`x-validation`, `x-dataQuality`, per-property constraints) are left out. Calculated or hash columns that would replace an existing
+column raise `ValueError`, as do header names starting with `__forklift_` when `x-rowHash` or
+`x-transformations` is used. Content that no processor reads is returned as warnings
+(`schema_extensions.unsupported_extension_keys`). Only CSV imports build a pipeline: `import_excel`,
+`import_sql` and `import_fwf` do not.
 
 #### `text_utils.py`
 `read_encoding()` (reads plain UTF-8 as `utf-8-sig` so a byte order mark never sticks to the first
@@ -192,9 +238,11 @@ Manages schema loading, conversion, and validation operations.
 - `get_column_names_from_schema()` - Extracts column names from schema
 - `get_metadata_config()` - Gets metadata generation configuration
 
-**Supported Schema Extensions:**
-- `x-rowHash` - Row hash and primary key configuration
+**Schema extensions read here:**
+- `x-rowHash` - exposed through `get_row_hash_config()` / `has_row_hash_config()` (nothing in the engine calls them; the row hash is built from the schema dictionary by the extension pipeline)
 - `x-metadata-generation` - Metadata collection settings
+
+All other `x-...` processing (transformations, mapping, calculated columns, validation, keys and constraints) is built from `schema_dict` by `extensions.py`.
 
 ### Empty/Placeholder Files
 

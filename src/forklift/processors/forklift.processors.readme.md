@@ -8,6 +8,34 @@ readmes (`transformations`, `calculated_columns`, `schema_validator`, `data_vali
 the modules at the top of the package and `schema_extensions.py`, which builds processors from the `x-*`
 extensions of a schema dictionary.
 
+## Use by `import_csv`
+
+`forklift.import_csv()` (and `forklift ingest --input-kind csv`) builds these processors from the schema and
+runs them on every batch; the pipeline lives in `forklift.engine.processors.extensions`
+(`ExtensionPipeline`). `import_excel`, `import_sql` and `import_fwf` do not use it, and you can run any of the
+processors on your own PyArrow batches as well. The order per batch:
+
+```
+PRE   (header names)  hidden row-id / input-hash columns (only if x-rowHash asks for them)
+                      x-csv null markers -> NULL
+                      SchemaBasedTransformer: x-transformations, then the automatic x-special-type formatting
+engine                type conversion, then the required check
+POST  (output names)  ColumnMapper               x-columnMapping
+                      CalculatedColumnsProcessor x-calculatedColumns
+                      DataQualityProcessor       x-dataQuality (findings only)
+                      DataValidationProcessor    x-validation (drops rows)
+                      ConstraintValidator        x-primaryKey, x-uniqueConstraints, per-property constraints,
+                                                 x-constraintHandling.errorMode (drops rows)
+                      RowHashProcessor           x-rowHash (appends columns, last)
+```
+
+Rows dropped by `DataValidationProcessor` and `ConstraintValidator` are written by the engine to
+`bad_rows.parquet`, with a `_rejection_reason` built from each result's `error_code` and `column_name`
+(`UNIQUE_VIOLATION:id`, `VALIDATION_ERROR:age`); the processors themselves write no files. The engine adds
+the counts of all non-valid results to `ProcessingResults.validation_summary` and the output of
+`unsupported_extension_keys` to `ProcessingResults.warnings`.
+`ImportConfig(apply_schema_extensions=False)` leaves all of this out.
+
 ## Schema extension loaders (`schema_extensions.py`)
 
 | Extension | Loader | Processor |

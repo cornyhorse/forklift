@@ -28,7 +28,7 @@ Output Writers (Parquet, S3, etc.)
 ### Integration Points
 
 - **Schema Generation**: Works with `forklift.api` schema generation functions to validate data against auto-generated schemas
-- **Data Import Pipeline**: Used by `forklift.engine.forklift_core` import functions (`import_csv`, `import_excel`, etc.) for data validation
+- **Data Import Pipeline**: Not used by the import functions: `import_csv` applies the schema's types and `required` columns itself (`engine/processors/type_conversion.py`) and its `x-...` extensions through the processors listed in the [processors readme](../forklift.processors.readme.md); `import_excel` and `import_sql` have their own paths. `SchemaValidator` is for validating Arrow batches you process yourself (the `EnhancedDataProcessor` uses it)
 - **Processor Architecture**: Extends `forklift.processors.base.BaseProcessor` for consistent integration with other processors
 - **Error Handling**: Integrates with Forklift's error handling modes (fail-fast, fail-complete, bad-rows)
 
@@ -332,16 +332,13 @@ validator = create_schema_validator_from_json(schema)
 ```
 
 ### Data Import Pipeline
-Automatically used in Forklift import functions:
+`SchemaValidator` is not part of `import_csv`. The import validates against the schema by itself: column types,
+`required` columns and the `x-...` extensions (see the [processors readme](../forklift.processors.readme.md)):
 ```python
 import forklift
 
-# Schema validation happens automatically
-results = forklift.import_csv(
-    source="data.csv",
-    destination="./output/",
-    schema_path="schema.json"  # Validates against this schema
-)
+results = forklift.import_csv("data.csv", "./output/", schema_file="schema.json")
+print(results.valid_rows, results.invalid_rows)   # rejected rows are in results.bad_rows_file
 ```
 
 This package is essential for ensuring data quality and consistency in the Forklift data processing pipeline, providing comprehensive validation capabilities while maintaining high performance and flexibility.

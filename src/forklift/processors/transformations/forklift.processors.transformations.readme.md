@@ -111,6 +111,46 @@ transformer = ColumnTransformer({
 
 ## Integration with Forklift Framework
 
+### Use by `import_csv`
+
+`import_csv` builds a `SchemaBasedTransformer` from the schema and runs it on the raw text of every batch,
+as the first step after the `x-csv` null markers and before the column types are applied (so
+`"$1,234.50"` can still be turned into `1234.5` by `money_conversion` before the `number` type is
+converted). The step names go under `x-transformations.column_transformations.<column>` using the
+**column names of the file header**, and a step runs only with `"enabled": true` (a step without it is
+skipped silently). Other `x-transformations` blocks (`stringCleaning`, `moneyType`, `columnSpecific`,
+`global_settings`, ...) are not read; the import returns a warning for them. Columns with an
+`x-special-type` are formatted automatically after their explicit steps; an invalid value becomes NULL, the
+row is kept, and `ProcessingResults.validation_summary` counts it as `INVALID_SPECIAL_VALUE:<column>`. A
+configured column that is not in the file only adds a warning. Invalid step options raise `ValueError`
+before any output is written. Only CSV imports use this; see
+[Applying Schema Extensions](../../../../docs/guides/USAGE.md#applying-schema-extensions).
+
+```python
+import json
+
+import pyarrow.parquet as pq
+
+import forklift
+
+schema = {
+    "type": "object",
+    "properties": {"name": {"type": "string"}, "salary": {"type": "number"}},
+    "x-transformations": {"column_transformations": {
+        "name": {"string_cleaning": {"enabled": True, "strip_whitespace": True, "case_transform": "upper"}},
+        "salary": {"money_conversion": {"enabled": True}},
+    }},
+}
+with open("schema.json", "w") as f:
+    json.dump(schema, f)
+with open("data.csv", "w") as f:
+    f.write('name,salary\n"  ann ","$1,234.50"\nbob,($10.00)\n')
+
+results = forklift.import_csv("data.csv", "out", schema_file="schema.json")
+print(pq.read_table("out/data.parquet").to_pylist())
+# [{'name': 'ANN', 'salary': 1234.5}, {'name': 'BOB', 'salary': -10.0}]
+```
+
 ### Processor Pipeline Integration
 Transformation processors integrate seamlessly with the Forklift processor pipeline:
 

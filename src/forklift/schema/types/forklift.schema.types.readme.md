@@ -133,7 +133,7 @@ patterns = converter.detect_numeric_patterns(sample_values)
 - `"uuid"` - RFC 4122 UUID format
 
 ### Custom Format Extensions
-These are the `x-special-type` markers a property can carry (see the special type documentation):
+These are the `x-special-type` markers a property can carry (see the special type documentation). `import_csv` formats and validates a column that carries one of them before its type is applied: a value that is not valid becomes NULL and is counted as `INVALID_SPECIAL_VALUE:<column>` in `ProcessingResults.validation_summary`.
 
 - `"ssn"` - Social Security Number format
 - `"phone"` - Phone number format

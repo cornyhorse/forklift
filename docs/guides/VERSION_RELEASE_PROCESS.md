@@ -10,7 +10,7 @@ Before starting a release, make sure you have:
 - [ ] Write access to the GitHub repository
 - [ ] All changes merged and tested on the release branch (CI green on Python 3.12, 3.13 and 3.14)
 - [ ] Release notes prepared (the `## [Unreleased]` section of `CHANGELOG.md`)
-- [ ] For a manual upload only: PyPI credentials (see [Manual upload](#manual-upload-fallback))
+- [ ] For a manual upload only: PyPI credentials (see [Manual upload](#52-manual-upload-fallback))
 
 Most steps below are shown for a release called `v0.1.4`; substitute your version.
 

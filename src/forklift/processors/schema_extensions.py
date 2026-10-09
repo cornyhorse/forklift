@@ -119,9 +119,6 @@ __all__ = [
 #: Header/source name -> output name; names that already are output names pass through.
 ResolveColumn = Callable[[str], str]
 
-#: Violations kept in memory by the constraint validator (the counts and results are complete).
-_MAX_STORED_VIOLATIONS = 1000
-
 _DOC_KEYS = frozenset({"description", "description_detail"})
 _UNIQUENESS_STRATEGIES = ("first_wins", "last_wins", "fail_on_duplicate", "mark_all_duplicates")
 _PRIMARY_KEY_TYPES = ("single", "composite")
@@ -473,7 +470,8 @@ def build_constraint_validator(
     ``enforceUniqueness`` is false, and not NULL unless ``allowNulls`` is true. A key that is
     defined more than once is checked once.
 
-    The validator keeps at most 1000 violations in memory (``violation_count`` is the total).
+    The validator keeps at most ``ConstraintConfig.max_retained_violations`` violations in memory
+    (default 1000, without cell values); ``violation_count`` is the exact total.
 
     Returns:
         The validator, or ``None`` when nothing has to be checked.
@@ -519,13 +517,14 @@ def build_constraint_validator(
     if not check_constraints and not unique:
         return None
 
+    # the default retention (ConstraintConfig.max_retained_violations) keeps memory bounded and
+    # cell values are not kept in the violations (include_values=False)
     return ConstraintValidator(
         ConstraintConfig(
             error_mode=base.error_mode,
             check_constraints=check_constraints,
             unique_constraints=unique,
-        ),
-        max_stored_violations=_MAX_STORED_VIOLATIONS,
+        )
     )
 
 

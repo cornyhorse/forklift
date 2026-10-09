@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from ._columns import column_index
 from ._regex import compile_pattern
@@ -69,7 +70,7 @@ class ConstraintConfig:
 
     error_mode: ErrorMode = ErrorMode.BAD_ROWS
     check_constraints: Dict[str, Any] = None
-    unique_constraints: List[str] = None
+    unique_constraints: List[Union[str, Tuple[str, ...]]] = None
     foreign_key_constraints: Dict[str, Any] = None
     max_retained_violations: Optional[int] = DEFAULT_MAX_RETAINED_VIOLATIONS
     include_values: bool = False
@@ -136,6 +137,10 @@ class ConstraintValidator(BaseProcessor):
     ``finalize()`` fails in ``fail_complete`` mode regardless of the retention limit.
     A row only registers its unique keys when it violates nothing, so a row rejected for another
     reason never makes a later valid row look like a duplicate.
+
+    Every violation becomes a ``ValidationResult`` with ``row_index`` (position in the batch
+    passed in), ``error_code`` (``<TYPE>_VIOLATION``) and ``column_name`` (the first column of the
+    constraint); messages never contain cell values.
     """
 
     def __init__(self, config: ConstraintConfig):
@@ -257,9 +262,9 @@ class ConstraintValidator(BaseProcessor):
                     )
                 )
 
-            if spec.get("nullable") is False:
-                for row_idx in range(len(column)):
-                    if not column[row_idx].is_valid:
+            if spec.get("nullable") is False and column.null_count:
+                for row_idx, is_null in enumerate(pc.is_null(column).to_pylist()):
+                    if is_null:
                         found.append(
                             ConstraintViolation(
                                 violation_type="null",
@@ -368,15 +373,22 @@ class ConstraintValidator(BaseProcessor):
             raise ValueError(f"Constraint validation failed with {violation_count} violations")
 
 
-def create_constraint_config_from_schema(schema_dict: Dict[str, Any]) -> ConstraintConfig:
+def create_constraint_config_from_schema(
+    schema_dict: Dict[str, Any],
+    *,
+    resolve_column: Optional[Callable[[str], str]] = None,
+) -> ConstraintConfig:
     """Create constraint configuration from schema dictionary.
 
     Reads, per property: ``minimum``/``maximum`` (``<field>_range``), ``enum`` (``<field>_enum``),
     ``pattern`` (``<field>_pattern``), ``minLength``/``maxLength`` (``<field>_length``) and
-    ``x-unique``.
+    ``x-unique``. ``x-primaryKey`` and ``x-uniqueConstraints`` are not read here (see
+    ``forklift.processors.schema_extensions.build_constraint_validator``).
 
     Args:
         schema_dict: Schema dictionary containing constraint definitions
+        resolve_column: Maps a property (header) name to the column name the constraints are
+            checked against; the constraint names keep the property name. Default: identity.
 
     Returns:
         ConstraintConfig instance
@@ -385,10 +397,15 @@ def create_constraint_config_from_schema(schema_dict: Dict[str, Any]) -> Constra
         ValueError: If ``x-constraintHandling.errorMode`` is not a known mode (a typo must not
             silently turn into ``bad_rows``).
     """
+    resolve = resolve_column or (lambda name: name)
+
     # Extract error mode
     error_mode_str = "bad_rows"
-    if "x-constraintHandling" in schema_dict:
-        error_mode_str = schema_dict["x-constraintHandling"].get("errorMode", "bad_rows")
+    handling = schema_dict.get("x-constraintHandling")
+    if handling is not None:
+        if not isinstance(handling, dict):
+            raise ValueError("x-constraintHandling: must be an object")
+        error_mode_str = handling.get("errorMode", "bad_rows")
 
     try:
         error_mode = coerce_error_mode(error_mode_str)
@@ -404,38 +421,46 @@ def create_constraint_config_from_schema(schema_dict: Dict[str, Any]) -> Constra
     foreign_key_constraints = {}
 
     # Look for constraints in the schema properties
-    properties = schema_dict.get("properties", {})
+    properties = schema_dict.get("properties") or {}
     for field_name, field_def in properties.items():
+        if not isinstance(field_def, dict):
+            continue  # e.g. a boolean schema: nothing to check
+        column = None  # resolved when the property has a constraint
+
         # Check for minimum/maximum constraints
         if "minimum" in field_def or "maximum" in field_def:
+            column = column or resolve(field_name)
             check_constraints[f"{field_name}_range"] = {
-                "column": field_name,
+                "column": column,
                 "min": field_def.get("minimum"),
                 "max": field_def.get("maximum"),
             }
 
         if "enum" in field_def:
+            column = column or resolve(field_name)
             check_constraints[f"{field_name}_enum"] = {
-                "column": field_name,
+                "column": column,
                 "enum": field_def["enum"],
             }
 
         if "pattern" in field_def:
+            column = column or resolve(field_name)
             check_constraints[f"{field_name}_pattern"] = {
-                "column": field_name,
+                "column": column,
                 "pattern": field_def["pattern"],
             }
 
         if "minLength" in field_def or "maxLength" in field_def:
+            column = column or resolve(field_name)
             check_constraints[f"{field_name}_length"] = {
-                "column": field_name,
+                "column": column,
                 "minLength": field_def.get("minLength"),
                 "maxLength": field_def.get("maxLength"),
             }
 
         # Check for unique constraints
         if field_def.get("x-unique", False):
-            unique_constraints.append(field_name)
+            unique_constraints.append(column or resolve(field_name))
 
     return ConstraintConfig(
         error_mode=error_mode,

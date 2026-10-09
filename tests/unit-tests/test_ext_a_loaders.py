@@ -78,9 +78,13 @@ OUTPUT_NAME_CONFIGS = {
         naming_convention="snake_case",
         custom_transform=lambda name: "c_" + name,
     ),
-    "drop_unmapped": dict(explicit_mappings={"A": "Alpha", "StateID": "StateID"}, drop_unmapped=True),
+    "drop_unmapped": dict(
+        explicit_mappings={"A": "Alpha", "StateID": "StateID"}, drop_unmapped=True
+    ),
     "drop_unmapped_with_convention": dict(
-        explicit_mappings={"LastName": "LastName"}, naming_convention="snake_case", drop_unmapped=True
+        explicit_mappings={"LastName": "LastName"},
+        naming_convention="snake_case",
+        drop_unmapped=True,
     ),
     "drop_everything": dict(drop_unmapped=True),
     "nothing": dict(),
@@ -304,9 +308,7 @@ class TestBuildColumnMapper:
             }
         )
         # case sensitive: two different headers
-        assert build_column_mapper(
-            {"x-columnMapping": {"explicitMappings": {"A": "x", "a": "y"}}}
-        )
+        assert build_column_mapper({"x-columnMapping": {"explicitMappings": {"A": "x", "a": "y"}}})
 
     def test_non_dict_schema_raises(self):
         with pytest.raises(ValueError, match="schema must be a dictionary"):
@@ -335,7 +337,10 @@ class TestBuildConstraintValidatorNone:
         assert build_constraint_validator(schema) is None
 
     def test_error_mode_alone_gives_none(self):
-        assert build_constraint_validator({"x-constraintHandling": {"errorMode": "fail_fast"}}) is None
+        assert (
+            build_constraint_validator({"x-constraintHandling": {"errorMode": "fail_fast"}})
+            is None
+        )
 
     def test_invalid_error_mode_raises_even_without_constraints(self):
         with pytest.raises(ValueError, match="errorMode"):
@@ -399,9 +404,7 @@ class TestPrimaryKey:
         assert rejected(results) == [(1, "id", "NULL_VIOLATION"), (3, "id", "NULL_VIOLATION")]
 
     def test_null_in_any_part_of_a_composite_key_is_rejected(self):
-        validator = build_constraint_validator(
-            pk_schema(columns=["a", "b"], type="composite")
-        )
+        validator = build_constraint_validator(pk_schema(columns=["a", "b"], type="composite"))
         batch = make_batch(a=[1, None, 2, 3], b=["x", "y", None, "z"])
 
         kept, results = validator.process_batch(batch)
@@ -410,9 +413,7 @@ class TestPrimaryKey:
         assert rejected(results) == [(1, "a", "NULL_VIOLATION"), (2, "b", "NULL_VIOLATION")]
 
     def test_a_null_row_does_not_claim_its_other_key_parts(self):
-        validator = build_constraint_validator(
-            pk_schema(columns=["a", "b"], type="composite")
-        )
+        validator = build_constraint_validator(pk_schema(columns=["a", "b"], type="composite"))
         validator.process_batch(make_batch(a=[1], b=[None]))
         kept, results = validator.process_batch(make_batch(a=[1], b=["x"]))
         assert values(kept, "a") == [1]
@@ -574,7 +575,10 @@ class TestDeduplication:
 
     def test_x_unique_property_repeated(self):
         schema = pk_schema()
-        schema["properties"] = {"id": {"type": "integer", "x-unique": True}, "e": {"x-unique": True}}
+        schema["properties"] = {
+            "id": {"type": "integer", "x-unique": True},
+            "e": {"x-unique": True},
+        }
         schema["x-uniqueConstraints"] = [{"columns": ["e"]}]
         validator = build_constraint_validator(schema)
         assert validator.config.unique_constraints == ["id", "e"]
@@ -599,13 +603,18 @@ class TestConstraintHandling:
         schema["x-constraintHandling"] = {"errorMode": mode}
         assert build_constraint_validator(schema).config.error_mode == expected
 
+    def test_error_mode_is_case_insensitive(self):
+        schema = pk_schema()
+        schema["x-constraintHandling"] = {"errorMode": "FAIL_FAST"}
+        assert build_constraint_validator(schema).config.error_mode == ErrorMode.FAIL_FAST
+
     def test_default_error_mode_is_bad_rows(self):
         assert build_constraint_validator(pk_schema()).config.error_mode == ErrorMode.BAD_ROWS
         schema = pk_schema()
-        schema["x-constraintHandling"] = {"errorMode": None, "description": "d"}
+        schema["x-constraintHandling"] = {"description": "no errorMode"}
         assert build_constraint_validator(schema).config.error_mode == ErrorMode.BAD_ROWS
 
-    @pytest.mark.parametrize("mode", ["ignore", "transform", "bad_row", "FAIL_FAST", "", 5, ["x"]])
+    @pytest.mark.parametrize("mode", ["ignore", "transform", "bad_row", "", None, 5, ["x"]])
     def test_invalid_error_mode_names_the_key_and_the_valid_values(self, mode):
         schema = pk_schema()
         schema["x-constraintHandling"] = {"errorMode": mode}
@@ -681,8 +690,8 @@ class TestPropertyConstraints:
         )
         kept, results = validator.process_batch(batch)
 
-        assert kept.num_rows == 1  # only the first row (and the all-null row 3) pass
-        assert values(kept, "age") == [10]
+        # rows 0 and 3 (all NULL, NULLs pass the value constraints) pass
+        assert values(kept, "age") == [10, None]
         assert {(r.row_index, r.column_name) for r in results} == {
             (1, "age"),
             (2, "age"),
@@ -690,7 +699,7 @@ class TestPropertyConstraints:
             (1, "code"),
             (1, "name"),
             (2, "name"),
-        } - {(2, "name")} | {(2, "name")}
+        }
         assert all(r.error_code.endswith("_VIOLATION") for r in results)
 
     def test_null_values_pass_the_value_constraints(self):
@@ -713,13 +722,11 @@ class TestPropertyConstraints:
         import datetime
 
         batch = make_batch(
-            d=pa.array(
-                [datetime.date(2019, 12, 31), datetime.date(2020, 6, 1)], type=pa.date32()
-            )
+            d=pa.array([datetime.date(2019, 12, 31), datetime.date(2020, 6, 1)], type=pa.date32())
         )
         kept, results = validator.process_batch(batch)
         assert kept.num_rows == 1
-        assert rejected(results) == [(0, "d", "MIN_VALUE_VIOLATION")]
+        assert rejected(results) == [(0, "d", "RANGE_VIOLATION")]
 
     @pytest.mark.parametrize(
         "definition, message",
@@ -781,7 +788,11 @@ class TestResolveColumn:
         validator = build_constraint_validator(schema, resolve_column=self.resolve)
 
         config = validator.config
-        assert config.unique_constraints == [("order_id", "line_no"), ("order_id", "email"), "email"]
+        assert config.unique_constraints == [
+            ("order_id", "line_no"),
+            ("order_id", "email"),
+            "email",
+        ]
         assert config.check_constraints["Age_range"]["column"] == "age"
         assert config.check_constraints["primary_key_order_id_not_null"]["column"] == "order_id"
         assert config.check_constraints["primary_key_line_no_not_null"]["column"] == "line_no"
@@ -796,7 +807,7 @@ class TestResolveColumn:
         assert values(kept, "order_id") == [1]
         assert rejected(results) == [
             (1, "order_id", "UNIQUE_VIOLATION"),
-            (2, "age", "MIN_VALUE_VIOLATION"),
+            (2, "age", "RANGE_VIOLATION"),
             (3, "order_id", "NULL_VIOLATION"),
         ]
 
@@ -834,21 +845,20 @@ class TestConstraintValidatorBehaviour:
         _, results = validator.process_batch(batch)
 
         assert results
-        for result in results:
-            assert "secret" not in (result.error_message or "")
-            assert "9" not in "".join(c for c in result.error_message if c.isdigit()) or True
         assert not any("secret" in r.error_message for r in results)
+        assert not any(str(n) in r.error_message for r in results for n in (99, 98, 97))
+        assert all(v.values == [] for v in validator.violations)
 
     def test_results_carry_row_index_code_and_column_for_every_rejected_row(self):
         schema = pk_schema()
         schema["properties"] = {"age": {"minimum": 0}}
         validator = build_constraint_validator(schema)
-        batch = make_batch(id=[1, 2, 2, None, 5], age=[1, -1, 1, 1, 1])
+        batch = make_batch(id=[1, 2, 3, 3, None, 6], age=[1, -1, 1, 1, 1, 1])
 
         kept, results = validator.process_batch(batch)
 
         rejected_rows = {r.row_index for r in results}
-        assert rejected_rows == {1, 2, 3}
+        assert rejected_rows == {1, 3, 4}
         assert kept.num_rows == batch.num_rows - len(rejected_rows)
         for result in results:
             assert result.is_valid is False
@@ -869,39 +879,26 @@ class TestConstraintValidatorBehaviour:
         assert total_results == 1200  # every batch is reported completely
         assert validator.violation_count == 1200
         assert len(validator.violations) == 1000  # but only 1000 are kept in memory
+        assert validator.violations_truncated is True
         assert len(validator.batch_violations) == 20
 
-    def test_unlimited_storage_is_still_the_default_of_the_class(self):
-        validator = ConstraintValidator(
-            ConstraintConfig(check_constraints={"n": {"column": "id", "nullable": False}})
-        )
-        batch = pa.RecordBatch.from_arrays([pa.array([None] * 5, type=pa.int64())], names=["id"])
-        for _ in range(3):
-            validator.process_batch(batch)
-        assert len(validator.violations) == 15 == validator.violation_count
+    def test_loaded_validator_keeps_no_cell_values_and_bounded_violations(self):
+        validator = build_constraint_validator(pk_schema())
+        config = validator.config
+        assert config.include_values is False
+        assert config.max_retained_violations == 1000
 
-    def test_max_stored_violations_validation_and_reset(self):
-        config = ConstraintConfig(check_constraints={"n": {"column": "id", "nullable": False}})
-        with pytest.raises(ValueError, match="max_stored_violations"):
-            ConstraintValidator(config, max_stored_violations=-1)
+        validator.process_batch(make_batch(id=[1, 1, None]))
+        assert validator.violation_count == 2
+        assert [v.values for v in validator.violations] == [[], []]
+        assert validator.violations_truncated is False
 
-        validator = ConstraintValidator(config, max_stored_violations=0)
-        batch = pa.RecordBatch.from_arrays([pa.array([None, None], type=pa.int64())], names=["id"])
-        validator.process_batch(batch)
-        assert validator.violations == [] and validator.violation_count == 2
-        validator.reset()
-        assert validator.violation_count == 0
-
-    def test_finalize_counts_violations_that_were_not_stored(self):
-        config = ConstraintConfig(
-            error_mode=ErrorMode.FAIL_COMPLETE,
-            check_constraints={"n": {"column": "id", "nullable": False}},
-        )
-        validator = ConstraintValidator(config, max_stored_violations=0)
-        validator.process_batch(
-            pa.RecordBatch.from_arrays([pa.array([None], type=pa.int64())], names=["id"])
-        )
-        with pytest.raises(ValueError, match="1 violations"):
+    def test_finalize_counts_every_violation(self):
+        schema = pk_schema()
+        schema["x-constraintHandling"] = {"errorMode": "fail_complete"}
+        validator = build_constraint_validator(schema)
+        validator.process_batch(make_batch(id=[None, None, 1, 1]))
+        with pytest.raises(ValueError, match="3 violations"):
             validator.finalize()
 
     def test_null_check_flags_exactly_the_null_rows(self):
@@ -1018,10 +1015,18 @@ class TestFieldRules:
         )
         processor = build_data_validator(schema)
         batch = make_batch(
-            age=[10, -1, 151, 20, 30, 40, 50],
+            age=[10, 0, 151, 20, 30, 40, 50],
             name=["Alice", "Bob", "Carl", None, "x", "lower", "Eve"],
             cat=["A", "b", "B", "A", "A", "A", "Z"],
-            born=["2000-01-01", "1999-12-31", "1800-01-01", "nope", "2000-01-01", "2000-01-01", None],
+            born=[
+                "2000-01-01",
+                "1999-12-31",
+                "1800-01-01",
+                "nope",
+                "2000-01-01",
+                "2000-01-01",
+                None,
+            ],
         )
 
         kept, results = processor.process_batch(batch)
@@ -1036,7 +1041,6 @@ class TestFieldRules:
             (5, "name", "VALIDATION_ERROR"),
             (6, "cat", "VALIDATION_ERROR"),
         ]
-        assert [r.row_index for r in results if r.row_index == 1] == []
 
     def test_every_error_of_a_rejected_row_has_row_index_code_and_column(self):
         schema = validation_schema(
@@ -1049,12 +1053,12 @@ class TestFieldRules:
         )
         processor = build_data_validator(schema)
         _, results = processor.process_batch(
-            make_batch(a=[None, "x", "y"], b=[1, 1, 2], c=[0, 5, 5])
+            make_batch(a=[None, "x", "y"], b=[7, 8, 8], c=[0, 5, 5])
         )
         assert rejected(results) == [
             (0, "a", "VALIDATION_ERROR"),
             (0, "c", "VALIDATION_ERROR"),
-            (1, "b", "VALIDATION_ERROR"),
+            (2, "b", "VALIDATION_ERROR"),
         ]
         assert all(r.is_valid is False and r.error_message for r in results)
 
@@ -1139,14 +1143,20 @@ class TestFieldRules:
             ),
             ({"range": {"min": 1, "inclusive": "yes"}}, r"f\.range\.inclusive"),
             ({"stringValidation": "abc"}, r"f\.stringValidation: must be an object"),
-            ({"stringValidation": {"minLength": -1}}, r"f\.stringValidation\.minLength: must be >= 0"),
+            (
+                {"stringValidation": {"minLength": -1}},
+                r"f\.stringValidation\.minLength: must be >= 0",
+            ),
             ({"stringValidation": {"maxLength": 1.5}}, r"f\.stringValidation\.maxLength"),
             ({"stringValidation": {"maxLength": True}}, r"f\.stringValidation\.maxLength"),
             (
                 {"stringValidation": {"minLength": 5, "maxLength": 2}},
                 r"f\.stringValidation: minLength \(5\) is greater than maxLength \(2\)",
             ),
-            ({"stringValidation": {"pattern": 3}}, r"f\.stringValidation\.pattern: must be a string"),
+            (
+                {"stringValidation": {"pattern": 3}},
+                r"f\.stringValidation\.pattern: must be a string",
+            ),
             (
                 {"stringValidation": {"pattern": "[unclosed"}},
                 r"f\.stringValidation\.pattern: Invalid regular expression",
@@ -1157,15 +1167,30 @@ class TestFieldRules:
             ),
             ({"stringValidation": {"allowEmpty": "no"}}, r"f\.stringValidation\.allowEmpty"),
             ({"enumValidation": {}}, None),  # empty block: nothing configured
-            ({"enumValidation": {"caseSensitive": False}}, r"f\.enumValidation\.allowedValues: is required"),
-            ({"enumValidation": {"allowedValues": []}}, r"f\.enumValidation\.allowedValues: must not be empty"),
-            ({"enumValidation": {"allowedValues": "AB"}}, r"f\.enumValidation\.allowedValues: must be a list"),
+            (
+                {"enumValidation": {"caseSensitive": False}},
+                r"f\.enumValidation\.allowedValues: is required",
+            ),
+            (
+                {"enumValidation": {"allowedValues": []}},
+                r"f\.enumValidation\.allowedValues: must not be empty",
+            ),
+            (
+                {"enumValidation": {"allowedValues": "AB"}},
+                r"f\.enumValidation\.allowedValues: must be a list",
+            ),
             (
                 {"enumValidation": {"allowedValues": ["a"], "caseSensitive": "yes"}},
                 r"f\.enumValidation\.caseSensitive",
             ),
-            ({"dateValidation": {"minDate": 20200101}}, r"f\.dateValidation\.minDate: must be a date string"),
-            ({"dateValidation": {"minDate": "not a date"}}, r"f\.dateValidation\.minDate: is not a valid date"),
+            (
+                {"dateValidation": {"minDate": 20200101}},
+                r"f\.dateValidation\.minDate: must be a date string",
+            ),
+            (
+                {"dateValidation": {"minDate": "not a date"}},
+                r"f\.dateValidation\.minDate: is not a valid date",
+            ),
             (
                 {"dateValidation": {"minDate": "2021-01-01", "maxDate": "2020-01-01"}},
                 r"f\.dateValidation: minDate is after maxDate",
@@ -1189,13 +1214,19 @@ class TestFieldRules:
             build_data_validator({"x-validation": []})
         with pytest.raises(ValueError, match=r"x-validation\.fieldValidations: must be an object"):
             build_data_validator({"x-validation": {"fieldValidations": [{"field": "a"}]}})
-        with pytest.raises(ValueError, match=r"x-validation\.crossFieldValidations: must be a list"):
+        with pytest.raises(
+            ValueError, match=r"x-validation\.crossFieldValidations: must be a list"
+        ):
             build_data_validator({"x-validation": {"crossFieldValidations": {}}})
-        with pytest.raises(ValueError, match=r"x-validation\.globalValidations: must be an object"):
+        with pytest.raises(
+            ValueError, match=r"x-validation\.globalValidations: must be an object"
+        ):
             build_data_validator({"x-validation": {"globalValidations": []}})
         with pytest.raises(ValueError, match=r"x-validation\.badRowsHandling: must be an object"):
             build_data_validator({"x-validation": {"badRowsHandling": True}})
-        with pytest.raises(ValueError, match=r"x-validation\.uniquenessHandling: must be an object"):
+        with pytest.raises(
+            ValueError, match=r"x-validation\.uniquenessHandling: must be an object"
+        ):
             build_data_validator({"x-validation": {"uniquenessHandling": "first_wins"}})
 
 
@@ -1323,7 +1354,7 @@ class TestBadRowsHandling:
         assert list(tmp_path.iterdir()) == []
         assert not os.path.exists("my_bad_rows") and not os.path.exists("bad_rows")
 
-    @pytest.mark.parametrize("percent", [-1, 100.5, "10", True, None.__class__, [10]])
+    @pytest.mark.parametrize("percent", [-1, 100.5, "10", True, {}, [10]])
     def test_invalid_percent_raises(self, percent):
         schema = validation_schema(self.FIELDS, badRowsHandling={"maxBadRowsPercent": percent})
         with pytest.raises(ValueError, match=r"x-validation\.badRowsHandling\.maxBadRowsPercent"):
@@ -1471,7 +1502,10 @@ class TestBuildQualityProcessor:
     def test_reports_violations_and_does_not_change_the_batch(self):
         schema = {
             "x-dataQuality": {
-                "fieldSpecificRules": {"age": {"min": 0, "max": 150}, "name": {"pattern": "^[A-Z]"}},
+                "fieldSpecificRules": {
+                    "age": {"min": 0, "max": 150},
+                    "name": {"pattern": "^[A-Z]"},
+                },
                 "fieldQualityRules": {"name": {"parameters": {"min_length": 2, "max_length": 5}}},
             }
         }
@@ -1535,15 +1569,27 @@ class TestBuildQualityProcessor:
             ({"enabled": "yes"}, r"x-dataQuality\.enabled"),
             ({"fieldSpecificRules": []}, r"x-dataQuality\.fieldSpecificRules: must be an object"),
             ({"fieldSpecificRules": {"a": 5}}, r"x-dataQuality\.fieldSpecificRules\.a: must be"),
-            ({"fieldSpecificRules": {"a": {"min": "0"}}}, r"fieldSpecificRules\.a\.min: must be a number"),
+            (
+                {"fieldSpecificRules": {"a": {"min": "0"}}},
+                r"fieldSpecificRules\.a\.min: must be a number",
+            ),
             ({"fieldSpecificRules": {"a": {"max": True}}}, r"fieldSpecificRules\.a\.max"),
             (
                 {"fieldSpecificRules": {"a": {"min": 5, "max": 1}}},
                 r"fieldSpecificRules\.a: min_value \(5\) is greater than max_value \(1\)",
             ),
-            ({"fieldSpecificRules": {"a": {"pattern": "[x"}}}, r"fieldSpecificRules\.a\.pattern: Invalid"),
-            ({"fieldSpecificRules": {"a": {"pattern": "^(a+)+$"}}}, r"fieldSpecificRules\.a\.pattern"),
-            ({"fieldQualityRules": {"a": {"parameters": []}}}, r"fieldQualityRules\.a\.parameters: must be an object"),
+            (
+                {"fieldSpecificRules": {"a": {"pattern": "[x"}}},
+                r"fieldSpecificRules\.a\.pattern: Invalid",
+            ),
+            (
+                {"fieldSpecificRules": {"a": {"pattern": "^(a+)+$"}}},
+                r"fieldSpecificRules\.a\.pattern",
+            ),
+            (
+                {"fieldQualityRules": {"a": {"parameters": []}}},
+                r"fieldQualityRules\.a\.parameters: must be an object",
+            ),
             (
                 {"fieldQualityRules": {"a": {"parameters": {"min_length": -1}}}},
                 r"fieldQualityRules\.a\.parameters\.min_length: must be >= 0",
@@ -1585,11 +1631,13 @@ class TestRowAttribution:
             bad_rows_config=BadRowsConfig(max_bad_rows_percent=100),
         )
         processor = DataValidationProcessor(config)
-        _, results = processor.process_batch(make_batch(a=[None, "x"], b=[7, 7], c=[0, 5]))
+        _, results = processor.process_batch(
+            make_batch(a=[None, "x", "y"], b=[7, 8, 8], c=[0, 5, 5])
+        )
         assert rejected(results) == [
             (0, "a", "VALIDATION_ERROR"),
             (0, "c", "VALIDATION_ERROR"),
-            (1, "b", "VALIDATION_ERROR"),
+            (2, "b", "VALIDATION_ERROR"),
         ]
 
     @pytest.mark.parametrize(
@@ -1803,7 +1851,9 @@ class TestUnsupportedExtensionKeys:
             },
             "x-dataQuality": {
                 "enabled": True,
-                "fieldSpecificRules": {"a": {"min": 1, "max": 2, "pattern": "x", "required": False}},
+                "fieldSpecificRules": {
+                    "a": {"min": 1, "max": 2, "pattern": "x", "required": False}
+                },
                 "fieldQualityRules": {
                     "b": {
                         "parameters": {
@@ -2083,7 +2133,10 @@ class TestUnsupportedExtensionKeys:
                 "fieldValidations": {"a": 5, "b": {"onViolation": "x", "range": 3}},
                 "crossFieldValidations": 3,
             },
-            "x-dataQuality": {"fieldSpecificRules": [1], "fieldQualityRules": {"a": 1, "b": {"parameters": 2}}},
+            "x-dataQuality": {
+                "fieldSpecificRules": [1],
+                "fieldQualityRules": {"a": 1, "b": {"parameters": 2}},
+            },
         }
         assert unsupported_extension_keys(schema) == [
             "x-pii is documentation only: no masking is applied",
@@ -2121,7 +2174,9 @@ class TestUnsupportedExtensionKeys:
         assert any(w.startswith("x-validation.crossFieldValidations ") for w in warnings)
         assert any(w.startswith("x-validation.globalValidations ") for w in warnings)
         assert any(w.startswith("x-validation.badRowsHandling.outputPath ") for w in warnings)
-        assert any(w.startswith("x-calculatedColumns.partitionColumns is recorded only") for w in warnings)
+        assert any(
+            w.startswith("x-calculatedColumns.partitionColumns is recorded only") for w in warnings
+        )
         assert any(w.startswith("x-dataQuality.completeness ") for w in warnings)
         # what the loaders do apply is not reported
         assert not any(".onViolation" in w for w in warnings)  # all "bad_rows" = what happens
@@ -2133,11 +2188,12 @@ class TestUnsupportedExtensionKeys:
 # ============================================================================ end to end
 
 
-class TestShippedStandard:
-    @pytest.fixture(scope="class")
-    def schema(self):
-        return json.loads(STANDARD_CSV.read_text())
+@pytest.fixture(scope="module")
+def schema():
+    return json.loads(STANDARD_CSV.read_text())
 
+
+class TestShippedStandard:
     def test_every_loader_accepts_the_standard(self, schema):
         mapper = build_column_mapper(schema)
         assert mapper.config.naming_convention == "snake_case"
@@ -2162,7 +2218,10 @@ class TestShippedStandard:
             return outputs.get(name) or name
 
         validator = build_constraint_validator(schema, resolve_column=resolve)
-        assert ("name", "birth_date") in validator.config.unique_constraints  # already output names
+        assert (
+            "name",
+            "birth_date",
+        ) in validator.config.unique_constraints  # already output names
 
 
 class TestEngineLikePipeline:
@@ -2201,7 +2260,11 @@ class TestEngineLikePipeline:
         )
 
         mapper = build_column_mapper(schema)
-        resolve = lambda name: mapper.output_names(batch.schema.names).get(name) or name  # noqa
+        outputs = mapper.output_names(batch.schema.names)
+
+        def resolve(name):
+            return outputs.get(name) or name
+
         quality = build_quality_processor(schema, resolve_column=resolve)
         validator = build_data_validator(schema, resolve_column=resolve)
         constraints = build_constraint_validator(schema, resolve_column=resolve)
@@ -2210,8 +2273,7 @@ class TestEngineLikePipeline:
         assert mapped.schema.names == ["customer_id", "age", "email"]
 
         mapped, quality_results = quality.process_batch(mapped)
-        assert rejected(quality_results) == [(5, "age", "MIN_VALUE_VIOLATION")] or True
-        assert {(r.row_index, r.column_name) for r in quality_results} >= {(5, "age")}
+        assert {(r.row_index, r.column_name) for r in quality_results} == {(5, "age")}
         assert mapped.num_rows == 6  # report only
 
         valid, validation_results = validator.process_batch(mapped)
@@ -2223,6 +2285,6 @@ class TestEngineLikePipeline:
         assert {(r.row_index, r.error_code) for r in constraint_results} == {
             (2, "UNIQUE_VIOLATION"),
             (3, "NULL_VIOLATION"),
-            (4, "MIN_VALUE_VIOLATION"),
+            (4, "RANGE_VIOLATION"),
         }
         assert values(final, "customer_id") == [1, 2]

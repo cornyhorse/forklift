@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 from unittest.mock import patch
 
@@ -203,3 +204,71 @@ class TestSeparatorFactoriesUseTheDerivedPairing:
         clean = apply_numeric_cleaning(decimal_separator=",")
 
         assert clean(pa.array(["3,14"])).to_pylist() == [3.14]
+
+
+class TestCalculatedColumnsDocumentationExamples:
+    """The documented expressions must keep working; every JSON block must load and compile."""
+
+    DOC = (
+        pytest.importorskip("pathlib").Path(__file__).resolve().parents[2]
+        / "docs"
+        / "schemas"
+        / "X_CALCULATED_COLUMNS_DOCUMENTATION.md"
+    )
+
+    def _blocks(self):
+        import re
+
+        return [
+            json.loads(b) for b in re.findall(r"```json\n(.*?)\n```", self.DOC.read_text(), re.S)
+        ]
+
+    def test_every_documented_x_calculated_columns_block_builds_a_processor(self):
+        from forklift.processors.calculated_columns_factory import (
+            create_calculated_columns_processor_from_schema,
+        )
+
+        built = 0
+        for block in self._blocks():
+            config = block.get("x-calculatedColumns", block)
+            if not any(k in config for k in ("constants", "expressions", "calculated")):
+                continue
+            assert create_calculated_columns_processor_from_schema(config) is not None
+            built += 1
+        assert built >= 5
+
+    def test_documented_expressions_evaluate(self):
+        from forklift.processors.calculated_columns.evaluator import ExpressionEvaluator
+
+        batch = pa.RecordBatch.from_pydict(
+            {
+                "street": ["1 Main St"],
+                "city": ["Springfield"],
+                "state": ["IL"],
+                "zip_code": ["62701"],
+                "order_total": [200.0],
+                "discount_percent": [10],
+                "annual_spend": [7000],
+                "nickname": [None],
+                "first_name": ["Ann"],
+                "signup_date": [datetime.date(2020, 1, 1)],
+            }
+        )
+        evaluator = ExpressionEvaluator()
+
+        def run(expr):
+            return evaluator.evaluate_expression(batch, 0, expr)
+
+        assert run("street + ', ' + city + ', ' + state + ' ' + zip_code") == (
+            "1 Main St, Springfield, IL 62701"
+        )
+        assert run("order_total * (discount_percent / 100.0)") == 20.0
+        assert (
+            run(
+                "'Gold' if annual_spend >= 10000 else ('Silver' if annual_spend >= 5000 else 'Bronze')"
+            )
+            == "Silver"
+        )
+        assert run("coalesce(nickname, first_name)") == "Ann"
+        assert run("year(today()) - year(signup_date)") >= 5
+        assert run("length(trim(zip_code)) == 5") is True

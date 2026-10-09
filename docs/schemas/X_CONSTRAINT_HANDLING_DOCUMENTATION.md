@@ -1,174 +1,117 @@
 # x-constraintHandling Documentation
 
 ## Overview
-The `x-constraintHandling` extension provides comprehensive configuration for handling constraint violations and data quality issues during processing. This feature enables fine-grained control over how the system responds to various data quality problems, including primary key violations, unique constraint violations, and null constraint violations.
+The `x-constraintHandling` extension chooses what happens when a constraint is violated during processing. It covers three kinds of constraints, all checked by the same validator: the primary key (`x-primaryKey`), the unique constraints (`x-uniqueConstraints`, per-property `x-unique`) and the per-property value constraints (`minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `enum`). The only setting that is read is `errorMode`.
 
 ## Schema Structure
 ```json
 {
   "x-constraintHandling": {
     "description": "Configuration for handling constraint violations and data quality issues",
-    "errorMode": "bad_rows",
-    "primaryKeyViolations": {
-      "duplicates": "bad_rows",
-      "nulls": "bad_rows"
-    },
-    "uniqueConstraintViolations": "bad_rows",
-    "notNullViolations": "bad_rows",
-    "badRowsOutput": {
-      "enabled": true,
-      "format": "parquet",
-      "includeOriginalData": true,
-      "includeErrorDetails": true,
-      "maxBadRows": null,
-      "createSummary": true
-    },
-    "validationOptions": {
-      "continueOnError": true,
-      "collectAllErrors": true,
-      "maxErrorsPerRow": 10
-    }
+    "errorMode": "bad_rows"
   }
 }
 ```
 
 ## Configuration Properties
 
-### `errorMode` (required)
-- **Type**: String
-- **Description**: Global error handling strategy
+### `errorMode` (optional)
+- **Type**: String (case-insensitive)
+- **Description**: How violating rows are handled
 - **Values**:
-  - `"bad_rows"`: Route violating rows to bad rows output
-  - `"fail_fast"`: Stop processing on first constraint violation
-  - `"ignore"`: Continue processing, log warnings only
-  - `"transform"`: Attempt to fix violations automatically
+  - `"bad_rows"`: Route violating rows to `bad_rows.parquet` and keep going
+  - `"fail_fast"`: Stop with a `ValueError` at the first violation
+  - `"fail_complete"`: Check the whole file, then raise one `ValueError` that reports the number of violations
 - **Default**: `"bad_rows"`
+- Any other value (the old documentation's `"ignore"` and `"transform"` included) raises a `ValueError` that names the valid values, before any output is written
+- With `fail_fast` and `fail_complete` no output file is left behind (`data.parquet` and `bad_rows.parquet` are removed)
 
-### `primaryKeyViolations` (optional)
-Configuration for handling primary key constraint violations.
-
-#### `duplicates`
+### `description` (optional)
 - **Type**: String
-- **Description**: How to handle duplicate primary key values
-- **Values**: `"bad_rows"`, `"fail_fast"`, `"ignore"`, `"keep_first"`, `"keep_last"`
-- **Implementation**:
-  - `"keep_first"`: Keep first occurrence, discard duplicates
-  - `"keep_last"`: Keep last occurrence, discard earlier duplicates
+- **Description**: Free text, ignored
 
-#### `nulls`
-- **Type**: String
-- **Description**: How to handle NULL values in primary key columns
-- **Values**: `"bad_rows"`, `"fail_fast"`, `"ignore"`, `"generate_id"`
-- **Implementation**:
-  - `"generate_id"`: Automatically generate unique IDs for NULL primary keys
+### Not implemented (ignored with a warning)
 
-### `uniqueConstraintViolations` (optional)
-- **Type**: String
-- **Description**: How to handle unique constraint violations
-- **Values**: `"bad_rows"`, `"fail_fast"`, `"ignore"`, `"deduplicate"`
+Every other key is ignored and reported in `results.warnings` (`x-constraintHandling.<key> is not supported and is ignored`). They were part of earlier versions of this page; no processor reads them:
 
-### `notNullViolations` (optional)
-- **Type**: String
-- **Description**: How to handle NOT NULL constraint violations
-- **Values**: `"bad_rows"`, `"fail_fast"`, `"ignore"`, `"fill_default"`
+| Key | What happens instead |
+| --- | --- |
+| `primaryKeyViolations` (`duplicates`, `nulls`), `uniqueConstraintViolations`, `notNullViolations` | `errorMode` applies to all constraints. A value equal to the `errorMode` (for example `"bad_rows"` with `errorMode: "bad_rows"`) is not reported; `keep_first` / `keep_last` / `generate_id` / `deduplicate` / `fill_default` and the like do not exist (the first row of a key is always the one kept) |
+| `badRowsOutput` | Rejected rows always go to `bad_rows.parquet` with the reason column described below; there is no format, row limit or summary option |
+| `validationOptions` (`continueOnError`, `collectAllErrors`, `maxErrorsPerRow`) | A row lists every reason it was rejected for (joined by `; `); the number of violations kept in memory is bounded by `ConstraintConfig.max_retained_violations` (1000) and the counts stay exact |
 
-### `badRowsOutput` (optional)
-Configuration for bad rows output when `errorMode` is `"bad_rows"`.
+## In `import_csv`
 
-#### `enabled`
-- **Type**: Boolean
-- **Description**: Enable bad rows output generation
-- **Default**: `true`
+### Constraints and reasons
 
-#### `format`
-- **Type**: String
-- **Description**: Output format for bad rows
-- **Values**: `"parquet"`, `"json"`, `"csv"`
-- **Default**: `"parquet"`
+| Constraint | Source | Reason (`_rejection_reason`, `validation_summary`) |
+| --- | --- | --- |
+| Duplicate key | `x-primaryKey`, `x-uniqueConstraints`, `x-unique` | `UNIQUE_VIOLATION:<first key column>` |
+| NULL key | `x-primaryKey` (unless `allowNulls`) | `NULL_VIOLATION:<column>` |
+| Value too small / large | `minimum` / `maximum` of a property | `RANGE_VIOLATION:<column>` |
+| Text too short / long | `minLength` / `maxLength` | `LENGTH_VIOLATION:<column>` |
+| No match | `pattern` (unanchored search; anchor with `^...$`) | `PATTERN_VIOLATION:<column>` |
+| Not allowed | `enum` | `ENUM_VIOLATION:<column>` |
 
-#### `includeOriginalData`
-- **Type**: Boolean
-- **Description**: Include original row data in bad rows output
-- **Default**: `true`
+Notes:
+- The per-property keywords are matched by header name, like the rest of `properties`; their reasons use the output name. NULL passes the value constraints (use `required` for that). Other JSON Schema keywords (`exclusiveMinimum`, `exclusiveMaximum`, `multipleOf`, `format`, `const`, ...) are not enforced
+- A violating value in `bad_rows.parquet` is shown as the stage saw it; the reason never contains the value
+- A row that breaks several constraints lists all of them, joined by `; `
+- The stage runs after `x-validation`, so the constraints only see the rows that passed it. A row that violates anything does not claim its unique keys
+- With `bad_rows` (the default) the first row of a key stays and the later rows with that key are rejected
+- `x-constraintHandling` alone (without a key or constraint) checks nothing, but an invalid `errorMode` is still an error
 
-#### `includeErrorDetails`
-- **Type**: Boolean
-- **Description**: Include detailed error information for each violation
-- **Default**: `true`
+### Example
 
-#### `maxBadRows`
-- **Type**: Integer or null
-- **Description**: Maximum number of bad rows to collect (null = unlimited)
-- **Default**: `null`
+```
+id,name,age
+1,Ann,30
+2,Bob,41
+2,Bo,22
+3,Di,60
+```
 
-#### `createSummary`
-- **Type**: Boolean
-- **Description**: Generate summary report of constraint violations
-- **Default**: `true`
+with `{"type": "object", "properties": {"id": {"type": "integer"}, "name": {"type": "string"}, "age": {"type": "integer"}}, "x-primaryKey": {"columns": ["id"]}, "x-constraintHandling": {"errorMode": "bad_rows"}}`:
 
-### `validationOptions` (optional)
-Advanced validation behavior configuration.
+| `data.parquet` | id | name | age |
+| --- | --- | --- | --- |
+| | 1 | Ann | 30 |
+| | 2 | Bob | 41 |
+| | 3 | Di | 60 |
 
-#### `continueOnError`
-- **Type**: Boolean
-- **Description**: Continue processing after encountering constraint violations
-- **Default**: `true`
+| `bad_rows.parquet` | id | name | age | _rejection_reason |
+| --- | --- | --- | --- | --- |
+| | 2 | Bo | 22 | UNIQUE_VIOLATION:id |
 
-#### `collectAllErrors`
-- **Type**: Boolean
-- **Description**: Collect all constraint violations per row (vs. stopping at first)
-- **Default**: `true`
-
-#### `maxErrorsPerRow`
-- **Type**: Integer
-- **Description**: Maximum number of errors to collect per row
-- **Default**: `10`
+With `"errorMode": "fail_fast"` the import raises `ValueError: Constraint 'id_unique' violated (row 2); 1 violation(s) in the batch` (the row is a 0-based position in its batch) and leaves no output; with `"fail_complete"` it raises `ValueError: Constraint validation failed with 1 violations` after the last row.
 
 ## Bad Rows Output Structure
 
-When constraint violations occur and `errorMode` is `"bad_rows"`, the system generates a bad rows file with this structure:
+`bad_rows.parquet` has all-string columns in the shape (names, order) of the input file and, when a constraint or `x-validation` is configured, a last column `_rejection_reason`:
 
-```json
-{
-  "original_data": {
-    "id": null,
-    "name": "John Doe",
-    "email": "john@example.com"
-  },
-  "errors": [
-    {
-      "constraint_type": "primary_key",
-      "constraint_name": "pk_customers",
-      "column": "id",
-      "violation_type": "null_value",
-      "message": "Primary key column 'id' cannot be null",
-      "severity": "error"
-    }
-  ],
-  "row_number": 1247,
-  "source_file": "customers.csv",
-  "processing_timestamp": "2024-08-26T10:30:00Z"
-}
-```
+| id | name | age | _rejection_reason |
+| --- | --- | --- | --- |
+| 2 | Bo | 22 | UNIQUE_VIOLATION:id |
+
+There is no row number, timestamp or source file in it. Rows rejected by the type conversion or the `required` check are in the same file, with the reasons `type_conversion_failed` and `required_value_missing` (and `too_many_fields` with `excess_column_mode="reject"`).
 
 ## Implementation Details
 
 ### Constraint Validation Pipeline
-1. **Primary Key Validation**: Check uniqueness and null constraints
-2. **Unique Constraint Validation**: Validate additional unique constraints
-3. **Not Null Validation**: Verify required fields are populated
-4. **Error Collection**: Aggregate all violations per row
-5. **Routing Decision**: Route to main output or bad rows based on configuration
+1. **Key and NULL checks**: `x-primaryKey` (NULL and duplicate keys), `x-uniqueConstraints`, `x-unique`
+2. **Value checks**: `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `enum` on the typed values
+3. **Routing**: `bad_rows` removes the violating rows from the batch; `fail_fast` raises at the first violation; `fail_complete` keeps every row and raises at the end of the file
 
 ### Memory Management
-- Constraint tracking uses memory-efficient data structures
-- Configurable limits prevent memory exhaustion
-- Streaming validation for large datasets
+- The set of keys seen so far is kept for the whole import (one set per distinct constraint)
+- The violations kept in memory are bounded (the first 1000); the total count is exact
+- No cell values are stored in a violation
 
 ### Error Reporting
-- Detailed violation descriptions with context
-- Row-level and file-level error summaries
-- Integration with logging systems
+- `results.validation_summary`: count per `CODE:column`
+- `results.invalid_rows`: number of rejected rows
+- `bad_rows.parquet`: the rows, with the reasons
+- The CLI prints `Findings by the schema extensions:` with the counts
 
 ## Usage Examples
 
@@ -176,67 +119,25 @@ When constraint violations occur and `errorMode` is `"bad_rows"`, the system gen
 ```json
 {
   "x-constraintHandling": {
-    "errorMode": "fail_fast",
-    "primaryKeyViolations": {
-      "duplicates": "fail_fast",
-      "nulls": "fail_fast"
-    },
-    "validationOptions": {
-      "continueOnError": false
-    }
+    "errorMode": "fail_fast"
   }
 }
 ```
 
-### Permissive Processing (Continue with Warnings)
+### Check Everything, Then Fail
 ```json
 {
   "x-constraintHandling": {
-    "errorMode": "ignore",
-    "primaryKeyViolations": {
-      "duplicates": "keep_first",
-      "nulls": "generate_id"
-    },
-    "validationOptions": {
-      "continueOnError": true,
-      "collectAllErrors": false
-    }
+    "errorMode": "fail_complete"
   }
 }
 ```
 
-### Comprehensive Bad Rows Collection
+### Default: Collect Bad Rows
 ```json
 {
   "x-constraintHandling": {
-    "errorMode": "bad_rows",
-    "badRowsOutput": {
-      "enabled": true,
-      "format": "parquet",
-      "includeOriginalData": true,
-      "includeErrorDetails": true,
-      "maxBadRows": 10000,
-      "createSummary": true
-    },
-    "validationOptions": {
-      "collectAllErrors": true,
-      "maxErrorsPerRow": 5
-    }
-  }
-}
-```
-
-### Data Cleaning Mode
-```json
-{
-  "x-constraintHandling": {
-    "errorMode": "transform",
-    "primaryKeyViolations": {
-      "duplicates": "keep_last",
-      "nulls": "generate_id"
-    },
-    "notNullViolations": "fill_default",
-    "uniqueConstraintViolations": "deduplicate"
+    "errorMode": "bad_rows"
   }
 }
 ```
@@ -245,31 +146,28 @@ When constraint violations occur and `errorMode` is `"bad_rows"`, the system gen
 
 ### Primary Key Integration
 - Works with `x-primaryKey` configuration
-- Enforces primary key constraints defined in schema
-- Provides detailed violation reporting
+- Enforces primary key constraints defined in schema (duplicates and NULLs follow the same `errorMode`)
 
 ### Unique Constraints Integration
-- Works with `x-uniqueConstraints` definitions
-- Supports multiple unique constraint validation
-- Custom violation handling per constraint
+- Works with `x-uniqueConstraints` definitions and per-property `x-unique`
+- One mode for all constraints; there is no per-constraint handling
+
+### x-validation
+- `x-validation` does not use `errorMode`: its rejected rows always go to `bad_rows.parquet`, and its own threshold (`badRowsHandling.maxBadRowsPercent`) stops the import when too many rows fail, see [x-validation](./X_VALIDATION_DOCUMENTATION.md)
 
 ### Metadata Integration
-- Constraint violation statistics included in metadata
-- Data quality metrics generation
-- Historical violation tracking
+- The counts are in `results.validation_summary` and in `metadata.json` (`validation_summary`)
 
 ## Performance Considerations
 
-1. **Memory Usage**: Constraint tracking requires memory proportional to unique values
-2. **Processing Speed**: Validation adds overhead, especially for complex constraints
-3. **Bad Rows Storage**: Large numbers of violations can create significant output files
-4. **Sampling**: Consider sampling for initial data quality assessment
+1. **Memory Usage**: Constraint tracking requires memory proportional to the number of distinct keys
+2. **Processing Speed**: Validation adds overhead, especially for patterns
+3. **Bad Rows Storage**: Large numbers of violations create a large `bad_rows.parquet`; use `fail_fast` / `fail_complete` or `x-validation`'s threshold to stop early
 
 ## Best Practices
 
-1. **Start Permissive**: Use `"ignore"` mode for initial data exploration
-2. **Graduate to Strict**: Move to `"bad_rows"` or `"fail_fast"` for production
-3. **Monitor Bad Rows**: Set up alerts for high violation rates
-4. **Review Patterns**: Analyze bad rows to improve data sources
-5. **Configure Limits**: Set `maxBadRows` to prevent runaway bad rows files
-6. **Test Configurations**: Validate constraint handling with sample data
+1. **Start with `bad_rows`**: look at `bad_rows.parquet` and `validation_summary` before deciding to fail
+2. **Fail where bad data must not load**: use `fail_fast` (stops quickly) or `fail_complete` (reports the full count)
+3. **Monitor Bad Rows**: alert on high `invalid_rows` counts
+4. **Review Patterns**: analyse the reasons to improve data sources
+5. **Test Configurations**: validate constraint handling with sample data

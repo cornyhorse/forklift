@@ -14,7 +14,10 @@ This folder contains comprehensive documentation for Forklift's schema system, d
 - Comprehensive examples and use cases
 
 ### [README.md](README.md)
-**Index of the per-extension pages** (`x-csv`, `x-fwf`, `x-transformations`, `x-metadata-generation`, ...), including a table of which schema parts `import_csv` actually applies today.
+**Index of the per-extension pages** (`x-csv`, `x-fwf`, `x-transformations`, `x-validation`, `x-metadata-generation`, ...), including the table of which schema parts the CSV engine (`import_csv`) applies, the order of the stages, the naming rule for renamed columns and what `bad_rows.parquet`, the `warnings` and the `validation_summary` of a run contain. Excel, SQL and fixed-width imports do not apply the `x-...` processing extensions.
+
+### [X_VALIDATION_DOCUMENTATION.md](X_VALIDATION_DOCUMENTATION.md)
+**`x-validation`**: field rules that reject rows (`required`, `unique`, `range`, `stringValidation`, `enumValidation`, `dateValidation`), the uniqueness strategies and the bad-rows threshold. The other `X_*_DOCUMENTATION.md` pages describe one extension each in the same style.
 
 ## Planned Additions
 

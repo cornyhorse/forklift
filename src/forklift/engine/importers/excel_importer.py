@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Union
+from typing import Set, Union
 
 import pyarrow.parquet as pq
 
+from ...io import create_parquet_writer
 from ..config import ProcessingResults
 from ..exceptions import ProcessingError
+from .output_location import OutputLocation, discard_partial_output, unique_stem
 
 
 class ExcelImporter:
@@ -23,7 +25,17 @@ class ExcelImporter:
         schema_file: Union[str, Path] = None,
         **kwargs,
     ) -> ProcessingResults:
-        """Import Excel file with multi-sheet support."""
+        """Import Excel file with multi-sheet support.
+
+        Every sheet becomes ``<input stem>_<sheet name>.parquet`` in ``output_path``, which is
+        either a local directory or an ``s3://bucket/prefix`` URI (written through the S3
+        parquet writer). Sheet names are sanitised to plain file names; if sanitising makes two
+        sheets collide (``Q1/Q2`` and ``Q1:Q2``) the later ones get a ``_2``, ``_3``... suffix in
+        workbook order, so no sheet silently overwrites another.
+
+        Raises:
+            ValueError: If an output file name is invalid or would leave the output directory
+        """
         from ...inputs.excel import ExcelInputHandler
         from ...schema.excel_schema_importer import ExcelSchemaImporter
 
@@ -31,16 +43,16 @@ class ExcelImporter:
         start_time = time.time()
 
         try:
-            # Convert paths to Path objects
+            # Convert input path to a Path object; the output location may be an S3 URI
             input_path = Path(input_path) if isinstance(input_path, str) else input_path
-            output_path = Path(output_path) if isinstance(output_path, str) else output_path
+            location = OutputLocation(output_path)
 
             # For now, support local files only - S3 support can be added later
             if not input_path.exists():
                 raise FileNotFoundError(f"Input file not found: {input_path}")
 
             # Create output directory
-            output_path.mkdir(parents=True, exist_ok=True)
+            location.prepare()
 
             # Load and validate schema if provided
             excel_config = None
@@ -82,17 +94,20 @@ class ExcelImporter:
             results = ProcessingResults()
             processed_sheets = 0
             total_rows = 0
+            used_names: Set[str] = set()
 
             for sheet_name, arrow_table in excel_handler.process_sheets(input_path):
                 logger.info(f"Processing sheet '{sheet_name}' with {arrow_table.num_rows} rows")
 
-                # Generate output filename for this sheet
+                # Generate a unique, validated output filename for this sheet
                 safe_sheet_name = ExcelImporter._sanitize_filename(sheet_name)
-                output_filename = f"{input_path.stem}_{safe_sheet_name}.parquet"
-                sheet_output_path = output_path / output_filename
+                output_stem = unique_stem(f"{input_path.stem}_{safe_sheet_name}", used_names)
+                sheet_output_path = location.target(output_stem)
 
                 # Write sheet data to Parquet directly using PyArrow
-                pq.write_table(arrow_table, sheet_output_path)
+                ExcelImporter._write_sheet(
+                    arrow_table, sheet_output_path, location.is_s3, kwargs.get("s3_client")
+                )
                 logger.info(f"Wrote sheet '{sheet_name}' to {sheet_output_path}")
 
                 # Update results
@@ -169,6 +184,14 @@ class ExcelImporter:
             if "sheet" in kwargs:
                 # Process specific sheet
                 sheet_spec = kwargs["sheet"]
+                if (
+                    isinstance(sheet_spec, str)
+                    and sheet_spec not in sheet_names
+                    and sheet_spec.isascii()
+                    and sheet_spec.isdigit()
+                ):
+                    # e.g. the CLI passes "0": a sheet name wins, otherwise it is an index
+                    sheet_spec = int(sheet_spec)
                 if isinstance(sheet_spec, str):
                     # Sheet name
                     if sheet_spec in sheet_names:
@@ -200,12 +223,31 @@ class ExcelImporter:
             temp_handler.close_workbook()
 
     @staticmethod
+    def _write_sheet(arrow_table, target, to_s3: bool, s3_client=None) -> None:
+        """Write one sheet to ``target`` (local path or S3 URI); never leave a partial file."""
+        if not to_s3:
+            try:
+                pq.write_table(arrow_table, target)
+            except BaseException:
+                Path(target).unlink(missing_ok=True)
+                raise
+            return
+
+        writer = create_parquet_writer(target, arrow_table.schema, s3_client=s3_client)
+        try:
+            writer.write_table(arrow_table)
+            writer.close()
+        except BaseException:
+            discard_partial_output(writer, target)
+            raise
+
+    @staticmethod
     def _sanitize_filename(filename: str) -> str:
         """Sanitize sheet name for use as filename."""
         import re
 
-        # Replace invalid filename characters with underscores
-        sanitized = re.sub(r'[<>:"/\\|?*]', "_", filename)
+        # Replace invalid filename characters (and control characters) with underscores
+        sanitized = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", filename)
         # Remove leading/trailing whitespace and dots
         sanitized = sanitized.strip(" .")
         # Ensure not empty

@@ -79,6 +79,12 @@ results = ExcelImporter.import_excel(
 
 Each sheet is saved as a separate Parquet file with the naming pattern: `{workbook_name}_{sheet_name}.parquet`
 
+`output_path` may be a local directory or an `s3://bucket/prefix` URI (written through the S3 Parquet
+writer; pass it as a `str`). Sheet names are sanitised to plain file names; when sanitising makes two
+names collide (`Q1/Q2`, `Q1:Q2`, `Data.` vs `Data`) the later sheets get a `_2`, `_3`, ... suffix in
+workbook order, so no sheet overwrites another. A name that is not a plain file name or would resolve
+outside the output directory raises `ValueError`.
+
 The method returns a `ProcessingResults` object containing:
 - Total rows processed
 - Processing execution time
@@ -146,10 +152,24 @@ Each table is saved as a separate Parquet file. The naming convention depends on
 - If schema name exists: `{schema_name}_{table_name}.parquet`
 - Default: `{table_name}.parquet`
 
+`output_path` may be a local directory or an `s3://bucket/prefix` URI. `outputName` must be a plain file
+stem (no path separators) and the resulting file must stay inside the output directory, otherwise
+`ValueError` is raised before the database is contacted; two tables mapping to the same file name are
+rejected too.
+
 Additionally, a `metadata.json` file is created containing:
-- Processing summary (tables processed, row counts, execution time)
-- Input configuration details
-- List of output files
+- Processing summary (tables processed/failed, row counts, execution time)
+- Input configuration details; the connection string is **redacted** (`Pwd=***`, `user:***@host`) via
+  `forklift.engine.importers.redact_connection_string`
+- List of output files (successful tables only)
+- `failed_tables`: schema, table and exception class of each failed table (never data values)
+
+### Table failures
+
+A table that fails is aborted (writer discarded, no partial `.parquet` left, nothing uploaded to S3)
+and recorded in `results.errors` as `schema.table: ExceptionClass` (never as `invalid_rows`). The other
+tables are still processed. Afterwards a `ProcessingError` is raised (partial results are available as
+`error.results`) unless `continue_on_error=True` is passed, in which case the results are returned.
 
 ## Error Handling
 
@@ -158,7 +178,7 @@ Both importers implement comprehensive error handling:
 - **File validation**: Check for file existence and accessibility
 - **Schema validation**: Validate schema files before processing
 - **Connection errors**: Handle database connectivity issues
-- **Processing errors**: Capture and report data processing failures
+- **Processing errors**: Capture and report data processing failures (class names only; messages from the database/Arrow layer may quote cell values and are not logged)
 - **Resource cleanup**: Ensure proper cleanup of connections and file handles
 
 ## ProcessingResults

@@ -1,56 +1,46 @@
+"""Minimal runnable example: import a CSV with a schema into Parquet.
+
+Run from the repository root:
+
+    python src/main.py
+
+The input, schema and output locations are relative to the repository, so the example works on
+any machine. Output goes to ``output/largecsv`` (created if needed).
+"""
+
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import forklift as fl
+from forklift.engine import HeaderMode
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+EXAMPLE_DIR = REPO_ROOT / "tests" / "test-files" / "largecsv"
 
 
-def main() -> None:
-    # Hardcoded absolute paths for your demo
-    schema_file = (
-        "/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.json"
-    )
-    csv_file = "/Users/matt/PycharmProjects/forklift/tests/test-files/largecsv/parquet_types.txt"
-    output_dir = "/Users/matt/PycharmProjects/forklift/output/largecsv"
+def main() -> int:
+    csv_file = EXAMPLE_DIR / "parquet_types.txt"
+    schema_file = EXAMPLE_DIR / "parquet_types.json"
+    output_dir = REPO_ROOT / "output" / "largecsv"
 
-    print("=== Forklift Large CSV Processing ===")
+    print("=== Forklift CSV import example ===")
     print(f"Input CSV: {csv_file}")
     print(f"Schema: {schema_file}")
     print(f"Output directory: {output_dir}")
 
-    # Check if files exist
-    if not Path(csv_file).exists():
-        print(f"❌ CSV file not found: {csv_file}")
-        print("Run the CSV generator first if needed.")
-        return
+    for path in (csv_file, schema_file):
+        if not path.exists():
+            print(f"File not found: {path}", file=sys.stderr)
+            return 1
 
-    if not Path(schema_file).exists():
-        print(f"❌ Schema file not found: {schema_file}")
-        return
-
-    # Display schema information first
-    print("\n=== Schema Information ===")
-    from forklift.schema.csv_schema_importer import CsvSchemaImporter
-
-    importer = CsvSchemaImporter(schema_file)
-    schema_dict = importer.as_dict()
-    print(f"Schema title: {schema_dict.get('title', 'Unknown')}")
-    print(f"Number of columns: {len(schema_dict.get('properties', {}))}")
-    print("Column types:")
-    for col_name, col_def in schema_dict.get("properties", {}).items():
-        col_type = col_def.get("type", "unknown")
-        col_format = col_def.get("format", "")
-        type_str = f"{col_type}" + (f" ({col_format})" if col_format else "")
-        print(f"  {col_name}: {type_str}")
-
-    print("\n=== Processing CSV with Forklift ===")
     try:
-        # Process the large CSV file using the new PyArrow engine
         results = fl.import_csv(
             input_path=csv_file,
             output_path=output_dir,
             schema_file=schema_file,
-            header_mode="present",  # CSV has headers
+            header_mode=HeaderMode.PRESENT,  # CSV has headers
             batch_size=50000,  # Process in 50k row batches for efficiency
             encoding="utf-8",
             validate_schema=True,
@@ -58,41 +48,31 @@ def main() -> None:
             create_metadata=True,
             compression="snappy",
         )
+    except Exception as exc:
+        print(f"Error processing CSV: {exc}", file=sys.stderr)
+        return 1
 
-        print("✅ Processing completed successfully!")
-        print("\n=== Results ===")
-        print(f"Total rows processed: {results.total_rows:,}")
-        print(f"Valid rows: {results.valid_rows:,}")
-        print(f"Invalid rows: {results.invalid_rows:,}")
-        print(f"Execution time: {results.execution_time:.2f} seconds")
+    print("Processing completed.")
+    print(f"Total rows processed: {results.total_rows:,}")
+    print(f"Valid rows: {results.valid_rows:,}")
+    print(f"Invalid rows: {results.invalid_rows:,}")
+    print(f"Execution time: {results.execution_time:.2f} seconds")
 
-        print("\n=== Output Files ===")
-        for file_path in results.output_files:
-            file_size = Path(file_path).stat().st_size if Path(file_path).exists() else 0
-            print(f"📄 {Path(file_path).name}: {file_size:,} bytes")
+    for file_path in results.output_files:
+        size = Path(file_path).stat().st_size if Path(file_path).exists() else 0
+        print(f"Output file: {Path(file_path).name} ({size:,} bytes)")
+    if results.manifest_file:
+        print(f"Manifest: {Path(results.manifest_file).name}")
+    if results.metadata_file:
+        print(f"Metadata: {Path(results.metadata_file).name}")
 
-        if results.manifest_file:
-            print(f"📋 Manifest: {Path(results.manifest_file).name}")
-
-        if results.metadata_file:
-            print(f"📊 Metadata: {Path(results.metadata_file).name}")
-
-        if results.errors:
-            print("\n⚠️  Errors encountered:")
-            for error in results.errors:
-                print(f"  - {error}")
-
-        # Calculate processing rate
-        if results.execution_time > 0:
-            rows_per_second = results.total_rows / results.execution_time
-            print(f"\n🚀 Processing rate: {rows_per_second:,.0f} rows/second")
-
-    except Exception as e:
-        print(f"❌ Error processing CSV: {str(e)}")
-        import traceback
-
-        traceback.print_exc()
+    if results.errors:
+        print("Errors encountered:", file=sys.stderr)
+        for error in results.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":  # simple manual smoke test
-    main()
+    sys.exit(main())

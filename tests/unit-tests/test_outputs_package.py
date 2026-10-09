@@ -133,26 +133,26 @@ class TestManifestGenerator:
             assert row_count == 5
 
     def test_get_parquet_row_count_invalid_file(self):
-        """Test _get_parquet_row_count with invalid/non-existent file."""
+        """Test _get_parquet_row_count raises for invalid/non-existent files (not 0 rows)."""
         # Test with non-existent file
-        row_count = ManifestGenerator._get_parquet_row_count("nonexistent.parquet")
-        assert row_count == 0
+        with pytest.raises(FileNotFoundError):
+            ManifestGenerator._get_parquet_row_count("nonexistent.parquet")
 
         # Test with invalid parquet file
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as f:
             f.write(b"not a parquet file")
             f.flush()
 
-            row_count = ManifestGenerator._get_parquet_row_count(f.name)
-            assert row_count == 0
+            with pytest.raises(pa.ArrowInvalid):
+                ManifestGenerator._get_parquet_row_count(f.name)
 
     def test_get_parquet_row_count_exception_handling(self):
-        """Test _get_parquet_row_count exception handling."""
+        """Test _get_parquet_row_count does not swallow errors into 0."""
         with patch("pyarrow.parquet.ParquetFile") as mock_parquet_file:
             mock_parquet_file.side_effect = Exception("Simulated error")
 
-            row_count = ManifestGenerator._get_parquet_row_count("any_file.parquet")
-            assert row_count == 0
+            with pytest.raises(Exception, match="Simulated error"):
+                ManifestGenerator._get_parquet_row_count("any_file.parquet")
 
 
 class TestMetadataGenerator:

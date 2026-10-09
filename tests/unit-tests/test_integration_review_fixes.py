@@ -187,3 +187,19 @@ class TestShortIdentifiersAreNotFabricated:
         out = DataTransformer().apply_ssn_formatting(column, SSNConfig())
 
         assert out.to_pylist() == ["123-45-6789", None, None, None]
+
+
+class TestSeparatorFactoriesUseTheDerivedPairing:
+    def test_money_factory_with_only_a_decimal_comma(self):
+        from forklift.processors.transformations.factories import apply_money_conversion
+
+        convert = apply_money_conversion(decimal_separator=",")
+
+        assert convert(pa.array(["12,50", "1.234,56"])).to_pylist() == [12.5, 1234.56]
+
+    def test_numeric_factory_with_only_a_decimal_comma(self):
+        from forklift.processors.transformations.factories import apply_numeric_cleaning
+
+        clean = apply_numeric_cleaning(decimal_separator=",")
+
+        assert clean(pa.array(["3,14"])).to_pylist() == [3.14]

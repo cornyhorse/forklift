@@ -21,7 +21,7 @@ import io
 import numbers
 import re
 from pathlib import Path
-from typing import Any, Callable, ContextManager, Iterable, List, Optional, Union
+from typing import Any, Callable, ContextManager, Iterable, List, Optional, Tuple, Union
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -53,6 +53,52 @@ _BLOCK_SIZES = (1 << 16, 1 << 20, 1 << 24, 1 << 26)
 
 # ``default_column_type`` (all columns as strings in one pass) exists in recent pyarrow only.
 _SUPPORTS_DEFAULT_COLUMN_TYPE = hasattr(pv_csv.ConvertOptions, "default_column_type")
+
+# Older pyarrow (no ``default_column_type``) needs the column names up front: this many leading
+# bytes are read to find the header line.
+_HEADER_PROBE_BYTES = 1 << 20
+
+
+class _PrefixedStream(io.RawIOBase):
+    """A forward-only stream that yields ``prefix`` first and then the rest of ``source``."""
+
+    def __init__(self, prefix: bytes, source: Any):
+        self._prefix = memoryview(prefix)
+        self._offset = 0
+        self._source = source
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int:
+        if self._offset < len(self._prefix):
+            count = min(len(buffer), len(self._prefix) - self._offset)
+            buffer[:count] = self._prefix[self._offset : self._offset + count]
+            self._offset += count
+            return count
+        data = self._source.read(len(buffer))
+        buffer[: len(data)] = data
+        return len(data)
+
+
+def _header_names(head: bytes, encoding: str, delimiter: str) -> List[str]:
+    """Column names from the first record of ``head`` (the leading bytes of a CSV stream)."""
+    try:
+        text = codecs.getincrementaldecoder(encoding)(errors="strict").decode(head, final=False)
+    except UnicodeError:
+        raise ValueError(
+            "Failed to read CSV sample: invalid text for the configured encoding"
+        ) from None
+    text = text.lstrip("\ufeff")  # Arrow drops a BOM itself; the names must match its names
+    if len(head) >= _HEADER_PROBE_BYTES and "\n" not in text and "\r" not in text:
+        raise ValueError(
+            "Failed to read CSV sample: a header or record is larger than the maximum "
+            "supported size"
+        )
+    try:
+        return next(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter), [])
+    except csv.Error:
+        raise ValueError("Failed to read CSV sample: invalid CSV header") from None
 
 
 class DataTypeInferrer:
@@ -166,8 +212,10 @@ class DataTypeInferrer:
         parse_options: pv_csv.ParseOptions,
         nrows: Optional[int],
     ) -> pa.Table:
-        convert_options = self._string_convert_options(opener, read_options, parse_options)
-        with opener() as stream:
+        with opener() as source:
+            convert_options, stream = self._string_convert_options(
+                source, read_options, parse_options
+            )
             reader = pv_csv.open_csv(
                 stream,
                 read_options=read_options,
@@ -188,22 +236,24 @@ class DataTypeInferrer:
 
     @staticmethod
     def _string_convert_options(
-        opener: Callable[[], ContextManager],
-        read_options: pv_csv.ReadOptions,
-        parse_options: pv_csv.ParseOptions,
-    ) -> pv_csv.ConvertOptions:
-        """Convert options that keep every column as an unmodified string."""
-        if _SUPPORTS_DEFAULT_COLUMN_TYPE:
-            return pv_csv.ConvertOptions(default_column_type=pa.string())
+        stream: Any, read_options: pv_csv.ReadOptions, parse_options: pv_csv.ParseOptions
+    ) -> Tuple[pv_csv.ConvertOptions, Any]:
+        """Convert options that keep every column as an unmodified string.
 
-        # Older pyarrow: the header has to be known to pin every column to string
-        with opener() as stream:
-            probe = pv_csv.open_csv(stream, read_options=read_options, parse_options=parse_options)
-            try:
-                names = probe.schema.names
-            finally:
-                probe.close()
-        return pv_csv.ConvertOptions(column_types={name: pa.string() for name in names})
+        Returns the options and the stream to read from. Recent pyarrow has
+        ``default_column_type``. Older versions need every column name up front, so the header
+        is read from the same stream and the bytes are pushed back in front of it: the object is
+        opened once, which matters for forward-only S3 streams.
+        """
+        if _SUPPORTS_DEFAULT_COLUMN_TYPE:
+            return pv_csv.ConvertOptions(default_column_type=pa.string()), stream
+
+        head = stream.read(_HEADER_PROBE_BYTES)
+        names = _header_names(head, read_options.encoding, parse_options.delimiter)
+        return (
+            pv_csv.ConvertOptions(column_types={name: pa.string() for name in names}),
+            io.BufferedReader(_PrefixedStream(head, stream)),
+        )
 
     @staticmethod
     def _header_only_table(

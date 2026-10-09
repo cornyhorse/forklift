@@ -85,6 +85,35 @@ jobs:
           echo "::notice::Excellent coverage: ${COVERAGE}%"
         fi
 
+  # The declared lower bound of pyarrow must keep working (numpy<2 and pandas<2.3 are what that
+  # pyarrow release was built against).
+  minimum-versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install system libraries (unixODBC runtime for pyodbc)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends unixodbc
+
+    - name: Install dependencies at their minimum supported versions
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[all,dev]" "pyarrow==16.1.0" "numpy<2" "pandas<2.3"
+
+    - name: Run unit tests
+      run: python -m pytest tests/unit-tests -v
+
   # The core install (no extras) must import: pandas, polars, openpyxl, pyodbc ... are optional,
   # so nothing outside the declared runtime dependencies may be imported at import time.
   core-install:

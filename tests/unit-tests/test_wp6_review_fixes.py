@@ -1207,7 +1207,7 @@ class TestPackagingMetadata:
         pyarrow_spec = next(
             dep for dep in pyproject["project"]["dependencies"] if dep.startswith("pyarrow")
         )
-        assert ">=15" in pyarrow_spec and "<" not in pyarrow_spec  # <18 has no 3.13 wheels
+        assert ">=16" in pyarrow_spec and "<" not in pyarrow_spec  # <18 has no 3.13 wheels
 
     def test_pandas_is_not_a_runtime_dependency(self, pyproject):
         assert "pandas" not in _requirement_names(pyproject["project"]["dependencies"])

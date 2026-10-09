@@ -272,3 +272,56 @@ class TestCalculatedColumnsDocumentationExamples:
         assert run("coalesce(nickname, first_name)") == "Ann"
         assert run("year(today()) - year(signup_date)") >= 5
         assert run("length(trim(zip_code)) == 5") is True
+
+
+class TestCsvSamplingWithoutDefaultColumnType:
+    """pyarrow < 19 has no ConvertOptions.default_column_type: the header must be read from
+    the same stream (a forward-only S3 object is opened once) and every column kept a string."""
+
+    @pytest.fixture(autouse=True)
+    def _old_pyarrow(self, monkeypatch):
+        import forklift.schema.generator.inference as inference
+
+        monkeypatch.setattr(inference, "_SUPPORTS_DEFAULT_COLUMN_TYPE", False)
+
+    def _sample(self, data: bytes, nrows=None, **kwargs):
+        import io as _io
+
+        opens = []
+
+        class OneShot:
+            def __init__(self):
+                opens.append(1)
+                self._buffer = _io.BytesIO(data)
+
+            def __enter__(self):
+                return self._buffer
+
+            def __exit__(self, *exc):
+                return False
+
+        inferrer = DataTypeInferrer.__new__(DataTypeInferrer)
+        table = inferrer._read_string_csv(
+            OneShot, nrows, kwargs.get("delimiter", ","), kwargs.get("encoding", "utf-8")
+        )
+        return table, len(opens)
+
+    def test_columns_stay_strings_and_the_stream_is_opened_once(self):
+        table, opens = self._sample(b"zip,amount\n00123,1.5\n00456,2.5\n", nrows=10)
+
+        assert table.column("zip").to_pylist() == ["00123", "00456"]
+        assert table.column("amount").to_pylist() == ["1.5", "2.5"]
+        assert opens == 1
+
+    def test_bom_quoted_header_and_delimiter(self):
+        data = '﻿"first, name";age\nAnn;007\n'.encode("utf-8")
+
+        table, _ = self._sample(data, nrows=5, delimiter=";")
+
+        assert table.column_names == ["first, name", "age"]
+        assert table.column("age").to_pylist() == ["007"]
+
+    def test_invalid_text_does_not_echo_data(self):
+        with pytest.raises(ValueError, match="encoding") as excinfo:
+            self._sample("a\nsecrét\n".encode("latin-1"))
+        assert "secr" not in str(excinfo.value)

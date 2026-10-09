@@ -1,5 +1,6 @@
 """Tests for Excel input handler and schema importer."""
 
+import builtins
 import json
 import os
 import sys
@@ -113,7 +114,16 @@ class TestExcelInputHandler:
         """Test ImportError when required library is missing."""
         handler = ExcelInputHandler(basic_config)
 
-        with patch("builtins.__import__", side_effect=ImportError("No module named 'openpyxl'")):
+        real_import = builtins.__import__
+
+        def import_without_openpyxl(name, *args, **kwargs):
+            # Only openpyxl is missing; other imports (also those Python makes internally,
+            # which differ between versions) keep working
+            if name.split(".")[0] == "openpyxl":
+                raise ImportError("No module named 'openpyxl'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=import_without_openpyxl):
             with pytest.raises(
                 ImportError, match="Required library for openpyxl engine not found"
             ):

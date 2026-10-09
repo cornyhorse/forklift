@@ -46,8 +46,10 @@ classifiers = [
 requires-python = ">=3.8"
 dependencies = [
     # Only what src/ imports unconditionally or on a default code path. pyarrow has no upper
-    # cap: pyarrow<18 ships no Python 3.13 wheels.
-    "pyarrow>=15.0.0",
+    # cap: pyarrow<18 ships no Python 3.13 wheels. The floor is the oldest release the test
+    # suite passes on (it builds batches with pa.record_batch(dict), added in 16); CI keeps it
+    # honest in the "minimum versions" job.
+    "pyarrow>=16.0.0",
     "jsonschema>=4.0.0",
     "boto3>=1.20.0",
     "botocore>=1.23.0",

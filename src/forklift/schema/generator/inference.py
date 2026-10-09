@@ -467,6 +467,10 @@ class DataTypeInferrer:
             except IndexError:
                 raise ValueError(f"Sheet index {sheet_name} is out of range") from None
         if sheet_name not in workbook.sheetnames:
+            # The CLI passes --sheet as text: "0" means the first sheet unless a sheet has that
+            # name (same rule as `ingest --input-kind excel`)
+            if isinstance(sheet_name, str) and sheet_name.strip().isdigit():
+                return DataTypeInferrer._select_worksheet(workbook, int(sheet_name))
             raise ValueError(f"Worksheet {sheet_name!r} not found in workbook")
         return workbook[sheet_name]
 

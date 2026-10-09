@@ -325,3 +325,47 @@ class TestCsvSamplingWithoutDefaultColumnType:
         with pytest.raises(ValueError, match="encoding") as excinfo:
             self._sample("a\nsecrét\n".encode("latin-1"))
         assert "secr" not in str(excinfo.value)
+
+
+class TestExcelSheetSelectionFromText:
+    """`generate-schema --sheet 1` arrives as text; a digit string selects by index unless a
+    sheet has that name."""
+
+    @staticmethod
+    def _workbook(tmp_path, names):
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        wb.active.title = names[0]
+        for name in names[1:]:
+            wb.create_sheet(name)
+        for i, ws in enumerate(wb.worksheets):
+            ws.append(["marker"])
+            ws.append([f"sheet-{i}"])
+        path = tmp_path / "book.xlsx"
+        wb.save(path)
+        return path
+
+    def test_digit_text_selects_by_index(self, tmp_path):
+        path = self._workbook(tmp_path, ["first", "second"])
+
+        table = DataTypeInferrer().read_excel_sample(path, 10, sheet_name="1")
+
+        assert table.column("marker").to_pylist() == ["sheet-1"]
+
+    def test_a_sheet_named_like_a_number_wins(self, tmp_path):
+        path = self._workbook(tmp_path, ["first", "1"])  # sheet "1" is also index 1
+
+        table = DataTypeInferrer().read_excel_sample(path, 10, sheet_name="1")
+
+        assert table.column("marker").to_pylist() == ["sheet-1"]
+
+    def test_unknown_name_still_raises(self, tmp_path):
+        path = self._workbook(tmp_path, ["first"])
+        with pytest.raises(ValueError, match="not found"):
+            DataTypeInferrer().read_excel_sample(path, 10, sheet_name="missing")
+
+    def test_excel_standard_id_names_the_excel_file(self):
+        standards = pytest.importorskip("pathlib").Path(__file__).resolve().parents[2]
+        document = json.loads((standards / "schema-standards" / "20250826-excel.json").read_text())
+        assert document["$id"].endswith("20250826-excel.json")

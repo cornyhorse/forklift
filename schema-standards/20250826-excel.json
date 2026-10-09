@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-csv.json",
+  "$id": "https://github.com/cornyhorse/forklift/schema-standards/20250826-excel.json",
   "title": "Forklift CSV Row - Comprehensive Parquet Data Types",
   "description": "Schema for CSV file processing demonstrating all supported Parquet data types with delimiter handling, encoding detection, header scanning, and data type validation for Parquet output.",
   "type": "object",

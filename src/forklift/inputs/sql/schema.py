@@ -9,24 +9,37 @@ import pyarrow as pa
 
 from ..config import SqlInputConfig
 from .connection import SqlConnectionManager
+from .errors import ColumnLookupError, TableLookupError, listed
 from .types import SqlTypeConverter
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_SCHEMA = "default"
 
-
-class TableLookupError(ValueError):
-    """A requested table is not in the catalog, or the request matches several tables.
-
-    The message is built only from the requested names and the catalog's schema names, never
-    from table data, so it is safe to show and to record in ``metadata.json``.
-    """
+# Oracle's ODBC driver fails inside SQLColumns on NVARCHAR2, CLOB, BLOB, RAW, BOOLEAN and other
+# columns ("Numeric value out of range"), and its SQLTables matches names case-sensitively and
+# slowly, so on Oracle the catalog is read from the data dictionary instead. These views list
+# only what the connecting user may access, like the ODBC catalog functions.
+_ORACLE_TABLES = (
+    "SELECT owner, table_name FROM all_tables WHERE UPPER(table_name) = UPPER(?) "
+    "UNION ALL SELECT owner, view_name FROM all_views WHERE UPPER(view_name) = UPPER(?)"
+)
+_ORACLE_COLUMNS = (
+    "SELECT column_name, data_type, data_precision, data_scale, nullable FROM all_tab_columns "
+    "WHERE owner = ? AND table_name = ? ORDER BY column_id"
+)
+# ODBC SQL_TYPE_TIMESTAMP: Oracle's DATE holds a time of day, and the driver returns it as one
+_SQL_TYPE_TIMESTAMP = 93
 
 
 def _is_default_schema(schema_name: Optional[str]) -> bool:
     """True when ``schema_name`` means "no schema qualifier"."""
     return schema_name in (None, "", DEFAULT_SCHEMA)
+
+
+def table_label(schema_name: Optional[str], table_name: str) -> str:
+    """A requested table as messages name it: ``schema.table``, or ``table`` without a schema."""
+    return table_name if _is_default_schema(schema_name) else f"{schema_name}.{table_name}"
 
 
 def _check_identifier(value: object, kind: str) -> str:
@@ -43,8 +56,9 @@ def match_catalog_entries(
 
     Names are compared exactly first; only when nothing matches exactly are they compared
     case-insensitively (databases such as SQL Server or PostgreSQL resolve unquoted names that
-    way). The entries returned carry the catalog's own spelling, which is what callers must use
-    from then on.
+    way, and Oracle reports them in upper case). The table and the schema are compared on their
+    own, so ``sales.orders`` prefers ``SALES.orders`` to ``SALES.ORDERS``. The entries returned
+    carry the catalog's own spelling, which is what callers must use from then on.
 
     A request without a schema (``None``/``""``/``"default"``) matches the table in any
     schema, preferring a schema-less catalog entry. A request with a schema matches that
@@ -52,19 +66,72 @@ def match_catalog_entries(
     table matched by name alone.
     """
     for fold in (False, True):
-
-        def norm(value: str) -> str:
-            return value.casefold() if fold else value
-
-        by_name = [(s, t) for s, t in available if norm(t) == norm(table_name)]
+        by_name = [(s, t) for s, t in available if _same(t, table_name, fold)]
         if _is_default_schema(schema_name):
             matches = [m for m in by_name if m[0] == DEFAULT_SCHEMA] or by_name
         else:
-            matches = [m for m in by_name if norm(m[0]) == norm(schema_name)]
+            matches = [m for m in by_name if m[0] == schema_name] or [
+                m for m in by_name if _same(m[0], schema_name, True)
+            ]
             matches = matches or [m for m in by_name if m[0] == DEFAULT_SCHEMA]
         if matches:
             return matches
     return []
+
+
+def _same(catalog_name: str, requested: str, fold: bool) -> bool:
+    if fold:
+        return catalog_name.casefold() == requested.casefold()
+    return catalog_name == requested
+
+
+def select_declared_columns(
+    columns_info: List[Dict], declared: List[str], label: str
+) -> List[Dict]:
+    """The catalog entries of the ``declared`` columns, in the declared order.
+
+    Each declared name is matched exactly first and, only when nothing matches exactly,
+    case-insensitively (Oracle reports unquoted names in upper case, PostgreSQL in lower case);
+    the entries returned carry the catalog's own spelling.
+
+    Raises:
+        ColumnLookupError: If no column is declared, a name matches no column or several
+            columns that differ only in case, or two declared names are the same column
+    """
+    if not declared:
+        raise ColumnLookupError(
+            f"select.columns of table '{label}' declares no columns; leave it out to read "
+            "every column"
+        )
+    available = [info["column_name"] for info in columns_info]
+    selected: List[Dict] = []
+    chosen: Dict[str, str] = {}
+    for name in declared:
+        matches = [info for info in columns_info if info["column_name"] == name] or [
+            info for info in columns_info if str(info["column_name"]).casefold() == name.casefold()
+        ]
+        if not matches:
+            raise ColumnLookupError(
+                f"Column '{name}' declared in select.columns of table '{label}' was not found "
+                "in the database catalog, or the connecting user has no privileges on it; the "
+                f"catalog lists the columns {listed(available)}"
+            )
+        if len(matches) > 1:
+            spellings = ", ".join(info["column_name"] for info in matches)
+            raise ColumnLookupError(
+                f"Column '{name}' declared in select.columns of table '{label}' matches "
+                f"several columns that differ only in case ({spellings}); declare the exact "
+                "spelling"
+            )
+        column = matches[0]["column_name"]
+        if column in chosen:
+            raise ColumnLookupError(
+                f"select.columns of table '{label}' declares the column '{column}' twice "
+                f"('{chosen[column]}' and '{name}')"
+            )
+        chosen[column] = name
+        selected.append(matches[0])
+    return selected
 
 
 def resolve_specified_tables(
@@ -219,16 +286,24 @@ class SqlSchemaManager:
         connection = self._get_connection()
         cursor = connection.cursor()
         try:
-            matches = match_catalog_entries(
-                self._list_tables(cursor, table=table_name), schema_name, table_name
-            )
-            if not matches:
-                # The driver's pattern match can be case-sensitive; look at the full listing
-                matches = match_catalog_entries(self._list_tables(cursor), schema_name, table_name)
+            if self._is_oracle():
+                # Every spelling of the name at once (the dictionary compares in upper case)
+                cursor.execute(_ORACLE_TABLES, table_name, table_name)
+                listing = [(row[0], row[1]) for row in cursor.fetchall()]
+                matches = match_catalog_entries(listing, schema_name, table_name)
+            else:
+                matches = match_catalog_entries(
+                    self._list_tables(cursor, table=table_name), schema_name, table_name
+                )
+                if not matches:
+                    # The driver's pattern match can be case-sensitive; look at the full listing
+                    matches = match_catalog_entries(
+                        self._list_tables(cursor), schema_name, table_name
+                    )
         finally:
             cursor.close()
 
-        label = table_name if default_schema else f"{schema_name}.{table_name}"
+        label = table_label(schema_name, table_name)
         if not matches:
             # MySQL, and the catalogs of other databases, list only tables the user may access
             raise TableLookupError(
@@ -236,6 +311,13 @@ class SqlSchemaManager:
                 "user has no privileges on it"
             )
         if len(matches) > 1:
+            if len({s for s, _ in matches}) < len(matches):
+                # The same schema holds names that differ only in case
+                found = ", ".join(sorted(f"{s}.{t}" for s, t in matches))
+                raise TableLookupError(
+                    f"Table '{label}' is ambiguous: found as {found}, names that differ only "
+                    "in case; give the exact spelling"
+                )
             schemas = ", ".join(sorted(s for s, _ in matches))
             raise TableLookupError(
                 f"Table '{label}' is ambiguous: found in schemas {schemas}; specify the schema"
@@ -282,19 +364,24 @@ class SqlSchemaManager:
 
         return schema_name, table_name
 
-    def get_table_schema(self, schema_name: str, table_name: str) -> pa.Schema:
+    def get_table_schema(
+        self, schema_name: str, table_name: str, columns: Optional[List[str]] = None
+    ) -> pa.Schema:
         """Get PyArrow schema for a table.
 
         Args:
             schema_name: Database schema name
             table_name: Table name
+            columns: The columns to read, in this order (``x-sql`` ``select.columns``); every
+                column when None. Names are resolved against the catalog like table names.
 
         Returns:
-            PyArrow schema with appropriate data types
+            PyArrow schema with appropriate data types (fields carry the catalog's spelling)
 
         Raises:
             ConnectionError: If not connected to database
             ValueError: If the table is not in the catalog or reports no columns
+            ColumnLookupError: If a declared column is not in the table's catalog entry
             RuntimeError: If the column metadata cannot be determined
         """
         resolved_schema, resolved_table = self.resolve_table(schema_name, table_name)
@@ -303,18 +390,25 @@ class SqlSchemaManager:
         cursor = connection.cursor()
 
         try:
-            # Use ODBC standard columns() method when possible
-            try:
-                columns_info = self._catalog_columns(cursor, resolved_schema, resolved_table)
-            except Exception as e:
-                logger.info(f"columns() not available, inferring schema from a query: {e}")
-                columns_info = self._query_columns(
-                    cursor, resolved_schema, resolved_table, schema_name, table_name
-                )
+            if self._is_oracle():
+                columns_info = self._oracle_columns(cursor, resolved_schema, resolved_table)
+            else:
+                # Use ODBC standard columns() method when possible
+                try:
+                    columns_info = self._catalog_columns(cursor, resolved_schema, resolved_table)
+                except Exception as e:
+                    logger.info(f"columns() not available, inferring schema from a query: {e}")
+                    columns_info = self._query_columns(
+                        cursor, resolved_schema, resolved_table, schema_name, table_name
+                    )
 
             if not columns_info:
                 raise ValueError(
                     f"Table '{resolved_table}' reports no columns in the database catalog"
+                )
+            if columns is not None:
+                columns_info = select_declared_columns(
+                    columns_info, columns, table_label(schema_name, table_name)
                 )
 
             # Convert to PyArrow schema
@@ -324,6 +418,7 @@ class SqlSchemaManager:
                     col_info["data_type"],
                     col_info.get("column_size"),
                     col_info.get("decimal_digits"),
+                    odbc_type=col_info.get("odbc_type"),
                 )
 
                 field = pa.field(
@@ -360,6 +455,33 @@ class SqlSchemaManager:
                     "column_size": getattr(row, "column_size", None),
                     "decimal_digits": getattr(row, "decimal_digits", None),
                     "nullable": getattr(row, "nullable", True),
+                    "odbc_type": getattr(row, "data_type", None),
+                }
+            )
+        return columns_info
+
+    def _oracle_columns(self, cursor, schema_name: Optional[str], table_name: str) -> List[Dict]:
+        """Column metadata from Oracle's data dictionary (``ALL_TAB_COLUMNS``), in table order.
+
+        ``NUMBER(*,s)`` (``INTEGER`` is ``NUMBER(*,0)``) has Oracle's maximum precision of 38;
+        a ``NUMBER`` without precision or scale is a floating-point number the driver returns
+        as a double. ``DATE`` holds a time of day and is read as a timestamp.
+        """
+        cursor.execute(_ORACLE_COLUMNS, schema_name, table_name)
+        columns_info = []
+        for name, data_type, precision, scale, nullable in cursor.fetchall():
+            size = int(precision) if precision is not None else None
+            digits = int(scale) if scale is not None else None
+            if data_type == "NUMBER" and size is None and digits is not None:
+                size = 38
+            columns_info.append(
+                {
+                    "column_name": name,
+                    "data_type": data_type,
+                    "column_size": size,
+                    "decimal_digits": digits,
+                    "nullable": nullable != "N",
+                    "odbc_type": _SQL_TYPE_TIMESTAMP if data_type == "DATE" else None,
                 }
             )
         return columns_info
@@ -406,6 +528,11 @@ class SqlSchemaManager:
             raise RuntimeError(
                 f"Could not determine schema for {schema_name}.{table_name}: {e}"
             ) from e
+
+    def _is_oracle(self) -> bool:
+        """True when the connected server is Oracle (its catalog is read from the dictionary)."""
+        dbms = getattr(self.connection_manager, "dbms", "")
+        return isinstance(dbms, str) and dbms.startswith("oracle")
 
     def _quote_char(self) -> str:
         """Identifier quote character reported by the driver (``"`` when unknown)."""

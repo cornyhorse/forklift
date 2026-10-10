@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import pyarrow as pa
 
 from ...processors.base import ValidationResult
+from ..exceptions import COLUMN_MISSING, CONSTRAINT_VIOLATION, with_error_code
 from .type_conversion import HIDDEN_COLUMN_PREFIX, has_raw_columns, raw_rows
 
 logger = logging.getLogger(__name__)
@@ -262,7 +263,13 @@ class ExtensionPipeline:
                 if stage is None:
                     continue
                 before = current.column(POSITION_COLUMN).to_pylist()
-                current, results = stage.process_batch(current)
+                try:
+                    current, results = stage.process_batch(current)
+                except ValueError as error:
+                    # errorMode "fail_fast": the first violation ends the import
+                    if stage is self.constraints:
+                        with_error_code(error, CONSTRAINT_VIOLATION)
+                    raise
                 self.record(results)
                 after = set(current.column(POSITION_COLUMN).to_pylist())
                 self._attribute_reasons(reasons, before, after, results, stage_name)
@@ -355,7 +362,10 @@ class ExtensionPipeline:
                 {k: v for k, v in self.summary.items() if k.startswith("VALIDATION_ERROR")}
             )
         if self.constraints is not None:
-            self.constraints.finalize()
+            try:
+                self.constraints.finalize()
+            except ValueError as error:
+                raise with_error_code(error, CONSTRAINT_VIOLATION)
 
     def describe(self) -> Dict[str, Any]:
         """Summary for the processing metadata file."""
@@ -690,9 +700,12 @@ def _check_references(
         typos = [c for c in missing if not (lenient and c in declared)]
         if typos:
             shown = ", ".join(repr(c) for c in typos)
-            raise ValueError(
-                f"{extension} refers to column(s) {shown} that are not in the input "
-                f"(columns after mapping: {', '.join(sorted(known))})"
+            raise with_error_code(
+                ValueError(
+                    f"{extension} refers to column(s) {shown} that are not in the input "
+                    f"(columns after mapping: {', '.join(sorted(known))})"
+                ),
+                COLUMN_MISSING,
             )
         shown = ", ".join(repr(c) for c in missing)
         warnings.append(

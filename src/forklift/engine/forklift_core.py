@@ -14,13 +14,15 @@ from typing import Optional, Union
 from .config import ExcessColumnMode, HeaderMode, ImportConfig, ProcessingResults
 
 # Import exceptions
-from .exceptions import ProcessingError
+from .exceptions import ImportCancelled, ProcessingError
 
 # Import format-specific importers
 from .importers import ExcelImporter, SqlImporter
+from .input_source import InputSource
 
 # Import extracted processing components
 from .processors import CSVProcessor
+from .progress import CancelCallback, ImportHooks, ProgressCallback
 
 
 class ForkliftCore:
@@ -32,15 +34,33 @@ class ForkliftCore:
 
     Args:
         config: ImportConfig instance with processing configuration
+        progress: Called at every batch boundary with ``{"rows_read", "rows_rejected",
+            "bytes_read"}`` (see ``forklift.engine.progress``)
+        cancel: Asked after every batch whether to stop; True stops the import with
+            ``ImportCancelled`` and discards its outputs
+        input_source: Read the input from this :class:`~forklift.engine.input_source.InputSource`
+            instead of opening ``config.input_path`` (which then only names the input)
     """
 
-    def __init__(self, config: ImportConfig):
+    def __init__(
+        self,
+        config: ImportConfig,
+        *,
+        progress: Optional[ProgressCallback] = None,
+        cancel: Optional[CancelCallback] = None,
+        input_source: Optional[InputSource] = None,
+    ):
         """Initialize the ForkliftCore engine.
 
         Args:
             config: Configuration object containing processing parameters
+            progress: Optional progress callback
+            cancel: Optional cancellation callback
+            input_source: Optional stream source for the input
         """
         self.config = config
+        self.hooks = ImportHooks(progress, cancel)
+        self.input_source = input_source
         self.csv_processor = CSVProcessor()
 
     def process_csv(self) -> ProcessingResults:
@@ -58,7 +78,9 @@ class ForkliftCore:
                       no partial output files are left behind (except that a run stopped by
                       the ``x-validation`` threshold keeps a finished ``bad_rows.parquet``)
         """
-        return self.csv_processor.process(self.config)
+        return self.csv_processor.process(
+            self.config, hooks=self.hooks, input_source=self.input_source
+        )
 
 
 # Public API functions
@@ -66,6 +88,9 @@ def import_csv(
     input_path: Union[str, Path],
     output_path: Union[str, Path],
     schema_file: Optional[Union[str, Path]] = None,
+    *,
+    progress: Optional[ProgressCallback] = None,
+    cancel: Optional[CancelCallback] = None,
     **kwargs,
 ) -> ProcessingResults:
     """Import CSV file with streaming and validation.
@@ -79,8 +104,13 @@ def import_csv(
         input_path: Path to input CSV file to process (local or S3 URI)
         output_path: Directory where output files will be created (local or S3 URI)
         schema_file: Optional path to JSON schema file for validation (local or S3 URI)
+        progress: Called at every batch boundary with ``{"rows_read", "rows_rejected",
+            "bytes_read"}``
+        cancel: Asked after every batch whether to stop; returning True raises
+            :class:`~forklift.engine.exceptions.ImportCancelled` and discards the outputs
         **kwargs: Additional configuration options passed to ImportConfig (``header_mode`` and
-            ``excess_column_mode`` accept the enum or a string such as ``"absent"``)
+            ``excess_column_mode`` accept the enum or a string such as ``"absent"``;
+            ``s3_client`` is the S3 client for ``s3://`` paths)
 
     Returns:
         ProcessingResults object containing statistics and output file paths
@@ -113,12 +143,23 @@ def import_csv(
                 output_path="output/",
                 footer_detection={"stop_on_blank": True}
             )
+
+        An S3-compatible store, with progress reporting::
+
+            from forklift.io import S3StreamingClient
+
+            results = import_csv(
+                "s3://bucket/data.csv",
+                "s3://bucket/output/",
+                s3_client=S3StreamingClient(endpoint_url="https://store.example.org"),
+                progress=lambda event: print(event["rows_read"]),
+            )
     """
     config = ImportConfig(
         input_path=input_path, output_path=output_path, schema_file=schema_file, **kwargs
     )
 
-    engine = ForkliftCore(config)
+    engine = ForkliftCore(config, progress=progress, cancel=cancel)
     return engine.process_csv()
 
 
@@ -167,6 +208,8 @@ def import_excel(
             - values_only: Read only cell values, ignoring formulas (default: True)
             - engine: Excel engine to use ('openpyxl' or 'xlrd', auto-detected)
             - date_system: Excel date system ('1900' or '1904', default: '1900')
+            - s3_client: Optional client for ``s3://`` inputs, schemas and outputs
+            - progress / cancel: Called after every sheet (see ``import_csv``)
 
     Returns:
         ProcessingResults object containing processing statistics and metadata
@@ -208,6 +251,8 @@ def import_sql(
             - continue_on_error: Return the results instead of raising when some tables
               fail (default: False; failed tables are listed in ``results.errors``)
             - s3_client: Optional client used when ``output_path`` is an S3 URI
+            - progress / cancel: Called after every batch (see ``import_csv``); a cancelled
+              import stops at once and keeps none of its tables
 
     Returns:
         ProcessingResults object containing processing statistics and metadata
@@ -270,6 +315,7 @@ def import_sql(
 __all__ = [
     "ForkliftCore",
     "ProcessingError",
+    "ImportCancelled",
     "import_csv",
     "import_fwf",
     "import_excel",

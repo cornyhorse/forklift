@@ -14,8 +14,14 @@ import pyarrow.parquet as pq
 
 from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
 from ..config import ProcessingResults
-from ..exceptions import ProcessingError
-from .output_location import OutputLocation, discard_partial_output, unique_stem
+from ..exceptions import SCHEMA_INVALID, ImportInterrupted, ProcessingError, with_error_code
+from ..progress import ImportHooks
+from .output_location import (
+    OutputLocation,
+    discard_finished_outputs,
+    discard_partial_output,
+    unique_stem,
+)
 
 
 class ExcelImporter:
@@ -40,16 +46,23 @@ class ExcelImporter:
         boto3's default credentials). Excel readers need a seekable file, so an S3 workbook is
         copied to a temporary directory first and removed afterwards.
 
+        ``progress`` and ``cancel`` (keyword arguments, see ``forklift.engine.progress``) are
+        called after every sheet. A cancelled import (or one stopped by its progress callback)
+        removes the sheets it had already written.
+
         Raises:
             ValueError: If an output file name is invalid or would leave the output directory
+            ImportInterrupted: The import was cancelled or stopped by its progress callback
         """
         from ...inputs.excel import ExcelInputHandler
         from ...schema.excel_schema_importer import ExcelSchemaImporter
 
         logger = logging.getLogger(__name__)
         start_time = time.time()
+        hooks = ImportHooks(kwargs.get("progress"), kwargs.get("cancel"))
 
         scratch: Optional[tempfile.TemporaryDirectory] = None
+        written: list = []
         try:
             location = OutputLocation(output_path)
             if is_s3_path(input_path):
@@ -78,7 +91,9 @@ class ExcelImporter:
                     logger.info(f"Loaded Excel schema from {schema_file}")
                 except Exception as e:
                     logger.error(f"Failed to load Excel schema: {e}")
-                    raise ProcessingError(f"Schema validation failed: {e}") from e
+                    raise with_error_code(
+                        ProcessingError(f"Schema validation failed: {e}"), SCHEMA_INVALID
+                    ) from e
 
             # Create default config if no schema provided
             if excel_config is None:
@@ -107,6 +122,7 @@ class ExcelImporter:
             processed_sheets = 0
             total_rows = 0
             used_names: Set[str] = set()
+            workbook_size = input_path.stat().st_size
 
             for sheet_name, arrow_table in excel_handler.process_sheets(input_path):
                 logger.info(f"Processing sheet '{sheet_name}' with {arrow_table.num_rows} rows")
@@ -126,6 +142,10 @@ class ExcelImporter:
                 processed_sheets += 1
                 total_rows += arrow_table.num_rows
                 results.output_files.append(str(sheet_output_path))
+                written.append(sheet_output_path)
+
+                # Sheet boundary: report progress, stop here if the caller cancelled
+                hooks.report(total_rows, 0, workbook_size)
 
             # Finalize results
             processing_time = time.time() - start_time
@@ -144,6 +164,9 @@ class ExcelImporter:
         except Exception as e:
             processing_time = time.time() - start_time
             logger.error(f"Excel import failed after {processing_time:.2f}s: {e}")
+            if isinstance(e, ImportInterrupted):
+                # A stopped import keeps nothing: the sheets written so far go too
+                discard_finished_outputs(written, kwargs.get("s3_client"))
 
             # Return error results
             results = ProcessingResults()

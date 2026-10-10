@@ -1,6 +1,6 @@
 """Comprehensive tests for SQL input handler to achieve 100% code coverage."""
 
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import Mock, patch
 
 import pyarrow as pa
 import pytest
@@ -279,9 +279,9 @@ class TestSqlInputHandlerComplete:
 
             assert len(schema) == 2
             assert schema.field(0).name == "id"
-            assert schema.field(0).nullable == False
+            assert schema.field(0).nullable is False
             assert schema.field(1).name == "name"
-            assert schema.field(1).nullable == True
+            assert schema.field(1).nullable is True
 
     def test_get_table_schema_fallback_method(self, sql_handler):
         """Test get_table_schema using fallback SELECT method."""
@@ -442,7 +442,7 @@ class TestSqlInputHandlerComplete:
 
         sql_handler.connection = mock_connection
 
-        # Mock the data reader's read_table_data method directly to avoid the schema retrieval issue
+        # Mock the data reader's read_table_data method directly (no schema retrieval)
         with patch.object(sql_handler.data_reader, "read_table_data") as mock_read_data:
             mock_batch_1 = pa.record_batch([[1, 2], ["Alice", "Bob"]], schema=mock_schema)
             mock_batch_2 = pa.record_batch([[3], ["Charlie"]], schema=mock_schema)
@@ -453,7 +453,7 @@ class TestSqlInputHandlerComplete:
             assert len(batches) == 2
             assert batches[0].num_rows == 2
             assert batches[1].num_rows == 1
-            mock_read_data.assert_called_once_with("public", "users")
+            mock_read_data.assert_called_once_with("public", "users", columns=None)
 
     def test_rows_to_recordbatch_empty(self, sql_handler):
         """Test converting empty rows to RecordBatch."""

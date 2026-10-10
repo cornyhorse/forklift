@@ -167,12 +167,16 @@ class SqlInputHandler:
             available_tables, table_specifications, self._parse_table_specification
         )
 
-    def get_table_schema(self, schema_name: str, table_name: str) -> pa.Schema:
+    def get_table_schema(
+        self, schema_name: str, table_name: str, columns: Optional[List[str]] = None
+    ) -> pa.Schema:
         """Get PyArrow schema for a table.
 
         Args:
             schema_name: Database schema name
             table_name: Table name
+            columns: Only these columns, in this order (``x-sql`` ``select.columns``); every
+                column when None
 
         Returns:
             PyArrow schema with appropriate data types
@@ -180,14 +184,18 @@ class SqlInputHandler:
         Raises:
             ConnectionError: If not connected to database
         """
-        return self.schema_manager.get_table_schema(schema_name, table_name)
+        return self.schema_manager.get_table_schema(schema_name, table_name, columns=columns)
 
-    def read_table_data(self, schema_name: str, table_name: str) -> Iterator[pa.RecordBatch]:
+    def read_table_data(
+        self, schema_name: str, table_name: str, columns: Optional[List[str]] = None
+    ) -> Iterator[pa.RecordBatch]:
         """Read data from a table in batches.
 
         Args:
             schema_name: Database schema name
             table_name: Table name
+            columns: Only these columns, in this order (``x-sql`` ``select.columns``); every
+                column when None
 
         Yields:
             PyArrow RecordBatch objects
@@ -195,7 +203,7 @@ class SqlInputHandler:
         Raises:
             ConnectionError: If not connected to database
         """
-        return self.data_reader.read_table_data(schema_name, table_name)
+        return self.data_reader.read_table_data(schema_name, table_name, columns=columns)
 
     def get_tables_to_process(self) -> List[Tuple[str, str, Optional[str]]]:
         """Get list of tables to process from schema or config.

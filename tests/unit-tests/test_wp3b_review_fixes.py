@@ -87,12 +87,13 @@ def patched_sql(tables, data):
     with patch("forklift.schema.sql_schema_importer.SqlSchemaImporter") as importer_cls:
         with patch("forklift.inputs.sql.SqlInputHandler") as handler_cls:
             importer_cls.return_value.get_table_list.return_value = tables
+            importer_cls.return_value.get_selected_columns.return_value = None
             handler = Mock()
             handler_cls.return_value = handler
             handler.__enter__ = Mock(return_value=handler)
             handler.__exit__ = Mock(return_value=None)
             handler.get_table_schema.return_value = SQL_SCHEMA
-            handler.read_table_data.side_effect = lambda schema, table: data[table]()
+            handler.read_table_data.side_effect = lambda schema, table, columns: data[table]()
             yield handler
 
 

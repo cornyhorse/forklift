@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -12,49 +11,37 @@ from typing import Any, Dict, List, Set, Union
 
 from ...io import create_parquet_writer
 from ..config import ProcessingResults
-from ..exceptions import ProcessingError
-from .output_location import OutputLocation, discard_partial_output, validate_output_stem
+from ..exceptions import (
+    INPUT_UNREADABLE,
+    SCHEMA_INVALID,
+    ImportInterrupted,
+    ProcessingError,
+    with_error_code,
+)
+from ..progress import ImportHooks
+from .output_location import (
+    OutputLocation,
+    discard_finished_outputs,
+    discard_partial_output,
+    validate_output_stem,
+)
 from .redaction import redact_connection_string, scrub_secrets
-
-# What common SQLSTATEs mean, for the reason recorded with a failed table
-_SQLSTATE_MEANINGS = {
-    "25006": "read-only transaction: the statement would have written",
-    "28000": "invalid authorization",
-    "42000": "syntax error or access rule violation",
-    "42501": "insufficient privilege",
-    "42P01": "table not found",
-    "42S02": "table not found",
-    "57014": "statement cancelled (query timeout)",
-    "HY008": "operation cancelled",
-    "HYT00": "timeout expired",
-}
-_SQLSTATE = re.compile(r"[0-9A-Z]{5}")
-# pyodbc messages end with the driver's numeric code, e.g. "... (1142) (SQLExecDirectW)"
-_NATIVE_CODE = re.compile(r"\((-?\d+)\)\s*\(SQL\w+\)\s*$")
 
 
 def _failure_reason(error: BaseException) -> str:
     """Why a table failed, without the driver's message text (which can quote data).
 
-    A failed catalog lookup explains itself (its message holds only names). A database error
-    is described by its SQLSTATE, what that state means, and the driver's numeric code: enough
-    to tell a missing privilege from a timeout, never the values involved.
+    forklift's own SQL input errors explain themselves (a failed catalog lookup, a declared
+    column that is not in the table, a refused privilege: their messages hold only names and
+    codes). A database error is described by its SQLSTATE, what that state means, and the
+    driver's numeric code: enough to tell a missing privilege from a timeout, never the values
+    involved.
     """
-    from ...inputs.sql.schema import TableLookupError
+    from ...inputs.sql.errors import SqlSourceError, describe_database_error
 
-    if isinstance(error, TableLookupError):
+    if isinstance(error, SqlSourceError):
         return str(error)
-    args = getattr(error, "args", ())
-    if len(args) >= 2 and isinstance(args[0], str) and _SQLSTATE.fullmatch(args[0]):
-        state = args[0]
-        reason = f"SQLSTATE {state}"
-        if state in _SQLSTATE_MEANINGS:
-            reason += f", {_SQLSTATE_MEANINGS[state]}"
-        native = _NATIVE_CODE.search(str(args[1]))
-        if native:
-            reason += f", driver error {native.group(1)}"
-        return reason
-    return ""
+    return describe_database_error(error)
 
 
 class SqlImporter:
@@ -88,6 +75,12 @@ class SqlImporter:
         insufficient privilege, driver error 1)``). ``failed_tables`` entries carry it as
         ``reason``.
 
+        ``progress`` and ``cancel`` (keyword arguments, see ``forklift.engine.progress``) are
+        called after every batch. Cancelling (or a progress callback raising
+        ``ImportInterrupted``) stops the whole import at once, unlike a failing table: the
+        table being read is discarded, so are the tables already written, and no
+        ``metadata.json`` is written.
+
         Args:
             connection_string: ODBC connection string
             output_path: Output directory (local) or S3 URI
@@ -98,8 +91,11 @@ class SqlImporter:
                 (default False) and ``s3_client`` (optional client for S3 outputs)
 
         Raises:
-            ProcessingError: No schema file, invalid schema, or one or more tables failed
+            ProcessingError: No schema file, invalid schema, or one or more tables failed (its
+                ``error_code`` is that of the failures when they all have the same one, such
+                as ``PERMISSION_DENIED``, otherwise ``INPUT_UNREADABLE``)
             ValueError: No tables in the schema, or an invalid/duplicate output file name
+            ImportInterrupted: The import was cancelled or stopped by its progress callback
         """
         from ...inputs.config import SqlInputConfig
         from ...inputs.sql import SqlInputHandler
@@ -109,14 +105,20 @@ class SqlImporter:
         start_time = time.time()
         continue_on_error = kwargs.get("continue_on_error", False)
         s3_client = kwargs.get("s3_client")
+        hooks = ImportHooks(kwargs.get("progress"), kwargs.get("cancel"))
+        output_files: List[str] = []
 
         try:
             location = OutputLocation(output_path)
 
             # Schema file is now required for explicit table specification
             if not schema_file:
-                raise ProcessingError(
-                    "Schema file is required for SQL import to specify which tables to process"
+                raise with_error_code(
+                    ProcessingError(
+                        "Schema file is required for SQL import to specify which tables to "
+                        "process"
+                    ),
+                    SCHEMA_INVALID,
                 )
 
             # Load and validate schema
@@ -127,12 +129,17 @@ class SqlImporter:
                 logger.info(f"Loaded SQL schema from {schema_file}")
             except Exception as e:
                 logger.error(f"Failed to load SQL schema: {e}")
-                raise ProcessingError(f"Schema validation failed: {e}") from e
+                raise with_error_code(
+                    ProcessingError(f"Schema validation failed: {e}"), SCHEMA_INVALID
+                ) from e
 
             # Get explicit table list from schema
             tables_to_process = schema_importer.get_table_list()
             if not tables_to_process:
-                raise ValueError("Schema file must specify at least one table to process")
+                raise with_error_code(
+                    ValueError("Schema file must specify at least one table to process"),
+                    SCHEMA_INVALID,
+                )
 
             # Validate every output file name before touching the database or the disk
             planned = SqlImporter._plan_outputs(location, tables_to_process)
@@ -162,9 +169,9 @@ class SqlImporter:
             total_rows = 0
             valid_rows = 0
             processed_tables = 0
-            output_files: List[str] = []
             tables_done: List[Any] = []
             failed_tables: List[Dict[str, str]] = []
+            failure_codes: Set[str] = set()
             results = ProcessingResults()
 
             with sql_handler:
@@ -177,16 +184,25 @@ class SqlImporter:
                     try:
                         logger.info(f"Processing table: {schema_name}.{table_name}")
 
-                        # Get table schema
-                        table_schema = sql_handler.get_table_schema(schema_name, table_name)
+                        # The columns the table's x-sql entry declares (None: all of them)
+                        columns = schema_importer.get_selected_columns(
+                            schema_name, table_name, output_name
+                        )
+                        table_schema = sql_handler.get_table_schema(
+                            schema_name, table_name, columns=columns
+                        )
 
                         # Create Parquet writer
                         writer = create_parquet_writer(target, table_schema, **writer_kwargs)
 
                         # Process data in batches
-                        for batch in sql_handler.read_table_data(schema_name, table_name):
+                        for batch in sql_handler.read_table_data(
+                            schema_name, table_name, columns=columns
+                        ):
                             writer.write_batch(batch)
                             table_rows += batch.num_rows
+                            # Batch boundary: report progress, stop if the caller cancelled
+                            hooks.report(total_rows + table_rows)
 
                         # Close writer (for S3 this completes the upload)
                         writer.close()
@@ -195,10 +211,11 @@ class SqlImporter:
                     except BaseException as exc:
                         # Never leave a truncated file (or a pending upload) behind
                         discard_partial_output(writer, target)
-                        if not isinstance(exc, Exception):
+                        if not isinstance(exc, Exception) or isinstance(exc, ImportInterrupted):
                             raise
                         error_type = type(exc).__name__
                         reason = _failure_reason(exc)
+                        failure_codes.add(getattr(exc, "error_code", None) or INPUT_UNREADABLE)
                         described = f"{error_type} ({reason})" if reason else error_type
                         logger.error(
                             "Failed to process table %s.%s: %s",
@@ -278,6 +295,9 @@ class SqlImporter:
                     )
                 )
                 error.results = results  # partial results: tables that did succeed
+                error.error_code = (
+                    failure_codes.pop() if len(failure_codes) == 1 else INPUT_UNREADABLE
+                )
                 raise error
 
             logger.info(
@@ -295,6 +315,9 @@ class SqlImporter:
                 f"SQL import failed after {processing_time:.2f}s: "
                 f"{scrub_secrets(str(e), connection_string)}"
             )
+            if isinstance(e, ImportInterrupted):
+                # A stopped import keeps nothing: the tables written so far go too
+                discard_finished_outputs(output_files, s3_client)
             raise
 
     @staticmethod

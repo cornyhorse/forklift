@@ -20,6 +20,15 @@ from ...processors.data_validation.data_validation_processor import (
     BadRowsThresholdExceededError,
 )
 from ..config import HeaderMode, ImportConfig, ProcessingResults
+from ..exceptions import (
+    COLUMN_MISSING,
+    ENCODING_ERROR,
+    INPUT_UNREADABLE,
+    SCHEMA_INVALID,
+    with_error_code,
+)
+from ..input_source import InputSource
+from ..progress import NO_HOOKS, ImportHooks
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
 from .extensions import (
@@ -243,7 +252,12 @@ class CSVProcessor(BaseProcessor):
         self.header_detector = None
         self.batch_processor = None
 
-    def process(self, config: ImportConfig) -> ProcessingResults:
+    def process(
+        self,
+        config: ImportConfig,
+        hooks: Optional[ImportHooks] = None,
+        input_source: Optional[InputSource] = None,
+    ) -> ProcessingResults:
         """Process CSV file with streaming and validation.
 
         Main processing method that orchestrates the entire CSV import workflow
@@ -252,12 +266,16 @@ class CSVProcessor(BaseProcessor):
 
         Args:
             config: ImportConfig instance with processing configuration
+            hooks: Progress and cancellation callbacks, called after every batch
+            input_source: Stream source to read instead of ``config.input_path``
 
         Returns:
             ProcessingResults object containing processing statistics and output paths
 
         Raises:
-            Exception: Any failure is recorded in ``results.errors`` and re-raised. A failed run
+            Exception: Any failure is recorded in ``results.errors`` and re-raised; where the
+                engine knows what went wrong the exception has an ``error_code`` (see
+                ``forklift.engine.exceptions``). A failed run
                 leaves no partial ``data.parquet`` / ``bad_rows.parquet`` behind (local files
                 are removed, S3 uploads are not completed), and outputs of earlier runs in the
                 destination are removed when processing starts. One exception: a
@@ -268,19 +286,29 @@ class CSVProcessor(BaseProcessor):
         start_time = time.time()
         results = ProcessingResults()
         outputs: Optional[_ParquetOutputs] = None
+        hooks = hooks or NO_HOOKS
 
         try:
             # Initialize components
-            self.io_handler = UnifiedIOHandler()
+            self.io_handler = UnifiedIOHandler(getattr(config, "s3_client", None))
             self.schema_processor = SchemaProcessor(config, self.io_handler)
-            self.header_detector = HeaderDetector(config, self.io_handler)
+            self.header_detector = HeaderDetector(
+                config, self.io_handler, input_source=input_source
+            )
 
             # Load schema if provided
-            schema = self.schema_processor.load_schema()
-            converter = self.schema_processor.build_converter()
+            try:
+                schema = self.schema_processor.load_schema()
+                converter = self.schema_processor.build_converter()
+            except (ValueError, TypeError, KeyError, FileNotFoundError) as e:
+                raise with_error_code(e, SCHEMA_INVALID)
 
-            # Detect header - now works with S3 inputs
-            header_row_index, column_names = self._detect_header_row(config)
+            # Detect header - now works with S3 inputs (an undecodable header is reported as
+            # an encoding error by _friendly_error)
+            try:
+                header_row_index, column_names = self._detect_header_row(config)
+            except ValueError as e:
+                raise with_error_code(e, INPUT_UNREADABLE)
 
             # Required columns are looked up by name, so they have to exist
             required_columns = self._required_columns(config)
@@ -289,9 +317,12 @@ class CSVProcessor(BaseProcessor):
             # Schema extensions (x-transformations, x-columnMapping, x-calculatedColumns,
             # x-validation, x-primaryKey, x-rowHash, ...). Misconfiguration fails here, before
             # any output is written.
-            pipeline = self._build_extension_pipeline(
-                config, column_names, results, mark_nulls=converter.mark_nulls
-            )
+            try:
+                pipeline = self._build_extension_pipeline(
+                    config, column_names, results, mark_nulls=converter.mark_nulls
+                )
+            except ValueError as e:
+                raise with_error_code(e, SCHEMA_INVALID)
 
             # Prepare output paths - support both local and S3 outputs
             good_file, bad_file, use_s3_output = self._prepare_output_paths(config)
@@ -326,6 +357,7 @@ class CSVProcessor(BaseProcessor):
                 converter=converter,
                 reject_handler=write_rejected,
                 pre_convert=pipeline.pre_convert if pipeline and pipeline.has_pre_stage else None,
+                input_source=input_source,
             )
 
             # Process batches using extracted batch processor (no columns: nothing to read)
@@ -376,6 +408,11 @@ class CSVProcessor(BaseProcessor):
                     results.invalid_rows += len(rejected_by_extensions)
 
                 results.total_rows += len(batch)
+
+                # Batch boundary: report progress, stop here if the caller cancelled
+                hooks.report(
+                    results.total_rows, results.invalid_rows, self.batch_processor.bytes_read
+                )
 
             # A header without rows (or only rejected rows) still yields an empty data file
             # that carries the schema
@@ -480,10 +517,13 @@ class CSVProcessor(BaseProcessor):
     def _friendly_error(error: Exception, config: ImportConfig) -> Exception:
         """Undecodable input gets one clear message (Python's own names the byte, not the fix)."""
         if isinstance(error, UnicodeDecodeError):
-            return ValueError(
-                f"Input contains bytes that are not valid for encoding '{config.encoding}' "
-                f"(byte offset {error.start}). Set the encoding the file was written with "
-                "(for example 'latin-1' or 'cp1252')."
+            return with_error_code(
+                ValueError(
+                    f"Input contains bytes that are not valid for encoding '{config.encoding}' "
+                    f"(byte offset {error.start}). Set the encoding the file was written with "
+                    "(for example 'latin-1' or 'cp1252')."
+                ),
+                ENCODING_ERROR,
             )
         return error
 
@@ -518,9 +558,12 @@ class CSVProcessor(BaseProcessor):
             return  # nothing to read
         missing = [name for name in required_columns if name not in column_names]
         if missing:
-            raise ValueError(
-                "Required column(s) missing from the input header: "
-                + ", ".join(repr(name) for name in missing)
+            raise with_error_code(
+                ValueError(
+                    "Required column(s) missing from the input header: "
+                    + ", ".join(repr(name) for name in missing)
+                ),
+                COLUMN_MISSING,
             )
 
     def _prepare_output_paths(self, config: ImportConfig):
@@ -604,7 +647,10 @@ class CSVProcessor(BaseProcessor):
         for name in required_columns:
             position = batch.schema.get_field_index(name)
             if position < 0:
-                raise ValueError(f"Required column '{name}' is missing from the input")
+                raise with_error_code(
+                    ValueError(f"Required column '{name}' is missing from the input"),
+                    COLUMN_MISSING,
+                )
 
             column = batch.column(position)
             column_ok = pc.is_valid(column)
@@ -665,6 +711,7 @@ class CSVProcessor(BaseProcessor):
                     output_metadata_path = output_metadata_collector.save_metadata(
                         str(config.output_path),
                         "output_data_metadata.json",
+                        self.io_handler.s3_client if outputs._use_s3_output else None,
                         schema=outputs.good_schema,
                         source_info=source_info,
                     )

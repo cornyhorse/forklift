@@ -1,7 +1,8 @@
-"""Command line interface: ``forklift ingest`` and ``forklift generate-schema``.
+"""Command line interface: ``forklift ingest``, ``generate-schema`` and ``run-job``.
 
 Exit codes: 0 on success, 1 when processing fails, 2 for usage errors and for input kinds that
-are not implemented (argparse itself also exits with 2 for invalid arguments).
+are not implemented (argparse itself also exits with 2 for invalid arguments). ``run-job`` exits
+with 0 when the job succeeded, 1 when it failed or was cancelled and 2 when the spec is invalid.
 """
 
 from __future__ import annotations
@@ -9,9 +10,14 @@ from __future__ import annotations
 import argparse
 import contextlib
 import dataclasses
+import json
 import logging
+import os
+import signal
 import sys
-from typing import Any, Dict, Iterator, Optional, Sequence
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 from .engine.forklift_core import (
     ForkliftCore,
@@ -224,6 +230,33 @@ def _build_parser():
             "in the generated metadata. Off by default because the metadata can hold PII."
         ),
     )
+    run_job = sub.add_parser(
+        "run-job",
+        help="Run a job spec (the job contract) and write its JobResult",
+        description=(
+            "Run SPEC (a JobSpec JSON file) with every file location relative to --base-dir and "
+            "write the JobResult to --result. Exit code 0: succeeded, 1: failed or cancelled, "
+            "2: invalid spec. SIGTERM cancels the job (the result says 'cancelled'). Logs go to "
+            "stderr; with --progress-jsonl stdout carries one JSON object per progress event."
+        ),
+    )
+    run_job.add_argument("spec", help="Path of the JobSpec JSON file")
+    run_job.add_argument(
+        "--base-dir", required=True, help="Directory that file locations are relative to"
+    )
+    run_job.add_argument("--result", required=True, help="Where to write the JobResult JSON")
+    run_job.add_argument(
+        "--allow-url-host",
+        action="append",
+        default=[],
+        metavar="HOST",
+        help="Host (or host:port) a presigned_url input may point at; repeat for several",
+    )
+    run_job.add_argument(
+        "--progress-jsonl",
+        action="store_true",
+        help="Print every progress event as one JSON line on stdout",
+    )
     return p, ingest, schema_gen
 
 
@@ -320,6 +353,94 @@ def _run_generate_schema(parser: argparse.ArgumentParser, args: argparse.Namespa
         _fail(f"Error generating schema: {e}")
 
 
+@contextlib.contextmanager
+def _logs_to_stderr() -> Iterator[None]:
+    """Send forklift's log records (INFO and up) to stderr while a job runs."""
+    target = logging.getLogger("forklift")
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    previous = target.level
+    target.addHandler(handler)
+    target.setLevel(logging.INFO)
+    try:
+        yield
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(previous)
+
+
+@contextlib.contextmanager
+def _cancel_on_sigterm(flag: List[bool]) -> Iterator[None]:
+    """While the job runs, SIGTERM sets ``flag[0]`` (the job stops at its next batch)."""
+
+    def request_cancel(signum, frame):
+        logging.getLogger(__name__).warning("SIGTERM received: cancelling the job")
+        flag[0] = True
+
+    previous = signal.signal(signal.SIGTERM, request_cancel)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+def _write_result(path: str, result: Any) -> None:
+    """Write the result atomically: a reader never sees a half-written file."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=str(target.parent), prefix=f".{target.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(result.to_dict(), handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+        os.replace(temporary, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise
+
+
+def _run_job(args: argparse.Namespace) -> None:
+    from .jobs import JobResult, run_job
+    from .jobs.result import JobError
+
+    def invalid(message: str, job_id: Optional[str] = None) -> None:
+        print(f"Error: {message}", file=sys.stderr)
+        error = JobError(code="SPEC_INVALID", message=message, retryable=False)
+        _write_result(args.result, JobResult(job_id=job_id, status="failed", error=error))
+        sys.exit(EXIT_USAGE)
+
+    try:
+        with open(args.spec, encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError) as error:
+        invalid(f"Cannot read the job spec {args.spec}: {error}")
+    if not os.path.isdir(args.base_dir):
+        job_id = document.get("job_id") if isinstance(document, dict) else None
+        invalid(f"--base-dir {args.base_dir} is not a directory", job_id)
+
+    def report(event: Dict[str, Any]) -> None:
+        print(json.dumps(event, separators=(",", ":")), flush=True)
+
+    cancelled = [False]
+    with _logs_to_stderr(), _cancel_on_sigterm(cancelled):
+        result = run_job(
+            document,
+            base_dir=args.base_dir,
+            allowed_url_hosts=args.allow_url_host,
+            progress=report if args.progress_jsonl else None,
+            cancel=lambda: cancelled[0],
+        )
+    _write_result(args.result, result)
+    print(
+        f"Job {result.job_id}: {result.status}; result written to {args.result}", file=sys.stderr
+    )
+    if result.status == "succeeded":
+        return
+    print(f"Error ({result.error.code}): {result.error.message}", file=sys.stderr)
+    sys.exit(EXIT_USAGE if result.error.code == "SPEC_INVALID" else EXIT_FAILURE)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> None:
     """Run the CLI. Exits non-zero on any failure (see module docstring)."""
     p, _ingest, schema_gen = _build_parser()
@@ -327,5 +448,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     if args.cmd == "ingest":
         _run_ingest(args)
-    else:  # generate-schema (the only other subcommand)
+    elif args.cmd == "run-job":
+        _run_job(args)
+    else:  # generate-schema
         _run_generate_schema(schema_gen, args)

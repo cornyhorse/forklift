@@ -342,7 +342,7 @@ with an `x-excel` extension. `x-excel` takes either a `sheets` list, or a single
         "outputName": "customer_data"
       },
       {
-        "select": {"schema": "dbo", "name": "orders"}
+        "select": {"schema": "dbo", "name": "orders", "columns": ["id", "amount", "created_at"]}
       }
     ]
   }
@@ -352,3 +352,12 @@ with an `x-excel` extension. `x-excel` takes either a `sheets` list, or a single
 `select.schema` and `select.name` must look like identifiers (letters, digits, `_`, space, `.`, `-`,
 `$`, `#`, `@`; no quotes, semicolons or comment markers). `outputName` must be a plain file stem
 (letters, digits, `_`, `-`, `.`).
+
+`select.columns` (optional) lists the columns to read, in that order; without it every column is
+read (`SELECT *`). Use it for a login with column-level grants, or to leave columns out. Column
+names may hold any printable character except quotes, semicolons, backslashes and comment
+markers; each is matched against the table's catalog columns (exact spelling first, then
+ignoring case, so `id` finds Oracle's `ID`) and always quoted, and the Parquet columns carry the
+catalog's spelling. When a table without a declaration is refused for a missing privilege, its
+`reason` names the columns the login may read and the declaration to add, e.g.
+`"select": {"schema": "dbo", "name": "orders", "columns": ["id", "amount"]}`.

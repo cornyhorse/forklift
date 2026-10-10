@@ -47,7 +47,7 @@ The `ForkliftCore` class serves as the central orchestration engine that:
 **Key Responsibilities:**
 ```python
 class ForkliftCore:
-    def __init__(self, config: ImportConfig)
+    def __init__(self, config: ImportConfig, *, progress=None, cancel=None, input_source=None)
     def process_csv(self) -> ProcessingResults
 ```
 
@@ -64,6 +64,15 @@ The engine exposes high-level functions for different data formats:
 
 Each function provides a simplified interface while supporting advanced configuration through keyword arguments.
 They are exported from the top-level package (`from forklift import import_csv, import_excel, import_sql`).
+
+#### 3. **Seams for jobs and services**
+
+These small modules are what `forklift.jobs` (`run_job`, `forklift run-job`) builds on; library users can use them directly too.
+
+- **`progress.py`**: `ImportHooks`. Every importer takes `progress=` and `cancel=`: `progress({"rows_read", "rows_rejected", "bytes_read"})` is called at every batch boundary (per batch for CSV and SQL, per sheet for Excel) and `cancel()` right after it; True raises `ImportCancelled` and the import keeps no output (SQL does not go on with its other tables, Excel removes the sheets it had written). A progress callback may raise an `ImportInterrupted` (such as `LimitExceededError`) to stop the import the same way.
+- **`exceptions.py`**: the stable error codes (`ERROR_CODES`, the job contract's codes) and `with_error_code()`. The importers set `error_code` on the exceptions they understand: `SCHEMA_INVALID` (schema cannot be loaded, an extension is misconfigured), `INPUT_UNREADABLE` (no header row, a row too wide for `passthrough`, failed SQL tables), `ENCODING_ERROR`, `COLUMN_MISSING` (a required or referenced column is not in the input), `CONSTRAINT_VIOLATION` (`fail_fast` / `fail_complete`), `PERMISSION_DENIED` (SQL tables refused for privileges), `CANCELLED`, `LIMIT_EXCEEDED`. The type and the message of each exception stay as they were.
+- **`input_source.py`**: `InputSource`, a CSV input read as forward-only byte streams instead of by path (`ForkliftCore(config, input_source=...)`; `config.input_path` then only names the input). Header detection reads it through `open_head()`, the main read and the row reader for ragged rows each open a new stream, and footer detection uses the row reader, so no copy is written. `forklift.jobs` streams presigned URLs this way; `import_csv` never turns a URL string into a source. `CountingReader` counts the bytes behind `bytes_read`.
+- **`ImportConfig.s3_client`** and **`ProcessingResults.to_dict()`**: an explicit S3 client for `import_csv` (for S3-compatible stores), and the results as plain JSON values.
 
 ## Processing Pipeline
 

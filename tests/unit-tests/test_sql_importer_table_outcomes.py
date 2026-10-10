@@ -18,6 +18,7 @@ def _run(tmp_path, read_table_data):
     schema_file.write_text("{}")
     schema_importer = MagicMock()
     schema_importer.get_table_list.return_value = [("public", "users", None)]
+    schema_importer.get_selected_columns.return_value = None
     handler = MagicMock()
     handler.__enter__.return_value = handler
     handler.__exit__.return_value = None
@@ -32,7 +33,7 @@ def _run(tmp_path, read_table_data):
 class TestEmptyTable:
     def test_table_without_rows_is_processed_but_not_listed_as_output(self, tmp_path, caplog):
         with caplog.at_level(logging.WARNING, logger="forklift.engine.importers.sql_importer"):
-            results = _run(tmp_path, lambda schema, table: iter(()))
+            results = _run(tmp_path, lambda schema, table, columns: iter(()))
 
         assert results.total_rows == 0
         assert results.output_files == []
@@ -46,7 +47,7 @@ class TestEmptyTable:
 
 class TestInterruptedTable:
     def test_interrupt_removes_the_partial_file_and_is_not_recorded_as_a_failure(self, tmp_path):
-        def rows_then_interrupt(schema, table):
+        def rows_then_interrupt(schema, table, columns):
             yield pa.record_batch([pa.array([1, 2])], schema=SCHEMA)
             raise KeyboardInterrupt
 

@@ -4,9 +4,11 @@
 #   scripts/test-services.sh down     # stop them and delete their data
 #
 # or `docker compose -f tests/integration-tests/services/compose.yaml up -d --wait`. Host ports
-# are offset (19000, 15432, 13306) so they do not clash with a store or database already running
-# on the default ports. The credentials are for these throwaway containers only; the fixtures in
-# conftest.py use the same defaults (override them with the FORKLIFT_TEST_* variables).
+# are offset (19000, 15432, 13306, 11433, 11521) so they do not clash with a store or database
+# already running on the default ports. The credentials are for these throwaway containers only;
+# the fixtures in conftest.py use the same defaults (override them with the FORKLIFT_TEST_*
+# variables). The SQL Server and Oracle images are large; FORKLIFT_TEST_MSSQL_IMAGE and
+# FORKLIFT_TEST_ORACLE_IMAGE point them at a copy in another registry (a CI cache, for example).
 name: forklift-test-services
 
 services:
@@ -53,3 +55,49 @@ services:
       interval: 2s
       timeout: 5s
       retries: 60
+
+  mssql:
+    # SQL Server 2022 Developer edition. The SA password must meet the server's complexity
+    # policy (upper and lower case, digits and symbols).
+    image: ${FORKLIFT_TEST_MSSQL_IMAGE:-mcr.microsoft.com/mssql/server:2022-latest}
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Forklift-Admin-Secret-1
+      MSSQL_PID: Developer
+    ports:
+      - "127.0.0.1:11433:1433"
+    healthcheck:
+      # -C trusts the server's self-signed certificate
+      test:
+        - CMD
+        - /opt/mssql-tools18/bin/sqlcmd
+        - -C
+        - -S
+        - 127.0.0.1
+        - -U
+        - sa
+        - -P
+        - Forklift-Admin-Secret-1
+        - -b
+        - -Q
+        - SELECT 1
+      interval: 3s
+      timeout: 10s
+      retries: 60
+      start_period: 10s
+
+  oracle:
+    # Oracle Database Free (gvenzl's image; the faststart variant ships a created database).
+    # The tests connect to the pluggable database FREEPDB1 as SYSTEM.
+    image: ${FORKLIFT_TEST_ORACLE_IMAGE:-gvenzl/oracle-free:23-slim-faststart}
+    environment:
+      ORACLE_PASSWORD: forklift-admin-secret
+    ports:
+      - "127.0.0.1:11521:1521"
+    healthcheck:
+      # The image's own check: the listener is up and FREEPDB1 is open read-write
+      test: ["CMD", "healthcheck.sh"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
+      start_period: 10s

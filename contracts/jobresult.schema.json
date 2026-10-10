@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/blob/main/contracts/jobresult.schema.json",
+  "title": "Forklift JobResult v1",
+  "type": "object",
+  "description": "The outcome of a job (job contract v1).",
+  "properties": {
+    "spec_version": {
+      "description": "Version of the job contract",
+      "type": "integer",
+      "const": 1
+    },
+    "job_id": {
+      "description": "job_id of the spec; null when the spec could not be read",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "description": "Outcome of the job",
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "counts": {
+      "description": "Row counts: total_rows (rows read; for preview the rows returned, for generate_schema the rows analysed), valid_rows, invalid_rows (sent to bad_rows), truncated_rows, and rows_written for sql_table outputs",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "default": {}
+    },
+    "schema_extensions": {
+      "description": "Schema extensions that were applied",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "validation_summary": {
+      "description": "Findings of the schema extensions by CODE or CODE:column",
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "default": {}
+    },
+    "warnings": {
+      "description": "Notes that did not stop the job",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "artifacts": {
+      "description": "Files the job wrote, data files first",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Artifact"
+      },
+      "default": []
+    },
+    "error": {
+      "description": "Why the job failed or was cancelled; null when it succeeded",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/JobError"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "spec_version",
+    "job_id",
+    "status",
+    "counts",
+    "schema_extensions",
+    "validation_summary",
+    "warnings",
+    "artifacts",
+    "error"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "succeeded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "error": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "cancelled"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "properties": {
+              "code": {
+                "const": "CANCELLED"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Artifact": {
+      "type": "object",
+      "description": "A file the job wrote.",
+      "properties": {
+        "kind": {
+          "description": "data: validated rows (Parquet); bad_rows: rejected rows with _rejection_reason; manifest / metadata: JSON files describing the run; preview, schema, report: the artifact of the preview, generate_schema and validate_schema kinds",
+          "type": "string",
+          "enum": [
+            "data",
+            "bad_rows",
+            "manifest",
+            "metadata",
+            "preview",
+            "schema",
+            "report"
+          ]
+        },
+        "path": {
+          "description": "Path relative to the base directory ('/' separated), or the s3:// URI of an object written to an s3 output",
+          "type": "string",
+          "minLength": 1
+        },
+        "rows": {
+          "description": "Rows in the file (Parquet files and previews); null for other files",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "bytes": {
+          "description": "Size in bytes",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "sha256": {
+          "description": "SHA-256 of the file, lowercase hex; null for objects written to an s3 output",
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "kind",
+        "path",
+        "rows",
+        "bytes",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "JobError": {
+      "type": "object",
+      "description": "Why a job failed or was cancelled.",
+      "properties": {
+        "code": {
+          "description": "Stable error code",
+          "type": "string",
+          "enum": [
+            "SPEC_INVALID",
+            "SCHEMA_INVALID",
+            "INPUT_UNREADABLE",
+            "ENCODING_ERROR",
+            "COLUMN_MISSING",
+            "BAD_ROWS_THRESHOLD_EXCEEDED",
+            "CONSTRAINT_VIOLATION",
+            "LIMIT_EXCEEDED",
+            "PERMISSION_DENIED",
+            "TARGET_WRITE_FAILED",
+            "CANCELLED",
+            "INTERNAL"
+          ]
+        },
+        "message": {
+          "description": "What went wrong and how to fix it; never contains cell values or secrets",
+          "type": "string"
+        },
+        "retryable": {
+          "description": "True when running the same job again may succeed (a dropped connection, for example)",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

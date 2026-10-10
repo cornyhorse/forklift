@@ -69,12 +69,13 @@ def _import(tmp_path, failure):
         ("public", "ok", None),
         ("hr", "payroll", None),
     ]
+    schema_importer.get_selected_columns.return_value = None
     handler = MagicMock()
     handler.__enter__.return_value = handler
     handler.__exit__.return_value = None
     handler.get_table_schema.return_value = pa.schema([("id", pa.int64())])
 
-    def read_table_data(schema, table):
+    def read_table_data(schema, table, columns=None):
         if table == "payroll":
             raise failure
         return iter([pa.record_batch({"id": [1, 2]})])

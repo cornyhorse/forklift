@@ -1,15 +1,22 @@
 """Fixtures for the integration tests that run against real services.
 
-The services are RustFS (S3-compatible object store), PostgreSQL and MySQL, defined in
-``compose.yaml`` next to this file. The tests run only when ``FORKLIFT_TEST_SERVICES=1`` is set:
+The services are RustFS (S3-compatible object store), PostgreSQL, MySQL, SQL Server and Oracle
+Database Free, defined in ``compose.yaml`` next to this file. The tests run only when
+``FORKLIFT_TEST_SERVICES=1`` is set:
 
     scripts/test-services.sh up
     FORKLIFT_TEST_SERVICES=1 python -m pytest tests/integration-tests/services
 
 With the variable set, a service that cannot be reached fails its tests instead of skipping
 them, so a CI job cannot pass by testing nothing. Every test works in its own bucket, logins and
-schema (PostgreSQL) or database (MySQL), all removed afterwards, so the tests can run against
-long-lived services and in any order. Settings are described in ``service_helpers.py``.
+namespace (a schema on PostgreSQL and SQL Server, a database on MySQL, a user on Oracle), all
+removed afterwards, so the tests can run against long-lived services and in any order. Settings
+are described in ``service_helpers.py``.
+
+Database fixtures: ``database`` runs a test once on each of the four databases;
+``column_grant_database`` on those that grant SELECT on single columns (not Oracle);
+``postgres``, ``mysql``, ``mssql`` and ``oracle`` give one of them. Each yields a
+``service_helpers.Database`` whose namespace exists and is empty (see README.md for its calls).
 """
 
 from __future__ import annotations
@@ -17,7 +24,16 @@ from __future__ import annotations
 from typing import Callable, Dict, Iterator, Optional
 
 import pytest
-from service_helpers import ENABLED, Database, MySql, ObjectStore, Postgres
+from service_helpers import (
+    DATABASES,
+    ENABLED,
+    Database,
+    MsSql,
+    MySql,
+    ObjectStore,
+    Oracle,
+    Postgres,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -100,11 +116,12 @@ def _open(factory) -> Iterator[Database]:
     if database.driver is None:
         pytest.fail(
             f"No ODBC driver for {database.kind} is installed; install one or set "
-            f"FORKLIFT_TEST_{'PG' if database.kind == 'postgres' else 'MYSQL'}_DRIVER.",
+            f"FORKLIFT_TEST_{database.setting_prefix}_DRIVER (see "
+            "tests/integration-tests/services/README.md).",
             pytrace=False,
         )
     try:
-        database.admin("SELECT 1")
+        database.ping()
     except Exception as error:  # any failure means the server is not usable
         _unreachable(f"{database.kind} at {database.host}:{database.port}", error)
     database.create_namespace()
@@ -114,10 +131,21 @@ def _open(factory) -> Iterator[Database]:
         database.drop_everything()
 
 
-@pytest.fixture(params=["postgres", "mysql"])
+@pytest.fixture(params=list(DATABASES))
 def database(request) -> Iterator[Database]:
-    """Each test using this runs once on PostgreSQL and once on MySQL, in a fresh namespace."""
-    yield from _open({"postgres": Postgres, "mysql": MySql}[request.param].from_environment)
+    """Each test using this runs on PostgreSQL, MySQL, SQL Server and Oracle, in a fresh
+    namespace."""
+    yield from _open(DATABASES[request.param].from_environment)
+
+
+@pytest.fixture(params=[kind for kind, cls in DATABASES.items() if cls.supports_column_grants])
+def column_grant_database(request) -> Iterator[Database]:
+    """Like ``database``, on the databases that grant SELECT on single columns.
+
+    Oracle grants SELECT on whole tables only; tests that need column grants show that with
+    their own Oracle test (the grant is refused) instead of being skipped there.
+    """
+    yield from _open(DATABASES[request.param].from_environment)
 
 
 @pytest.fixture
@@ -128,3 +156,13 @@ def postgres() -> Iterator[Postgres]:
 @pytest.fixture
 def mysql() -> Iterator[MySql]:
     yield from _open(MySql.from_environment)
+
+
+@pytest.fixture
+def mssql() -> Iterator[MsSql]:
+    yield from _open(MsSql.from_environment)
+
+
+@pytest.fixture
+def oracle() -> Iterator[Oracle]:
+    yield from _open(Oracle.from_environment)

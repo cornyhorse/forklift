@@ -76,8 +76,6 @@ def _with_column(batch: pa.RecordBatch, name: str, array: pa.Array) -> pa.Record
 
 def _without_column(batch: pa.RecordBatch, name: str) -> pa.RecordBatch:
     position = batch.schema.get_field_index(name)
-    if position < 0:
-        return batch
     keep = [i for i in range(batch.num_columns) if i != position]
     return pa.RecordBatch.from_arrays(
         [batch.column(i) for i in keep], schema=pa.schema([batch.schema.field(i) for i in keep])
@@ -530,8 +528,8 @@ def _calculated_columns_for_input(
         ``(config, warnings)``; ``config`` is a copy when something was left out
 
     Raises:
-        ValueError: An expression calls an unknown function or uses a name that is neither a
-            column, a constant, nor declared in ``properties``
+        ValueError: ``config`` is not an object, or an expression calls an unknown function or
+            uses a name that is neither a column, a constant, nor declared in ``properties``
     """
     from ...processors.calculated_columns.functions import get_available_functions, get_constants
     from ...processors.calculated_columns.limits import ExpressionError
@@ -542,7 +540,7 @@ def _calculated_columns_for_input(
     )
 
     if not isinstance(config, dict):
-        return config, []
+        raise ValueError(f"x-calculatedColumns: must be an object, got {type(config).__name__}")
 
     def entries(key: str) -> List[Any]:
         value = config.get(key)
@@ -714,9 +712,8 @@ def _without_columns(schema: Dict[str, Any], absent: Dict[str, List[str]]) -> Di
         return schema
     view = dict(schema)
 
-    def pruned(section: Any, key: Optional[str], names: Sequence[str]) -> Any:
-        if not isinstance(section, dict):
-            return section
+    # Every section here is an object: referenced_columns only reports columns of objects
+    def pruned(section: Dict[str, Any], key: Optional[str], names: Sequence[str]) -> Any:
         if key is None:
             return {k: v for k, v in section.items() if k not in names}
         copy = dict(section)

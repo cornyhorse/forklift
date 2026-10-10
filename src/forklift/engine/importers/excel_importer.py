@@ -181,9 +181,9 @@ class ExcelImporter:
 
             # Create configs for all sheets or specific sheet
             sheet_configs = []
-            if "sheet" in kwargs:
+            sheet_spec = kwargs.get("sheet")
+            if sheet_spec is not None:
                 # Process specific sheet
-                sheet_spec = kwargs["sheet"]
                 if (
                     isinstance(sheet_spec, str)
                     and sheet_spec not in sheet_names
@@ -199,15 +199,19 @@ class ExcelImporter:
                         sheet_configs.append(sheet_config)
                     else:
                         raise ValueError(f"Sheet '{sheet_spec}' not found in workbook")
-                elif isinstance(sheet_spec, int):
+                elif isinstance(sheet_spec, int) and not isinstance(sheet_spec, bool):
                     # Sheet index
                     if 0 <= sheet_spec < len(sheet_names):
                         sheet_config = ExcelSheetConfig(select={"index": sheet_spec})
                         sheet_configs.append(sheet_config)
                     else:
                         raise ValueError(f"Sheet index {sheet_spec} out of range")
+                else:
+                    raise ValueError(
+                        f"Sheet must be a sheet name or a 0-based index, got {sheet_spec!r}"
+                    )
             else:
-                # Process all sheets
+                # Process all sheets (also for sheet=None)
                 for i, sheet_name in enumerate(sheet_names):
                     sheet_config = ExcelSheetConfig(select={"name": sheet_name})
                     sheet_configs.append(sheet_config)

@@ -227,8 +227,6 @@ class BatchProcessor:
                         batch = csv_reader.read_next_batch()
                     except StopIteration:
                         break
-                    if batch is None:
-                        break
                     yield batch
         except pa.ArrowInvalid as exc:
             errors.append(exc)
@@ -633,12 +631,10 @@ class BatchProcessor:
         """
         # PyArrow error messages often include the problematic line content
         # Format: "CSV parse error: Expected X columns, got Y: actual_line_content"
-        if ": " in error_message:
-            parts = error_message.split(": ")
-            if len(parts) >= 3:
-                # The last part after the last colon should be the line content
-                return parts[-1].strip()
-        return ""
+        # (the line itself may contain ": ", so everything after the column counts is kept)
+        _, _, counts_and_line = error_message.partition("columns, got ")
+        _, _, line = counts_and_line.partition(": ")
+        return line.strip()
 
     def _contains_problematic_content(self, line_content: str) -> bool:
         """Check if line content contains problematic characters that indicate corruption.
@@ -649,9 +645,6 @@ class BatchProcessor:
         Returns:
             True if the content appears to be corrupted, False otherwise
         """
-        if not line_content:
-            return False
-
         # Check for null bytes and other control characters that shouldn't be in CSV
         problematic_chars = {
             "\x00",

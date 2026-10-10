@@ -327,5 +327,5 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     if args.cmd == "ingest":
         _run_ingest(args)
-    elif args.cmd == "generate-schema":
+    else:  # generate-schema (the only other subcommand)
         _run_generate_schema(schema_gen, args)

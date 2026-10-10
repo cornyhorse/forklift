@@ -172,14 +172,11 @@ class HeaderDetector:
         based on the ratio of text content to numeric content.
 
         Args:
-            row: List of cell values from a CSV row
+            row: Cell values of a non-empty CSV row (callers skip empty rows)
 
         Returns:
             True if row appears to be a header, False otherwise
         """
-        if not row:
-            return False
-
         text_count = 0
         number_count = 0
 
@@ -207,14 +204,11 @@ class HeaderDetector:
         ``#,name,amount`` is a header. ``comment_rows=[]`` switches comment detection off.
 
         Args:
-            row: List of cell values from a CSV row
+            row: Cell values of a non-empty CSV row (callers skip empty rows)
 
         Returns:
             True if row matches a comment pattern, False otherwise
         """
-        if not row:
-            return False
-
         first_cell = row[0].strip()
 
         if self.config.comment_rows is None:

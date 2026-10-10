@@ -7,7 +7,7 @@ import logging
 import math
 import os
 import time
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Union
 
@@ -63,7 +63,6 @@ class _ParquetOutputs:
         self.good_writer = None
         self.bad_writer = None
         self.good_schema: Optional[pa.Schema] = None
-        self.bad_schema: Optional[pa.Schema] = None
         self.good_written = False
         self.bad_written = False
 
@@ -84,8 +83,7 @@ class _ParquetOutputs:
     def write_good(self, batch: pa.RecordBatch) -> None:
         """Append rows to the data file."""
         self.ensure_good_writer(batch.schema)
-        if len(batch) > 0:
-            self.good_writer.write_table(pa.Table.from_batches([batch]))
+        self.good_writer.write_table(pa.Table.from_batches([batch]))
 
     def write_bad(
         self, batch: pa.RecordBatch, reason: Union[str, Sequence[str], None] = None
@@ -98,16 +96,11 @@ class _ParquetOutputs:
         When the file has a reason column (the schema asks for validation or constraints),
         ``reason`` is one text for all rows or one text per row.
         """
-        if len(batch) == 0:
-            return
         batch = raw_rows(batch)
         if self._reason_column:
             batch = self._with_reason(batch, reason)
         if self.bad_writer is None:
             self.bad_writer = self._create_writer(self.bad_file, batch.schema)
-            self.bad_schema = batch.schema
-        elif not batch.schema.equals(self.bad_schema):
-            batch = self._align(batch, self.bad_schema)
         self.bad_writer.write_table(pa.Table.from_batches([batch]))
 
     @staticmethod
@@ -123,18 +116,6 @@ class _ParquetOutputs:
             list(batch.columns) + [values],
             schema=pa.schema(list(batch.schema) + [pa.field(REASON_COLUMN, pa.string())]),
         )
-
-    @staticmethod
-    def _align(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
-        """Arrange ``batch`` by column name in the order of ``schema`` (missing -> null)."""
-        arrays = []
-        for field in schema:
-            position = batch.schema.get_field_index(field.name)
-            if position >= 0:
-                arrays.append(batch.column(position))
-            else:
-                arrays.append(pa.nulls(len(batch), type=field.type))
-        return pa.RecordBatch.from_arrays(arrays, names=schema.names)
 
     def close(self) -> None:
         """Finish both files; if one fails to close the other is discarded."""
@@ -154,6 +135,9 @@ class _ParquetOutputs:
                 writer.close()
             except BaseException:
                 self._abort_writer(writer, self.bad_file)
+                # The run fails after all: its finished data file must not be left behind
+                self.good_written = False
+                _delete_output(self._io_handler, self.good_file, self._use_s3_output)
                 raise
             self.bad_written = True
 
@@ -190,45 +174,39 @@ class _ParquetOutputs:
 
     @staticmethod
     def _abort_writer(writer, path: str) -> None:
-        """Drop a partial output without publishing it."""
+        """Drop a partial output without publishing it.
+
+        S3 writers have ``abort()``, which drops their temporary file instead of uploading it;
+        a local ``ParquetWriter`` is closed and its file removed.
+        """
         abort = getattr(writer, "abort", None)
         if callable(abort):
             try:
                 abort()
             except Exception:
                 logger.warning("Could not abort partial output %s", path, exc_info=True)
-            if not is_s3_path(path):
-                try:
-                    Path(path).unlink()
-                except OSError:
-                    pass
-            return
-
-        # Writers without abort(): an S3 writer keeps its data in a temporary file that close()
-        # would upload, so release the temporary file directly instead of closing
-        temp_path = getattr(writer, "_temp_path", None)
-        if temp_path is not None:
+        else:
             try:
-                inner = getattr(writer, "_writer", None)
-                if inner is not None:
-                    inner.close()
+                writer.close()
             except Exception:
                 pass
-            try:
-                Path(temp_path).unlink()
-            except OSError:
-                pass
-            return
-
-        try:
-            writer.close()
-        except Exception:
-            pass
         if not is_s3_path(path):
             try:
                 Path(path).unlink()
             except OSError:
                 pass
+
+
+def _delete_output(io_handler: UnifiedIOHandler, path: str, use_s3_output: bool) -> None:
+    """Delete an output file (local file or S3 object) if it exists; a failure is logged."""
+    try:
+        if use_s3_output:
+            target = S3Path(path)
+            io_handler.s3_client._s3_client.delete_object(Bucket=target.bucket, Key=target.key)
+        else:
+            Path(path).unlink(missing_ok=True)
+    except Exception:
+        logger.warning("Could not remove output %s", path, exc_info=True)
 
 
 def _json_safe(value: Any) -> Any:
@@ -237,15 +215,9 @@ def _json_safe(value: Any) -> Any:
         return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
-    if isinstance(value, (set, frozenset)):
-        return [_json_safe(v) for v in sorted(value, key=str)]
     if isinstance(value, float):
         return value if math.isfinite(value) else None
-    if value is None or isinstance(value, (bool, int, str)):
-        return value
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    return str(value)
+    return value
 
 
 class CSVProcessor(BaseProcessor):
@@ -423,6 +395,7 @@ class CSVProcessor(BaseProcessor):
             self._create_output_files(config, results, output_metadata_collector, outputs)
 
             results.execution_time = time.time() - start_time
+            return results
 
         except BadRowsThresholdExceededError as e:
             # Too many rows were rejected: the data file is discarded, the rejected rows are kept
@@ -442,8 +415,6 @@ class CSVProcessor(BaseProcessor):
             # Nothing is left open on success; after a failure this discards partial outputs
             if outputs is not None:
                 outputs.abort()
-
-        return results
 
     def _build_extension_pipeline(
         self,
@@ -560,19 +531,7 @@ class CSVProcessor(BaseProcessor):
     def _remove_stale_outputs(self, files: Sequence[str], use_s3_output: bool) -> None:
         """Delete the parquet files an earlier run may have left (only the names written here)."""
         for path in files:
-            try:
-                if use_s3_output:
-                    client = self.io_handler.s3_client
-                    delete = getattr(client, "delete", None)
-                    if callable(delete):
-                        delete(path)
-                    else:
-                        target = S3Path(path)
-                        client._s3_client.delete_object(Bucket=target.bucket, Key=target.key)
-                else:
-                    Path(path).unlink(missing_ok=True)
-            except Exception:
-                logger.warning("Could not remove stale output %s", path, exc_info=True)
+            _delete_output(self.io_handler, path, use_s3_output)
 
     def _initialize_metadata_collector(self, config: ImportConfig):
         """Initialize output metadata collector if enabled."""

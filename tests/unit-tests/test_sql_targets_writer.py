@@ -1004,6 +1004,67 @@ class TestLoading:
             write(pyodbc, database, staging="none")
 
 
+class TestUndecodableDriverMessages:
+    """pyodbc raises SystemError when it cannot decode the driver's message (Oracle's driver sends
+    undecodable bytes now and then); every place that handles a driver error handles it too."""
+
+    def test_a_refused_login(self, pyodbc):
+        database = existing("oracle")
+        database.connect_error = undecodable("[Oracle][ODBC][Ora]ORA-01017: invalid login")
+
+        with pytest.raises(TableWriteError) as raised:
+            write(pyodbc, database)
+
+        assert (raised.value.action, raised.value.native_code) == ("connect", 1017)
+
+    def test_a_driver_that_cannot_say_which_database_it_is(self, pyodbc):
+        database = existing("postgresql")
+        database.getinfo = undecodable("no such information")
+
+        with pytest.raises(TableWriteError, match="reports itself as ''"):
+            write(pyodbc, database)
+
+    def test_a_staging_table_that_cannot_be_dropped_after_publishing(self, pyodbc):
+        database = existing("oracle")
+        database.fail("PURGE", undecodable(f"[Oracle][ODBC][Ora]ORA-01031: {SECRET}"))
+
+        result = write(pyodbc, database)
+
+        assert result.rows_written == 3
+        (warning,) = result.warnings
+        assert "driver error 1031" in warning and SECRET not in warning
+
+    def test_cleaning_up_after_a_failure(self, pyodbc, caplog):
+        database = existing("postgresql")
+        database.fail('INSERT INTO "sales"."events"', driver_error("23505"))
+        database.fail("DROP TABLE", undecodable("lost"))
+        database.rollback_error = undecodable("lost")
+
+        with caplog.at_level(logging.WARNING), pytest.raises(TableWriteError) as raised:
+            write(pyodbc, database)
+
+        assert "SQLSTATE 23505" in str(raised.value)  # the error that ended the write
+        assert "that this write created could not be dropped" in str(raised.value)
+        assert "Could not roll back the transaction" in caplog.text
+
+    def test_a_cursor_that_cannot_be_closed_after_the_load(self, pyodbc):
+        database = existing("postgresql")
+        database.fail("INSERT", driver_error("08S01"))
+        database.cursor_close_error = undecodable("lost")
+
+        with pytest.raises(TableWriteError, match="SQLSTATE 08S01"):
+            write(pyodbc, database, staging="none")
+
+    def test_closing_the_connection(self, pyodbc, caplog):
+        database = existing("postgresql")
+        database.close_error = undecodable("lost")
+
+        with caplog.at_level(logging.WARNING):
+            assert write(pyodbc, database).rows_written == 3
+
+        assert "Could not close the database connection cleanly" in caplog.text
+
+
 class TestDirectWrites:
     @pytest.mark.parametrize("name", ["postgresql", "sqlserver"])
     def test_a_new_table_is_created_inside_the_transaction(self, pyodbc, name):

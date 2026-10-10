@@ -287,9 +287,12 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   driver ignored it).
 - **Oracle errors pyodbc cannot decode**: Oracle's driver sometimes reports an error message as
   longer than it is, and pyodbc then fails to decode the bytes past the end (about 1 error in 40
-  in our tests). The SQLSTATE is lost, but forklift now reads the ORA code from the raw message,
-  so a missing privilege (ORA-01031) is still `PERMISSION_DENIED` and a failed table still says
-  why, on sources and targets.
+  in our tests) and raises `SystemError` instead of the driver's error. The SQLSTATE is lost, but
+  forklift now reads the ORA code from the raw message, so a missing privilege (ORA-01031) is
+  still `PERMISSION_DENIED` and a failed table still says why, on sources and targets. Every
+  place that handles a driver error handles this one too: before, it could escape from setting
+  up a source session (the query-timeout fallback), from dropping a staging table after a
+  publish, or from the cleanup after a failed write.
 - **SQL Server sources**: `datetimeoffset` is read as UTC timestamps (pyodbc could not read it, so
   the table failed); `timestamp`/rowversion and `image` are binary (rowversion failed the table).
 - Schema and table names are matched independently, so `sales.orders` finds `SALES.orders`.

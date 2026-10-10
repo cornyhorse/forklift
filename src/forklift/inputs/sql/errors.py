@@ -98,6 +98,15 @@ def database_error_codes(error: BaseException) -> Tuple[Optional[str], Optional[
     return args[0], int(native.group(1)) if native else None
 
 
+def driver_errors(pyodbc) -> Tuple[type, ...]:
+    """What a pyodbc call raises when the driver reports an error, for ``except`` clauses.
+
+    ``pyodbc.Error``, and ``SystemError``: pyodbc raises that instead when it cannot decode the
+    driver's message (see :func:`undecodable_message_code`).
+    """
+    return (pyodbc.Error, SystemError)
+
+
 def undecodable_message_code(error: BaseException) -> Optional[int]:
     """The ORA code in a driver message pyodbc could not decode (``None`` for any other error).
 

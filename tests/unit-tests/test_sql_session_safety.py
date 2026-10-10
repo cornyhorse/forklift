@@ -32,6 +32,16 @@ class FakeError(Exception):
     pass
 
 
+def undecodable(message):
+    """What pyodbc raises when the driver's message is not valid UTF-16 (here a lone surrogate)."""
+    try:
+        (message.encode("utf-16-le") + b"\x00\xd8A\x00").decode("utf-16-le")
+    except UnicodeDecodeError as cause:
+        error = SystemError("<class 'pyodbc.Error'> returned a result with an exception set")
+        error.__cause__ = cause
+        return error
+
+
 class FakeCursor:
     def __init__(self, connection):
         self.connection = connection
@@ -40,7 +50,7 @@ class FakeCursor:
         self.connection.executed.append(statement)
         self.connection.events.append(statement)
         if any(statement.startswith(prefix) for prefix in self.connection.failing):
-            raise FakeError(
+            raise self.connection.failure or FakeError(
                 "HY000", "[HY000] driver text quoting 'secret' (1193) (SQLExecDirectW)"
             )
 
@@ -49,10 +59,12 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, dbms, failing=(), timeout_supported=True):
+    def __init__(self, dbms, failing=(), timeout_supported=True, failure=None, timeout_error=None):
         self.dbms = dbms
         self.failing = failing
+        self.failure = failure  # what the failing statements raise (default: a FakeError)
         self.timeout_supported = timeout_supported
+        self.timeout_error = timeout_error
         self.executed = []
         self.events = []  # statements, commits and rollbacks in order
         self.commits = 0
@@ -94,7 +106,9 @@ class FakeConnection:
     @timeout.setter
     def timeout(self, value):
         if not self.timeout_supported:
-            raise FakeError("HY000", "Couldn't set unsupported connect attribute 113")
+            raise self.timeout_error or FakeError(
+                "HY000", "Couldn't set unsupported connect attribute 113"
+            )
         self._timeout = value
 
 
@@ -270,6 +284,52 @@ class TestOracle:
         assert "forklift cancels a statement that runs longer than query_timeout=9" in (
             caplog.text
         )
+
+
+class TestUndecodableDriverMessages:
+    """pyodbc raises SystemError when it cannot decode the driver's message (Oracle's driver sends
+    undecodable bytes now and then); the session is set up as it is after any driver error."""
+
+    def test_a_rejected_timeout_attribute_still_gets_forklift_s_own_deadline(self, pyodbc):
+        connection = FakeConnection(
+            "Oracle",
+            timeout_supported=False,
+            timeout_error=undecodable("[Oracle][ODBC]Optional feature not implemented."),
+        )
+
+        manager = _connect(pyodbc, connection, query_timeout=9)
+
+        assert manager.cancel_after == 9 and manager.is_connected()
+
+    def test_a_driver_that_cannot_say_which_database_it_is(self, pyodbc):
+        manager = _connect(pyodbc, FakeConnection(undecodable("no such information")))
+
+        assert manager.dbms_name() == ""
+
+    def test_a_refused_read_only_transaction_closes_the_connection(self, pyodbc):
+        connection = FakeConnection(
+            "Oracle",
+            failing=("SET TRANSACTION READ ONLY",),
+            failure=undecodable("[Oracle][ODBC][Ora]ORA-01031: insufficient privileges"),
+        )
+        pyodbc.connection = connection
+        manager = SqlConnectionManager(SqlInputConfig(connection_string="DSN=x"))
+
+        with pytest.raises(ConnectionError) as raised:
+            manager.connect()
+
+        assert "(SystemError, no SQLSTATE, driver error 1031)" in str(raised.value)
+        assert connection.closed and not manager.is_connected()
+
+    def test_a_refused_statement_without_any_code(self, pyodbc):
+        connection = FakeConnection(
+            "MySQL", failing=("SET SESSION TRANSACTION",), failure=FakeError()
+        )
+        pyodbc.connection = connection
+        manager = SqlConnectionManager(SqlInputConfig(connection_string="DSN=x"))
+
+        with pytest.raises(ConnectionError, match=r"\(FakeError, no SQLSTATE reported\)"):
+            manager.connect()
 
 
 class TestStatementDeadline:

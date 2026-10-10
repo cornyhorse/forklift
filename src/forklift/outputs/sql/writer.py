@@ -24,6 +24,7 @@ from .errors import (
     TableWriteCancelled,
     TableWriteError,
     describe_failure,
+    driver_errors,
     failure_error_code,
 )
 
@@ -354,6 +355,7 @@ class _TableWriter:
                 "Install it with: pip install forklift-etl[sql]"
             ) from None
         self.pyodbc = pyodbc
+        self.errors = driver_errors(pyodbc)
         # Oracle's client converts text to the character set NLS_LANG names, US7ASCII when it
         # is unset (which replaces non-ASCII characters); other drivers ignore the variable
         os.environ.setdefault("NLS_LANG", ".AL32UTF8")
@@ -362,7 +364,7 @@ class _TableWriter:
             self.connection = pyodbc.connect(
                 self.connection_string, autocommit=False, timeout=self.connect_timeout
             )
-        except pyodbc.Error as error:
+        except self.errors as error:
             failure = describe_failure(error, _LOGIN_CODES)
             raise TableWriteError(
                 f"Could not connect to the database to write table {self.display} "
@@ -377,7 +379,7 @@ class _TableWriter:
             ) from None
         try:
             name = self.connection.getinfo(pyodbc.SQL_DBMS_NAME)
-        except pyodbc.Error:
+        except self.errors:
             name = ""
         dialect = dialect_for(name if isinstance(name, str) else "")
         if dialect is None:
@@ -397,20 +399,20 @@ class _TableWriter:
         connection, self.connection = self.connection, None
         try:
             connection.close()
-        except self.pyodbc.Error:
+        except self.errors:
             logger.warning("Could not close the database connection cleanly")
 
     @contextmanager
     def _step(self, action: str, privilege: Optional[str] = None, refused_hint: str = ""):
         """Run database calls as one step; a database error becomes a TableWriteError.
 
-        pyodbc raises SystemError when it cannot even decode the driver's message (Oracle's
-        driver sends undecodable bytes after some errors); that is a database error too, and
-        the ORA code in the raw message still says which.
+        A database error is any of ``self.errors``: pyodbc raises SystemError when it cannot
+        even decode the driver's message (Oracle's driver sends undecodable bytes after some
+        errors), and the ORA code in the raw message still says which error it was.
         """
         try:
             yield
-        except (self.pyodbc.Error, SystemError) as error:
+        except self.errors as error:
             raise self._failed(error, action, privilege, refused_hint) from None
 
     def _failed(self, error, action, privilege, refused_hint) -> TableWriteError:
@@ -764,7 +766,7 @@ class _TableWriter:
         finally:
             try:
                 cursor.close()
-            except self.pyodbc.Error:
+            except self.errors:
                 pass  # the connection is gone; the error that ended the load says why
         return written
 
@@ -910,7 +912,7 @@ class _TableWriter:
         try:
             self._execute(self.dialect.drop_table_sql(staging))
             self.connection.commit()
-        except self.pyodbc.Error as error:
+        except self.errors as error:
             failure = describe_failure(error, self.dialect.codes)
             self.warnings.append(
                 f"The rows were published, but the staging table {self.schema}."
@@ -922,7 +924,7 @@ class _TableWriter:
         """After a failure: roll back and drop what this write created, so nothing is left."""
         try:
             self.connection.rollback()
-        except self.pyodbc.Error:
+        except self.errors:
             logger.warning("Could not roll back the transaction (the connection may be lost)")
         if not self.leftover:
             return
@@ -930,7 +932,7 @@ class _TableWriter:
         try:
             self._execute(self.dialect.drop_table_sql(leftover))
             self.connection.commit()
-        except self.pyodbc.Error as drop_error:
+        except self.errors as drop_error:
             failure = describe_failure(drop_error, self.dialect.codes)
             note = (
                 f" The table {leftover} that this write created could not be dropped "

@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from typing import Iterator, Optional
 
 from ..config import SqlInputConfig
-from .errors import database_error_codes
+from .errors import database_error_codes, describe_database_error, driver_errors
 
 logger = logging.getLogger(__name__)
 
@@ -186,7 +186,7 @@ class SqlConnectionManager:
 
         try:
             name = self.get_connection().getinfo(pyodbc.SQL_DBMS_NAME)
-        except pyodbc.Error:
+        except driver_errors(pyodbc):
             return ""
         return name.strip().lower() if isinstance(name, str) else ""
 
@@ -226,12 +226,12 @@ class SqlConnectionManager:
                         statement.format(milliseconds=int(timeout * 1000), seconds=timeout)
                     )
                     return
-                except pyodbc.Error:
+                except driver_errors(pyodbc):
                     # e.g. a MariaDB server reported as MySQL (no max_execution_time)
                     self.connection.rollback()
             try:
                 self.connection.timeout = timeout
-            except pyodbc.Error:
+            except driver_errors(pyodbc):
                 self.cancel_after = timeout
                 logger.info(
                     "The ODBC driver does not support query timeouts; forklift cancels a "
@@ -261,11 +261,11 @@ class SqlConnectionManager:
                 self.connection.set_attr(pyodbc.SQL_ATTR_ACCESS_MODE, _SQL_MODE_READ_WRITE)
                 self._transaction_read_only = transaction
                 self._execute(transaction)  # not committed: the transaction is the read-only part
-        except pyodbc.Error as e:
-            state = e.args[0] if e.args else "unknown"
+        except driver_errors(pyodbc) as e:
+            reason = describe_database_error(e) or "no SQLSTATE reported"
             raise ConnectionError(
                 f"Could not make the database session read-only ({type(e).__name__}, "
-                f"SQLSTATE {state}); pass read_only=False to connect without it"
+                f"{reason}); pass read_only=False to connect without it"
             ) from None
 
     def begin_read(self) -> None:

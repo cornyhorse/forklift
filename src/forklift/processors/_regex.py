@@ -72,9 +72,9 @@ def _compile_cached(pattern: str, allow_unsafe_regex: bool) -> "re.Pattern[str]"
 
     try:
         parsed = _sre_parse.parse(pattern)
-    except re.error as exc:
+    except (re.error, OverflowError) as exc:  # OverflowError: a repeat count such as a{2**40}
         raise ValueError(f"Invalid regular expression: {exc}") from None
-    except (RecursionError, OverflowError):
+    except RecursionError:
         raise ValueError("Invalid regular expression: pattern is too deeply nested") from None
 
     if not allow_unsafe_regex and _has_nested_quantifier(parsed):

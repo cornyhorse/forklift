@@ -277,10 +277,7 @@ class ColumnMapper(BaseProcessor):
             return self._to_pascal_case(column_name)
         elif self.config.naming_convention == "lowercase":
             return column_name.lower()
-        elif self.config.naming_convention == "UPPERCASE":
-            return column_name.upper()
-
-        return column_name
+        return column_name.upper()  # "UPPERCASE", the only other valid convention
 
     @staticmethod
     def _split_words(name: str) -> List[str]:

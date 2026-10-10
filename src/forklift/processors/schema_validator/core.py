@@ -147,6 +147,8 @@ class SchemaValidator(BaseProcessor):
 
         # Validate batch structure
         validation_results.extend(self._validate_batch_structure(batch))
+        if batch is None:
+            return batch, validation_results
 
         # Validate column presence
         validation_results.extend(self._validate_column_presence(batch))
@@ -461,7 +463,17 @@ class SchemaValidator(BaseProcessor):
 
             target = parse_arrow_type(expected_schema.data_type)
             cast_column, failed_rows = self._safe_cast(column, target)
-            if cast_column is None:
+            if cast_column is None:  # Arrow has no such cast (e.g. string -> time32)
+                results.append(
+                    ValidationResult(
+                        is_valid=False,
+                        error_message=f"Column '{col_name}' type mismatch: "
+                        f"expected {expected_schema.data_type}, "
+                        f"got {column.type}, coercion not possible",
+                        error_code="TYPE_MISMATCH_NO_COERCION",
+                        column_name=col_name,
+                    )
+                )
                 continue
 
             columns[col_idx] = cast_column

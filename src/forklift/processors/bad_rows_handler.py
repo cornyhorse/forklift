@@ -175,9 +175,8 @@ class BadRowsHandler:
             # Extract row data
             row_data = {}
             for i, field in enumerate(batch.schema):
-                if i < batch.num_columns:
-                    value = batch.column(i)[row_idx]
-                    row_data[field.name] = value.as_py() if value.is_valid else None
+                value = batch.column(i)[row_idx]
+                row_data[field.name] = value.as_py() if value.is_valid else None
 
             # Get validation results and violations for this row
             row_validations = validation_by_row.get(row_idx, [])
@@ -334,10 +333,6 @@ class BadRowsHandler:
 
     def _write_parquet(self, file_path: Path):
         """Write bad rows in Parquet format."""
-        # Convert bad rows to Arrow table
-        if not self.bad_rows:
-            return
-
         # Flatten the data for Parquet
         flattened_rows = []
         for bad_row in self.bad_rows:
@@ -370,9 +365,6 @@ class BadRowsHandler:
 
     def _write_csv(self, file_path: Path):
         """Write bad rows in CSV format."""
-        if not self.bad_rows:
-            return
-
         # Use the same flattening logic as Parquet
         flattened_rows = []
         for bad_row in self.bad_rows:

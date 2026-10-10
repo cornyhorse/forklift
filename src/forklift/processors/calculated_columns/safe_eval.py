@@ -404,8 +404,6 @@ def _check_node(node: ast.AST, names: list, function_names: list) -> None:
         for op, comparator in zip(node.ops, node.comparators):
             if isinstance(op, (ast.Is, ast.IsNot)) and not _is_null_literal(comparator):
                 raise ExpressionError("'is' and 'is not' can only be used with None/NULL")
-    elif isinstance(node, ast.BoolOp) and len(node.values) < 2:
-        raise ExpressionError("Malformed boolean expression")
 
 
 def _is_null_literal(node: ast.AST) -> bool:

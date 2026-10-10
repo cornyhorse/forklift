@@ -225,9 +225,8 @@ class EnhancedDataProcessor(BaseProcessor):
             # Extract row data
             row_data = {}
             for i, field in enumerate(original_batch.schema):
-                if i < original_batch.num_columns:
-                    value = original_batch.column(i)[row_idx]
-                    row_data[field.name] = value.as_py() if value.is_valid else None
+                value = original_batch.column(i)[row_idx]
+                row_data[field.name] = value.as_py() if value.is_valid else None
 
             # Add to bad rows handler; the index is the position in the whole input
             self.bad_rows_handler.add_bad_row(
@@ -277,9 +276,7 @@ class EnhancedDataProcessor(BaseProcessor):
 
         # Write bad rows if any exist
         if self.bad_rows_handler.has_bad_rows():
-            bad_rows_file = self.bad_rows_handler.write_bad_rows()
-            if bad_rows_file:
-                results["bad_rows_file"] = str(bad_rows_file)
+            results["bad_rows_file"] = str(self.bad_rows_handler.write_bad_rows())
 
         return results
 

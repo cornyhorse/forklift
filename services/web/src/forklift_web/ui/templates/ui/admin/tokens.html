@@ -1,0 +1,47 @@
+{% extends "ui/base.html" %}
+{% block title %}API tokens{% endblock %}
+{% block content %}
+  <h1>API tokens</h1>
+  {% include "ui/admin/_nav.html" %}
+  <p class="lead">Every user's tokens{% if owner %}, of one user (<a href="{% url 'ui:admin-tokens' %}">show all</a>){% endif %}. A token's scopes only narrow its owner's role, and a demotion narrows the owner's tokens at once.</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="API tokens">
+    <table>
+      <thead><tr><th scope="col">Owner</th><th scope="col">Name</th><th scope="col">Prefix</th><th scope="col">Scopes</th><th scope="col">Created</th><th scope="col">Expires</th><th scope="col">Last used</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+        {% for token in rows %}
+          <tr>
+            <td><a href="{% url 'ui:admin-user' user_id=token.owner_id %}">{{ token.owner.username }}</a></td>
+            <td>{{ token.name }}</td>
+            <td><code>{{ token.prefix }}…</code></td>
+            <td>{{ token.scopes|join:", " }}</td>
+            <td>{{ token.created_at|date:"Y-m-d H:i" }}</td>
+            <td>{{ token.expires_at|date:"Y-m-d H:i"|default:"never" }}</td>
+            <td>{{ token.last_used_at|date:"Y-m-d H:i"|default:"never" }}</td>
+            <td><span class="badge {{ token.state }}">{{ token.state }}</span></td>
+            <td>
+              {% if token.state != "revoked" %}
+                <form method="post" action="{% url 'ui:admin-token-revoke' token_id=token.pk %}" data-confirm="Revoke {{ token.owner.username }}'s token {{ token.name }}?">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <button type="submit" class="danger small">Revoke<span class="visually-hidden"> {{ token.name }} of {{ token.owner.username }}</span></button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="9" class="empty">No API tokens.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "ui/_pagination.html" %}
+
+  <h2 id="new-token">Create a token for a user</h2>
+  <p class="muted">Typically for a service account. The scopes must lie within the owner's role.</p>
+  <form method="post" class="stack" aria-labelledby="new-token">
+    {% csrf_token %}
+    {% include "ui/_form_errors.html" %}
+    {% for field in form %}{% include "ui/_field.html" %}{% endfor %}
+    <div class="actions"><button type="submit">Create the token</button></div>
+  </form>
+{% endblock %}

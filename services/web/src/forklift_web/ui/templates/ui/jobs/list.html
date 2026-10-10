@@ -1,0 +1,10 @@
+{% extends "ui/base.html" %}
+{% block title %}Jobs{% endblock %}
+{% block content %}
+  <h1>Jobs</h1>
+  <form method="get" class="inline-form" hx-get="{% url 'ui:jobs' %}" hx-target="#job-table" hx-swap="outerHTML" hx-push-url="true" hx-trigger="change">
+    {% for field in form %}{% include "ui/_field.html" %}{% endfor %}
+    <button type="submit" class="secondary">Filter</button>
+  </form>
+  {% include "ui/jobs/_table.html" %}
+{% endblock %}

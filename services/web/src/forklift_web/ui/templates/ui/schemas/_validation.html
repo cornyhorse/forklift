@@ -1,0 +1,26 @@
+{# The result of checking a draft: polls the validate_schema job until it finishes. #}
+<div{% if job.status == "queued" or job.status == "running" %} hx-get="{% url 'ui:job-validation' job_id=job.pk %}" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %} class="card">
+  {% if job.status == "queued" or job.status == "running" %}
+    <p>Checking… <span class="badge {{ job.status }}">{{ job.get_status_display }}</span></p>
+    <p class="muted">{% if job.status == "queued" %}Waiting for an interactive worker.{% else %}A worker is reading the file.{% endif %}</p>
+  {% elif job.status == "succeeded" %}
+    <p class="alert ok">The draft fits the file{% if job.result.counts.total_rows is not None %} ({{ job.result.counts.total_rows }} sample rows read){% endif %}.</p>
+  {% else %}
+    <div class="alert error"><p><strong>The draft does not fit{% if job.status == "cancelled" %} (the check was cancelled){% endif %}.</strong></p><p><code>{{ job.error_code }}</code>: {{ job.error_message }}</p></div>
+  {% endif %}
+  {% if job.result.validation_summary %}
+    <h3>Findings in the sample</h3>
+    <ul>{% for rule, count in job.result.validation_summary.items %}<li><code>{{ rule }}</code>: {{ count }} row{{ count|pluralize }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if job.result.warnings %}
+    <h3>Warnings</h3>
+    <ul>{% for warning in job.result.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% for artifact in job.artifacts.all %}{% if artifact.kind == "report" and not artifact.deleted_at %}
+    <div data-artifact-view="{% url 'api-v1:download_artifact' artifact_id=artifact.pk %}" data-kind="report" data-autoload>
+      <p class="muted" data-viewer-status></p>
+      <div data-viewer-body></div>
+    </div>
+  {% endif %}{% endfor %}
+  <p><a href="{% url 'ui:job' job_id=job.pk %}">The check's job page</a></p>
+</div>

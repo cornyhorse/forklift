@@ -1,0 +1,53 @@
+{% load forklift_ui %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  {# HTMX: no inline styles or eval (the Content-Security-Policy allows neither), no history snapshots in localStorage, and error responses are swapped in so that their message shows. #}
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false, "allowScriptTags": false, "historyCacheSize": 0, "refreshOnHistoryMiss": true, "responseHandling": [{"code": "204", "swap": false}, {"code": "[2345]..", "swap": true}]}'>
+  <title>{% block title %}Forklift{% endblock %} · Forklift</title>
+  <link rel="stylesheet" href="{% asset 'ui/forklift.css' %}">
+  <script src="{% asset 'ui/vendor/htmx-2.0.11.min.js' %}" defer></script>
+  <script src="{% asset 'ui/forklift.js' %}" defer></script>
+  {% block scripts %}{% endblock %}
+</head>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  <a class="skip-link" href="#main">Skip to the content</a>
+  <header class="site-header">
+    <div class="bar">
+      <a class="brand" href="{% url 'ui:home' %}">Forklift</a>
+      {% if user.is_authenticated %}
+        <nav aria-label="Main">
+          <ul>
+            <li><a href="{% url 'ui:home' %}"{% if nav.main == "home" %} aria-current="page"{% endif %}>Home</a></li>
+            {% if can.upload %}<li><a href="{% url 'ui:upload' %}"{% if nav.main == "upload" %} aria-current="page"{% endif %}>Upload</a></li>{% endif %}
+            {% if can.uploads %}<li><a href="{% url 'ui:uploads' %}"{% if nav.main == "uploads" %} aria-current="page"{% endif %}>Files</a></li>{% endif %}
+            {% if can.schemas %}<li><a href="{% url 'ui:schemas' %}"{% if nav.main == "schemas" %} aria-current="page"{% endif %}>Schemas</a></li>{% endif %}
+            {% if can.datasets %}<li><a href="{% url 'ui:datasets' %}"{% if nav.main == "datasets" %} aria-current="page"{% endif %}>Datasets</a></li>{% endif %}
+            {% if can.jobs %}<li><a href="{% url 'ui:jobs' %}"{% if nav.main == "jobs" %} aria-current="page"{% endif %}>Jobs</a></li>{% endif %}
+            {% if can.admin %}<li><a href="{% url 'ui:admin' %}"{% if nav.main == "admin" %} aria-current="page"{% endif %}>Admin</a></li>{% endif %}
+          </ul>
+        </nav>
+        <div class="account">
+          <span>{{ user.username }} <span class="badge">{{ user.get_role_display }}</span></span>
+          {% if can.tokens %}<a href="{% url 'ui:tokens' %}"{% if nav.main == "account" %} aria-current="page"{% endif %}>API tokens</a>{% endif %}
+          {% if not user.is_service_account %}<a href="{% url 'ui:password' %}">Password</a>{% endif %}
+          <form method="post" action="{% url 'forklift-logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="secondary small">Sign out</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </header>
+  <main id="main" tabindex="-1">
+    {% include "ui/_messages.html" %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    forklift-web {{ version }}{% if api_docs and user.is_authenticated %} · <a href="/api/v1/docs">API documentation</a>{% endif %}
+  </footer>
+</body>
+</html>

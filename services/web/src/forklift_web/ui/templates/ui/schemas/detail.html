@@ -1,0 +1,58 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}{{ schema.name }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:schemas' %}">Schemas</a></li><li>{{ schema.name }}</li></ol></nav>
+  <h1>{{ schema.name }}</h1>
+  {% if schema.description %}<p class="lead">{{ schema.description }}</p>{% endif %}
+  <div class="actions">
+    {% if can_edit %}<a class="button" href="{% url 'ui:version-new' schema_id=schema.pk %}">Edit (save as version {{ latest.number|add:1 }})</a>{% endif %}
+    {% if versions|length > 1 %}<a class="button secondary" href="{% url 'ui:schema-diff' schema_id=schema.pk %}">Compare versions</a>{% endif %}
+    {% if can.dataset_edit %}<a class="button secondary" href="{% url 'ui:dataset-new' %}?schema_version={{ latest.pk }}">New dataset with it</a>{% endif %}
+  </div>
+
+  <div class="split">
+    <section aria-labelledby="latest-heading">
+      <h2 id="latest-heading">Version {{ latest.number }} (latest)</h2>
+      <p class="muted">By {{ latest.author.username|default:"—" }}, {{ latest.created_at|date:"Y-m-d H:i e" }}{% if latest.notes %}: {{ latest.notes }}{% endif %}</p>
+      <pre aria-label="The schema document of version {{ latest.number }}" tabindex="0">{{ latest.document|pretty_json }}</pre>
+    </section>
+    <div>
+      <section aria-labelledby="versions-heading">
+        <h2 id="versions-heading">Versions</h2>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Versions">
+          <table>
+            <thead><tr><th scope="col">Version</th><th scope="col">Author</th><th scope="col">Saved</th><th scope="col">Notes</th></tr></thead>
+            <tbody>
+              {% for version in versions %}
+                <tr>
+                  <td><a href="{% url 'ui:schema-version' schema_id=schema.pk number=version.number %}">v{{ version.number }}</a>{% if version.number > 1 %} · <a href="{% url 'ui:schema-diff' schema_id=schema.pk %}?from={{ version.number|add:-1 }}&amp;to={{ version.number }}">changes<span class="visually-hidden"> in v{{ version.number }}</span></a>{% endif %}</td>
+                  <td>{{ version.author.username|default:"—" }}</td>
+                  <td>{{ version.created_at|date:"Y-m-d H:i" }}</td>
+                  <td>{{ version.notes|truncatechars:80 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section aria-labelledby="used-heading">
+        <h2 id="used-heading">Datasets using it</h2>
+        {% if used_by %}
+          <ul>{% for dataset in used_by %}<li><a href="{% url 'ui:dataset' dataset_id=dataset.pk %}">{{ dataset.name }}</a> (v{{ dataset.schema_version.number }})</li>{% endfor %}</ul>
+        {% else %}<p class="muted">None yet.</p>{% endif %}
+      </section>
+      {% if can_edit %}
+        <section aria-labelledby="meta-heading">
+          <h2 id="meta-heading">Name and description</h2>
+          <form method="post" action="{% url 'ui:schema-edit' schema_id=schema.pk %}" class="stack">
+            {% csrf_token %}
+            {% include "ui/_form_errors.html" with form=meta_form %}
+            {% for field in meta_form %}{% include "ui/_field.html" %}{% endfor %}
+            <div class="actions"><button type="submit">Save</button></div>
+          </form>
+        </section>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

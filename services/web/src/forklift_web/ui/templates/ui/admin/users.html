@@ -1,0 +1,27 @@
+{% extends "ui/base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+  <h1>Users</h1>
+  {% include "ui/admin/_nav.html" %}
+  <form method="get" class="inline-form" role="search" hx-get="{% url 'ui:admin-users' %}" hx-target="#user-table" hx-swap="outerHTML" hx-push-url="true" hx-trigger="input changed delay:300ms from:#user-search, change">
+    <div class="field wide">
+      <label for="user-search">Name or email contains</label>
+      <input type="search" id="user-search" name="q" value="{{ search }}">
+    </div>
+    <div class="field">
+      <label for="user-role">Role</label>
+      <select id="user-role" name="role"><option value="">Any role</option>{% for value, label in roles %}<option value="{{ value }}"{% if value == role %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </div>
+    <div class="field">
+      <label for="user-state">State</label>
+      <select id="user-state" name="state">
+        <option value="">Any</option>
+        <option value="active"{% if state == "active" %} selected{% endif %}>Active</option>
+        <option value="inactive"{% if state == "inactive" %} selected{% endif %}>Inactive</option>
+      </select>
+    </div>
+    <button type="submit" class="secondary">Filter</button>
+    <a class="button" href="{% url 'ui:admin-user-new' %}">New user</a>
+  </form>
+  {% include "ui/admin/_users_table.html" %}
+{% endblock %}

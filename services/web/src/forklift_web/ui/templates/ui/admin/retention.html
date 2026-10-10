@@ -1,0 +1,90 @@
+{% extends "ui/base.html" %}
+{% block title %}Retention{% endblock %}
+{% block content %}
+  <h1>Retention</h1>
+  {% include "ui/admin/_nav.html" %}
+  <p class="lead">How long uploads, outputs, bad rows, previews, metadata and job records are kept. Each kind is set at the most specific level that names it: a dataset, then its classification, then the installation; with no policy anywhere, everything is kept. The sweeper deletes what expired and records each deletion in the audit log.</p>
+
+  {% if unplaced %}{% include "ui/_form_errors.html" with form=unplaced %}{% endif %}
+  {% if warnings %}
+    <section class="alert warn" aria-labelledby="warnings-heading">
+      <h2 id="warnings-heading">Warnings</h2>
+      <ul>{% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+    </section>
+  {% else %}
+    <p class="alert ok">Sensitive data expires at every level.</p>
+  {% endif %}
+
+  {% if report %}
+    <section class="alert {% if report.errors %}error{% else %}ok{% endif %}" aria-labelledby="sweep-heading" role="status">
+      <h2 id="sweep-heading">{% if report.dry_run %}What a sweep would delete now{% else %}The sweep deleted{% endif %}</h2>
+      <ul>
+        <li>{{ report.expired_uploads }} unfinished upload{{ report.expired_uploads|pluralize }}</li>
+        <li>{{ report.uploads }} upload{{ report.uploads|pluralize }}</li>
+        <li>{{ report.artifacts }} job file{{ report.artifacts|pluralize }}</li>
+        <li>{{ report.jobs }} job record{{ report.jobs|pluralize }}</li>
+      </ul>
+      {% if report.errors %}<p>Errors:</p><ul>{% for error in report.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
+    </section>
+  {% endif %}
+
+  <h2>Policies</h2>
+  <p class="muted">Days to keep each kind of object at each level; an empty cell inherits from the level below it (dataset, then classification, then installation).</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Retention policies by level">
+    <table>
+      <thead><tr><th scope="col">Level</th>{% for kind, label in kinds %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for level in levels %}
+          <tr>
+            <th scope="row"><a href="#level-{{ level.prefix }}">{{ level.title }}</a></th>
+            {% for cell in level.cells %}<td>{% if cell %}{{ cell }}{% else %}<span class="muted">inherit</span>{% endif %}</td>{% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% for level in levels %}
+    <section aria-labelledby="level-{{ level.prefix }}">
+      <h3 id="level-{{ level.prefix }}">{{ level.title }}{% if not level.policy %} <span class="badge">no policy</span>{% endif %}</h3>
+      <details{% if level.form.is_bound %} open{% endif %}>
+        <summary>Change this policy</summary>
+        {% include "ui/admin/_retention_form.html" %}
+        {% if level.policy %}
+          <form method="post" action="{% url 'ui:admin-retention-delete' %}" data-confirm="Remove the policy of {{ level.title }}?">
+            {% csrf_token %}
+            <input type="hidden" name="scope" value="{{ level.scope }}">
+            <input type="hidden" name="target" value="{{ level.target }}">
+            <button type="submit" class="secondary small">Remove this policy<span class="visually-hidden"> ({{ level.title }})</span></button>
+          </form>
+        {% endif %}
+      </details>
+    </section>
+  {% endfor %}
+
+  <section aria-labelledby="level-new-dataset">
+    <h3 id="level-new-dataset">A policy for one dataset</h3>
+    {% if new_dataset.datasets %}
+      {% include "ui/admin/_retention_form.html" with level=new_dataset choose_dataset=True %}
+    {% else %}
+      <p class="muted">Every dataset has a policy of its own, or there are no datasets yet.</p>
+    {% endif %}
+  </section>
+
+  <section aria-labelledby="sweep-now">
+    <h2 id="sweep-now">Run the sweeper now</h2>
+    <p class="muted">It also runs on its schedule (<code>forklift-web sweep_retention</code>).</p>
+    <div class="actions">
+      <form method="post" action="{% url 'ui:admin-retention-sweep' %}">
+        {% csrf_token %}
+        <input type="hidden" name="dry_run" value="1">
+        <button type="submit" class="secondary">Count what would be deleted</button>
+      </form>
+      <form method="post" action="{% url 'ui:admin-retention-sweep' %}" data-confirm="Delete everything that expired now? This cannot be undone.">
+        {% csrf_token %}
+        <input type="hidden" name="dry_run" value="0">
+        <button type="submit" class="danger">Delete what expired</button>
+      </form>
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,33 @@
+{% extends "ui/base.html" %}
+{% block title %}Datasets{% endblock %}
+{% block content %}
+  <h1>Datasets</h1>
+  <p class="lead">A dataset is a source, a schema version and a destination: the unit people run again and again.</p>
+  <form method="get" class="inline-form" role="search">
+    <div class="field wide">
+      <label for="dataset-search">Name contains</label>
+      <input type="search" id="dataset-search" name="q" value="{{ search }}">
+    </div>
+    <button type="submit" class="secondary">Search</button>
+    {% if can.dataset_edit %}<a class="button" href="{% url 'ui:dataset-new' %}">New dataset</a>{% endif %}
+  </form>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Datasets">
+    <table>
+      <thead><tr><th scope="col">Name</th><th scope="col">Classification</th><th scope="col">Reads</th><th scope="col">Schema</th><th scope="col">Writes to</th></tr></thead>
+      <tbody>
+        {% for dataset in page %}
+          <tr>
+            <td><a href="{% url 'ui:dataset' dataset_id=dataset.pk %}">{{ dataset.name }}</a></td>
+            <td><span class="badge {{ dataset.classification }}">{{ dataset.get_classification_display }}</span></td>
+            <td>{{ dataset.get_input_format_display }} from {% if dataset.source_connection %}{{ dataset.source_connection.name }}{% else %}uploads{% endif %}</td>
+            <td><a href="{% url 'ui:schema-version' schema_id=dataset.schema_version.schema_id number=dataset.schema_version.number %}">{{ dataset.schema_version }}</a></td>
+            <td>{{ dataset.destination_connection.name|default:"job files only" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" class="empty">No datasets{% if search %} match “{{ search }}”{% endif %}.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "ui/_pagination.html" %}
+{% endblock %}

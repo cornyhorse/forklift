@@ -1,0 +1,71 @@
+{% extends "ui/base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+  <h1>Hello, {{ user.first_name|default:user.username }}</h1>
+  <p class="lead">You are signed in as <strong>{{ user.username }}</strong> with the {{ user.get_role_display }} role{% if user.can_view_raw_rows %}, and you may view raw rows of sensitive data{% endif %}.</p>
+
+  <h2>What you can do next</h2>
+  <div class="grid">
+    {% if can.upload %}
+      <section class="card" aria-labelledby="next-upload">
+        <h3 id="next-upload">Clean a file</h3>
+        <p>Upload a CSV or Excel file, pick or generate a schema, run it and download Parquet and the rejected rows.</p>
+        <a class="button" href="{% url 'ui:upload' %}">Upload a file</a>
+      </section>
+    {% endif %}
+    {% if can.schema_edit %}
+      <section class="card" aria-labelledby="next-schema">
+        <h3 id="next-schema">Write a schema</h3>
+        <p>Describe the columns, types and rules, and check the draft against a file's header as you type.</p>
+        <a class="button" href="{% url 'ui:schema-new' %}">New schema</a>
+      </section>
+    {% endif %}
+    {% if can.dataset_edit %}
+      <section class="card" aria-labelledby="next-dataset">
+        <h3 id="next-dataset">Define a dataset</h3>
+        <p>A source, a schema version and a destination that can be run again and again.</p>
+        <a class="button" href="{% url 'ui:dataset-new' %}">New dataset</a>
+      </section>
+    {% endif %}
+    {% if can.datasets %}
+      <section class="card" aria-labelledby="next-browse">
+        <h3 id="next-browse">Browse</h3>
+        <ul>
+          <li><a href="{% url 'ui:datasets' %}">Datasets</a></li>
+          <li><a href="{% url 'ui:schemas' %}">Schemas</a></li>
+          <li><a href="{% url 'ui:jobs' %}">All jobs and their results</a></li>
+        </ul>
+      </section>
+    {% endif %}
+    {% if can.tokens %}
+      <section class="card" aria-labelledby="next-tokens">
+        <h3 id="next-tokens">Automate</h3>
+        <p>Create an API token for scripts and pipelines that call <code>/api/v1</code>.</p>
+        <a class="button secondary" href="{% url 'ui:tokens' %}">API tokens</a>
+      </section>
+    {% endif %}
+    {% if can.admin %}
+      <section class="card" aria-labelledby="next-admin">
+        <h3 id="next-admin">Administer</h3>
+        <p>Workers, queues, users, connections, retention and the audit log.</p>
+        <a class="button secondary" href="{% url 'ui:admin' %}">Admin overview</a>
+      </section>
+    {% endif %}
+  </div>
+
+  {% if can.jobs %}
+    <h2>Your recent jobs</h2>
+    {% if running %}<p>{{ running|length }} of them {{ running|length|pluralize:"is,are" }} still queued or running.</p>{% endif %}
+    {% include "ui/jobs/_rows.html" with rows=recent_jobs empty="You have not started any jobs yet." %}
+    <p><a href="{% url 'ui:jobs' %}?mine=on">All your jobs</a></p>
+  {% endif %}
+
+  {% if recent_uploads %}
+    <h2>Your recent files</h2>
+    <ul>
+      {% for upload in recent_uploads %}
+        <li><a href="{% url 'ui:upload-detail' upload_id=upload.pk %}">{{ upload.filename }}</a> <span class="muted">({{ upload.created_at|date:"Y-m-d H:i" }})</span></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}

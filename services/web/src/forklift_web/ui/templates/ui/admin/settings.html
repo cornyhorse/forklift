@@ -1,0 +1,47 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}Installation settings{% endblock %}
+{% block content %}
+  <h1>Installation settings</h1>
+  {% include "ui/admin/_nav.html" %}
+  <p class="lead">Values admins change while Forklift runs; every change is audited. Deployment settings (database, store, keys) are environment variables instead.</p>
+  <div class="grid settings">
+    {% for row in rows %}
+      <section class="card{% if row.form.shape == "table" %} wide{% endif %}" id="setting-{{ row.key }}" aria-labelledby="setting-{{ row.key }}-heading">
+        <h2 id="setting-{{ row.key }}-heading"><code>{{ row.key }}</code>{% if row.changed %} <span class="badge">changed</span>{% endif %}</h2>
+        <p>{{ row.setting.description }}</p>
+        {% if row.form.shape != "table" %}
+          <p class="muted">Now <code>{{ row.setting.value|compact_json }}</code>{% if row.key|slice:"-6:" == "_bytes" %} ({{ row.setting.value|filesize }}){% endif %}; default <code>{{ row.setting.default|compact_json }}</code>{% if row.key|slice:"-6:" == "_bytes" %} ({{ row.setting.default|filesize }}){% endif %}.</p>
+        {% endif %}
+        <form method="post" action="{% url 'ui:admin-setting' key=row.key %}" class="{% if row.form.shape == "table" %}stack{% else %}inline-form{% endif %}">
+          {% csrf_token %}
+          {% include "ui/_form_errors.html" with form=row.form %}
+          {% if row.form.shape == "table" %}
+            <div class="table-wrap" tabindex="0" role="region" aria-label="{{ row.key }} by lane">
+              <table>
+                <thead><tr><th scope="col">Lane</th>{% for name in row.form.columns %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
+                <tbody>
+                  {% for group, fields in row.form.table %}
+                    <tr><th scope="row">{{ group }}</th>{% for field in fields %}<td><label class="visually-hidden" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</td>{% endfor %}</tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <p class="help">An empty cell means no limit.{% if row.changed %} “Reset to the default” restores the limits Forklift ships with.{% endif %}</p>
+          {% else %}
+            {% for field in row.form %}{% include "ui/_field.html" %}{% endfor %}
+          {% endif %}
+          <div class="actions">
+            <button type="submit">Save<span class="visually-hidden"> {{ row.key }}</span></button>
+          </div>
+        </form>
+        {% if row.changed %}
+          <form method="post" action="{% url 'ui:admin-setting-reset' key=row.key %}">
+            {% csrf_token %}
+            <button type="submit" class="secondary small">Reset to the default<span class="visually-hidden"> ({{ row.key }})</span></button>
+          </form>
+        {% endif %}
+      </section>
+    {% endfor %}
+  </div>
+{% endblock %}

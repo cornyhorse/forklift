@@ -112,6 +112,12 @@ def list_versions(actor: Actor, schema_id):
     return SchemaVersion.objects.filter(schema=schema).select_related("schema", "author")
 
 
+def list_all_versions(actor: Actor):
+    """Every version of every schema, by schema name and newest first (for pickers)."""
+    check(actor, Action.SCHEMA_VIEW)
+    return SchemaVersion.objects.select_related("schema").order_by("schema__name", "-number")
+
+
 def get_version(actor: Actor, schema_id, number: int) -> SchemaVersion:
     check(actor, Action.SCHEMA_VIEW)
     version = (

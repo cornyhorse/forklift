@@ -1,15 +1,10 @@
-"""Health checks, sign-in pages and the placeholder home page.
-
-The HTML user interface (built on the service layer) replaces ``home``; sign-in and sign-out
-are Django's views with the templates in core/templates/registration.
-"""
+"""Health checks. The HTML user interface is forklift_web.ui; sign-in and sign-out are
+Django's views with the templates in ui/templates/registration."""
 
 from __future__ import annotations
 
-from django.contrib.auth.decorators import login_required
 from django.db import connection
 from django.http import JsonResponse
-from django.shortcuts import render
 from django.views.decorators.http import require_GET
 
 from forklift_web import __version__
@@ -32,9 +27,3 @@ def readyz(request):
             {"status": "unavailable", "reason": f"database: {type(error).__name__}"}, status=503
         )
     return JsonResponse({"status": "ok", "version": __version__})
-
-
-@login_required
-@require_GET
-def home(request):
-    return render(request, "forklift_web/home.html", {"version": __version__})

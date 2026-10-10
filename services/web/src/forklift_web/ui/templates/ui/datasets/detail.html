@@ -1,0 +1,50 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}{{ dataset.name }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:datasets' %}">Datasets</a></li><li>{{ dataset.name }}</li></ol></nav>
+  <h1>{{ dataset.name }}</h1>
+  {% if dataset.description %}<p class="lead">{{ dataset.description }}</p>{% endif %}
+  {% if can_edit %}<div class="actions"><a class="button secondary" href="{% url 'ui:dataset-edit' dataset_id=dataset.pk %}">Edit</a></div>{% endif %}
+
+  <dl class="facts">
+    <dt>Classification</dt><dd><span class="badge {{ dataset.classification }}">{{ dataset.get_classification_display }}</span></dd>
+    <dt>Schema</dt><dd><a href="{% url 'ui:schema-version' schema_id=dataset.schema_version.schema_id number=dataset.schema_version.number %}">{{ dataset.schema_version }}</a></dd>
+    <dt>Reads</dt><dd>{{ dataset.get_input_format_display }} from {% if dataset.source_connection %}the connection {{ dataset.source_connection.name }}{% if dataset.source_path %}, object <code>{{ dataset.source_path }}</code>{% endif %}{% else %}an uploaded file named at each run{% endif %}</dd>
+    {% if dataset.input_options %}<dt>Input options</dt><dd><code>{{ dataset.input_options|compact_json }}</code></dd>{% endif %}
+    <dt>Writes to</dt>
+    <dd>{% if dataset.destination_connection %}the connection {{ dataset.destination_connection.name }}{% if dataset.destination_prefix %}, prefix <code>{{ dataset.destination_prefix }}</code>{% endif %}{% if dataset.destination_options %} <code>{{ dataset.destination_options|compact_json }}</code>{% endif %}{% else %}the job's files only (Parquet and bad rows to download){% endif %}</dd>
+    <dt>Compression</dt><dd>{{ dataset.compression }}</dd>
+    {% if dataset.options %}<dt>Job options</dt><dd><code>{{ dataset.options|compact_json }}</code></dd>{% endif %}
+    <dt>Changed</dt><dd>{{ dataset.updated_at|date:"Y-m-d H:i e" }}</dd>
+  </dl>
+
+  {% if run_form %}
+    <h2 id="run-heading">Run it</h2>
+    <form method="post" action="{% url 'ui:dataset-run' dataset_id=dataset.pk %}" class="inline-form" aria-labelledby="run-heading">
+      {% csrf_token %}
+      {% include "ui/_form_errors.html" with form=run_form %}
+      {% if not dataset.source_connection %}
+        {% if run_form.fields.upload.choices %}
+          {% include "ui/_field.html" with field=run_form.upload wide=True %}
+        {% else %}
+          <p>This dataset reads uploaded files, and you have none yet. <a href="{% url 'ui:upload' %}">Upload a file</a>, then run it from the file's page.</p>
+        {% endif %}
+      {% endif %}
+      {{ run_form.idempotency_key }}
+      {% if dataset.source_connection or run_form.fields.upload.choices %}<button type="submit">Run {{ dataset.name }}</button>{% endif %}
+    </form>
+  {% endif %}
+
+  <h2>Recent runs</h2>
+  {% include "ui/jobs/_rows.html" with rows=jobs empty="This dataset has not run yet." %}
+
+  {% if can_edit %}
+    <h2>Delete it</h2>
+    <form method="post" action="{% url 'ui:dataset-delete' dataset_id=dataset.pk %}" data-confirm="Delete the dataset {{ dataset.name }}?">
+      {% csrf_token %}
+      <p>Only datasets without jobs can be deleted, so that history stays readable.</p>
+      <button type="submit" class="danger">Delete the dataset</button>
+    </form>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,5 @@
+{# The filtered list of jobs; HTMX swaps this region when the filters change. #}
+<div id="job-table">
+  {% include "ui/jobs/_rows.html" with rows=rows %}
+  {% include "ui/_pagination.html" %}
+</div>

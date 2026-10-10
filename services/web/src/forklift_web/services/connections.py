@@ -455,6 +455,18 @@ def _check(connection: Connection) -> ConnectionCheck:
     )
 
 
+def check_store(actor: Actor) -> ConnectionCheck:
+    """Whether the installation's own bucket answers with the gateway's credentials (for the
+    admin overview; a read, so not audited)."""
+    check(actor, Action.SETTINGS_VIEW)
+    bucket = storage.store()
+    try:
+        bucket.check_access()
+    except StoreUnavailable as error:
+        return ConnectionCheck(False, error.message)
+    return ConnectionCheck(True, f"The bucket {bucket.bucket!r} is reachable.")
+
+
 def check_connection(actor: Actor, connection_id) -> ConnectionCheck:
     """Check that the connection can be reached (and, for buckets, that its credentials work)."""
     check(actor, Action.CONNECTION_MANAGE)

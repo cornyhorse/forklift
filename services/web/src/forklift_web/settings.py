@@ -25,18 +25,21 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "ninja",
     "forklift_web.core",
+    "forklift_web.ui",
 ]
 
 MIDDLEWARE = [
     "forklift_web.middleware.SurfaceMiddleware",
     "forklift_web.middleware.RequestIdMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "forklift_web.ui.middleware.StaticFilesMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "forklift_web.ui.middleware.ContentSecurityPolicyMiddleware",
 ]
 
 # The public surface (UI, /api/v1) and the internal one (/internal/v1, workers only) are two URL
@@ -58,6 +61,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "forklift_web.ui.context.ui",
             ],
         },
     },
@@ -113,8 +117,13 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
+# Static files (the UI's CSS, JavaScript and vendored HTMX) are served by the gateway itself
+# (WhiteNoise, public port only), straight from the installed package: no collectstatic step is
+# needed. FORKLIFT_STATIC_ROOT, when set, is where `forklift-web collectstatic` puts a copy for
+# an ingress or CDN to serve under STATIC_URL instead.
 STATIC_URL = "/static/"
 STATIC_ROOT = env_optional("FORKLIFT_STATIC_ROOT")
+WHITENOISE_USE_FINDERS = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # The interactive API documentation at /api/v1/docs (the OpenAPI document itself is always

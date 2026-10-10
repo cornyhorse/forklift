@@ -73,10 +73,9 @@ def parse_epoch_timestamp(value: str) -> datetime.datetime:
     # datetime resolution is one microsecond; sub-microsecond digits are truncated
     microseconds = remainder * 1_000_000 // ticks_per_second
 
-    try:
-        return _EPOCH + datetime.timedelta(seconds=seconds, microseconds=microseconds)
-    except OverflowError as e:
-        raise ValueError("Invalid epoch timestamp") from e
+    # At most 19 digits (9999999999 seconds at any precision): the result is before the year
+    # 2287, far inside datetime's range, so this cannot overflow
+    return _EPOCH + datetime.timedelta(seconds=seconds, microseconds=microseconds)
 
 
 def datetime_to_epoch(dt: datetime.datetime, unit: str) -> int:

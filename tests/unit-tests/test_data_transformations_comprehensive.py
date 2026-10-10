@@ -2084,32 +2084,12 @@ class TestStringCleaningHelperMethods:
         result = transformer._to_ascii_only("café 中文 test")
         assert result == "cafe  test"
 
-    def test_to_ascii_only_unicode_error_fallback(self):
-        """Test ASCII-only conversion with Unicode error fallback."""
+    def test_to_ascii_only_keeps_ascii_text_and_strips_accents(self):
+        """ASCII text is unchanged; accented letters lose only their accent."""
         transformer = DataTransformer()
 
-        # Instead of mocking str.encode (which can't be done on immutable types),
-        # we'll test the fallback logic by creating a scenario that would naturally
-        # trigger the fallback path or test it directly
-
-        # Test the normal path first
-        result_normal = transformer._to_ascii_only("café")
-        assert result_normal == "cafe"  # Normal encoding removes accents and non-ASCII
-
-        # Test the fallback logic directly by calling the manual filtering part
-        # This simulates what happens in the except block
-        test_text = "café 中文 test"
-        # Remove accents first (as the method does)
-        text_no_accents = transformer._remove_accents(test_text)
-        # Apply manual ASCII filtering (the fallback logic)
-        manual_result = "".join(char for char in text_no_accents if ord(char) < 128)
-        assert manual_result == "cafe  test"
-
-        # Verify that both paths produce the same result for ASCII-compatible text
-        ascii_text = "hello world"
-        normal_result = transformer._to_ascii_only(ascii_text)
-        manual_result = "".join(char for char in ascii_text if ord(char) < 128)
-        assert normal_result == manual_result == "hello world"
+        assert transformer._to_ascii_only("café") == "cafe"
+        assert transformer._to_ascii_only("hello world") == "hello world"
 
     def test_fix_case_issues_all_caps(self):
         """Test case issue fixing with all caps text."""

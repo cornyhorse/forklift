@@ -47,23 +47,17 @@ class PhoneNumberFormatter(BaseFormatter, ValidationMixin):
         # Handle country code detection
         has_country_code, phone_digits = self._parse_country_code(digits_and_plus, digits_only)
 
-        # Validate phone number length
-        if self.config.validate:
-            if (
-                len(phone_digits) < self.config.min_digits
-                or len(phone_digits) > self.config.max_digits
-            ):
-                if len(digits_only) == 11 and digits_only.startswith("1"):
-                    if len(phone_digits) != 10:
-                        raise ValueError(
-                            f"Phone number must have {self.config.min_digits}-"
-                            f"{self.config.max_digits} digits, got {len(phone_digits)}"
-                        )
-                else:
-                    raise ValueError(
-                        f"Phone number must have {self.config.min_digits}-"
-                        f"{self.config.max_digits} digits, got {len(phone_digits)}"
-                    )
+        # Validate phone number length. An 11-digit number starting with "1" is a NANP number with
+        # its country code (phone_digits is then the 10-digit national number) and always passes.
+        if (
+            self.config.validate
+            and not self.config.min_digits <= len(phone_digits) <= self.config.max_digits
+            and not (len(digits_only) == 11 and digits_only.startswith("1"))
+        ):
+            raise ValueError(
+                f"Phone number must have {self.config.min_digits}-"
+                f"{self.config.max_digits} digits, got {len(phone_digits)}"
+            )
 
         # Format according to style
         return self._apply_format_style(

@@ -154,6 +154,17 @@ class TestDedupeColumnNames:
         expected = ["col", "col_1"]
         assert result == expected
 
+    @pytest.mark.parametrize("max_length", [0, 15])
+    def test_max_length_below_sixteen_is_rejected(self, max_length):
+        """A limit too small to hold a name plus its suffix raises ValueError."""
+        with pytest.raises(ValueError, match="max_length must be at least 16"):
+            dedupe_column_names(["col", "col"], max_length=max_length)
+
+    def test_max_length_of_sixteen_is_accepted(self):
+        """Sixteen is the smallest limit that still leaves room for a suffix."""
+        result = dedupe_column_names(["col", "col"], max_length=16)
+        assert result == ["col", "col_1"]
+
 
 class TestStandardizePostgresColumnName:
     """Test cases for the standardize_postgres_column_name function."""

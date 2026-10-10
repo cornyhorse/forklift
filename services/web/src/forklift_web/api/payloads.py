@@ -475,7 +475,11 @@ class JobOut(Schema):
     id: uuid.UUID
     kind: JobKindName
     lane: str
-    status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
+    status: Literal["queued", "running", "publishing", "succeeded", "failed", "cancelled"] = Field(
+        description="publishing: the run is done and its outputs are being copied to its "
+        "dataset's s3 destination; it becomes succeeded once they are, or failed "
+        "(TARGET_WRITE_FAILED)"
+    )
     classification: ClassificationName
     dataset_id: Optional[uuid.UUID]
     upload_id: Optional[uuid.UUID]
@@ -489,6 +493,10 @@ class JobOut(Schema):
     )
     attempt: int
     max_attempts: int
+    publish_attempts: int = Field(description="How often a publisher has started publishing it")
+    publish_error: Optional[str] = Field(
+        description="While publishing: the store's last refusal, tried again later"
+    )
     cancel_requested: bool
     progress: dict[str, Any]
     result: Optional[dict[str, Any]]
@@ -505,6 +513,10 @@ class JobOut(Schema):
     @staticmethod
     def resolve_error(job):
         return {"code": job.error_code, "message": job.error_message} if job.error_code else None
+
+    @staticmethod
+    def resolve_publish_error(job):
+        return job.publish_error or None
 
     @staticmethod
     def resolve_worker(job):

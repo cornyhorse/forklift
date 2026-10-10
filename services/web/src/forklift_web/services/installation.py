@@ -131,6 +131,19 @@ SETTINGS: dict[str, Setting] = {
         "go up in parts; at most 5 TiB, the largest object S3 stores).",
         _integer(1, 5 * TIB),
     ),
+    "publish_lease_seconds": Setting(
+        300,
+        "How long a publisher holds a run it copies to an s3 destination without renewing its "
+        "lease (it renews every third of it); a run whose publisher stopped is resumed by "
+        "another one once its lease has expired.",
+        _integer(30, 3600),
+    ),
+    "publish_max_attempts": Setting(
+        5,
+        "Leases a run gets to be published before it fails with TARGET_WRITE_FAILED; a store "
+        "error waits 1, 5, 30 minutes, then 2 hours before the next attempt.",
+        _integer(1, 20),
+    ),
     "validate_wait_seconds": Setting(
         10,
         "How long POST /schemas/validate waits for its job before answering 202.",

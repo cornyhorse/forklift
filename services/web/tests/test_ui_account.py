@@ -46,7 +46,7 @@ def test_the_home_page_lists_the_users_recent_jobs_and_files(world, client):
     make_job(world.operator, world.upload, status=JobStatus.RUNNING)
     page = signed_in(client, world.operator).get("/").content.decode()
     assert str(world.queued_job.pk)[:8] in page
-    assert "still queued or running" in page
+    assert "still queued, running or publishing" in page
     assert "Your recent files" in page and "people.csv" in page
     other = signed_in(client, world.author).get("/").content.decode()
     assert "You have not started any jobs yet." in other

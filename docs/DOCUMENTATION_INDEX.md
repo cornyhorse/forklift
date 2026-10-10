@@ -69,6 +69,7 @@ One page per extension:
 
 - [schedules.md](platform/schedules.md): running a dataset on a cron schedule in a time zone; the dispatcher, catch-up and overlap rules
 - [webhooks.md](platform/webhooks.md): signed notifications of job outcomes; payloads, verifying the signature, retries and the address guard
+- [publishing.md](platform/publishing.md): publishing runs to an s3 destination; the publishing status, the publisher service, its lease, retries and settings
 - [sign-in-throttling.md](platform/sign-in-throttling.md): the sign-in rate limit: limits, settings, proxies, admin unlock
 - [schema-editor.md](platform/schema-editor.md): the schema editor: completion, the gateway's review, the Columns view, keys
 

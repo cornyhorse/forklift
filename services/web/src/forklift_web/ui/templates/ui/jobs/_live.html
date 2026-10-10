@@ -7,7 +7,7 @@
   <dl class="facts">
     <dt>Status</dt>
     <dd><span class="badge {{ job.status }}">{{ job.get_status_display }}</span>
-      {% if job.cancel_requested_at and not finished %} <span class="muted">cancellation requested; the worker stops at its next step</span>{% endif %}
+      {% if job.cancel_requested_at and job.status == "running" %} <span class="muted">cancellation requested; the worker stops at its next step</span>{% endif %}
       {% if not finished %} <span class="muted">(updates by itself)</span>{% endif %}</dd>
     <dt>Attempt</dt><dd>{{ job.attempt }} of {{ job.max_attempts }}</dd>
     {% if job.lease_worker %}<dt>Worker</dt><dd>{{ job.lease_worker.worker_id }}</dd>{% endif %}
@@ -21,6 +21,9 @@
       <h2 id="progress-heading">Progress</h2>
       {% if job.status == "queued" %}
         <p>Waiting for a worker of the {{ job.lane }} lane.</p>
+      {% elif job.status == "publishing" %}
+        <p>The run is done. {% if job.publish_attempts %}Publishing to <strong>{{ destination.name|default:"its destination" }}</strong> (attempt {{ job.publish_attempts }}){% else %}Waiting for the publisher to copy the outputs to <strong>{{ destination.name|default:"its destination" }}</strong>{% endif %}: the job succeeds once data and manifest are there.</p>
+        {% if job.publish_error %}<p class="alert warn">The last attempt failed and is tried again later: {{ job.publish_error }}</p>{% endif %}
       {% endif %}
       {% if percent is not None %}
         <label for="job-progress">Input read: {{ percent }}% of {{ input_size|filesize }}</label>

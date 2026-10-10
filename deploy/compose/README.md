@@ -27,6 +27,7 @@ store), and a worker token, kept in a volume only the worker mounts.
 | `worker` | `forklift-worker` (services/worker) | internal | nothing |
 | `sweeper` | `forklift-web`: `sweep_retention --every=3600` (healthy while its last sweep is under two hours old) | internal, db | nothing |
 | `dispatcher` | `forklift-web`: `dispatch --every=10`, which queues the runs of [schedules](../../docs/platform/schedules.md) when they are due and sends webhook deliveries (healthy while its last good pass is under a minute old) | public, internal, db (webhooks need a route out) | nothing |
+| `publisher` | `forklift-web`: `publish --every=5`, which [publishes](../../docs/platform/publishing.md) successful runs to their datasets' s3 destinations (data first, `manifest.json` last) and only then marks them succeeded; a run whose publisher stopped is resumed once its lease expires (healthy while its heartbeat is under a minute old) | public, internal, db (destinations may be outside) | nothing |
 | `postgres` | `postgres:16` | db | nothing |
 | `rustfs` | `rustfs/rustfs` | public, internal | 9000 (presigned URLs from browsers) |
 

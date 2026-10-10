@@ -1163,6 +1163,23 @@
             "title": "Progress",
             "type": "object"
           },
+          "publish_attempts": {
+            "description": "How often a publisher has started publishing it",
+            "title": "Publish Attempts",
+            "type": "integer"
+          },
+          "publish_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While publishing: the store's last refusal, tried again later",
+            "title": "Publish Error"
+          },
           "requested_by_id": {
             "anyOf": [
               {
@@ -1244,9 +1261,11 @@
             "title": "Started At"
           },
           "status": {
+            "description": "publishing: the run is done and its outputs are being copied to its dataset's s3 destination; it becomes succeeded once they are, or failed (TARGET_WRITE_FAILED)",
             "enum": [
               "queued",
               "running",
+              "publishing",
               "succeeded",
               "failed",
               "cancelled"
@@ -1292,6 +1311,8 @@
           "scheduled_for",
           "attempt",
           "max_attempts",
+          "publish_attempts",
+          "publish_error",
           "cancel_requested",
           "progress",
           "result",
@@ -1573,6 +1594,23 @@
             "title": "Progress",
             "type": "object"
           },
+          "publish_attempts": {
+            "description": "How often a publisher has started publishing it",
+            "title": "Publish Attempts",
+            "type": "integer"
+          },
+          "publish_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "While publishing: the store's last refusal, tried again later",
+            "title": "Publish Error"
+          },
           "requested_by_id": {
             "anyOf": [
               {
@@ -1648,9 +1686,11 @@
             "title": "Started At"
           },
           "status": {
+            "description": "publishing: the run is done and its outputs are being copied to its dataset's s3 destination; it becomes succeeded once they are, or failed (TARGET_WRITE_FAILED)",
             "enum": [
               "queued",
               "running",
+              "publishing",
               "succeeded",
               "failed",
               "cancelled"
@@ -1696,6 +1736,8 @@
           "scheduled_for",
           "attempt",
           "max_attempts",
+          "publish_attempts",
+          "publish_error",
           "cancel_requested",
           "progress",
           "result",

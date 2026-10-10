@@ -79,7 +79,7 @@ time), `last_message` and `last_job_id`:
 | Outcome | When |
 |---|---|
 | `queued` | The run was queued. The message is empty for a run on time, and says so for a late one that caught up. |
-| `skipped_overlap` | A run this schedule started earlier is still queued or running: this slot is skipped, so runs of one schedule never overlap. |
+| `skipped_overlap` | A run this schedule started earlier is still queued, running or [publishing](publishing.md): this slot is skipped, so runs of one schedule never overlap. |
 | `missed` | The dispatcher was not running when the slot came, and it is now too late to catch up (below). |
 | `failed_to_enqueue` | The run could not be queued, for example because the dataset now reads uploads or a limit refuses it; the message says why. The schedule stays enabled and tries again at its next slot. |
 

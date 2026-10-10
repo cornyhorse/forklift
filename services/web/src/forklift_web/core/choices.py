@@ -67,12 +67,18 @@ class Lane(models.TextChoices):
 class JobStatus(models.TextChoices):
     QUEUED = "queued", "Queued"
     RUNNING = "running", "Running"
+    # The worker is done; the outputs are being copied to the dataset's s3 destination
+    # (services.publishing). Not terminal: the publisher ends it succeeded or failed.
+    PUBLISHING = "publishing", "Publishing"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
     CANCELLED = "cancelled", "Cancelled"
 
 
 TERMINAL_STATUSES = {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}
+# Still in progress (a run that is publishing is not done yet), and what a cancellation stops
+ACTIVE_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PUBLISHING}
+CANCELLABLE_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
 
 
 class EventType(models.TextChoices):

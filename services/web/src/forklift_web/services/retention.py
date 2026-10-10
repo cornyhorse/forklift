@@ -330,7 +330,9 @@ def _sweep_artifacts(actor: Actor, policies: Policies, now, report: SweepReport)
                 job__classification=classification,
                 kind__in=artifact_kinds,
                 created_at__lt=now - timedelta(days=days),
-            )
+            ).exclude(
+                job__status=JobStatus.PUBLISHING
+            )  # a publisher still copies them
             for artifact in expired:
                 report.artifacts += 1
                 if report.dry_run:

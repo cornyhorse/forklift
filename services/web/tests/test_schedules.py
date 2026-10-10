@@ -283,7 +283,7 @@ def test_disabled_and_future_schedules_wait(world):
     assert not Job.objects.filter(schedule__isnull=False).exists()
 
 
-def test_a_slot_is_skipped_while_the_previous_run_is_queued_or_running(world):
+def test_a_slot_is_skipped_while_the_previous_run_is_queued_running_or_publishing(world):
     schedule = due(world, at=_at(9))
     fire(_at(9, 0, 5))
     first = Job.objects.get(schedule=schedule)
@@ -300,8 +300,12 @@ def test_a_slot_is_skipped_while_the_previous_run_is_queued_or_running(world):
     assert fire(_at(11, 0, 5)) == {"skipped_overlap": 1}
     schedule.refresh_from_db()
     assert schedule.last_message.endswith("is still running.")
+    Job.objects.filter(pk=first.pk).update(status=JobStatus.PUBLISHING)
+    assert fire(_at(12, 0, 5)) == {"skipped_overlap": 1}
+    schedule.refresh_from_db()
+    assert schedule.last_message.endswith("is still publishing.")
     Job.objects.filter(pk=first.pk).update(status=JobStatus.SUCCEEDED)
-    assert fire(_at(12, 0, 5)) == {"queued": 1}
+    assert fire(_at(13, 0, 5)) == {"queued": 1}
     assert Job.objects.filter(schedule=schedule).count() == 2
 
 

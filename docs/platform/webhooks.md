@@ -22,8 +22,9 @@ job finishes and again just before each delivery is sent.
 It hears about the **events** it lists, any of `job.succeeded`, `job.failed` and
 `job.cancelled`, for the **job kinds** it lists (`kinds`, by default only `run`; previews,
 schema checks and schema generation are usually watched in the UI). A run of a dataset whose
-outputs are published to an s3 destination finishes once publishing has: if publishing fails,
-the webhook hears `job.failed` (`TARGET_WRITE_FAILED`), never `job.succeeded` first.
+outputs are [published to an s3 destination](publishing.md) finishes once publishing has (it is
+`publishing` until then): if publishing fails, the webhook hears `job.failed`
+(`TARGET_WRITE_FAILED`), never `job.succeeded` first.
 
 A delivery is queued in the same database transaction that finishes the job, so a job never
 finishes without its deliveries being queued, and a delivery is never queued for a job that did

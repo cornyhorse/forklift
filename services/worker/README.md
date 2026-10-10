@@ -268,7 +268,8 @@ The internal API of the platform brief, with these details:
   PUTs, without quotes, in part order, each followed by a newline, so the report does not grow
   with the parts), and is retried on 5xx, so it should be idempotent per attempt. The gateway
   completes the multipart uploads; a refusal (400) leaves the job unreported, so its lease
-  expires.
+  expires. The answer's `status` is not used: a successful run with an s3 destination answers
+  `publishing` (the gateway's publisher copies it; the worker is done with it).
 - `POST /jobs/{id}/input-url` sends `attempt`; the answer needs `location`, a `presigned_url`
   location with `url` for the same object as the leased one (the engine checks that scheme,
   host, port and path are the same). Any other answer (400 for an input that is not streamed,

@@ -11,15 +11,25 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from forklift_web.core.choices import (
+    CANCELLABLE_STATUSES,
     TERMINAL_STATUSES,
     ArtifactKind,
     Classification,
     JobKind,
+    JobStatus,
     UploadStatus,
 )
 from forklift_web.errors import ServiceError
 from forklift_web.policy import Action, allowed, check
-from forklift_web.services import artifacts, datasets, installation, jobs, retention, schemas
+from forklift_web.services import (
+    artifacts,
+    datasets,
+    installation,
+    jobs,
+    publishing,
+    retention,
+    schemas,
+)
 from forklift_web.services import uploads as uploads_service
 from forklift_web.ui.forms import JobFilterForm, UploadRunForm
 from forklift_web.ui.views.base import back, form_failed, is_htmx, new_key, page, paginate
@@ -159,7 +169,7 @@ def job_rows(actor, found):
     """Jobs with what the signed-in user may do to each of them."""
     rows = list(found)
     for job in rows:
-        job.can_cancel = job.status not in TERMINAL_STATUSES and allowed(
+        job.can_cancel = job.status in CANCELLABLE_STATUSES and allowed(
             actor, Action.JOB_CANCEL, job
         )
     return rows
@@ -220,8 +230,11 @@ def live_context(actor, job) -> dict:
         "input_size": size,
         "percent": min(100, round(100 * read / size)) if size and read is not None else None,
         "events": list(jobs.list_events(actor, job.pk).order_by("-id")[:15]),
-        "can_cancel": job.status not in TERMINAL_STATUSES
+        "can_cancel": job.status in CANCELLABLE_STATUSES
         and allowed(actor, Action.JOB_CANCEL, job),
+        "destination": (
+            publishing.destination_of(job) if job.status == JobStatus.PUBLISHING else None
+        ),
         "can_save_schema": allowed(actor, Action.SCHEMA_EDIT),
         "can_see_upload": job.upload_id is not None
         and allowed(actor, Action.UPLOAD_VIEW, job.upload),

@@ -338,7 +338,7 @@ section.alert, div.alert, p.alert { margin: 0 0 1rem; }
 }
 .badge.succeeded, .badge.ok, .badge.complete, .badge.active, .badge.online, .badge.delivered { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
 .badge.failed, .badge.error, .badge.revoked, .badge.sensitive { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
-.badge.running, .badge.queued, .badge.pending { background: var(--info-bg); border-color: var(--accent); color: var(--accent); }
+.badge.running, .badge.queued, .badge.pending, .badge.publishing { background: var(--info-bg); border-color: var(--accent); color: var(--accent); }
 .badge.cancelled, .badge.expired, .badge.deleted, .badge.offline, .badge.unknown, .badge.skipped, .badge.disabled { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
 
 .secret {

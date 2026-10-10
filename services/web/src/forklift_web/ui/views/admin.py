@@ -96,6 +96,7 @@ def overview(request, actor):
             "offline": [worker for worker in seen if worker.last_seen_at < since],
             "lanes": list(lanes.values()),
             "running": jobs.list_jobs(actor, status=JobStatus.RUNNING)[:20],
+            "publishing": jobs.list_jobs(actor, status=JobStatus.PUBLISHING)[:20],
             "failed": failed.order_by("-finished_at")[:10],
             "failed_today": failed.filter(finished_at__gte=day_ago).count(),
             "warnings": retention.overview(actor)["warnings"],

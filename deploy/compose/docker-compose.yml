@@ -173,6 +173,33 @@ services:
     depends_on:
       init: {condition: service_completed_successfully}
 
+  # Copies successful runs to their datasets' s3 destinations (data first, manifest.json last)
+  # and only then marks them succeeded; one that stops mid-copy leaves its lease to expire and
+  # the next pass resumes the run. Its own service: a long copy holds up neither the gateway
+  # nor the dispatcher. Healthy while its heartbeat is under a minute old (touched after each
+  # pass and every few seconds while a copy runs)
+  publisher:
+    <<: *gateway
+    command:
+      - forklift-web
+      - publish
+      - --every=5
+      - --heartbeat=/tmp/publisher.alive
+    networks: [public, internal, db]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/publisher.alive') > 60)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+      start_interval: 2s
+    depends_on:
+      init: {condition: service_completed_successfully}
+
   worker:
     image: ${FORKLIFT_WORKER_IMAGE:-forklift-worker:local}
     build:

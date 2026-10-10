@@ -13,7 +13,7 @@ one job), records what happened and moves ``next_run_at`` to the first slot afte
 - after the dispatcher was not running, only the most recent missed slot can run, and only if
   it is at most ``schedule_catch_up_seconds`` (an installation setting) old; otherwise the
   outcome is ``missed``;
-- while a job the schedule started is still queued or running, the slot is skipped
+- while a job the schedule started is still queued, running or publishing, the slot is skipped
   (``skipped_overlap``);
 - when the run cannot be enqueued (the dataset no longer reads from a connection, a limit
   refuses it, ...), the outcome is ``failed_to_enqueue`` with the reason, and the schedule stays.
@@ -33,7 +33,7 @@ from django.db.models import F
 from django.utils.timezone import now as utc_now
 
 from forklift_web import cron as crontab
-from forklift_web.core.choices import JobKind, JobStatus, ScheduleOutcome
+from forklift_web.core.choices import ACTIVE_STATUSES, JobKind, ScheduleOutcome
 from forklift_web.core.models import Job, Schedule
 from forklift_web.errors import InvalidRequest, NotFound, ServiceError
 from forklift_web.policy import Action, Actor, check
@@ -221,7 +221,8 @@ def _enqueue(schedule: Schedule, slot: datetime, now: datetime) -> tuple:
     """Enqueue the run for ``slot``; returns (outcome, message, job)."""
     first = schedule.next_run_at
     running = (
-        Job.objects.filter(schedule=schedule, status__in=[JobStatus.QUEUED, JobStatus.RUNNING])
+        # A run that is still publishing is still in progress
+        Job.objects.filter(schedule=schedule, status__in=ACTIVE_STATUSES)
         .order_by("created_at")
         .first()
     )

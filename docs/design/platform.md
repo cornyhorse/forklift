@@ -219,7 +219,7 @@ and it is the exact code path the worker uses.
 | `Schema`, `SchemaVersion` | name; version: JSON document, sha256, author, created_at, notes | Versions are immutable; editing creates a new version |
 | `Dataset` | name, classification (`public`, `internal`, `sensitive`), source (connection + path or pattern), schema version, destination (connection + prefix), retention override | The unit people schedule and permission |
 | `Upload` | object key, size, sha256, uploader, expires_at | Created before the presigned PUT, finalised after |
-| `Job` | kind, lane, status, spec (JSON), result (JSON), dataset?, requested_by, schedule?, scheduled_for, attempt, lease (worker, expires_at), timestamps | State machine in §5.3; `requested_by` is empty for runs a schedule started |
+| `Job` | kind, lane, status, spec (JSON), result (JSON), dataset?, requested_by, schedule?, scheduled_for, attempt, lease (worker, expires_at), publish lease (token, expires_at) and publish attempts, timestamps | State machine in §5.3; `requested_by` is empty for runs a schedule started |
 | `JobEvent` | job, time, type (`progress`, `log`, `state`), payload | Progress and logs without cell values |
 | `Artifact` | job, kind (`data`, `bad_rows`, `manifest`, `metadata`, `preview`), object key, rows, bytes, sha256, expires_at | Downloads go through permission checks and presigned GETs |
 | `RetentionPolicy` | scope (installation, classification, dataset), days per kind (uploads, data, bad_rows, previews, metadata, job_records; null = keep until deleted) | Set by admins (§5.7) |
@@ -261,10 +261,15 @@ connections are used by the roles they allow.
 ```
             enqueue                lease                 complete(succeeded)
   (API/UI/   ──────►  queued  ───────────►  running  ──────────────────────►  succeeded
-  schedule)             ▲                    │  │  │
-                        │ lease expired,     │  │  └── complete(failed) ─────►  failed
-                        │ attempts left      │  └───── cancel requested ──────►  cancelled
-                        └────────────────────┘
+  schedule)             ▲                    │  │  │                            ▲
+                        │ lease expired,     │  │  │ complete(succeeded),       │ copied
+                        │ attempts left      │  │  └─ s3 destination ──► publishing
+                        └────────────────────┘  │                          │ store errors past
+                                                │                          │ publish_max_attempts,
+                                                │                          │ or another error
+                                                │                          ▼
+                                                ├── complete(failed) ───►  failed
+                                                └── cancel requested ───►  cancelled
                      (heartbeat missing: lease returns to the queue; after max attempts → failed)
 ```
 
@@ -276,10 +281,15 @@ connections are used by the roles they allow.
 - A lease is (worker token, attempt); calls about a job the worker no longer holds answer `409`.
   Lease calls requeue expired leases; on the last attempt the job fails with `LEASE_EXPIRED`, or
   is cancelled if cancellation was requested.
+- A successful run whose dataset has an `s3` destination becomes `publishing` when its worker
+  completes it: the worker's lease ends, and a publisher copies the outputs (§6.3) and then marks
+  the run succeeded. So `succeeded` means published, and a job never goes from succeeded to
+  failed. `publishing` is not terminal: it cannot be cancelled, schedules treat it as in
+  progress, retention keeps its files, and webhooks hear about the job only when it ends.
 - Schedules enqueue through the same path. The dispatcher claims each due schedule with
   `SELECT ... FOR UPDATE SKIP LOCKED` and creates the run as the system, with the idempotency key
   `schedule:<id>:<slot>`, so one slot is one job. A slot is skipped while the schedule's previous
-  run is queued or running; after downtime only the most recent missed slot runs, if it is at
+  run is queued, running or publishing; after downtime only the most recent missed slot runs, if it is at
   most `schedule_catch_up_seconds` old ([schedules](../platform/schedules.md)).
 - When a job finishes (succeeded, failed or cancelled), the same transaction writes a delivery for
   each webhook that covers it; a run published to an `s3` destination is announced after the
@@ -425,10 +435,19 @@ so a reader that trusts only complete manifests never sees half a load. A thresh
 publishes nothing to the destination but keeps `bad_rows.parquet` as a job artifact, matching the
 engine's behaviour.
 
-As built: for an `s3` destination the gateway publishes when the run completes, with server-side
-copies (data first, `manifest.json` last), so the destination must be on the installation's own
-store; a failed copy fails the job with `TARGET_WRITE_FAILED` and keeps the artifacts. Table
-destinations are written by the engine itself (`sql_table`, ADR 0007).
+As built: for an `s3` destination the run is published by the gateway's publisher
+(`forklift-web publish`, the Compose service `publisher`), not during the worker's completion
+request: complete leaves the job `publishing`. A publisher claims it with a lease (`SELECT ...
+FOR UPDATE SKIP LOCKED`, a token of its own, for `publish_lease_seconds`, renewed every third of
+that while it copies); every change it makes checks the token, so a publisher that lost its
+lease stops without changing the job. It copies with server-side copies, data first and
+`manifest.json` last, so the destination must be on the installation's own store, then marks the
+job succeeded and queues its webhook deliveries in the same transaction. A publisher that dies
+leaves its lease to expire and the next pass copies everything again (copies are idempotent). A
+store error is retried after 1, 5 and 30 minutes and then every 2 hours, up to
+`publish_max_attempts` claims; anything else fails the job at once with `TARGET_WRITE_FAILED`,
+and the artifacts are kept. Only runs are published. Table destinations are written by the
+engine itself (`sql_table`, ADR 0007).
 
 ## 7. Storage and sources
 
@@ -530,12 +549,15 @@ RustFS; with an external store, an optional allow-listing proxy service limits t
 store's host. It is the development environment and a supported way to run a small installation.
 
 As built: `deploy/compose/docker-compose.yml` has `gateway`, `worker`, `sweeper`, `dispatcher`,
-`postgres` and `rustfs`, plus a one-shot `init` (migrations, the first admin, the bucket and its CORS rule, and
+`publisher`, `postgres` and `rustfs`, plus a one-shot `init` (migrations, the first admin, the bucket and its CORS rule, and
 a worker token in a volume only the worker mounts). Three networks: `public` (the gateway's public
 port and the store, published), `internal` (no route out: gateway, worker, store) and `db`
 (PostgreSQL and the gateway processes). The `dispatcher` (`forklift-web dispatch --every=10`)
 queues scheduled runs and sends webhook deliveries; besides `internal` and `db` it is on `public`,
-because webhooks need a route out. The `caddy`, `mcp` and egress-proxy profiles are not built
+because webhooks need a route out. The `publisher` (`forklift-web publish --every=5`) copies runs
+to their `s3` destinations (networks `public`, `internal` and `db`, healthy while its heartbeat is
+under a minute old); it is a service of its own so that a long copy holds up neither the gateway
+nor the dispatcher. The `caddy`, `mcp` and egress-proxy profiles are not built
 yet. `deploy/compose/e2e` holds the end-to-end tests CI runs against it.
 
 ### 10.2 Helm

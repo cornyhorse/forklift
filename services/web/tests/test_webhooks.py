@@ -49,7 +49,15 @@ from forklift_web.core.models import (
 )
 from forklift_web.errors import Conflict, InvalidRequest, NotFound, PermissionDenied
 from forklift_web.policy import Action, Actor
-from forklift_web.services import installation, jobs, queue, retention, tokens, webhooks
+from forklift_web.services import (
+    installation,
+    jobs,
+    publishing,
+    queue,
+    retention,
+    tokens,
+    webhooks,
+)
 from forklift_web.services.workers import WorkerPrincipal
 from forklift_web.webhook_client import Outcome
 
@@ -280,24 +288,21 @@ def _published_job(world, **config):
     return make_job(world.operator, world.upload, dataset=world.dataset)
 
 
-def test_a_published_run_is_announced_once_publishing_succeeded(world, principal, monkeypatch):
+def test_a_published_run_is_announced_once_publishing_succeeded(world, principal):
     make_webhook(world.operator)
     job = _published_job(world)
     lease(principal)
-    statuses = []
-    real_publish = queue._publish
-
-    def publish(job, destination):
-        statuses.append(events_of(job))  # nothing is queued before publishing ends
-        return real_publish(job, destination)
-
-    monkeypatch.setattr(queue, "_publish", publish)
-    queue.complete(principal, job.pk, attempt=1, result=job_result(str(job.pk)), artifacts=[])
-    assert statuses == [[]]
+    done = queue.complete(
+        principal, job.pk, attempt=1, result=job_result(str(job.pk)), artifacts=[]
+    )
+    assert done.status == JobStatus.PUBLISHING
+    assert events_of(job) == []  # nothing is queued before publishing ends
+    publishing.publish_due()
     assert events_of(job) == ["job.succeeded"]
 
 
-def test_a_run_whose_publishing_failed_is_announced_as_failed(world, principal):
+def test_a_run_whose_publishing_failed_is_announced_as_failed(world, principal, admin_actor):
+    installation.update(admin_actor, {"publish_max_attempts": 1})
     make_webhook(world.operator)
     job = _published_job(world, bucket="forklift-web-no-such-bucket")
     leased = lease(principal).job
@@ -306,14 +311,16 @@ def test_a_run_whose_publishing_failed_is_announced_as_failed(world, principal):
         storage.store().presign_put(key, expires=60, audience=storage.Audience.GATEWAY), b"PAR1"
     )
     output = {"kind": "data", "name": "data.parquet", "key": key, "bytes": 4, "rows": 1}
-    done = queue.complete(
+    queue.complete(
         principal,
         job.pk,
         attempt=1,
         result=job_result(str(job.pk), [output]),
         artifacts=[output],
     )
-    assert done.error_code == "TARGET_WRITE_FAILED"
+    assert events_of(job) == []
+    publishing.publish_due()
+    assert Job.objects.get(pk=job.pk).error_code == "TARGET_WRITE_FAILED"
     [delivery] = WebhookDelivery.objects.filter(job=job)
     assert delivery.event == "job.failed"
     assert payload_of(delivery)["job"]["error"]["code"] == "TARGET_WRITE_FAILED"

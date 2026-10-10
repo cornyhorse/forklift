@@ -1,5 +1,5 @@
-"""The worker side of the queue: leases (SKIP LOCKED), heartbeats, expiry, presigning, completion
-and publishing; and two workers never lease the same job."""
+"""The worker side of the queue: leases (SKIP LOCKED), heartbeats, expiry, presigning and
+completion (publishing: test_publishing.py); and two workers never lease the same job."""
 
 from __future__ import annotations
 
@@ -11,9 +11,9 @@ import pytest
 from conftest import put_url
 from django.db import connection, transaction
 from django.utils import timezone
-from world import World, job_result, make_job, make_upload, make_user, s3_connection
+from world import World, job_result, make_job, make_upload, make_user
 
-from forklift_web import secret_backend, storage
+from forklift_web import storage
 from forklift_web.core.choices import JobStatus, Role
 from forklift_web.core.models import Artifact, Dataset, Job, JobEvent, Worker
 from forklift_web.errors import Conflict, Gone, InvalidRequest, NotFound, StoreUnavailable
@@ -411,100 +411,6 @@ def test_oversized_results_are_refused(principal, monkeypatch):
 
 
 # --------------------------------------------------------------------------- publishing
-
-
-def published_dataset(world: World, **connection_config):
-    destination = s3_connection(prefix="published", **connection_config)
-    Dataset.objects.filter(pk=world.dataset.pk).update(
-        destination_connection=destination, destination_prefix="people"
-    )
-    job = make_job(world.operator, world.upload, dataset=world.dataset)
-    Job.objects.filter(pk=world.queued_job.pk).delete()
-    return job
-
-
-def test_successful_runs_are_published_manifest_last(principal, s3, monkeypatch):
-    world = World.build()
-    job = published_dataset(world)
-    leased = lease(principal).job
-    assert leased == job
-    outputs = [
-        upload_output(leased, "manifest.json", b"{}", "manifest"),
-        upload_output(leased, "data.parquet", b"PAR1", "data"),
-        upload_output(leased, "metadata.json", b"{}", "metadata"),
-    ]
-    copied = []
-    real_copy = storage.Bucket.copy_from
-
-    def recording_copy(self, source, source_key, key):
-        copied.append(key)
-        return real_copy(self, source, source_key, key)
-
-    monkeypatch.setattr(storage.Bucket, "copy_from", recording_copy)
-    done = queue.complete(
-        principal, job.pk, attempt=1, result=job_result(str(job.pk), outputs), artifacts=outputs
-    )
-    assert done.status == JobStatus.SUCCEEDED
-    base = f"published/people/{job.pk}"
-    assert copied == [f"{base}/data.parquet", f"{base}/metadata.json", f"{base}/manifest.json"]
-    head = s3.head_object(Bucket=storage.store().bucket, Key=f"{base}/data.parquet")
-    assert head["ContentLength"] == 4
-    log = JobEvent.objects.get(job=job, type="log").payload
-    assert log == {
-        "published_to": Dataset.objects.get(pk=world.dataset.pk).destination_connection.name,
-        "prefix": base,
-        "files": 3,
-    }
-
-
-def test_a_failed_publish_fails_the_job_and_keeps_the_artifacts(principal):
-    world = World.build()
-    job = published_dataset(world, bucket="forklift-web-no-such-bucket")
-    leased = lease(principal).job
-    outputs = [upload_output(leased, "data.parquet", b"PAR1", "data")]
-    done = queue.complete(
-        principal, job.pk, attempt=1, result=job_result(str(job.pk), outputs), artifacts=outputs
-    )
-    assert (done.status, done.error_code) == (JobStatus.FAILED, "TARGET_WRITE_FAILED")
-    assert "publishing to" in done.error_message and "kept as job artifacts" in done.error_message
-    assert Artifact.objects.filter(job=job).count() == 1
-
-
-@pytest.mark.parametrize(
-    "failure, reason",
-    [
-        (
-            secret_backend.SecretError(
-                "A connection secret could not be decrypted with any key in FORKLIFT_SECRETS_KEYS."
-            ),
-            "A connection secret could not be decrypted",
-        ),
-        (RuntimeError("boom, with a password=hunter2"), "An unexpected RuntimeError stopped it"),
-    ],
-)
-def test_any_failure_to_publish_fails_the_job_and_announces_it(
-    principal, monkeypatch, caplog, failure, reason
-):
-    world = World.build()
-    job = published_dataset(world)
-    leased = lease(principal).job
-    outputs = [upload_output(leased, "data.parquet", b"PAR1", "data")]
-
-    def fail(connection):
-        raise failure
-
-    monkeypatch.setattr(queue.connections, "bucket_of", fail)
-    announced = []
-    monkeypatch.setattr(queue.webhooks, "job_finished", lambda job: announced.append(job.status))
-    report = {"result": job_result(str(job.pk), outputs), "artifacts": outputs}
-    done = queue.complete(principal, job.pk, attempt=1, **report)
-    assert (done.status, done.error_code) == (JobStatus.FAILED, "TARGET_WRITE_FAILED")
-    assert reason in done.error_message and "kept as job artifacts" in done.error_message
-    assert announced == [JobStatus.FAILED]
-    assert Artifact.objects.filter(job=job).count() == 1
-    assert "hunter2" not in caplog.text and "hunter2" not in done.error_message
-    again = queue.complete(principal, job.pk, attempt=1, **report)  # the worker's retry
-    assert again.status == JobStatus.FAILED and announced == [JobStatus.FAILED]
 
 
 def test_runs_without_an_s3_destination_are_not_published(principal, admin_actor, monkeypatch):

@@ -16,7 +16,7 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import quote, urlsplit
 
 import boto3
@@ -271,12 +271,22 @@ class Bucket:
         except (ClientError, BotoCoreError) as error:
             raise _client_error("DELETE", key, error) from None
 
-    def copy_from(self, source: "Bucket", source_key: str, key: str) -> None:
+    def copy_from(
+        self,
+        source: "Bucket",
+        source_key: str,
+        key: str,
+        *,
+        progress: Optional[Callable[[int], None]] = None,
+    ) -> None:
         """Server-side copy of ``source_key`` in ``source`` to ``key`` here (no data passes
-        through the gateway; large objects are copied part by part by the store)."""
+        through the gateway; large objects are copied part by part by the store).
+        ``progress(bytes)`` is called from the copy's threads as parts finish; an exception it
+        raises stops the copy (no further parts, the destination's multipart upload aborted)
+        and passes through."""
         try:
             self.client(Purpose.UPLOAD).copy(
-                {"Bucket": source.bucket, "Key": source_key}, self.bucket, key
+                {"Bucket": source.bucket, "Key": source_key}, self.bucket, key, Callback=progress
             )
         except (ClientError, BotoCoreError) as error:
             raise _client_error("copying to", f"{self.bucket}/{key}", error) from None

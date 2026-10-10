@@ -53,22 +53,23 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   (SQL Server) a warning says to connect as a login that may only `SELECT`.
 
 - **Sign-in rate limit.** Wrong passwords (at sign-in, and the old password when changing one's
-  own) are counted per username (any letter case, whether or not the account exists) and per
-  client address (IPv6 by /64). At `sign_in_max_failures` (5) or `sign_in_ip_max_failures` (30)
-  within `sign_in_window_seconds` (900), signing in is refused for `sign_in_lock_seconds` (900)
-  with HTTP 429 and `Retry-After`, before the password is checked. Attempts are counted when they
-  start, so a burst of parallel attempts gets no more password checks than the limit; a correct
-  password clears the username's count and never ends a lock another attempt started. Locks and unlocks are audited, passwords are never logged; admins see and
-  clear locks on the user page and through `GET/DELETE /api/v1/admin/sign-in-locks`. Behind a
-  TLS proxy set `FORKLIFT_TRUSTED_PROXIES` (now passed through by the Compose file), or every
-  sign-in counts against the proxy's address. Client addresses taken from `X-Forwarded-For` drop
-  a port the proxy adds (`203.0.113.50:5001`, `[2001:db8::1]:443`), which also fixes a 500 on
-  sign-in behind such proxies (the audit log refused the address).
+  own) are counted per username (any letter case, whether or not the account exists) and per client
+  address (IPv6 by /64). At `sign_in_max_failures` (5) or `sign_in_ip_max_failures` (30) within
+  `sign_in_window_seconds` (900), signing in is refused for `sign_in_lock_seconds` (900) with HTTP
+  429 and `Retry-After`, before the password is checked. Attempts are counted when they start, so a
+  burst of parallel attempts gets no more password checks than the limit; a correct password clears
+  the username's count and never ends a lock another attempt started. Locks and unlocks are
+  audited, passwords are never logged; admins see and clear locks on the user page and through
+  `GET/DELETE /api/v1/admin/sign-in-locks`. Behind a TLS proxy set `FORKLIFT_TRUSTED_PROXIES` (now
+  passed through by the Compose file), or every sign-in counts against the proxy's address. Client
+  addresses taken from `X-Forwarded-For` drop a port the proxy adds (`203.0.113.50:5001`,
+  `[2001:db8::1]:443`), which also fixes a 500 on sign-in behind such proxies (the audit log
+  refused the address).
 - **Webhook requests cannot reach the installation's own network.** Only `https://` URLs; every
   address the host resolves to must be publicly routable (IPv6 forms that embed an IPv4 address
-  count as that address); the connection goes to exactly a checked address (no second lookup),
-  TLS is verified against the host name, redirects are not followed, the whole exchange, the DNS
-  lookup included, has 10 s and the answer's body is never read. `FORKLIFT_WEBHOOK_ALLOWED_HOSTS` and
+  count as that address); the connection goes to exactly a checked address (no second lookup), TLS
+  is verified against the host name, redirects are not followed, the whole exchange, the DNS lookup
+  included, has 10 s and the answer's body is never read. `FORKLIFT_WEBHOOK_ALLOWED_HOSTS` and
   `FORKLIFT_WEBHOOK_ALLOW_HTTP` relax this for receivers on an internal network.
 
 ### Changed
@@ -179,6 +180,8 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   unusable output connection no longer fails it. It answers 400 `not_streamed` for inputs that
   are not streamed (SQL and non-CSV inputs: it never hands out a connection string again) and
   410 for an input that is gone (it answered 409, which workers read as a lost lease).
+- Only runs are published to a dataset's `s3` destination: a preview, a schema check or a schema
+  generation of such a dataset is no longer copied there.
 - `output_max_bytes` goes up to 5 TiB and defaults to 1 TiB (it was at most, and by default,
   5 GiB).
 - `forklift-web` depends on `tzdata`, so slim images have time zone data.
@@ -240,10 +243,11 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     the end of the gap; a repeated one runs once, at its first occurrence. The new
     `forklift-web dispatch` command (Compose service `dispatcher`, a pass every 10 s, healthy
     while its passes succeed) queues each due slot exactly once, also with several dispatchers.
-    It skips a slot while the previous run is queued or running; after downtime it runs only
-    the most recent missed slot within the installation setting `schedule_catch_up_seconds`
-    (default 3600; 0 turns catching up off) and records the others as `missed`; a run that cannot
-    be queued is recorded as `failed_to_enqueue` and the schedule stays. Scheduled jobs name the
+    It skips a slot while the previous run is queued, running or publishing; after downtime it
+    runs only the most recent missed slot within the installation setting
+    `schedule_catch_up_seconds` (default 3600; 0 turns catching up off) and records the others as
+    `missed`; a run that cannot be queued is recorded as `failed_to_enqueue` and the schedule
+    stays. Scheduled jobs name the
     schedule and the slot (`schedule_id`, `scheduled_for`), have no requester, and can be
     cancelled by Authors and admins. API: `GET/POST /api/v1/datasets/{id}/schedules`,
     `GET /api/v1/schedules`, `GET/PATCH/DELETE /api/v1/schedules/{id}`,
@@ -287,9 +291,20 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     upload is completed, objects completed by a call that is refused anyway are deleted, and
     nothing is recorded when a check fails. Pending uploads are aborted when their attempt ends,
     and the sweeper aborts stale ones under `jobs/` (counted as `output_uploads`, audited).
-    Workers that do not ask for multipart uploads keep getting single PUTs (up to 5 GiB). A run
-    whose publishing to its `s3` destination fails for any reason (also a destination secret
-    that cannot be decrypted) is failed with `TARGET_WRITE_FAILED` and announced to its webhooks.
+    Workers that do not ask for multipart uploads keep getting single PUTs (up to 5 GiB).
+  - **Resumable publishing.** Publishing to an `s3` destination no longer runs inside the worker's
+    completion request. A successful run with an `s3` destination becomes `publishing` (a new
+    job status, not terminal) when its worker completes it; the new `forklift-web publish`
+    command (Compose service `publisher`) copies its outputs under a lease it renews while it
+    copies, and only then marks the run succeeded, so `succeeded` means published and a job
+    never turns from succeeded to failed. A publisher that stops is resumed by the next pass once
+    its lease has expired. Store errors are retried after 1, 5 and 30 minutes and then every
+    2 hours, for at most `publish_max_attempts` claims (default 5; `publish_lease_seconds`,
+    default 300, sets the lease); any other error (also a destination secret that cannot be
+    decrypted) fails the run at once with `TARGET_WRITE_FAILED`. Either way it is announced to its
+    webhooks once and the artifacts are kept. `GET /api/v1/jobs/{id}` has `publish_attempts` and
+    `publish_error`; publishing jobs cannot be cancelled (409), keep their files from retention
+    and count as in progress for schedules; the job page shows the destination and the attempt.
   - **Fresh URLs for streamed inputs.** `run_job(..., refresh_input_url=)` replaces a
     `presigned_url` input's URL before it expires (SigV4 `X-Amz-Date` + `X-Amz-Expires`: within
     5 minutes or after half its lifetime) and after the store refuses it (403, or 400
@@ -467,12 +482,10 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   SQL sources. Uniqueness checks keep every key in memory.
 - Service: an `s3` destination must be on the installation's own store (it is published by
   server-side copies). Only datasets that read from a connection can be scheduled. Webhooks are
-  sent directly, not through an HTTP proxy, one at a time within a 30-second budget per
-  dispatcher pass (the webhooks take turns). Publishing is not resumed: if the gateway stops in the middle of copying a run
-  to its `s3` destination, the job stays succeeded but not (wholly) published, and its webhooks
-  are not told. A completion the gateway refuses leaves the job to its lease:
-  it is retried, and fails as `LEASE_EXPIRED` after its last attempt. Anyone who knows a username
-  can lock its sign-in for `sign_in_lock_seconds` (an admin can unlock it).
+  sent directly, not through an HTTP proxy, one at a time within a 30-second budget per dispatcher
+  pass (the webhooks take turns). A completion the gateway refuses leaves the job to its lease: it
+  is retried, and fails as `LEASE_EXPIRED` after its last attempt. Anyone who knows a username can
+  lock its sign-in for `sign_in_lock_seconds` (an admin can unlock it).
 - Schema extensions are applied by the CSV engine only; the Excel, SQL and fixed-width importers
   ignore them. `x-pii` is documentation (no masking). Not implemented, and reported as warnings:
   cross-field and global validations, `x-dataQuality` completeness/uniqueness/consistency/accuracy

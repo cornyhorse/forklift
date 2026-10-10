@@ -10,8 +10,8 @@
   or starts a multipart upload for an output above ``multipart_threshold_bytes``;
   :func:`part_urls` signs URLs for more of its parts, or fresh ones.
 - :func:`complete` records the result and the artifacts (completing multipart uploads once every
-  check passed) and, for a dataset with an s3 destination, publishes the outputs (data first,
-  ``manifest.json`` last); a publish that fails for any reason fails the job.
+  check passed); a successful run with an s3 destination becomes ``publishing``, and a
+  publisher (services.publishing) copies its outputs and finishes it.
 - :func:`requeue_expired_leases` returns jobs whose lease ran out to the queue (or fails them
   after ``max_attempts``, or cancels them when cancellation was requested); every lease call
   runs it first, and so does ``forklift-web requeue_expired_leases``.
@@ -37,11 +37,10 @@ from typing import Optional
 from django.db import transaction
 from django.utils import timezone
 
-from forklift_web import contracts, secret_backend, storage
+from forklift_web import contracts, storage
 from forklift_web.core.choices import (
     TERMINAL_STATUSES,
     ArtifactKind,
-    ConnectionKind,
     EventType,
     InputFormat,
     JobStatus,
@@ -49,7 +48,7 @@ from forklift_web.core.choices import (
 )
 from forklift_web.core.models import Artifact, Job, JobEvent
 from forklift_web.errors import Conflict, Gone, InvalidRequest, NotFound, StoreUnavailable
-from forklift_web.services import connections, installation, specs, uploads, webhooks, workers
+from forklift_web.services import installation, publishing, specs, uploads, webhooks, workers
 from forklift_web.services.workers import WorkerPrincipal
 
 logger = logging.getLogger(__name__)
@@ -84,9 +83,7 @@ def _event(job: Job, type_: str, **payload) -> None:
     JobEvent.objects.create(job=job, type=type_, attempt=job.attempt, payload=payload)
 
 
-def _finish(
-    job: Job, status: str, code: str = "", message: str = "", *, notify: bool = True
-) -> None:
+def _finish(job: Job, status: str, code: str = "", message: str = "") -> None:
     job.status = status
     job.error_code = code
     job.error_message = message
@@ -94,8 +91,7 @@ def _finish(
     job.lease_expires_at = None
     job.save()
     _event(job, EventType.STATE, status=status, error_code=code or None)
-    if notify:
-        webhooks.job_finished(job)
+    webhooks.job_finished(job)
 
 
 # --------------------------------------------------------------------------- expiry
@@ -604,15 +600,15 @@ def _remove(keys: list) -> None:
 def complete(
     principal: WorkerPrincipal, job_id, *, attempt: int, result: dict, artifacts: list
 ) -> Job:
-    """Record the attempt's result and artifacts, then publish a successful run to its s3
-    destination. Repeating the same completion (a retry after a lost response) answers with the
-    job as it is; it does not resume a publish the gateway stopped in the middle of, which
-    leaves the job succeeded but not (wholly) published."""
+    """Record the attempt's result and artifacts. A successful run with an s3 destination is
+    left ``publishing`` for a publisher (services.publishing) to copy and finish; nothing is
+    copied here. Repeating the same completion (a retry after a lost response) answers with the
+    job as it is."""
     with transaction.atomic():
         job = Job.objects.select_for_update().filter(pk=job_id).first()
         if (
             job is not None
-            and job.status in TERMINAL_STATUSES
+            and (job.status in TERMINAL_STATUSES or job.status == JobStatus.PUBLISHING)
             and job.attempt == attempt
             and job.lease_token_id == principal.token.pk
             and job.result is not None
@@ -624,21 +620,19 @@ def complete(
         completed: list = []
         try:
             _complete_uploads(pending, completed)
-            destination = _record(job, attempt, result, checked)
+            _record(job, attempt, result, checked)
         except StoreUnavailable:
             raise  # the worker tries again; its retry finds these uploads completed
         except Exception:
             _remove(completed)
             raise
     _abort_pending_outputs([job.attempt_prefix])
-    if destination is not None:
-        job = _publish(job, destination)
     return job
 
 
-def _record(job: Job, attempt: int, result: dict, checked: list):
-    """Record the artifacts and finish the job; returns the s3 destination to publish to, if
-    any (a run that is published has finished, for its webhooks, once publishing has)."""
+def _record(job: Job, attempt: int, result: dict, checked: list) -> None:
+    """Record the artifacts and finish the job, or, for a successful run with an s3
+    destination, hand it to the publisher (its webhooks hear about it once it is published)."""
     for entry in checked:
         Artifact.objects.create(
             job=job,
@@ -651,79 +645,14 @@ def _record(job: Job, attempt: int, result: dict, checked: list):
             sha256=entry["sha256"],
         )
     job.result = result
-    error = result.get("error") or {}
-    destination = _s3_destination(job) if result["status"] == JobStatus.SUCCEEDED else None
-    _finish(
-        job,
-        result["status"],
-        error.get("code", ""),
-        error.get("message", ""),
-        notify=destination is None,
+    destination = (
+        publishing.destination_of(job) if result["status"] == JobStatus.SUCCEEDED else None
     )
-    return destination
-
-
-# --------------------------------------------------------------------------- publishing
-
-
-def _s3_destination(job: Job):
-    """The s3 connection a successful run of ``job`` is published to (None: nothing is)."""
-    destination = job.dataset.destination_connection if job.dataset is not None else None
-    if destination is None or destination.kind != ConnectionKind.S3:
-        return None
-    return destination
-
-
-def _publish(job: Job, destination) -> Job:
-    """Copy a successful run's outputs to its dataset's s3 ``destination``, manifest last;
-    returns the job as it is afterwards. Whatever stops the copy (the store, the destination's
-    secrets, anything else) fails the job with TARGET_WRITE_FAILED and keeps the artifacts.
-    Either way, its webhooks hear about the job now."""
-    artifacts = sorted(
-        job.artifacts.filter(attempt=job.attempt),
-        key=lambda artifact: (artifact.kind == ArtifactKind.MANIFEST, artifact.name),
-    )
-    try:
-        target = connections.bucket_of(destination)
-        base = "/".join(
-            part for part in (target.prefix, job.dataset.destination_prefix, str(job.id)) if part
-        )
-        for artifact in artifacts:
-            target.copy_from(storage.store(), artifact.key, f"{base}/{artifact.name}")
-    except Exception as error:  # the job must end failed and announced, whatever this was
-        return _publish_failed(job, destination, error)
-    with transaction.atomic():
-        _event(
-            job, EventType.LOG, published_to=destination.name, prefix=base, files=len(artifacts)
-        )
-        webhooks.job_finished(job)
-    return job
-
-
-def _publish_failed(job: Job, destination, error: Exception) -> Job:
-    if isinstance(error, StoreUnavailable):
-        reason = error.message
-    elif isinstance(error, secret_backend.SecretError):
-        reason = str(error)
-    else:  # its text could hold anything: only its type is passed on
-        reason = f"An unexpected {type(error).__name__} stopped it."
-    logger.warning(
-        "Publishing a run failed",
-        extra={
-            "job_id": str(job.id),
-            "connection_id": str(destination.pk),
-            "error": type(error).__name__,
-        },
-    )
-    with transaction.atomic():
-        job = Job.objects.select_for_update().get(pk=job.pk)
-        job.status = JobStatus.FAILED
-        job.error_code = "TARGET_WRITE_FAILED"
-        job.error_message = (
-            f"The run succeeded but publishing to {destination.name!r} failed: {reason} The "
-            "outputs are kept as job artifacts."
-        )
+    if destination is not None:
+        job.status = JobStatus.PUBLISHING
+        job.lease_expires_at = None
         job.save()
-        _event(job, EventType.STATE, status=JobStatus.FAILED, error_code=job.error_code)
-        webhooks.job_finished(job)
-    return job
+        _event(job, EventType.STATE, status=JobStatus.PUBLISHING, destination=destination.name)
+        return
+    error = result.get("error") or {}
+    _finish(job, result["status"], error.get("code", ""), error.get("message", ""))

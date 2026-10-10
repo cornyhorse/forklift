@@ -144,6 +144,14 @@ class Job(models.Model):
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     progress = models.JSONField(default=dict, blank=True)
+    # Publishing to the dataset's s3 destination (status publishing, services.publishing): a
+    # publisher holds the job while publish_lease_token is its token and the lease has not
+    # expired; publish_attempts counts the leases taken, publish_error is the store's last
+    # refusal (our own message) while it is tried again.
+    publish_attempts = models.PositiveIntegerField(default=0)
+    publish_lease_token = models.UUIDField(null=True, blank=True)
+    publish_lease_expires_at = models.DateTimeField(null=True, blank=True)
+    publish_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(default=timezone.now)
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -174,6 +182,11 @@ class Job(models.Model):
                 fields=["lease_expires_at"],
                 condition=Q(status="running"),
                 name="job_running_leases",
+            ),
+            models.Index(
+                fields=["publish_lease_expires_at"],
+                condition=Q(status="publishing"),
+                name="job_publishing_leases",
             ),
             models.Index(fields=["status", "created_at"]),
         ]

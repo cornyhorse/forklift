@@ -14,6 +14,7 @@
 | [0004](adr/0004-trust-boundary.md) | Proposed | The gateway never touches data; the engine runs only in sandboxed worker processes |
 | [0005](adr/0005-storage-and-destinations.md) | Proposed | S3-compatible storage and local volumes; Parquet first, database tables later |
 | [0006](adr/0006-streaming-large-inputs.md) | Proposed | Inputs above `stageMaxBytes` are streamed to the engine through presigned URLs; its network is limited to the object store |
+| [0007](adr/0007-database-sources-and-targets.md) | Proposed | PostgreSQL, MySQL, SQL Server and Oracle are sources and targets now (loads go through validated Parquet and publish all-or-nothing); warehouses next |
 
 New ADRs take the next number and the same headings (Status, Date, Context, Decision,
 Consequences). An accepted ADR is not edited; a later ADR supersedes it.

@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Proposed |
 | **Date** | 2026-10-09 |
-| **Decisions** | [ADR 0001](adr/0001-monorepo-layout.md) monorepo layout, [ADR 0002](adr/0002-job-contract.md) job contract, [ADR 0003](adr/0003-pull-lease-workers.md) pull-lease workers, [ADR 0004](adr/0004-trust-boundary.md) trust boundary, [ADR 0005](adr/0005-storage-and-destinations.md) storage and destinations, [ADR 0006](adr/0006-streaming-large-inputs.md) streaming large inputs |
+| **Decisions** | [ADR 0001](adr/0001-monorepo-layout.md) monorepo layout, [ADR 0002](adr/0002-job-contract.md) job contract, [ADR 0003](adr/0003-pull-lease-workers.md) pull-lease workers, [ADR 0004](adr/0004-trust-boundary.md) trust boundary, [ADR 0005](adr/0005-storage-and-destinations.md) storage and destinations, [ADR 0006](adr/0006-streaming-large-inputs.md) streaming large inputs, [ADR 0007](adr/0007-database-sources-and-targets.md) database sources and targets |
 
 ## 1. Summary
 
@@ -43,7 +43,8 @@ The design rests on three ideas:
 | Bundled object store | RustFS (Apache-2.0) in Docker Compose, the Helm chart's optional in-cluster store and the integration tests; it replaces MinIO |
 | Sensitivity | Varies: anything from public data to PII; the design has to handle both |
 | Authentication | Local accounts plus API tokens; SSO (OIDC) later |
-| Destinations | Parquet on S3-compatible storage and on local file systems first; database tables only after that is solid |
+| Destinations | Parquet on S3-compatible storage and local file systems, and tables in PostgreSQL, MySQL, SQL Server and Oracle ([ADR 0007](adr/0007-database-sources-and-targets.md)); Snowflake, Databricks and BigQuery next |
+| First service release | The MVP of milestone M3 with workers: upload, schema, run, download; staged and streamed inputs; the four roles; purpose-built admin screens instead of the Django admin |
 | Package names | `forklift-web`, `forklift-worker`, `forklift-client`, `forklift-mcp` (beside `forklift-etl`) |
 | API framework | Django Ninja |
 | Input sizes | Plan for single inputs larger than 10 GB: inputs above `stageMaxBytes` (default 2 GiB) are streamed to the engine through presigned URLs ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
@@ -55,7 +56,8 @@ The design rests on three ideas:
 - Multi-tenancy (several organisations isolated from each other in one installation).
 - A general workflow/orchestration engine. Forklift runs cleaning jobs and schedules simple
   recurring ones; Airflow and friends orchestrate.
-- Writing to databases (see [ADR 0005](adr/0005-storage-and-destinations.md)).
+- Cloud warehouses (Snowflake, Databricks, BigQuery) as sources or targets: next, after the
+  relational databases ([ADR 0007](adr/0007-database-sources-and-targets.md)).
 - Masking/anonymisation (`x-pii` stays documentation-only until it is designed separately).
 
 ## 2. Who uses it, and how
@@ -374,11 +376,14 @@ under the connection's root only. Paths are resolved and checked against the roo
 is queued and again in the supervisor (the engine already rejects output names that escape their
 directory).
 
-### 7.3 SQL sources (later milestone)
+### 7.3 SQL sources and targets
 
-SQL extraction needs network access to the database, so it runs on a separate `sql` lane whose
-workers' egress allows the configured database hosts. The job's connection secret is delivered with
-the lease over TLS, held in memory only, and the engine connects read-only (its default).
+Reading from or writing to a database needs network access to it, so those jobs run on a
+separate `sql` lane whose workers' egress allows the configured database hosts. The job's
+connection secret is delivered with the lease over TLS and lives only in memory and in the job's
+scratch spec, which is deleted with the scratch directory. Reads use read-only sessions (the
+engine's default, enforced by the database where it can be); a load goes through validated
+Parquet and publishes all-or-nothing ([ADR 0007](adr/0007-database-sources-and-targets.md)).
 
 ## 8. Security model
 
@@ -542,10 +547,10 @@ These are small, useful on their own to library users, and the foundation for ev
 | M0 | This design is reviewed and merged | — |
 | M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI; a streamed CSV (presigned URL against RustFS) gives the same output as the local file |
 | M2 | `forklift-mcp` (stdio) | An agent can generate, validate and apply a schema to a local file and explain a failed run |
-| M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; staged and streamed inputs both work; an end-to-end Compose test runs in CI and a run on an input larger than 10 GB runs on demand |
+| M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; staged and streamed inputs both work; the four roles and the admin screens; database connections as sources and destinations on the `sql` lane; an end-to-end Compose test runs in CI and a run on an input larger than 10 GB runs on demand |
 | M4 | Helm, hardening, authoring | Chart with NetworkPolicies and isolation profiles; schema editor; connections admin (S3-compatible, localfs); datasets, schedules, retention, audit |
-| M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC, SQL lane |
-| M6 | Database tables as destinations | Only after Parquet to S3-compatible and local storage is solid: tested against RustFS and a local volume, safe on retries and crashes, manifest-last publishing, runs on inputs larger than 10 GB (including uniqueness checks), kept `bad_rows` on failure |
+| M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC |
+| M6 | Cloud warehouses | Snowflake, Databricks and BigQuery as sources and targets through their own bulk-load paths; tests that run in CI when an account's credentials are configured ([ADR 0007](adr/0007-database-sources-and-targets.md)) |
 
 ## 14. Alternatives considered
 

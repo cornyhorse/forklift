@@ -1,6 +1,7 @@
 # ADR 0005: S3-compatible object storage and local volumes; Parquet first, tables later
 
-- **Status**: Proposed
+- **Status**: Proposed; the ordering of database tables is changed by
+  [ADR 0007](0007-database-sources-and-targets.md)
 - **Date**: 2026-10-09
 - **Context document**: [platform design](../platform.md), §7
 

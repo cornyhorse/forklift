@@ -1,0 +1,55 @@
+# Services for the integration tests in this directory (see README.md):
+#
+#   scripts/test-services.sh up       # start them and wait until they are healthy
+#   scripts/test-services.sh down     # stop them and delete their data
+#
+# or `docker compose -f tests/integration-tests/services/compose.yaml up -d --wait`. Host ports
+# are offset (19000, 15432, 13306) so they do not clash with a store or database already running
+# on the default ports. The credentials are for these throwaway containers only; the fixtures in
+# conftest.py use the same defaults (override them with the FORKLIFT_TEST_* variables).
+name: forklift-test-services
+
+services:
+  rustfs:
+    # S3-compatible object store (Apache-2.0); also serves STS AssumeRole, which the tests use
+    # to mint credentials limited by a session policy.
+    image: rustfs/rustfs:1.0.1
+    environment:
+      RUSTFS_ACCESS_KEY: forklift-test
+      RUSTFS_SECRET_KEY: forklift-test-secret
+    ports:
+      - "127.0.0.1:19000:9000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: forklift_admin
+      POSTGRES_PASSWORD: forklift-admin-secret
+      POSTGRES_DB: forklift_test
+    ports:
+      - "127.0.0.1:15432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "forklift_admin", "-d", "forklift_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: forklift-admin-secret
+      MYSQL_DATABASE: forklift_test
+    ports:
+      - "127.0.0.1:13306:3306"
+    healthcheck:
+      # TCP rather than the socket: the entrypoint's temporary server listens only on the
+      # socket, so a socket ping would report healthy before the real server is up.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pforklift-admin-secret"]
+      interval: 2s
+      timeout: 5s
+      retries: 60

@@ -38,7 +38,7 @@ engine to become single-pass. Option 3 is the simplest but moves the cost to dis
   allows (the worker passes the object store's endpoint). Schema generation and the public API keep
   rejecting URLs supplied by users.
 - The engine process's network is limited to the object store: by pod selector (in-cluster
-  MinIO), by CIDR, or through an allow-listing egress proxy. The `no-network` isolation profile
+  RustFS), by CIDR, or through an allow-listing egress proxy. The `no-network` isolation profile
   accepts staged inputs only.
 - Outputs are still written to scratch and uploaded by the supervisor with presigned multipart PUTs:
   Parquet output is compressed and usually much smaller than the text input.

@@ -39,7 +39,8 @@ The design rests on three ideas:
 | Tenancy | Single organisation |
 | Deployment | Docker Compose and a Helm chart |
 | Processing isolation | Data processing runs in separate worker processes/services, away from the login-facing app |
-| Storage | "S3" means *S3-compatible*: cloud-agnostic, cloud-friendly (MinIO, Ceph, R2, AWS S3, ...) |
+| Storage | "S3" means *S3-compatible*: cloud-agnostic, cloud-friendly (RustFS, Ceph, R2, AWS S3, MinIO, ...) |
+| Bundled object store | RustFS (Apache-2.0) in Docker Compose, the Helm chart's optional in-cluster store and the integration tests; it replaces MinIO |
 | Sensitivity | Varies: anything from public data to PII; the design has to handle both |
 | Authentication | Local accounts plus API tokens; SSO (OIDC) later |
 | Destinations | Parquet on S3-compatible storage and on local file systems first; database tables only after that is solid |
@@ -337,7 +338,7 @@ exactly one object, for a limited time, and the engine's network is limited to t
 | **sandboxed** | Helm | As standard (or no-network), plus a sandboxed runtime (`runtimeClassName`, for example gVisor or Kata) or one Kubernetes Job per run | Sensitive data from untrusted sources |
 
 Limiting egress to "the object store" depends on where the store is. NetworkPolicies match IP
-addresses, not host names: an in-cluster MinIO is selected by its pods, an external store by its
+addresses, not host names: an in-cluster RustFS is selected by its pods, an external store by its
 CIDR ranges where they are stable, and otherwise through an egress proxy that allows only the
 store's host name. The chart supports all three (§10.2).
 
@@ -431,10 +432,10 @@ can instead call `forklift.run_job` in a task; the result has the same shape.
 ### 10.1 Docker Compose
 
 `deploy/compose/docker-compose.yml` brings up `gateway`, `worker` (batch and interactive lanes in one
-process for small installations), `postgres` and `minio`, with an optional `caddy` profile for TLS and
+process for small installations), `postgres` and `rustfs`, with an optional `caddy` profile for TLS and
 an optional `mcp` profile. One `.env` file holds the secrets. Data and database live in named volumes.
 Workers sit on an `internal` Docker network that reaches only the gateway's internal port and
-MinIO; with an external store, an optional allow-listing proxy service limits their egress to that
+RustFS; with an external store, an optional allow-listing proxy service limits their egress to that
 store's host. It is the development environment and a supported way to run a small installation.
 
 ### 10.2 Helm
@@ -467,7 +468,7 @@ objectStore: {endpoint: https://s3.example.org, bucket: forklift, existingSecret
 networkPolicies:
   enabled: true
   storeEgress:                              # how workers may reach the object store
-    mode: cidr                              # podSelector (in-cluster MinIO) | cidr | proxy
+    mode: cidr                              # podSelector (in-cluster RustFS) | cidr | proxy
     cidrs: [203.0.113.0/24]
     proxy: {enabled: false, allowHosts: [s3.example.org]}
 image: {registry: ghcr.io/cornyhorse}       # forklift-web, forklift-worker, forklift-mcp
@@ -539,12 +540,12 @@ These are small, useful on their own to library users, and the foundation for ev
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | This design is reviewed and merged | — |
-| M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI; a streamed CSV (presigned URL against MinIO) gives the same output as the local file |
+| M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI; a streamed CSV (presigned URL against RustFS) gives the same output as the local file |
 | M2 | `forklift-mcp` (stdio) | An agent can generate, validate and apply a schema to a local file and explain a failed run |
 | M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; staged and streamed inputs both work; an end-to-end Compose test runs in CI and a run on an input larger than 10 GB runs on demand |
 | M4 | Helm, hardening, authoring | Chart with NetworkPolicies and isolation profiles; schema editor; connections admin (S3-compatible, localfs); datasets, schedules, retention, audit |
 | M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC, SQL lane |
-| M6 | Database tables as destinations | Only after Parquet to S3-compatible and local storage is solid: tested against MinIO and a local volume, safe on retries and crashes, manifest-last publishing, runs on inputs larger than 10 GB (including uniqueness checks), kept `bad_rows` on failure |
+| M6 | Database tables as destinations | Only after Parquet to S3-compatible and local storage is solid: tested against RustFS and a local volume, safe on retries and crashes, manifest-last publishing, runs on inputs larger than 10 GB (including uniqueness checks), kept `bad_rows` on failure |
 
 ## 14. Alternatives considered
 

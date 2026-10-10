@@ -122,6 +122,12 @@ class Job(models.Model):
     requested_with_token = models.ForeignKey(
         ApiToken, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
+    # A job a schedule enqueued has no requester (the system asked); scheduled_for is the
+    # slot it runs for and stays when the schedule is deleted.
+    schedule = models.ForeignKey(
+        "core.Schedule", on_delete=models.SET_NULL, null=True, blank=True, related_name="jobs"
+    )
+    scheduled_for = models.DateTimeField(null=True, blank=True)
     idempotency_key = models.CharField(max_length=255, blank=True, default="")
     request_fingerprint = models.CharField(max_length=64, blank=True, default="")
     attempt = models.PositiveIntegerField(default=0)
@@ -149,7 +155,14 @@ class Job(models.Model):
                 fields=["requested_by", "idempotency_key"],
                 condition=~Q(idempotency_key=""),
                 name="job_idempotency_key",
-            )
+            ),
+            # Scheduled jobs have no requester, which the constraint above cannot see (NULLs
+            # are distinct); their keys name the schedule and the slot, so one slot is one job.
+            models.UniqueConstraint(
+                fields=["idempotency_key"],
+                condition=Q(schedule__isnull=False),
+                name="job_schedule_slot",
+            ),
         ]
         indexes = [
             models.Index(

@@ -1,14 +1,18 @@
 """Request and response bodies of /api/v1 (pydantic models, published in the OpenAPI document).
 
 Secrets never appear in responses: connections list the names of the secrets that are set
-(``secret_fields``), tokens show their prefix, and a new token's value is returned exactly once.
+(``secret_fields``), tokens show their prefix, and a new token's value is returned exactly once
+(so is a webhook's signing secret).
 """
 
+import json
 import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional
 
 from ninja import Field, Schema
+
+from forklift_web.services import schedules
 
 Role = Literal["viewer", "operator", "author", "admin"]
 ClassificationName = Literal["public", "internal", "sensitive"]
@@ -68,6 +72,18 @@ class UserPatch(Schema):
 
 class PasswordIn(Schema):
     password: str
+
+
+class SignInLockOut(Schema):
+    id: int
+    kind: Literal["user", "ip"] = Field(
+        description="What is locked: a username (in any letter case) or a client address"
+    )
+    key: str = Field(description="The normalised username, or the address (IPv6: its /64)")
+    failures: int = Field(description="Failed attempts since window_started_at")
+    window_started_at: datetime
+    locked_until: datetime = Field(description="Signing in is refused until then")
+    updated_at: datetime
 
 
 class TokenOut(Schema):
@@ -308,6 +324,69 @@ class DatasetRunIn(Schema):
     upload_id: Optional[uuid.UUID] = Field(None, description="For datasets that read uploads")
 
 
+# --------------------------------------------------------------------------- schedules
+
+ScheduleOutcomeName = Literal["queued", "skipped_overlap", "missed", "failed_to_enqueue"]
+
+
+class ScheduleOut(Schema):
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    dataset_name: str
+    cron: str = Field(description="Five cron fields or a macro such as @daily")
+    timezone: str = Field(description="The IANA time zone the expression is read in")
+    enabled: bool
+    next_run_at: Optional[datetime] = Field(description="The next run (null while disabled)")
+    next_runs: list[datetime] = Field(description="The next five runs (none while disabled)")
+    last_run_at: Optional[datetime] = Field(
+        description="The time of the slot the dispatcher handled last"
+    )
+    last_outcome: Optional[ScheduleOutcomeName] = Field(
+        description="What came of that slot: queued, skipped_overlap (the previous run had not "
+        "finished), missed (too late to catch up) or failed_to_enqueue"
+    )
+    last_message: str = Field(description="Why, for anything but a run queued on time")
+    last_job_id: Optional[uuid.UUID] = Field(description="The job it queued last")
+    created_by_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def resolve_dataset_name(schedule) -> str:
+        return schedule.dataset.name
+
+    @staticmethod
+    def resolve_next_runs(schedule) -> list:
+        return schedules.upcoming(schedule)
+
+    @staticmethod
+    def resolve_last_outcome(schedule):
+        return schedule.last_outcome or None
+
+
+class ScheduleIn(Schema):
+    cron: str = Field(description="Five cron fields (minute hour day month weekday) or a macro")
+    timezone: str = Field("UTC", description="An IANA time zone, such as Europe/Berlin")
+    enabled: bool = True
+
+
+class SchedulePatch(Schema):
+    cron: Optional[str] = None
+    timezone: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+class SchedulePreviewIn(Schema):
+    cron: str
+    timezone: str = "UTC"
+
+
+class SchedulePreviewOut(Schema):
+    cron: str = Field(description="The expression as it would be stored")
+    timezone: str
+    next_runs: list[datetime] = Field(description="The next five runs")
+
+
 # --------------------------------------------------------------------------- uploads
 
 
@@ -401,7 +480,13 @@ class JobOut(Schema):
     dataset_id: Optional[uuid.UUID]
     upload_id: Optional[uuid.UUID]
     schema_version_id: Optional[uuid.UUID]
-    requested_by_id: Optional[int]
+    requested_by_id: Optional[int] = Field(description="null for a run a schedule started")
+    schedule_id: Optional[uuid.UUID] = Field(
+        description="The schedule that started the job (null once that schedule is deleted)"
+    )
+    scheduled_for: Optional[datetime] = Field(
+        description="Set when a schedule started the job: the time of the run it is"
+    )
     attempt: int
     max_attempts: int
     cancel_requested: bool
@@ -464,6 +549,104 @@ class DownloadOut(Schema):
     filename: str
 
 
+# --------------------------------------------------------------------------- webhooks
+
+WebhookEventName = Literal["job.succeeded", "job.failed", "job.cancelled"]
+WebhookScopeName = Literal["dataset", "own_jobs", "all_jobs"]
+
+
+class WebhookBase(Schema):
+    id: uuid.UUID
+    name: str
+    owner_id: int
+    owner_username: str
+    events: list[str]
+    kinds: list[str] = Field(description="The job kinds it hears about")
+    scope: WebhookScopeName = Field(
+        description="dataset: every job of dataset_id; own_jobs: jobs the owner requested (also "
+        "through their API tokens); all_jobs: every job (admins)"
+    )
+    dataset_id: Optional[uuid.UUID]
+    active: bool
+    disabled_reason: Optional[Literal["owner", "admin", "failures"]]
+    consecutive_failures: int = Field(
+        description="Delivery attempts in a row that failed (test events do not count)"
+    )
+    backoff_until: Optional[datetime] = Field(
+        description="After a failed attempt: no delivery is sent before this (test events are)"
+    )
+    created_at: datetime
+    updated_at: datetime
+
+    @staticmethod
+    def resolve_owner_username(webhook) -> str:
+        return webhook.owner.username
+
+    @staticmethod
+    def resolve_disabled_reason(webhook):
+        return webhook.disabled_reason or None
+
+
+class WebhookOut(WebhookBase):
+    url: str
+    secret_prefix: str = Field(description="The first characters of the signing secret")
+
+
+class WebhookCreatedOut(WebhookOut):
+    secret: str = Field(
+        description="The signing secret (HMAC-SHA256 key): shown only now, store it safely"
+    )
+
+
+class AdminWebhookOut(WebhookBase):
+    endpoint: str = Field(
+        description="The webhook's URL without its query string, which may hold the receiver's "
+        "credentials"
+    )
+
+
+class WebhookIn(Schema):
+    name: str
+    url: str = Field(description="An https:// URL whose host resolves to public addresses")
+    events: list[WebhookEventName]
+    scope: WebhookScopeName = "own_jobs"
+    dataset_id: Optional[uuid.UUID] = Field(None, description="For scope 'dataset'")
+    kinds: list[JobKindName] = Field(default_factory=lambda: ["run"])
+
+
+class WebhookPatch(Schema):
+    """Fields to change; ``dataset_id`` may be set to null (it is cleared anyway when the scope
+    changes to one without a dataset). Enabling a webhook again resets its failure count."""
+
+    name: Optional[str] = None
+    url: Optional[str] = None
+    events: Optional[list[WebhookEventName]] = None
+    scope: Optional[WebhookScopeName] = None
+    dataset_id: Optional[uuid.UUID] = None
+    kinds: Optional[list[JobKindName]] = None
+    active: Optional[bool] = None
+
+
+class WebhookDeliveryOut(Schema):
+    id: uuid.UUID = Field(description="Sent as Forklift-Delivery; the same on every retry")
+    webhook_id: uuid.UUID
+    job_id: Optional[uuid.UUID] = Field(description="null for test deliveries")
+    event: str
+    status: Literal["pending", "delivered", "failed", "skipped"]
+    attempts: int
+    next_attempt_at: Optional[datetime] = Field(description="When a pending delivery is sent")
+    last_attempt_at: Optional[datetime]
+    last_status_code: Optional[int] = Field(description="The receiver's last HTTP status")
+    last_error: str = Field(description="What went wrong last, in the gateway's words")
+    delivered_at: Optional[datetime]
+    created_at: datetime
+    payload: dict[str, Any] = Field(description="The JSON body that is sent (and signed)")
+
+    @staticmethod
+    def resolve_payload(delivery) -> dict:
+        return json.loads(delivery.payload)
+
+
 # --------------------------------------------------------------------------- administration
 
 
@@ -514,6 +697,15 @@ class SweepOut(Schema):
     uploads: int
     artifacts: int
     jobs: int
+    output_uploads: int = Field(
+        description="Multipart output uploads under jobs/ that no running attempt would complete"
+    )
+    sign_in_throttles: int = Field(
+        description="Sign-in failure counters whose window and lock had ended"
+    )
+    deliveries: int = Field(
+        description="Webhook deliveries older than their job records' lifetime"
+    )
     errors: list[str]
 
 

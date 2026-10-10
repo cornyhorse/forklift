@@ -38,6 +38,7 @@ from forklift_web.services import (
     installation,
     jobs,
     retention,
+    sign_in,
     workers,
 )
 from forklift_web.ui.forms import (
@@ -98,6 +99,7 @@ def overview(request, actor):
             "failed": failed.order_by("-finished_at")[:10],
             "failed_today": failed.filter(finished_at__gte=day_ago).count(),
             "warnings": retention.overview(actor)["warnings"],
+            "sign_in_locks": sign_in.active_locks(actor).count(),
         },
     )
 
@@ -172,6 +174,7 @@ def _user_page(request, actor, user, *, edit_form=None, password_form=None, stat
             "password_form": password_form or PasswordPairForm(),
             "tokens": accounts.list_all_tokens(actor, owner_id=user.pk),
             "last_admin": user.role == Role.ADMIN and user.is_active and not others.exists(),
+            "sign_in_lock": sign_in.user_lock(actor, user),
         },
         status=status,
     )
@@ -212,6 +215,17 @@ def user_password(request, actor, user_id):
             messages.success(request, f"The password of {user.username} was set.")
             return redirect("ui:admin-user", user_id=user.pk)
     return _user_page(request, actor, user, password_form=form, status=status)
+
+
+@require_POST
+@page
+def user_unlock(request, actor, user_id):
+    user = accounts.get_user(actor, user_id)
+    if sign_in.unlock_user(actor, user) is None:
+        messages.info(request, f"Signing in as {user.username} was not locked.")
+    else:
+        messages.success(request, f"{user.username} can sign in again.")
+    return redirect("ui:admin-user", user_id=user.pk)
 
 
 # --------------------------------------------------------------------------- API tokens

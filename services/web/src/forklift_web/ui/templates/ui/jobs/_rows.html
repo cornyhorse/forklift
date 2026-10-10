@@ -19,7 +19,7 @@
           <td><a href="{% url 'ui:job' job_id=job.pk %}">{{ job.get_kind_display }} <code>{{ job.pk|stringformat:"s"|slice:":8" }}</code></a></td>
           <td><span class="badge {{ job.status }}">{{ job.get_status_display }}</span>{% if job.cancel_requested_at and job.status == "running" %} <span class="muted">(cancelling)</span>{% endif %}</td>
           <td>{% if job.dataset %}<a href="{% url 'ui:dataset' dataset_id=job.dataset_id %}">{{ job.dataset.name }}</a>{% endif %}{% if job.upload_id %}{% if job.upload.uploaded_by_id == user.pk or user.role == "admin" %}{% if job.dataset %}, {% endif %}{{ job.upload.filename }}{% elif not job.dataset %}an upload{% endif %}{% endif %}</td>
-          <td>{{ job.requested_by.username|default:"—" }}</td>
+          <td>{% if job.scheduled_for %}a schedule{% else %}{{ job.requested_by.username|default:"—" }}{% endif %}</td>
           <td>{{ job.created_at|date:"Y-m-d H:i" }}</td>
           <td>{{ job.finished_at|date:"Y-m-d H:i"|default:"—" }}</td>
           {% if admin %}<td>{{ job.lane }}</td><td>{{ job.lease_worker.worker_id|default:"—" }}</td>{% endif %}

@@ -7,6 +7,7 @@ so the public port never routes /internal/v1 and the internal port routes nothin
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import uuid
 from typing import Optional
@@ -30,9 +31,24 @@ class SurfaceMiddleware:
         return self.get_response(request)
 
 
+def parse_address(value: str):
+    """The IP address in ``value``, without the port or brackets some proxies write into
+    X-Forwarded-For ("192.0.2.1:5555", "[2001:db8::1]:443"); None if it holds none."""
+    host = value
+    if host.startswith("["):
+        host = host[1:].partition("]")[0]
+    elif host.count(":") == 1:  # an IPv6 address has at least two
+        host = host.partition(":")[0]
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
 def client_ip(request) -> Optional[str]:
     """The client's address: the connection's, or the one ``FORKLIFT_TRUSTED_PROXIES`` reverse
-    proxies put into X-Forwarded-For (counted from the right, so a client cannot forge it)."""
+    proxies put into X-Forwarded-For (counted from the right, so a client cannot forge it),
+    without a port; an entry that is no address is passed on as it is."""
     proxies = settings.FORKLIFT_TRUSTED_PROXIES
     if proxies:
         forwarded = [
@@ -41,7 +57,9 @@ def client_ip(request) -> Optional[str]:
             if part.strip()
         ]
         if len(forwarded) >= proxies:
-            return forwarded[-proxies]
+            entry = forwarded[-proxies]
+            address = parse_address(entry)
+            return entry if address is None else str(address)
     return request.META.get("REMOTE_ADDR") or None
 
 

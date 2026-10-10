@@ -15,7 +15,11 @@
     <dd>{% if job.schema_version %}<a href="{% url 'ui:schema-version' schema_id=job.schema_version.schema_id number=job.schema_version.number %}">{{ job.schema_version }}</a>{% elif job.kind == "generate_schema" %}generated from the input{% elif job.spec.schema %}a draft (not saved){% else %}none{% endif %}</dd>
     <dt>Classification</dt><dd><span class="badge {{ job.classification }}">{{ job.get_classification_display }}</span></dd>
     <dt>Lane</dt><dd>{{ job.get_lane_display }}</dd>
-    <dt>Requested by</dt><dd>{{ job.requested_by.username|default:"—" }}{% if job.requested_with_token %} (with an API token){% endif %}</dd>
+    {% if job.scheduled_for %}
+      <dt>Started by</dt><dd>{% if job.schedule %}the schedule <a href="{% url 'ui:dataset' dataset_id=job.schedule.dataset_id %}#schedules"><code>{{ job.schedule.cron }}</code> ({{ job.schedule.timezone }})</a>{% else %}a schedule that was deleted since{% endif %}, for the run due at {{ job.scheduled_for|date:"Y-m-d H:i e" }}</dd>
+    {% else %}
+      <dt>Requested by</dt><dd>{{ job.requested_by.username|default:"—" }}{% if job.requested_with_token %} (with an API token){% endif %}</dd>
+    {% endif %}
   </dl>
   <div id="job-announce" class="visually-hidden" role="status" aria-live="polite"></div>
   {% include "ui/jobs/_live.html" %}

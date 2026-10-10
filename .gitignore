@@ -212,3 +212,6 @@ __marimo__/
 
 # Example output written by src/main.py
 /output/
+
+# The schema editor bundle's build inputs are committed; npm ci installs these
+node_modules/

@@ -82,6 +82,7 @@ def test_sweep_retention_once_and_in_a_loop(monkeypatch):
     World.build()
     out, _ = run("sweep_retention", "--dry-run")
     assert out.startswith("Would delete 0 expired pending uploads")
+    assert "; would abort 0 stale multipart output uploads." in out
     sleeps = []
     monkeypatch.setattr(sweep_retention, "_sleep", sleeps.append)
     out, _ = run("sweep_retention", "--every", "60", "--iterations", "3")
@@ -158,6 +159,7 @@ def test_export_openapi(tmp_path):
         "/internal/v1/leases",
         "/internal/v1/jobs/{job_id}/heartbeat",
         "/internal/v1/jobs/{job_id}/presign",
+        "/internal/v1/jobs/{job_id}/parts",
         "/internal/v1/jobs/{job_id}/complete",
         "/internal/v1/jobs/{job_id}/input-url",
     }

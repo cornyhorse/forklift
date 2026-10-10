@@ -1,0 +1,36 @@
+{% extends "ui/base.html" %}
+{% block title %}Webhooks{% endblock %}
+{% block content %}
+  <h1>Webhooks</h1>
+  {% include "ui/admin/_nav.html" %}
+  <p class="muted">Every user's webhooks, the most failing first. A webhook is disabled on its own once <code>webhook_disable_after_failures</code> (an installation setting) delivery attempts in a row failed; disabling one here stops its deliveries until its owner enables it again. Query strings are not shown: they may hold a receiver's credentials.</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Every user's webhooks">
+    <table>
+      <thead><tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Sends to</th><th scope="col">Jobs</th><th scope="col">Events</th><th scope="col">State</th><th scope="col">Failed attempts in a row</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+        {% for webhook in webhooks %}
+          <tr>
+            <td>{{ webhook.name }}</td>
+            <td><a href="{% url 'ui:admin-user' user_id=webhook.owner_id %}">{{ webhook.owner.username }}</a></td>
+            <td><code>{{ webhook.endpoint|truncatechars:60 }}</code></td>
+            <td>{{ webhook.get_scope_display }}{% if webhook.dataset %}: {{ webhook.dataset.name }}{% endif %}</td>
+            <td>{{ webhook.events|join:", " }}</td>
+            <td>{% if webhook.active %}<span class="badge active">active</span>{% else %}<span class="badge disabled">disabled</span> <span class="muted">{{ webhook.get_disabled_reason_display }}</span>{% endif %}</td>
+            <td>{{ webhook.consecutive_failures }}</td>
+            <td>
+              {% if webhook.active %}
+                <form method="post" action="{% url 'ui:admin-webhook-disable' webhook_id=webhook.pk %}" data-confirm="Disable the webhook {{ webhook.name }} of {{ webhook.owner.username }}?">
+                  {% csrf_token %}
+                  <button type="submit" class="danger small">Disable<span class="visually-hidden"> {{ webhook.name }} of {{ webhook.owner.username }}</span></button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="empty">Nobody has a webhook.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "ui/_pagination.html" with page=webhooks %}
+{% endblock %}

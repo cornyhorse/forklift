@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from django.contrib import messages
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
-from forklift_web.core.choices import ConnectionKind, InputFormat, UploadStatus
+from forklift_web.core.choices import (
+    ArtifactKind,
+    ConnectionKind,
+    InputFormat,
+    JobKind,
+    UploadStatus,
+)
 from forklift_web.core.models import Dataset
 from forklift_web.errors import InvalidRequest, NotFound, ServiceError
 from forklift_web.policy import Action, allowed, check
@@ -16,12 +23,15 @@ from forklift_web.ui import diff
 from forklift_web.ui.forms import (
     DatasetForm,
     DatasetRunForm,
+    DraftForm,
+    GenerateForm,
     SchemaCreateForm,
     SchemaMetaForm,
     ValidateForm,
     VersionForm,
 )
 from forklift_web.ui.views.base import form_failed, is_htmx, new_key, page, paginate
+from forklift_web.ui.views.schedules import dataset_section
 
 DATASET_SOURCES = {ConnectionKind.S3, ConnectionKind.SQL}
 CHOICES = 50  # uploads offered in pickers
@@ -155,7 +165,9 @@ def _generated_schema(request, actor):
 
 def _editor(request, actor, form, *, schema=None, base=None, status=200):
     sources = _validation_sources(actor)
-    validate_form = None
+    validate_form = generate_form = None
+    if allowed(actor, Action.JOB_RUN):
+        generate_form = GenerateForm(uploads=_own_uploads(actor))
     if sources is not None:
         selected = request.GET.get("upload")
         validate_form = ValidateForm(
@@ -171,6 +183,7 @@ def _editor(request, actor, form, *, schema=None, base=None, status=200):
             "schema": schema,
             "base": base,
             "validate_form": validate_form,
+            "generate_form": generate_form,
             "generated": _generated_schema(request, actor),
         },
         status=status,
@@ -219,6 +232,25 @@ def version_new(request, actor, schema_id):
     return _editor(request, actor, form, schema=schema, base=base, status=status)
 
 
+@require_POST
+@page
+def schema_check(request, actor):
+    """The problems of the editor's draft as JSON ({"problems": [...]}, see
+    services.schemas.review_document), read as saving reads it."""
+    check(actor, Action.SCHEMA_EDIT)
+    form = DraftForm(request.POST)
+    if form.is_valid():
+        problems = schemas.review_document(form.cleaned_data["document"])
+    else:
+        message = " ".join(form.errors["document"])
+        problems = [{"path": [], "message": message, "blocking": True}]
+    return JsonResponse({"problems": problems})
+
+
+def _invalid(form) -> InvalidRequest:
+    return InvalidRequest(" ".join(m for errors in form.errors.values() for m in errors))
+
+
 def _validation(request, job, status=200):
     return render(request, "ui/schemas/_validation.html", {"job": job}, status=status)
 
@@ -231,8 +263,7 @@ def schema_validate(request, actor):
     sources = _validation_sources(actor)
     form = ValidateForm(request.POST, uploads=sources[0], datasets=sources[1])
     if not form.is_valid():
-        errors = [message for field in form.errors.values() for message in field]
-        raise InvalidRequest(" ".join(errors))
+        raise _invalid(form)
     job, _ = jobs.validate_schema(
         actor,
         schema=form.cleaned_data["document"],
@@ -252,6 +283,43 @@ def validation(request, actor, job_id):
     if job.kind != "validate_schema":
         raise NotFound(f"Job {job.pk} is a {job.kind} job, not a validation.")
     return _validation(request, job)
+
+
+def _generation(request, job):
+    found = [a for a in job.artifacts.all() if a.kind == ArtifactKind.SCHEMA and not a.deleted_at]
+    context = {"job": job, "artifact": found[0] if found else None}
+    return render(request, "ui/schemas/_generation.html", context)
+
+
+@require_POST
+@page
+def schema_generate(request, actor):
+    """Enqueue a generate_schema job for one of the author's uploads (the editor's starting
+    point); the fragment polls the job and offers its schema to the editor."""
+    check(actor, Action.JOB_RUN)
+    form = GenerateForm(request.POST, uploads=_own_uploads(actor))
+    if not form.is_valid():
+        raise _invalid(form)
+    job, _ = jobs.create_job(
+        actor,
+        jobs.JobRequest(
+            kind=JobKind.GENERATE_SCHEMA,
+            upload_id=form.cleaned_data["upload"],
+            format=form.cleaned_data["format"],
+        ),
+    )
+    if not is_htmx(request):
+        return redirect("ui:job", job_id=job.pk)
+    return _generation(request, job)
+
+
+@require_GET
+@page
+def generation(request, actor, job_id):
+    job = jobs.get_job(actor, job_id)
+    if job.kind != JobKind.GENERATE_SCHEMA:
+        raise NotFound(f"Job {job.pk} is a {job.kind} job, not a schema generation.")
+    return _generation(request, job)
 
 
 # --------------------------------------------------------------------------- datasets
@@ -290,6 +358,7 @@ def _dataset_page(request, actor, dataset: Dataset, run_form=None, status=200):
             "jobs": jobs.list_jobs(actor, dataset_id=dataset.pk)[:20],
             "run_form": run_form if can_run else None,
             "can_edit": allowed(actor, Action.DATASET_EDIT),
+            **dataset_section(actor, dataset),
         },
         status=status,
     )

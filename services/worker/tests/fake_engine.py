@@ -1,7 +1,7 @@
 """A stand-in for ``forklift run-job`` that the worker's tests drive through the spec (tests only).
 
     python fake_engine.py run-job SPEC --base-dir DIR --result RESULT [--allow-url-host HOST]...
-                          [--progress-jsonl]
+                          [--progress-jsonl] [--input-url-requests --input-url-timeout SECONDS]
 
 It follows the run-job contract (progress as JSON lines on stdout, logs on stderr, the result in
 --result, exit 0 / 1 / 2, SIGTERM cancels) and does what ``spec["options"]["fake_engine"]``
@@ -23,6 +23,11 @@ says:
 - ``{"mode": "flood"}``: noisy stdout (non-JSON, over-long and odd lines), then succeeds.
 - ``{"mode": "escape"}``: leaves a process running in a session of its own (its pid is in
   ``out/report.json``), then succeeds.
+- ``{"mode": "input_url", "requests": N, "then": "succeed" | "crash" | "exit"}``: asks for a fresh
+  input URL N times (``{"type": "input_url"}`` on stdout, one answer line from stdin each), puts
+  the answers and its argv in ``out/report.json`` and succeeds reading the input from the last
+  URL it got; "crash" writes the answers to stderr and exits 3 instead, "exit" exits 0 at once
+  after its first request, without reading the answer.
 """
 
 from __future__ import annotations
@@ -170,6 +175,24 @@ def probe(args, spec, behaviour):
     return succeed(args, spec, [{"kind": "report", "path": "out/report.json"}])
 
 
+def ask_for_input_urls(args, spec, behaviour):
+    answers = []
+    for _ in range(behaviour.get("requests", 1)):
+        print(json.dumps({"type": "input_url"}), flush=True)
+        if behaviour.get("then") == "exit":
+            return 0
+        line = sys.stdin.readline()
+        answers.append(json.loads(line) if line else None)
+    if behaviour.get("then") == "crash":
+        print(f"fake engine: answers {json.dumps(answers)}", file=sys.stderr)
+        return 3
+    urls = [answer["url"] for answer in answers if answer and "url" in answer]
+    if urls:
+        spec["input"]["location"]["url"] = urls[-1]
+    write(args.base_dir, "out/report.json", json.dumps({"answers": answers, "argv": sys.argv}))
+    return succeed(args, spec, [{"kind": "report", "path": "out/report.json"}])
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=["run-job"])
@@ -178,6 +201,8 @@ def main():
     parser.add_argument("--result", required=True)
     parser.add_argument("--allow-url-host", action="append", default=[])
     parser.add_argument("--progress-jsonl", action="store_true")
+    parser.add_argument("--input-url-requests", action="store_true")
+    parser.add_argument("--input-url-timeout", type=float)
     args = parser.parse_args()
     with open(args.spec, encoding="utf-8") as handle:
         spec = json.load(handle)
@@ -220,6 +245,8 @@ def main():
         return behaviour.get("exit", 0)
     if mode == "probe":
         return probe(args, spec, behaviour)
+    if mode == "input_url":
+        return ask_for_input_urls(args, spec, behaviour)
     if mode == "escape":
         child = os.fork()
         if child == 0:

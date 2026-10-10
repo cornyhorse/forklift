@@ -32,7 +32,15 @@ from forklift_web.core.choices import (
 from forklift_web.core.models import Dataset, Job, JobEvent
 from forklift_web.errors import Conflict, InvalidRequest, NotFound
 from forklift_web.policy import Action, Actor, check
-from forklift_web.services import audit, datasets, installation, schemas, specs, uploads
+from forklift_web.services import (
+    audit,
+    datasets,
+    installation,
+    schemas,
+    specs,
+    uploads,
+    webhooks,
+)
 
 INTERACTIVE_KINDS = {JobKind.PREVIEW, JobKind.VALIDATE_SCHEMA, JobKind.GENERATE_SCHEMA}
 NEEDS_SCHEMA = {JobKind.RUN, JobKind.VALIDATE_SCHEMA}
@@ -245,10 +253,17 @@ def _check_input_size(plan: _Plan, limits: dict, settings: dict) -> None:
         )
 
 
-def create_job(actor: Actor, request: JobRequest, *, idempotency_key: str = "") -> tuple:
+def create_job(
+    actor: Actor,
+    request: JobRequest,
+    *,
+    idempotency_key: str = "",
+    schedule=None,
+    scheduled_for=None,
+) -> tuple:
     """Enqueue a job; returns (job, created). With an ``idempotency_key`` already used by this
     user for the same request, returns the existing job and False; for a different request,
-    raises Conflict."""
+    raises Conflict. ``schedule`` and ``scheduled_for`` (the slot) mark a scheduled run."""
     if request.kind not in JobKind.values:
         raise InvalidRequest(
             f"Unknown job kind {request.kind!r}; kinds: {', '.join(JobKind.values)}."
@@ -286,6 +301,8 @@ def create_job(actor: Actor, request: JobRequest, *, idempotency_key: str = "") 
         schema_version=plan.schema_version,
         requested_by=actor.user,
         requested_with_token=actor.token,
+        schedule=schedule,
+        scheduled_for=scheduled_for,
         idempotency_key=idempotency_key,
         request_fingerprint=fingerprint,
         max_attempts=settings["max_attempts"],
@@ -443,5 +460,7 @@ def cancel_job(actor: Actor, job_id) -> Job:
         else:
             _event(job, EventType.STATE, status=job.status, cancel_requested=True)
         job.save()
+        if job.status == JobStatus.CANCELLED:
+            webhooks.job_finished(job)
         audit.record(actor, "job.cancel", job, {"status": job.status})
     return job

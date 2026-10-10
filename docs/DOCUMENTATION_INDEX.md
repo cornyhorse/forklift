@@ -65,6 +65,13 @@ One page per extension:
 - [platform.md](design/platform.md): proposed platform around the engine: library, CLI, web service with a REST API, and MCP, with data processing isolated in workers
 - [contracts/](../contracts): the job contract's JSON Schemas (`jobspec`, `jobresult`) and the gateway's OpenAPI document, generated and checked in
 
+## Platform (`platform/`)
+
+- [schedules.md](platform/schedules.md): running a dataset on a cron schedule in a time zone; the dispatcher, catch-up and overlap rules
+- [webhooks.md](platform/webhooks.md): signed notifications of job outcomes; payloads, verifying the signature, retries and the address guard
+- [sign-in-throttling.md](platform/sign-in-throttling.md): the sign-in rate limit: limits, settings, proxies, admin unlock
+- [schema-editor.md](platform/schema-editor.md): the schema editor: completion, the gateway's review, the Columns view, keys
+
 ## Package readmes (`src/forklift/`)
 
 | Package | Readme |

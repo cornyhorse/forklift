@@ -9,6 +9,10 @@ Progress arrives as JSON lines on stdout; only small non-negative whole numbers 
 names are kept, and over-long lines are dropped. stderr is kept as a bounded, redacted tail for
 error messages (and logged at debug level). The engine is stopped with SIGTERM (it then writes a
 cancelled result) and, after the grace period, SIGKILL.
+
+For a streamed input the engine also gets ``--input-url-requests --input-url-timeout N`` and a
+pipe as stdin: a ``{"type": "input_url"}`` line on its stdout asks for a fresh URL, and the
+answer of :class:`~forklift_worker.input_url.InputUrls` goes back as one line on its stdin.
 """
 
 from __future__ import annotations
@@ -23,10 +27,12 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import IO, Any, Callable, Iterator
 
 from . import logs
+from .input_url import InputUrls
 from .isolation import Isolation
 from .redact import Redactor
 from .spec import JobPlan
@@ -84,6 +90,15 @@ def progress_event(line: bytes) -> dict[str, int] | None:
     return dict(list(kept.items())[:MAX_PROGRESS_KEYS]) or None
 
 
+def input_url_request(line: bytes) -> bool:
+    """Whether a line of the engine's stdout asks for a fresh input URL."""
+    try:
+        message = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(message, dict) and message.get("type") == "input_url"
+
+
 class StderrTail:
     """The last lines of the engine's stderr, redacted."""
 
@@ -100,13 +115,30 @@ class StderrTail:
         return "\n".join(self.lines)[-STDERR_TAIL_CHARS:]
 
 
-def _read_progress(stream: IO[bytes], update: Callable[[dict[str, int]], None]) -> None:
+def _read_progress(
+    stream: IO[bytes],
+    update: Callable[[dict[str, int]], None],
+    answer: Callable[[], None] | None = None,
+) -> None:
     try:
         for line in bounded_lines(stream):
+            if answer is not None and input_url_request(line):
+                answer()
+                continue
             event = progress_event(line)
             if event:
                 update(event)
     except (OSError, ValueError):  # the pipe was closed under us (see EngineRunner.run)
+        pass
+
+
+def _answer(stdin: IO[bytes], input_urls: InputUrls) -> None:
+    """Answer one input URL request on the engine's stdin, as one line."""
+    line = json.dumps(input_urls.answer()).encode("utf-8") + b"\n"
+    try:
+        stdin.write(line)
+        stdin.flush()
+    except (OSError, ValueError):  # the engine is gone (or its stdin closed): nobody waits
         pass
 
 
@@ -174,7 +206,13 @@ class EngineRunner:
         self.settings = isolation.settings
         self.clock = clock
 
-    def command(self, workdir: Path, plan: JobPlan, config: dict[str, Any]) -> list[str]:
+    def command(
+        self,
+        workdir: Path,
+        plan: JobPlan,
+        config: dict[str, Any],
+        input_urls: InputUrls | None = None,
+    ) -> list[str]:
         engine = [
             *self.settings.engine_command,
             "run-job",
@@ -187,6 +225,8 @@ class EngineRunner:
         for host in plan.stream_hosts:
             engine += ["--allow-url-host", host]
         engine.append("--progress-jsonl")
+        if input_urls is not None:
+            engine += ["--input-url-requests", "--input-url-timeout", f"{input_urls.timeout:g}"]
         sandbox = [sys.executable, "-I", "-m", "forklift_worker.sandbox"]
         return [*sandbox, json.dumps(config), "--", *engine]
 
@@ -200,18 +240,22 @@ class EngineRunner:
         update_progress: Callable[[dict[str, int]], None],
         redactor: Redactor,
         context: dict[str, Any],
+        input_urls: InputUrls | None = None,
     ) -> EngineRun:
-        """Run the engine until it exits; ``stop_reason()`` returning a reason stops it."""
+        """Run the engine until it exits; ``stop_reason()`` returning a reason stops it.
+
+        With ``input_urls`` (a streamed input) the engine's requests for a fresh input URL are
+        answered on its stdin."""
         env = self.isolation.environment(workdir, plan)
         config = self.isolation.sandbox_config(workdir, plan, env, timeout)
         (workdir / "tmp").mkdir(mode=0o700, exist_ok=True)
         started = self.clock()
         with _engines_lock:
             process = subprocess.Popen(
-                self.command(workdir, plan, config),
+                self.command(workdir, plan, config, input_urls),
                 cwd=workdir,
                 env=env,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL if input_urls is None else subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
@@ -219,9 +263,12 @@ class EngineRunner:
             _engines.add(process.pid)
         log.info("engine started", extra={**context, "pid": process.pid})
         tail = StderrTail(redactor)
+        answer = None if input_urls is None else partial(_answer, process.stdin, input_urls)
         readers = [
             threading.Thread(
-                target=_read_progress, args=(process.stdout, update_progress), daemon=True
+                target=_read_progress,
+                args=(process.stdout, update_progress, answer),
+                daemon=True,
             ),
             threading.Thread(
                 target=_read_stderr, args=(process.stderr, tail, context), daemon=True
@@ -264,5 +311,10 @@ class EngineRunner:
             reader.join(timeout=5)
         for stream in (process.stdout, process.stderr):
             stream.close()
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except OSError:  # an answer the engine did not wait for is still buffered
+                pass
         seconds = self.clock() - started
         return EngineRun(returncode, reason, killed, tail.text(), seconds, config["rlimits"])

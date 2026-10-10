@@ -1,5 +1,6 @@
-"""/api/v1/admin: users and roles, everyone's API tokens, worker tokens and workers, retention,
-the audit log and installation settings (connections are under /api/v1/connections)."""
+"""/api/v1/admin: users and roles, sign-in locks, everyone's API tokens, worker tokens and
+workers, retention, the audit log, installation settings and everyone's webhooks (connections
+are under /api/v1/connections)."""
 
 import uuid
 from datetime import datetime
@@ -11,6 +12,7 @@ from ninja.pagination import paginate
 from forklift_web.api.common import responses
 from forklift_web.api.payloads import (
     AdminTokenIn,
+    AdminWebhookOut,
     AuditOut,
     PasswordIn,
     RetentionIn,
@@ -18,6 +20,7 @@ from forklift_web.api.payloads import (
     RetentionPolicyOut,
     RoleOut,
     SettingOut,
+    SignInLockOut,
     SweepIn,
     SweepOut,
     TokenCreatedOut,
@@ -31,7 +34,15 @@ from forklift_web.api.payloads import (
     WorkerTokenOut,
 )
 from forklift_web.core.choices import RetentionScope
-from forklift_web.services import accounts, audit, installation, retention, workers
+from forklift_web.services import (
+    accounts,
+    audit,
+    installation,
+    retention,
+    sign_in,
+    webhooks,
+    workers,
+)
 
 router = Router(tags=["admin"])
 
@@ -77,6 +88,26 @@ def update_user(request, user_id: int, payload: UserPatch):
 )
 def set_password(request, user_id: int, payload: PasswordIn):
     return accounts.set_password(request.auth, user_id, payload.password)
+
+
+@router.get(
+    "/sign-in-locks",
+    response=responses({200: list[SignInLockOut]}),
+    summary="Usernames and client addresses that may not sign in now (too many failures)",
+)
+@paginate
+def list_sign_in_locks(request):
+    return sign_in.active_locks(request.auth)
+
+
+@router.delete(
+    "/sign-in-locks/{lock_id}",
+    response=responses({204: None}),
+    summary="Clear a sign-in lock and its failure count",
+)
+def clear_sign_in_lock(request, lock_id: int):
+    sign_in.clear(request.auth, lock_id)
+    return Status(204, None)
 
 
 # --------------------------------------------------------------------------- API tokens
@@ -146,6 +177,28 @@ def list_workers(request):
 @router.get("/workers/{worker_pk}", response=responses({200: WorkerOut}), summary="A worker")
 def get_worker(request, worker_pk: uuid.UUID):
     return workers.get_worker(request.auth, worker_pk)
+
+
+# --------------------------------------------------------------------------- webhooks
+
+
+@router.get(
+    "/webhooks",
+    response=responses({200: list[AdminWebhookOut]}),
+    summary="Every user's webhooks, with their failure counts",
+)
+@paginate
+def list_webhooks(request, active: Optional[bool] = None, owner_id: Optional[int] = None):
+    return webhooks.list_all_webhooks(request.auth, active=active, owner_id=owner_id)
+
+
+@router.post(
+    "/webhooks/{webhook_id}/disable",
+    response=responses({200: AdminWebhookOut}),
+    summary="Disable any user's webhook (its owner can enable it again)",
+)
+def disable_webhook(request, webhook_id: uuid.UUID):
+    return webhooks.disable_webhook(request.auth, webhook_id)
 
 
 # --------------------------------------------------------------------------- retention

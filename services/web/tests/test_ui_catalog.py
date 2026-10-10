@@ -194,6 +194,7 @@ def test_the_editor_of_an_actor_that_may_not_run_jobs(world, rf, api_token):
     request.user = world.author
     response = catalog._editor(request, actor, SchemaCreateForm())
     assert b"Checking drafts runs a job, which your role does not allow." in response.content
+    assert b"Generating a schema runs a job, which your role does not allow." in response.content
 
 
 def test_the_editor_loads_a_generated_schema(world, author):
@@ -300,6 +301,94 @@ def test_a_draft_that_is_not_json_is_refused_in_the_fragment(world, author):
         **HTMX,
     )
     assert stranger.status_code == 400 and b"Select a valid choice" in stranger.content
+
+
+def test_the_editor_asks_the_gateway_about_a_draft(world, author, client):
+    check = reverse("ui:schema-check")
+    document = {"type": "object", "properties": {"id": {"type": "integer"}}, "required": ["nme"]}
+    answer = author.post(check, {"document": json.dumps(document)})
+    assert answer["Content-Type"] == "application/json"
+    problems = answer.json()["problems"]
+    assert {"path": ["required", 0], "blocking": False} in [
+        {"path": p["path"], "blocking": p["blocking"]} for p in problems
+    ]
+    assert problems == schemas.review_document(document)  # the service's review, as it is
+    # what saving says about text that is not a JSON object, at the document
+    for text, message in (
+        ("{", "This is not valid JSON: Expecting property name enclosed in double quotes"),
+        ("[]", "This must be a JSON object: {...}."),
+        ("", "A schema needs a document: a JSON object."),
+    ):
+        [problem] = author.post(check, {"document": text}).json()["problems"]
+        assert problem["path"] == [] and problem["blocking"] is True
+        assert problem["message"].startswith(message)
+    client.force_login(world.operator)  # editing schemas needs schemas:write (Authors)
+    refused = client.post(check, {"document": "{}"})
+    assert refused.status_code == 403 and b"Not allowed" in refused.content
+
+
+def test_the_editor_offers_the_authors_files_to_generate_from(world, author):
+    assert b"and you have none yet" in author.get(reverse("ui:schema-new")).content
+    upload = make_upload(world.author)
+    form = author.get(reverse("ui:schema-new")).context["generate_form"]
+    assert [value for value, _ in form.fields["upload"].choices] == [str(upload.pk)]
+    assert form["upload"].auto_id == "id_generate-upload"
+
+
+def test_generating_a_schema_from_the_editor(world, author):
+    upload = make_upload(world.author)
+    fields = {"generate-upload": str(upload.pk), "generate-format": "csv"}
+    response = author.post(reverse("ui:schema-generate"), fields, **HTMX)
+    job = Job.objects.get(kind=JobKind.GENERATE_SCHEMA, upload=upload)
+    assert (job.lane, job.spec["input"]["format"], job.spec["schema"]) == (
+        "interactive",
+        "csv",
+        None,
+    )
+    content = response.content.decode()
+    poll = reverse("ui:job-generation", kwargs={"job_id": job.pk})
+    assert "<html" not in content and f'hx-get="{poll}"' in content
+    assert "Waiting for an interactive worker." in content
+    Job.objects.filter(pk=job.pk).update(status=JobStatus.RUNNING)
+    assert b"A worker is reading the file." in author.get(poll, **HTMX).content
+
+    finish(job, {"schema.json": ("schema", as_json(GENERATED))})
+    done = author.get(poll, **HTMX).content.decode()
+    artifact = job.artifacts.get()
+    download = reverse("api-v1:download_artifact", kwargs={"artifact_id": artifact.pk})
+    assert "hx-trigger" not in done and f'data-use-generated="{download}"' in done
+    assert "A schema was generated from people.csv." in done
+
+    artifact.deleted_at = artifact.created_at
+    artifact.save(update_fields=["deleted_at"])
+    assert b"no longer kept (retention)" in author.get(poll, **HTMX).content
+
+    without_htmx = author.post(reverse("ui:schema-generate"), fields)
+    newest = Job.objects.filter(kind=JobKind.GENERATE_SCHEMA).latest("created_at")
+    assert without_htmx["Location"] == reverse("ui:job", kwargs={"job_id": newest.pk})
+
+
+def test_a_generation_that_fails_or_is_not_one(world, author):
+    stranger = author.post(
+        reverse("ui:schema-generate"),
+        {"generate-upload": str(world.upload.pk), "generate-format": "csv"},  # not the author's
+        **HTMX,
+    )
+    assert stranger.status_code == 400 and b"Select a valid choice" in stranger.content
+    job = make_job(world.operator, world.upload, kind=JobKind.GENERATE_SCHEMA)
+    finish(
+        job,
+        {},
+        status="failed",
+        error={"code": "INPUT_UNREADABLE", "message": "Not a CSV file.", "retryable": False},
+    )
+    poll = reverse("ui:job-generation", kwargs={"job_id": job.pk})
+    failed = author.get(poll).content.decode()
+    assert "No schema was generated." in failed and "INPUT_UNREADABLE" in failed
+    Job.objects.filter(pk=job.pk).update(status=JobStatus.CANCELLED)
+    assert b"(the job was cancelled)" in author.get(poll).content
+    other = author.get(reverse("ui:job-generation", kwargs={"job_id": world.queued_job.pk}))
+    assert other.status_code == 404 and b"not a schema generation" in other.content
 
 
 # --------------------------------------------------------------------------- datasets

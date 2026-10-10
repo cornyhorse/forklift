@@ -3,6 +3,7 @@
     <li><a href="{% url 'ui:admin' %}"{% if nav.admin == "overview" %} aria-current="page"{% endif %}>Overview</a></li>
     {% if can.admin_users %}<li><a href="{% url 'ui:admin-users' %}"{% if nav.admin == "users" %} aria-current="page"{% endif %}>Users</a></li>{% endif %}
     {% if can.admin_tokens %}<li><a href="{% url 'ui:admin-tokens' %}"{% if nav.admin == "tokens" %} aria-current="page"{% endif %}>API tokens</a></li>{% endif %}
+    {% if can.admin_webhooks %}<li><a href="{% url 'ui:admin-webhooks' %}"{% if nav.admin == "webhooks" %} aria-current="page"{% endif %}>Webhooks</a></li>{% endif %}
     {% if can.admin_workers %}<li><a href="{% url 'ui:admin-workers' %}"{% if nav.admin == "workers" %} aria-current="page"{% endif %}>Workers</a></li>{% endif %}
     {% if can.admin_connections %}<li><a href="{% url 'ui:admin-connections' %}"{% if nav.admin == "connections" %} aria-current="page"{% endif %}>Connections</a></li>{% endif %}
     {% if can.admin_retention %}<li><a href="{% url 'ui:admin-retention' %}"{% if nav.admin == "retention" %} aria-current="page"{% endif %}>Retention</a></li>{% endif %}

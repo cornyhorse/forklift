@@ -12,8 +12,9 @@ or :func:`allowed` (bool). Three rules combine:
    (``data``, ``bad_rows``, ``preview`` artifacts) also need "view raw rows": admins always
    have it, the other roles only when an admin grants it (every download is audited).
 3. **Objects.** Uploads are used and seen by their uploader (and admins); a job is cancelled by
-   whoever requested it (or an admin); a connection is seen and used by the roles it allows
-   (admins always); an API token is managed by its owner (and admins, through admin actions).
+   whoever requested it (or an admin; a scheduled run, by Authors and admins); a connection is
+   seen and used by the roles it allows (admins always); an API token or a webhook is managed
+   by its owner (and admins, through admin actions).
 """
 
 from __future__ import annotations
@@ -39,6 +40,8 @@ class Scope(StrEnum):
     ARTIFACTS_READ = "artifacts:read"
     TOKENS_READ = "tokens:read"
     TOKENS_WRITE = "tokens:write"
+    WEBHOOKS_READ = "webhooks:read"
+    WEBHOOKS_WRITE = "webhooks:write"
     ADMIN_READ = "admin:read"
     ADMIN_WRITE = "admin:write"
 
@@ -52,6 +55,9 @@ _VIEWER = frozenset(
         Scope.ARTIFACTS_READ,
         Scope.TOKENS_READ,
         Scope.TOKENS_WRITE,
+        # A webhook only tells its owner about jobs they can already see.
+        Scope.WEBHOOKS_READ,
+        Scope.WEBHOOKS_WRITE,
     }
 )
 _OPERATOR = _VIEWER | {Scope.UPLOADS_READ, Scope.UPLOADS_WRITE, Scope.JOBS_RUN}
@@ -80,6 +86,9 @@ class Action(StrEnum):
     DATASET_VIEW = "dataset.view"
     DATASET_EDIT = "dataset.edit"
     DATASET_RUN = "dataset.run"
+    # Schedules (a dataset's recurring runs)
+    SCHEDULE_VIEW = "schedule.view"
+    SCHEDULE_EDIT = "schedule.edit"  # create, change, enable or disable, delete
     # Uploads
     UPLOAD_CREATE = "upload.create"
     UPLOAD_VIEW = "upload.view"
@@ -95,6 +104,10 @@ class Action(StrEnum):
     # The caller's own API tokens
     TOKEN_VIEW = "token.view"
     TOKEN_MANAGE = "token.manage"
+    # The caller's own webhooks
+    WEBHOOK_VIEW = "webhook.view"
+    WEBHOOK_MANAGE = "webhook.manage"  # create, change, delete, rotate, test, redeliver
+    WEBHOOK_ALL_JOBS = "webhook.all_jobs"  # a webhook that hears about every job
     # Administration
     USER_VIEW = "user.view"
     USER_MANAGE = "user.manage"
@@ -107,6 +120,8 @@ class Action(StrEnum):
     AUDIT_VIEW = "audit.view"
     SETTINGS_VIEW = "settings.view"
     SETTINGS_MANAGE = "settings.manage"
+    ANY_WEBHOOK_VIEW = "any_webhook.view"
+    ANY_WEBHOOK_MANAGE = "any_webhook.manage"  # disable
 
 
 ACTION_SCOPES: dict[Action, Scope] = {
@@ -119,6 +134,8 @@ ACTION_SCOPES: dict[Action, Scope] = {
     Action.DATASET_VIEW: Scope.DATASETS_READ,
     Action.DATASET_EDIT: Scope.DATASETS_WRITE,
     Action.DATASET_RUN: Scope.JOBS_RUN,
+    Action.SCHEDULE_VIEW: Scope.DATASETS_READ,
+    Action.SCHEDULE_EDIT: Scope.DATASETS_WRITE,
     Action.UPLOAD_CREATE: Scope.UPLOADS_WRITE,
     Action.UPLOAD_VIEW: Scope.UPLOADS_READ,
     Action.UPLOAD_CHANGE: Scope.UPLOADS_WRITE,
@@ -131,6 +148,9 @@ ACTION_SCOPES: dict[Action, Scope] = {
     Action.ARTIFACT_DOWNLOAD: Scope.ARTIFACTS_READ,
     Action.TOKEN_VIEW: Scope.TOKENS_READ,
     Action.TOKEN_MANAGE: Scope.TOKENS_WRITE,
+    Action.WEBHOOK_VIEW: Scope.WEBHOOKS_READ,
+    Action.WEBHOOK_MANAGE: Scope.WEBHOOKS_WRITE,
+    Action.WEBHOOK_ALL_JOBS: Scope.ADMIN_READ,
     Action.USER_VIEW: Scope.ADMIN_READ,
     Action.USER_MANAGE: Scope.ADMIN_WRITE,
     Action.ANY_TOKEN_VIEW: Scope.ADMIN_READ,
@@ -142,6 +162,8 @@ ACTION_SCOPES: dict[Action, Scope] = {
     Action.AUDIT_VIEW: Scope.ADMIN_READ,
     Action.SETTINGS_VIEW: Scope.ADMIN_READ,
     Action.SETTINGS_MANAGE: Scope.ADMIN_WRITE,
+    Action.ANY_WEBHOOK_VIEW: Scope.ADMIN_READ,
+    Action.ANY_WEBHOOK_MANAGE: Scope.ADMIN_WRITE,
 }
 
 
@@ -229,6 +251,15 @@ def _upload_owner(actor: Actor, upload) -> None:
 
 
 def _job_owner(actor: Actor, job) -> None:
+    if job.scheduled_for is not None:
+        # Nobody requested a scheduled run: those who manage schedules may cancel it.
+        if not (actor.is_admin or Scope.DATASETS_WRITE in actor.scopes):
+            raise PermissionDenied(
+                f"Job {job.id} is a scheduled run; only those who manage schedules (Authors "
+                "and admins) can cancel it.",
+                code="not_owner",
+            )
+        return
     if not (actor.is_admin or actor.owns(job.requested_by_id)):
         raise PermissionDenied(
             f"Job {job.id} was requested by another user; only its requester or an admin can "
@@ -242,6 +273,15 @@ def _token_owner(actor: Actor, token) -> None:
         raise PermissionDenied(
             f"API token {token.prefix}... belongs to another user; admins manage other users' "
             "tokens through /api/v1/admin/tokens.",
+            code="not_owner",
+        )
+
+
+def _webhook_owner(actor: Actor, webhook) -> None:
+    if not actor.owns(webhook.owner_id):
+        raise PermissionDenied(
+            f"Webhook {webhook.name!r} belongs to another user; admins see and disable other "
+            "users' webhooks through /api/v1/admin/webhooks.",
             code="not_owner",
         )
 
@@ -277,6 +317,8 @@ OBJECT_RULES: dict[Action, Callable[[Actor, Any], None]] = {
     Action.JOB_PREVIEW: _preview_classification,
     Action.ARTIFACT_DOWNLOAD: _artifact_download,
     Action.TOKEN_MANAGE: _token_owner,
+    Action.WEBHOOK_VIEW: _webhook_owner,
+    Action.WEBHOOK_MANAGE: _webhook_owner,
     Action.CONNECTION_VIEW: _connection_role,
     Action.CONNECTION_USE: _connection_role,
 }

@@ -22,6 +22,11 @@
   --info-bg: #e6f0fb;
   --added: #e3f4e9;
   --removed: #fde8e6;
+  --selection: #c9ddf5;
+  --syntax-key: #0a58a8;
+  --syntax-string: #17663a;
+  --syntax-number: #8a4b00;
+  --syntax-literal: #7b2fa8;
   --radius: 6px;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -47,6 +52,11 @@
     --info-bg: #13283f;
     --added: #12301f;
     --removed: #3d1513;
+    --selection: #1f3a5c;
+    --syntax-key: #79b8ff;
+    --syntax-string: #7ee2a0;
+    --syntax-number: #ffc46b;
+    --syntax-literal: #d2a8ff;
   }
 }
 
@@ -326,10 +336,10 @@ section.alert, div.alert, p.alert { margin: 0 0 1rem; }
   color: var(--fg);
   white-space: nowrap;
 }
-.badge.succeeded, .badge.ok, .badge.complete, .badge.active, .badge.online { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+.badge.succeeded, .badge.ok, .badge.complete, .badge.active, .badge.online, .badge.delivered { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
 .badge.failed, .badge.error, .badge.revoked, .badge.sensitive { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
 .badge.running, .badge.queued, .badge.pending { background: var(--info-bg); border-color: var(--accent); color: var(--accent); }
-.badge.cancelled, .badge.expired, .badge.deleted, .badge.offline, .badge.unknown { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+.badge.cancelled, .badge.expired, .badge.deleted, .badge.offline, .badge.unknown, .badge.skipped, .badge.disabled { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
 
 .secret {
   font-family: var(--mono);
@@ -346,11 +356,28 @@ progress { width: 100%; height: 1.25rem; accent-color: var(--accent); }
 
 /* --------------------------------------------------------------------- the schema editor */
 
-.editor { display: grid; gap: 0.5rem; }
+.editor { display: grid; gap: 0.5rem; min-width: 0; }
 .editor textarea { min-height: 24rem; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
 .editor-status { font-size: 0.9rem; margin: 0; min-height: 1.5em; }
 .editor-status.ok { color: var(--ok); }
 .editor-status.error { color: var(--danger); font-weight: 600; }
+.editor-status.warn { color: var(--warn); font-weight: 600; }
+/* CodeMirror draws inside .code-editor's shadow root; its look is set in schema-editor.js. */
+.code-editor { display: block; min-width: 0; }
+.editor-head { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: space-between; }
+.view-switch { display: inline-flex; gap: 0.25rem; }
+.view-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.problems { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; font-size: 0.9rem; }
+.problems li { border-left: 4px solid var(--warn); padding-left: 0.5rem; overflow-wrap: anywhere; }
+.problems li.error { border-left-color: var(--danger); }
+.columns-view { display: grid; gap: 0.75rem; }
+.columns-view > p { margin: 0; }
+ol.columns { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; }
+.column fieldset { gap: 0.75rem; }
+.column details { margin: 0; }
+.column .actions { margin: 0; }
+.checks { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; }
+.checks .check label { font-weight: 400; }
 
 /* --------------------------------------------------------------------- the version diff */
 

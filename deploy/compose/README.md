@@ -26,6 +26,7 @@ store), and a worker token, kept in a volume only the worker mounts.
 | `gateway` | `forklift-web` (services/web) | public, internal, db | 8080 (UI and `/api/v1`); 8081, the workers' port, is not published |
 | `worker` | `forklift-worker` (services/worker) | internal | nothing |
 | `sweeper` | `forklift-web`: `sweep_retention --every=3600` (healthy while its last sweep is under two hours old) | internal, db | nothing |
+| `dispatcher` | `forklift-web`: `dispatch --every=10`, which queues the runs of [schedules](../../docs/platform/schedules.md) when they are due and sends webhook deliveries (healthy while its last good pass is under a minute old) | public, internal, db (webhooks need a route out) | nothing |
 | `postgres` | `postgres:16` | db | nothing |
 | `rustfs` | `rustfs/rustfs` | public, internal | 9000 (presigned URLs from browsers) |
 
@@ -45,6 +46,9 @@ enforces.
 | `FORKLIFT_ALLOWED_HOSTS` | `localhost,127.0.0.1,gateway` | Host names the gateway answers to |
 | `FORKLIFT_PUBLIC_HOST_PORT`, `FORKLIFT_STORE_HOST_PORT` | `8080`, `9000` | Host ports to publish |
 | `FORKLIFT_SECURE_COOKIES`, `FORKLIFT_BEHIND_TLS_PROXY` | `false` | Set both to `true` behind a TLS proxy |
+| `FORKLIFT_TRUSTED_PROXIES` | `0` | Proxies in front of the gateway that add `X-Forwarded-For`; `1` behind a TLS proxy, so that the audit log and the [sign-in limits](../../docs/platform/sign-in-throttling.md) see each client's address, not the proxy's |
+| `FORKLIFT_WEBHOOK_ALLOWED_HOSTS` | (none) | [Webhook](../../docs/platform/webhooks.md) receivers on an internal network: host names that may resolve to private addresses |
+| `FORKLIFT_WEBHOOK_ALLOW_HTTP` | `false` | Also send webhooks to `http://` URLs (development only) |
 | `FORKLIFT_WORKER_LANES`, `FORKLIFT_WORKER_CONCURRENCY` | `batch,interactive`, `2` | What the worker takes, and how many jobs at once |
 | `FORKLIFT_WORKER_LANDLOCK` | `auto` | `required` in production |
 | `FORKLIFT_WORKER_MEMORY` | `4g` | The worker container's memory limit |
@@ -52,7 +56,8 @@ enforces.
 | `FORKLIFT_*_IMAGE`, `FORKLIFT_PYTHON_IMAGE` | | Other images or registries |
 
 Anywhere but localhost: put a TLS proxy in front of ports 8080 and 9000, set the two public URLs
-to their `https://` addresses, and set the two TLS settings to `true`.
+to their `https://` addresses, set the two TLS settings to `true` and `FORKLIFT_TRUSTED_PROXIES`
+to `1`.
 
 ## SQL sources and targets
 
@@ -77,6 +82,18 @@ The tests sign in, create an API token, upload a CSV straight to the store, run 
 and download the Parquet; generate a schema; check that a threshold failure keeps `bad_rows`;
 stream an input above `stage_max_bytes`; and check a viewer's limits and that the workers' API is
 not on the public port. CI runs them on every change (the `platform-e2e` job).
+
+The webhook test needs a receiver on the stack's network: start the stack with
+`e2e/webhooks.yml` as well (it adds a `webhook-receiver` service, published on port 18099, and
+lets the gateway and the dispatcher send to it over http), then point the test at it:
+
+```bash
+docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/e2e/webhooks.yml up -d --build --wait
+FORKLIFT_E2E_ENV_FILE=deploy/compose/.env FORKLIFT_E2E_RECEIVER_URL=http://localhost:18099 \
+  python -m pytest deploy/compose/e2e --no-cov
+```
+
+Without `FORKLIFT_E2E_RECEIVER_URL` the webhook test is skipped.
 
 ## Stop it
 

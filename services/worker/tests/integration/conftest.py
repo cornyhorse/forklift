@@ -8,10 +8,12 @@ instead of skipping them.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import uuid
 from pathlib import Path
 from typing import Any, Iterator
+from urllib.parse import urlsplit
 
 import pytest
 from fake_gateway import FakeGateway
@@ -73,11 +75,17 @@ class StoreGateway(FakeGateway):
         head = self.s3.head_object(Bucket=self.bucket, Key=key)
         return self.location(key, head["ContentLength"], head["ETag"])
 
-    def location(self, key: str, size: int, etag: str) -> dict[str, Any]:
+    def location(self, key: str, size: int, etag: str, expires: int = 900) -> dict[str, Any]:
         url = self.s3.generate_presigned_url(
-            "get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=900
+            "get_object", Params={"Bucket": self.bucket, "Key": key}, ExpiresIn=expires
         )
         return {"type": "presigned_url", "url": url, "size": size, "etag": etag}
+
+    def fresh_input(self, job) -> dict[str, Any]:
+        """input-url: the job's input signed anew, as the gateway does."""
+        location = job.spec["input"]["location"]
+        key = urlsplit(location["url"]).path.split("/", 2)[2]  # /<bucket>/<key>
+        return self.location(key, location["size"], location["etag"])
 
     def upload_target(self, key: str) -> tuple[str, dict[str, str]]:
         url = self.s3.generate_presigned_url(
@@ -86,6 +94,37 @@ class StoreGateway(FakeGateway):
             ExpiresIn=900,
         )
         return url, {"Content-Type": "application/octet-stream"}
+
+    def start_multipart(self, key: str) -> str:
+        return self.s3.create_multipart_upload(Bucket=self.bucket, Key=key)["UploadId"]
+
+    def part_url(self, key: str, upload_id: str, number: int) -> str:
+        return self.s3.generate_presigned_url(
+            "upload_part",
+            Params={
+                "Bucket": self.bucket,
+                "Key": key,
+                "UploadId": upload_id,
+                "PartNumber": number,
+            },
+            ExpiresIn=900,
+        )
+
+    def finish_multipart(self, key: str, upload_id: str, count: int, digest: str) -> str:
+        """As the gateway does: list the parts, check their ETags give ``digest``, complete."""
+        held = self.s3.list_parts(Bucket=self.bucket, Key=key, UploadId=upload_id)["Parts"]
+        etags = [part["ETag"].strip('"') for part in held[:count]]
+        if hashlib.sha256("".join(f"{etag}\n" for etag in etags).encode()).hexdigest() != digest:
+            return "the parts do not give the reported parts_sha256"
+        self.s3.complete_multipart_upload(
+            Bucket=self.bucket,
+            Key=key,
+            UploadId=upload_id,
+            MultipartUpload={
+                "Parts": [{"PartNumber": n, "ETag": etag} for n, etag in enumerate(etags, 1)]
+            },
+        )
+        return ""
 
     def read(self, key: str) -> bytes:
         return self.store.read(self.bucket, key)

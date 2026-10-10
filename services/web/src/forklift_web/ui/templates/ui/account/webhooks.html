@@ -1,0 +1,35 @@
+{% extends "ui/base.html" %}
+{% block title %}Your webhooks{% endblock %}
+{% block content %}
+  <h1>Your webhooks</h1>
+  <p class="lead">A webhook tells another system when a job succeeds, fails or is cancelled: Forklift sends it a signed <code>POST</code> with the job's outcome (never its data). It hears only about jobs you can see.</p>
+
+  <h2>Webhooks</h2>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Your webhooks">
+    <table>
+      <thead><tr><th scope="col">Name</th><th scope="col">Sends to</th><th scope="col">Events</th><th scope="col">Jobs</th><th scope="col">State</th><th scope="col">Failed attempts in a row</th></tr></thead>
+      <tbody>
+        {% for webhook in webhooks %}
+          <tr>
+            <td><a href="{% url 'ui:webhook' webhook_id=webhook.pk %}">{{ webhook.name }}</a></td>
+            <td><code>{{ webhook.url|truncatechars:60 }}</code></td>
+            <td>{{ webhook.events|join:", " }}</td>
+            <td>{{ webhook.get_scope_display }}{% if webhook.dataset %}: {{ webhook.dataset.name }}{% endif %}</td>
+            <td>{% if webhook.active %}<span class="badge active">active</span>{% else %}<span class="badge disabled">disabled</span> <span class="muted">{{ webhook.get_disabled_reason_display }}</span>{% endif %}</td>
+            <td>{{ webhook.consecutive_failures }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty">You have no webhooks yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="new-webhook">Create a webhook</h2>
+  <form method="post" class="stack" aria-labelledby="new-webhook">
+    {% csrf_token %}
+    {% include "ui/_form_errors.html" %}
+    {% for field in form %}{% include "ui/_field.html" %}{% endfor %}
+    <div class="actions"><button type="submit">Create the webhook</button></div>
+  </form>
+{% endblock %}

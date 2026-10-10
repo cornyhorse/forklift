@@ -17,13 +17,14 @@ import pytest
 from django.core.management import call_command
 from django.urls import reverse
 from playwright.sync_api import expect, sync_playwright
-from ui_support import PREVIEW, REPORT, as_json, finish, start, worker_principal
-from world import PASSWORD, make_schema, make_upload, make_user
+from ui_support import PREVIEW, as_json, finish, start, worker_principal
+from webhook_support import Receiver
+from world import PASSWORD, make_schema, make_user
 
 from forklift_web.core.choices import JobKind, JobStatus, Role, UploadStatus
-from forklift_web.core.models import AuditLog, Connection, Job, Schema, Upload, User
+from forklift_web.core.models import AuditLog, Connection, Job, Upload, User, Webhook
 from forklift_web.policy import Actor
-from forklift_web.services import installation
+from forklift_web.services import installation, webhooks
 
 pytestmark = [pytest.mark.browser, pytest.mark.django_db(transaction=True)]
 
@@ -169,6 +170,30 @@ def test_a_preview_is_fetched_by_the_browser_and_shown_as_text(page, tmp_path):
     assert page.errors == []
 
 
+def test_a_generated_schema_is_shown_with_its_columns_in_order(page, tmp_path):
+    operator = make_user(Role.OPERATOR)
+    sign_in(page, operator)
+    path = tmp_path / "years.csv"
+    path.write_text("2024,id\n1,2\n")
+    upload(page, path)
+    page.get_by_label("Generate a schema from it").check()
+    page.get_by_role("button", name="Start").click()
+    page.wait_for_url(re.compile(r"/jobs/[0-9a-f-]{36}/$"))
+    job = Job.objects.get(pk=page.url.rstrip("/").rsplit("/", 1)[-1])
+    assert job.kind == JobKind.GENERATE_SCHEMA
+
+    # The file names "id" before "2024"; JSON.parse would put the integer-like "2024" first
+    text = (
+        '{\n  "properties": {\n    "id": {"type": "integer"},\n'
+        '    "2024": {"type": "integer"}\n  }\n}'
+    )
+    finish(job, {"schema.json": ("schema", text.encode())})
+    shown = page.locator("[data-kind='schema'] [data-viewer-body] pre")
+    expect(shown).to_be_visible(timeout=10_000)
+    assert shown.text_content() == text  # exactly the file, in its order
+    assert page.errors == []
+
+
 def test_an_admin_creates_a_user_and_a_connection(page):
     admin = make_user(Role.ADMIN)
     sign_in(page, admin)
@@ -221,47 +246,24 @@ def test_the_user_search_filters_as_you_type(page):
     assert page.errors == []
 
 
-def test_the_schema_editor_checks_json_as_you_type(page):
-    author = make_user(Role.AUTHOR)
-    sign_in(page, author)
-    page.goto(reverse("ui:schema-new"))
-    editor = page.get_by_label("Schema document (JSON)")
-    editor.fill('{"type": "object", "properties": {"id": ')
-    status = page.locator("#id_document-status")
-    expect(status).to_contain_text("Not valid JSON yet")
-    editor.fill('{"type":"object","properties":{"id":{"type":"integer"}}}')
-    expect(status).to_have_text("Valid JSON: 1 column in “properties”.")
-    page.get_by_role("button", name="Format the JSON").click()
-    assert editor.input_value().startswith('{\n  "type": "object"')
-    page.get_by_label("Name").fill("people")
-    page.get_by_role("button", name="Create the schema").click()
-    expect(page.get_by_role("heading", level=1)).to_have_text("people")
-    assert page.errors == []
-
-
-def test_checking_a_draft_against_a_file_live(page):
-    author = make_user(Role.AUTHOR)
-    own = make_upload(author)
-    sign_in(page, author)
-    page.goto(reverse("ui:schema-new") + f"?upload={own.pk}")
-    page.get_by_label("Schema document (JSON)").fill(
-        '{"type": "object", "properties": {"email": {"type": "string"}}, "required": ["email"]}'
-    )
-    page.get_by_label("Schema document (JSON)").press("Control+Enter")
-    validation = page.locator("#validation")
-    expect(validation).to_contain_text("Checking", timeout=10_000)
-    job = Job.objects.get(kind=JobKind.VALIDATE_SCHEMA, upload=own)
-    assert job.spec["schema"]["required"] == ["email"]  # the draft as typed, not saved
-    finish(
-        job,
-        {"report.json": ("report", as_json(REPORT))},
-        status="failed",
-        error={"code": "COLUMN_MISSING", "message": "No column 'email'.", "retryable": False},
-    )
-    expect(validation).to_contain_text("The draft does not fit", timeout=10_000)
-    expect(validation).to_contain_text("Schema columns missing from the input")  # report.json
-    assert Schema.objects.count() == 0
-    assert page.errors == []
+def test_the_sign_in_page_says_when_to_try_again(page):
+    installation.update(Actor.for_system("test"), {"sign_in_max_failures": 2})
+    viewer = make_user(Role.VIEWER)
+    page.goto(reverse("forklift-login"))
+    alert = page.get_by_role("alert")
+    for password, message in (
+        ("not the password", "did not match"),
+        ("not it either", "Too many failed sign-in attempts. Try again in 15 minutes, after"),
+        (PASSWORD, "Too many failed sign-in attempts"),  # refused, not checked, while locked
+    ):
+        page.get_by_label("Username").fill(viewer.username)
+        page.get_by_label("Password").fill(password)
+        page.get_by_role("button", name="Sign in").click()
+        expect(alert).to_contain_text(message)
+    expect(page.get_by_role("heading", level=1)).to_have_text("Sign in to Forklift")
+    # Chromium reports each 429 page it loads; nothing else went wrong.
+    status = "Failed to load resource: the server responded with a status of 429"
+    assert [error.startswith(status) for error in page.errors] == [True, True]
 
 
 def test_keyboard_only_use(page):
@@ -283,4 +285,42 @@ def test_keyboard_only_use(page):
     expect(nav.get_by_role("link", name="Home")).to_have_attribute("aria-current", "page")
     expect(nav.get_by_role("link", name="Upload")).to_have_count(0)  # not for viewers
     expect(nav.get_by_role("link", name="Admin")).to_have_count(0)
+    assert page.errors == []
+
+
+def test_a_webhook_is_created_shown_once_and_tested(page, settings):
+    receiver = Receiver(204)
+    settings.FORKLIFT_WEBHOOK_ALLOW_HTTP = True
+    settings.FORKLIFT_WEBHOOK_ALLOWED_HOSTS = ["127.0.0.1"]
+    try:
+        sign_in(page, make_user(Role.VIEWER))
+        page.get_by_role("link", name="Webhooks").click()
+        expect(page.get_by_role("heading", level=1)).to_have_text("Your webhooks")
+        page.get_by_label("Name").fill("pipeline")
+        page.get_by_label("URL").fill(f"http://127.0.0.1:{receiver.port}/forklift")
+        page.get_by_role("group", name="Events").get_by_label("Job succeeded").uncheck()
+        page.get_by_role("button", name="Create the webhook").click()
+        expect(page.get_by_role("heading", level=1)).to_have_text("Your new webhook")
+        secret = page.locator("#secret-value").inner_text()
+        assert secret.startswith("fkwh_")
+        expect(page.get_by_role("button", name="Copy the secret")).to_be_visible()
+        page.get_by_role("link", name="Done").click()
+        expect(page.get_by_role("heading", level=1)).to_contain_text("pipeline")
+        assert secret not in page.content()
+        page.get_by_role("button", name="Send a test event").click()
+        expect(page.locator(".messages")).to_contain_text("The test event is queued")
+        log = page.get_by_role("region", name="Deliveries")
+        expect(log).to_contain_text("Pending")
+        assert receiver.requests == []  # nothing is sent while the gateway answers a request
+        assert webhooks.deliver_due()["delivered"] == 1  # the dispatcher's next pass
+        # The log polls while the test waits, then announces how it went and stops
+        expect(page.locator("#webhook-announce")).to_have_text(
+            "The test event was delivered: the receiver answered 204.", timeout=10_000
+        )
+        expect(log).to_contain_text("Delivered")
+        expect(page.locator("#webhook-log")).not_to_have_attribute("hx-trigger", "every 2s")
+    finally:
+        receiver.stop()
+    assert Webhook.objects.get().events == ["job.cancelled", "job.failed"]
+    assert receiver.requests[0].headers["forklift-event"] == "webhook.test"
     assert page.errors == []

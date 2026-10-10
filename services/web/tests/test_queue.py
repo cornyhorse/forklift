@@ -13,10 +13,10 @@ from django.db import connection, transaction
 from django.utils import timezone
 from world import World, job_result, make_job, make_upload, make_user, s3_connection
 
-from forklift_web import storage
+from forklift_web import secret_backend, storage
 from forklift_web.core.choices import JobStatus, Role
 from forklift_web.core.models import Artifact, Dataset, Job, JobEvent, Worker
-from forklift_web.errors import Conflict, InvalidRequest, NotFound, StoreUnavailable
+from forklift_web.errors import Conflict, Gone, InvalidRequest, NotFound, StoreUnavailable
 from forklift_web.services import installation, queue, tokens
 from forklift_web.services.workers import WorkerPrincipal
 
@@ -294,7 +294,7 @@ def test_refresh_input(principal):
     assert location["type"] == "presigned_url" and location["size"] == world.upload.size
     world.upload.status = "deleted"
     world.upload.save()
-    with pytest.raises(Conflict) as raised:
+    with pytest.raises(Gone) as raised:  # not 409: workers read that as a lost lease
         queue.refresh_input(principal, job.pk, attempt=1)
     assert raised.value.code == "input_unreadable"
 
@@ -468,6 +468,43 @@ def test_a_failed_publish_fails_the_job_and_keeps_the_artifacts(principal):
     assert (done.status, done.error_code) == (JobStatus.FAILED, "TARGET_WRITE_FAILED")
     assert "publishing to" in done.error_message and "kept as job artifacts" in done.error_message
     assert Artifact.objects.filter(job=job).count() == 1
+
+
+@pytest.mark.parametrize(
+    "failure, reason",
+    [
+        (
+            secret_backend.SecretError(
+                "A connection secret could not be decrypted with any key in FORKLIFT_SECRETS_KEYS."
+            ),
+            "A connection secret could not be decrypted",
+        ),
+        (RuntimeError("boom, with a password=hunter2"), "An unexpected RuntimeError stopped it"),
+    ],
+)
+def test_any_failure_to_publish_fails_the_job_and_announces_it(
+    principal, monkeypatch, caplog, failure, reason
+):
+    world = World.build()
+    job = published_dataset(world)
+    leased = lease(principal).job
+    outputs = [upload_output(leased, "data.parquet", b"PAR1", "data")]
+
+    def fail(connection):
+        raise failure
+
+    monkeypatch.setattr(queue.connections, "bucket_of", fail)
+    announced = []
+    monkeypatch.setattr(queue.webhooks, "job_finished", lambda job: announced.append(job.status))
+    report = {"result": job_result(str(job.pk), outputs), "artifacts": outputs}
+    done = queue.complete(principal, job.pk, attempt=1, **report)
+    assert (done.status, done.error_code) == (JobStatus.FAILED, "TARGET_WRITE_FAILED")
+    assert reason in done.error_message and "kept as job artifacts" in done.error_message
+    assert announced == [JobStatus.FAILED]
+    assert Artifact.objects.filter(job=job).count() == 1
+    assert "hunter2" not in caplog.text and "hunter2" not in done.error_message
+    again = queue.complete(principal, job.pk, attempt=1, **report)  # the worker's retry
+    assert again.status == JobStatus.FAILED and announced == [JobStatus.FAILED]
 
 
 def test_runs_without_an_s3_destination_are_not_published(principal, admin_actor, monkeypatch):

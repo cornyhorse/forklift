@@ -219,15 +219,18 @@ and it is the exact code path the worker uses.
 | `Schema`, `SchemaVersion` | name; version: JSON document, sha256, author, created_at, notes | Versions are immutable; editing creates a new version |
 | `Dataset` | name, classification (`public`, `internal`, `sensitive`), source (connection + path or pattern), schema version, destination (connection + prefix), retention override | The unit people schedule and permission |
 | `Upload` | object key, size, sha256, uploader, expires_at | Created before the presigned PUT, finalised after |
-| `Job` | kind, lane, status, spec (JSON), result (JSON), dataset?, requested_by, attempt, lease (worker, expires_at), timestamps | State machine in §5.3 |
+| `Job` | kind, lane, status, spec (JSON), result (JSON), dataset?, requested_by, schedule?, scheduled_for, attempt, lease (worker, expires_at), timestamps | State machine in §5.3; `requested_by` is empty for runs a schedule started |
 | `JobEvent` | job, time, type (`progress`, `log`, `state`), payload | Progress and logs without cell values |
 | `Artifact` | job, kind (`data`, `bad_rows`, `manifest`, `metadata`, `preview`), object key, rows, bytes, sha256, expires_at | Downloads go through permission checks and presigned GETs |
 | `RetentionPolicy` | scope (installation, classification, dataset), days per kind (uploads, data, bad_rows, previews, metadata, job_records; null = keep until deleted) | Set by admins (§5.7) |
-| `Schedule` | dataset, cron expression, timezone, enabled, next_run_at | A small scheduler loop in the gateway enqueues jobs (not built yet) |
+| `Schedule` | dataset, cron expression, timezone (IANA), enabled, next_run_at, last_run_at, last_outcome (`queued`, `skipped_overlap`, `missed`, `failed_to_enqueue`), last_message, last_job | Only datasets with a source connection. The dispatcher (`forklift-web dispatch`) enqueues each due slot once, as the system; a schedule is deleted with its dataset |
+| `Webhook` | owner, url, secret (encrypted), events, job kinds, scope (a dataset, the owner's jobs, or all jobs for admins), active, consecutive_failures (failed attempts in a row), backoff_until (the circuit breaker) | Signed notifications of job outcomes ([webhooks](../platform/webhooks.md)) |
+| `WebhookDelivery` | webhook, job, event, the exact body, status, attempts, next_attempt_at, last status code and error | The outbox: written in the transaction that finishes the job, sent by the dispatcher |
+| `SignInThrottle` | kind (`user`, `ip`), key (normalised username or address, IPv6 by /64), failures, window_started_at, locked_until | Failed password checks; a lock refuses sign-in before the password is checked; admins unlock (§8) |
 | `AuditLog` | actor, action, object, time, request id, ip | Downloads of sensitive artifacts, connection changes, token use |
 | `Worker` | id, lanes, versions, last_seen | For the admin view and lease bookkeeping |
 | `WorkerToken` | name, prefix, hash, expires_at, revoked_at | Created by admins; accepted only by `/internal/v1` |
-| `InstallationSetting` | key, value | Admin-set values with defaults in code (stage_max_bytes, lease_seconds, max_attempts, lane limits, URL lifetimes) |
+| `InstallationSetting` | key, value | Admin-set values with defaults in code (stage_max_bytes, lease_seconds, max_attempts, lane limits, URL lifetimes, sign-in limits, schedule catch-up, webhook limits) |
 
 ### 5.2 Roles
 
@@ -245,7 +248,7 @@ Every download is audited, admins' included. Tokens carry scopes that can only n
 
 | Role | Scopes (each role includes the one above) |
 |---|---|
-| Viewer | `schemas:read`, `datasets:read`, `connections:read`, `jobs:read`, `artifacts:read`, `tokens:read`, `tokens:write` |
+| Viewer | `schemas:read`, `datasets:read`, `connections:read`, `jobs:read`, `artifacts:read`, `tokens:read`, `tokens:write`, `webhooks:read`, `webhooks:write` |
 | Operator | + `uploads:read`, `uploads:write`, `jobs:run` |
 | Author | + `schemas:write`, `datasets:write` |
 | Admin | + `admin:read`, `admin:write` |
@@ -273,6 +276,14 @@ connections are used by the roles they allow.
 - A lease is (worker token, attempt); calls about a job the worker no longer holds answer `409`.
   Lease calls requeue expired leases; on the last attempt the job fails with `LEASE_EXPIRED`, or
   is cancelled if cancellation was requested.
+- Schedules enqueue through the same path. The dispatcher claims each due schedule with
+  `SELECT ... FOR UPDATE SKIP LOCKED` and creates the run as the system, with the idempotency key
+  `schedule:<id>:<slot>`, so one slot is one job. A slot is skipped while the schedule's previous
+  run is queued or running; after downtime only the most recent missed slot runs, if it is at
+  most `schedule_catch_up_seconds` old ([schedules](../platform/schedules.md)).
+- When a job finishes (succeeded, failed or cancelled), the same transaction writes a delivery for
+  each webhook that covers it; a run published to an `s3` destination is announced after the
+  publish, so a failed publish is never announced as a success.
 
 ### 5.4 APIs
 
@@ -288,15 +299,19 @@ connections are used by the roles they allow.
 | `POST /jobs` (with `Idempotency-Key`), `GET /jobs/{id}`, `GET /jobs/{id}/events`, `POST /jobs/{id}/cancel` | Jobs |
 | `GET /jobs/{id}/artifacts`, `GET /artifacts/{id}/download` | Results; downloads are presigned and audited |
 | `GET/POST /tokens` | API tokens |
-| Webhooks (per dataset or token) | Job finished / failed, signed with HMAC |
+| `GET/POST /datasets/{id}/schedules`, `GET /schedules`, `GET/PATCH/DELETE /schedules/{id}`, `POST /schedules/preview` | Schedules: a cron expression in an IANA time zone; the preview lists the next runs |
+| `GET/POST /webhooks`, `GET/PATCH/DELETE /webhooks/{id}`, `POST /webhooks/{id}/rotate-secret`, `POST /webhooks/{id}/test` (queues a test event: 202), `GET /webhooks/{id}/deliveries`, redelivery | Job succeeded / failed / cancelled, signed with HMAC-SHA256 ([webhooks](../platform/webhooks.md)) |
 
 **Internal** (`/internal/v1`, separate port, not routed by the ingress, worker tokens only):
 `POST /leases` (lanes, accepted spec versions → a job or 204), `POST /jobs/{id}/heartbeat`,
-`POST /jobs/{id}/complete`, `POST /jobs/{id}/presign` (more upload URLs for outputs),
-`POST /jobs/{id}/input-url` (a fresh presigned URL for a streamed input). One gateway process
+`POST /jobs/{id}/complete`, `POST /jobs/{id}/presign` (upload URLs for outputs: one PUT, or a
+multipart upload for a large file), `POST /jobs/{id}/parts` (more or fresh part URLs for a
+multipart output upload), `POST /jobs/{id}/input-url` (a fresh presigned URL for a streamed
+input; 400 when the input is not streamed, 410 when it is gone). One gateway process
 serves both ports and routes each request by the local port its connection arrived on, never by
 a header. The admin endpoints (`/api/v1/admin/...`: users and roles, tokens, worker tokens,
-workers, retention, audit log, settings) are part of the public API and need the Admin role.
+workers, retention, audit log, settings, webhooks, sign-in locks) are part of the public API and
+need the Admin role.
 
 ### 5.5 UI
 
@@ -306,6 +321,18 @@ for most pages, easy to keep accessible. The schema editor is the exception: a J
 (types, required, nulls, transformations, keys, validation rules), live validation results and the
 generated-from-sample starting point. Because every screen is backed by `/api/v1`, a richer front
 end can replace pages later without touching the back end.
+
+As built: the schema editor is CodeMirror 6 (bundled from `services/web/frontend/`, checked for
+reproducibility in CI), mounted in a shadow root so that its run-time styles are constructed
+style sheets the strict Content-Security-Policy allows (no nonce, no `'unsafe-inline'`). The
+page's text area remains the form field, so the page works without JavaScript. Completion is
+generated from `schema-standards/`; diagnostics are JSON syntax in the browser and, after a pause,
+`POST /schemas/check/`, which runs the gateway's save checks plus the shape checks the engine
+applies at load (never expressions or regular expressions) and returns each problem's JSON path.
+A Columns view edits the common cases (order, type and nullability, format, `x-special-type`,
+required, primary key, unique, JSON Schema rules, transformation steps) and keeps all other keys
+and their order. The editor starts from a generated schema (a `generate_schema` job) and checks
+drafts against an upload (a `validate_schema` job) ([schema editor](../platform/schema-editor.md)).
 
 ### 5.6 Secrets
 
@@ -321,7 +348,8 @@ previews, job records), either "keep *n* days" or "keep until deleted", and it c
 levels: the installation, each classification, and each dataset (the most specific one wins). A new
 installation keeps everything until an admin sets a policy; the admin screens show a warning while
 `sensitive` datasets have no expiry. A sweeper in the gateway deletes expired objects and records
-each deletion in the audit log. Job records can outlive their artifacts so history stays readable.
+each deletion in the audit log. It also aborts stale multipart output uploads, deletes webhook
+deliveries with their jobs' records, and drops sign-in counters whose window and lock have ended. Job records can outlive their artifacts so history stays readable.
 
 ## 6. Workers
 
@@ -342,12 +370,21 @@ Inputs reach the engine one of two ways, chosen per input by size
 | Mode | When | How | Engine network |
 |---|---|---|---|
 | **Staged** | Inputs up to `stageMaxBytes` (admin setting; default 2 GiB) | The supervisor downloads the object through a presigned GET into scratch and the spec points at the local copy | None needed: the `no-network` profile applies |
-| **Streamed** | Larger inputs (planned for well beyond 10 GB) | The spec carries a presigned URL for that one object. The engine reads it as a forward-only stream (resuming with range requests after a dropped connection) plus small range reads for header detection. When a URL is about to expire, the engine asks the supervisor for a fresh one over the pipe | The object store endpoint only |
+| **Streamed** | Larger inputs (planned for well beyond 10 GB) | The spec carries a presigned URL for that one object. The engine reads it as a forward-only stream (resuming with range requests after a dropped connection) plus small range reads for header detection. When a URL is about to expire (SigV4 `X-Amz-Date` + `X-Amz-Expires`) or the store refuses it (403, or 400 `ExpiredToken` once temporary signing credentials have ended), the engine asks the supervisor for a fresh one over its pipes (`run-job --input-url-requests`: a `{"type": "input_url"}` line on stdout, one answer line on stdin); the supervisor gets it from `POST /internal/v1/jobs/{id}/input-url`, which signs the same object again for as long as at lease time. A fresh URL must name the same object, and `If-Match` keeps the bytes the same | The object store endpoint only |
 
 Outputs are written to scratch and uploaded by the supervisor with presigned multipart PUTs.
 Parquet output is compressed and usually much smaller than the text it came from, so scratch is
 sized for outputs, not inputs; streaming outputs directly is a later option if that stops being
 true.
+
+As built: an output up to `multipart_threshold_bytes` (256 MiB) goes up with one PUT; a larger one
+(up to `output_max_bytes`: 1 TiB by default, 5 TiB at most) as a multipart upload in parts of
+`multipart_part_bytes`, at most 10,000 parts, each with `Content-MD5`. The worker reports a
+multipart output by its part count and a sha256 of its parts' ETags; the gateway checks that
+against the parts the store holds (and every other check that can refuse the completion) before
+completing anything, aborts what an attempt leaves pending when the attempt ends, and the sweeper
+aborts stale uploads. A failed publish fails the job and is announced; a publish the gateway
+stopped in the middle of is not resumed.
 
 When the engine exits, the supervisor uploads the artifacts, reports the `JobResult`, deletes the
 scratch directory and takes the next lease. One job per engine process: a crash, a leak or an
@@ -405,8 +442,9 @@ destinations are written by the engine itself (`sql_table`, ADR 0007).
 | Destination prefixes (per connection) | Publish step | Downstream consumers | Owned by the destination |
 
 The gateway's storage credential is split by purpose where the store supports policies: an upload
-signer (`PutObject` on `uploads/`), a download signer (`GetObject` on `jobs/` and `previews/`), and
-a retention sweeper (`DeleteObject`). The gateway never reads objects itself, but it can sign URLs
+signer (`PutObject` on `uploads/`, and listing the parts of multipart uploads), a download signer
+(`GetObject` on `jobs/` and `previews/`), and a retention sweeper (`DeleteObject`, and listing and
+aborting multipart uploads under `jobs/`). The gateway never reads objects itself, but it can sign URLs
 that do, so this is policy plus least privilege, not a hard guarantee; §8 lists it as a residual risk.
 
 ### 7.2 Local file systems
@@ -434,7 +472,8 @@ Parquet and publishes all-or-nothing ([ADR 0007](adr/0007-database-sources-and-t
 
 | Asset | Threat | Mitigation |
 |---|---|---|
-| Accounts, tokens | Credential theft, brute force | Hashed tokens with prefixes and expiry, rate limiting, password policy, audit log; OIDC later |
+| Accounts, tokens | Credential theft, brute force | Hashed tokens with prefixes and expiry, rate limiting (attempts reserved before the password check and counted per username and per client address in Postgres; a lock refuses attempts before the password is checked; admins unlock), password policy, audit log; OIDC later |
+| Gateway outbound requests | Server-side request forgery through webhook URLs | `https` only; every resolved address must be public unless the deployment allow-lists the host; the connection is pinned to the checked address; TLS checked against the host name; no redirects; a 10 s limit that includes the DNS lookup; answer bodies never read; the gateway never sends a webhook on a request thread (test events are queued for the dispatcher); a per-webhook circuit breaker and turn-taking keep one receiver from holding up the others |
 | Gateway | Exploit through a malicious file or schema | The gateway never parses data or runs schema logic; uploads go straight to the store |
 | Workers | Exploit through a malicious file, schema expression or regular expression | Engine hardening already in place (whitelist expression interpreter, ReDoS guard, Excel size and zip-bomb limits, validated SQL identifiers, output path checks); per-job process with rlimits; isolation profiles; no credentials in the engine process; engine network limited to the object store (none for staged inputs) |
 | Other jobs' data | A compromised worker reaching beyond its job | Presigned URLs per job and object; worker tokens can only lease, heartbeat and complete; no database access |
@@ -448,7 +487,9 @@ read stored data if the gateway were fully compromised; SQL credentials reach th
 for the duration of a job; the `standard` profile relies on container isolation rather than a
 sandboxed runtime; an engine streaming a large input can open connections to the object store
 (though only its own presigned URLs grant access to anything); a new installation deletes nothing
-until an admin sets retention.
+until an admin sets retention; anyone who knows a username can lock its sign-in for
+`sign_in_lock_seconds`, and behind proxies the per-address limit depends on
+`FORKLIFT_TRUSTED_PROXIES`.
 
 **Data classification** keeps "sometimes public, sometimes PII" manageable: a dataset's
 classification sets defaults (retention, who may preview, whether downloads are audited) instead of
@@ -488,11 +529,13 @@ Workers sit on an `internal` Docker network that reaches only the gateway's inte
 RustFS; with an external store, an optional allow-listing proxy service limits their egress to that
 store's host. It is the development environment and a supported way to run a small installation.
 
-As built: `deploy/compose/docker-compose.yml` has `gateway`, `worker`, `sweeper`, `postgres` and
-`rustfs`, plus a one-shot `init` (migrations, the first admin, the bucket and its CORS rule, and
+As built: `deploy/compose/docker-compose.yml` has `gateway`, `worker`, `sweeper`, `dispatcher`,
+`postgres` and `rustfs`, plus a one-shot `init` (migrations, the first admin, the bucket and its CORS rule, and
 a worker token in a volume only the worker mounts). Three networks: `public` (the gateway's public
 port and the store, published), `internal` (no route out: gateway, worker, store) and `db`
-(PostgreSQL and the gateway processes). The `caddy`, `mcp` and egress-proxy profiles are not built
+(PostgreSQL and the gateway processes). The `dispatcher` (`forklift-web dispatch --every=10`)
+queues scheduled runs and sends webhook deliveries; besides `internal` and `db` it is on `public`,
+because webhooks need a route out. The `caddy`, `mcp` and egress-proxy profiles are not built
 yet. `deploy/compose/e2e` holds the end-to-end tests CI runs against it.
 
 ### 10.2 Helm
@@ -587,7 +630,7 @@ These are small, useful on their own to library users, and the foundation for ev
 | Schema accepted as a dict as well as a file | Specs carry the schema inline |
 | `import_csv(..., s3_client=)` / S3 endpoint option | Library users on S3-compatible stores (`import_sql` already takes `s3_client`; `import_csv` builds a default client) |
 | `preview(source, schema=None, rows=n)` | The preview job |
-| Arrow's streaming CSV reader for remote inputs: a `presigned_url` location read as a forward-only HTTP stream that resumes with range requests, small range reads for header detection, and a callback to refresh an expiring URL | Streamed inputs (§6.1). The same reader would speed up `s3://` inputs, which today go through Python's `csv` module row by row; only local files use Arrow's reader |
+| Arrow's streaming CSV reader for remote inputs: a `presigned_url` location read as a forward-only HTTP stream that resumes with range requests, small range reads for header detection, and a callback to refresh an expiring URL (built: `run_job(..., refresh_input_url=)`) | Streamed inputs (§6.1). The same reader would speed up `s3://` inputs, which today go through Python's `csv` module row by row; only local files use Arrow's reader |
 | `presigned_url` locations accepted only through `run_job`, and only for hosts the caller allows (the worker passes the store's endpoint) | Keeps the SSRF guard: schema generation and the public API still reject URLs from users |
 | Footer detection without copying the input | It currently writes a filtered temporary copy, which for a streamed input would be a full local copy |
 | Uniqueness checks with bounded memory | The constraint validator keeps one in-memory entry per distinct key, which for hundreds of millions of keys means many gigabytes; spill key sets to scratch (for example in hashed partitions) above a threshold |
@@ -600,8 +643,8 @@ These are small, useful on their own to library users, and the foundation for ev
 | M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI; a streamed CSV (presigned URL against RustFS) gives the same output as the local file |
 | M2 | `forklift-mcp` (stdio) | An agent can generate, validate and apply a schema to a local file and explain a failed run |
 | M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; staged and streamed inputs both work; the four roles and the admin screens; database connections as sources and destinations on the `sql` lane; an end-to-end Compose test runs in CI and a run on an input larger than 10 GB runs on demand |
-| M4 | Helm, hardening, authoring | Chart with NetworkPolicies and isolation profiles; schema editor; connections admin (S3-compatible, localfs); datasets, schedules, retention, audit |
-| M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC |
+| M4 | Helm, hardening, authoring | Chart with NetworkPolicies and isolation profiles; schema editor; connections admin (S3-compatible, localfs); datasets, schedules, retention, audit. Built so far: the schema editor, connections admin, datasets, schedules, retention, audit and a sign-in rate limit; not yet the chart |
+| M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC. Built so far: webhooks |
 | M6 | Cloud warehouses | Snowflake, Databricks and BigQuery as sources and targets through their own bulk-load paths; tests that run in CI when an account's credentials are configured ([ADR 0007](adr/0007-database-sources-and-targets.md)) |
 
 ## 14. Alternatives considered

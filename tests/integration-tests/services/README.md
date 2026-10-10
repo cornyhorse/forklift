@@ -65,6 +65,14 @@ names one explicitly. CI installs all four on `ubuntu-latest` (the services job 
 - **`test_sql_types.py`**: SQL Server (`money`, `datetime2`, `datetimeoffset`,
   `uniqueidentifier`, `rowversion`, ...) and Oracle (`NUMBER` with and without precision,
   `DATE`, time-zone timestamps, `CLOB`, `RAW`, `BOOLEAN`, ...) types as they arrive in Parquet.
+- **`test_sql_targets.py`** (each test on all four databases): `forklift.outputs.sql.write_table`
+  creates every mapped Arrow type as the documented column type and reads it back unchanged;
+  `create`, `append`, `replace` and `upsert` with and without a staging table; a value that does
+  not fit, a cancellation and a killed process leave the table unchanged, and a retry with the
+  same `job_id` drops the staging table a killed attempt left; logins without `CREATE` (the
+  error suggests `staging="none"`), `INSERT`, `DELETE` or `UPDATE` are refused with the
+  privilege named; wrong passwords never echoed. `sql_target_helpers.py` adds a login that may
+  stage but not delete or update, and reads values back portably.
 - **`test_s3_object_store.py`**: CSV, Excel and SQL exports to and from the store; the
   `x-validation` threshold keeping `bad_rows.parquet`; read-only credentials; writers confined
   to the prefix they were granted; refused reads reported as refused, not missing; no objects or
@@ -120,6 +128,8 @@ every database:
   `select.columns` lists (and `USAGE` on their schema in PostgreSQL). Nothing else: forklift only
   reads, and makes its sessions read-only on PostgreSQL, MySQL, MariaDB and SQLite and its
   transactions read-only on Oracle (SQL Server: connect as a login that may only `SELECT`).
+- **Database target** (`write_table`): see the privileges table in
+  [forklift.outputs.sql.readme.md](../../../src/forklift/outputs/sql/forklift.outputs.sql.readme.md).
 - **S3 input**: `s3:GetObject` on the input and schema objects. No `s3:ListBucket`.
 - **S3 output**: `s3:PutObject`, `s3:AbortMultipartUpload` (to clean up a failed upload) and
   `s3:DeleteObject` (outputs of an earlier run in the same destination are removed first) on the

@@ -212,16 +212,3 @@ class FwfConfigValidator:
         if config.conditional_schemas:
             for schema in config.conditional_schemas:
                 FwfSchemaValidator.validate_schema(schema)
-
-    @staticmethod
-    def _validate_field_overlaps(fields: List[FwfFieldSpec]) -> None:
-        """Validate that fields don't overlap.
-
-        Args:
-            fields: List of field specifications to validate
-
-        Raises:
-            ValueError: If fields overlap
-        """
-        # Delegate to the schema validator
-        FwfSchemaValidator.validate_field_positions(fields)

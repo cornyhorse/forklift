@@ -117,11 +117,6 @@ class SqlTypeConverter:
         # SQL Server reports identity columns as e.g. "int identity"
         sql_type = re.sub(r"\s+IDENTITY$", "", sql_type.strip().upper())
 
-        # Use schema importer mapping if available
-        if self.schema_importer and hasattr(self.schema_importer, "parquet_type_mapping"):
-            # This would need to be enhanced to map SQL types to Parquet types
-            pass
-
         # Map common SQL types to PyArrow types
         if sql_type in ("INT", "INTEGER", "INT4"):
             return pa.int32()

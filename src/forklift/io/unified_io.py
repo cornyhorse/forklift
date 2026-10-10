@@ -423,8 +423,7 @@ class S3ParquetWriter:
 
     def _remove_temp_file(self) -> None:
         try:
-            if self._temp_path is not None:
-                self._temp_path.unlink()
+            self._temp_path.unlink()
         except Exception:
             pass  # Best effort cleanup
 

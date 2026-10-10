@@ -383,10 +383,7 @@ class S3StreamingWriter:
         return return_count
 
     def _upload_part(self):
-        """Upload current buffer as a part."""
-        if self._buffer.tell() == 0:
-            return
-
+        """Upload the current (non-empty) buffer as a part."""
         # Get buffer contents
         self._buffer.seek(0)
         part_data = self._buffer.read()

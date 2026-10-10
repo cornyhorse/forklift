@@ -451,6 +451,23 @@ class TestExcelSchemaImporter:
         assert "Invalid regex pattern for field 'invalid_string_field'" in error_msg
         assert "Array field 'invalid_array_field' items must be an object" in error_msg
 
+    def test_validation_rejects_min_length_above_max_length(self, valid_excel_schema):
+        valid_excel_schema["properties"]["name"]["minLength"] = 10
+        valid_excel_schema["properties"]["name"]["maxLength"] = 5
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            ExcelSchemaImporter(valid_excel_schema, validate=True)
+
+        assert "minLength must not exceed maxLength for string field 'name'" in str(exc_info.value)
+
+    def test_validation_accepts_equal_min_and_max_length(self, valid_excel_schema):
+        valid_excel_schema["properties"]["name"]["minLength"] = 5
+        valid_excel_schema["properties"]["name"]["maxLength"] = 5
+
+        importer = ExcelSchemaImporter(valid_excel_schema, validate=True)
+
+        assert importer.schema["properties"]["name"]["maxLength"] == 5
+
 
 class TestExcelSchemaImporterParquetTypes:
     """Test Parquet type validation in Excel schema importer."""

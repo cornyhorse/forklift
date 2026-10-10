@@ -253,21 +253,18 @@ class MetadataGenerator:
         config: Dict[str, Any],
         include_values: bool = False,
         counted: Optional[Tuple[pa.Array, pa.Array]] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """Analyze if a column is a good candidate for enum type.
 
         Args:
             column_name: Name of the column
-            non_null: Non-null values of the column (hashable type)
+            non_null: Non-null values of the column (hashable type, at least one value)
             distinct_count: Number of distinct values in ``non_null``
             config: Analysis configuration (thresholds)
             include_values: Whether the enum value list may be embedded in the result
             counted: Value counts by descending frequency, if already computed
         """
         total_count = len(non_null)
-        if total_count == 0:
-            return None
-
         uniqueness_ratio = distinct_count / total_count
 
         enum_threshold = config.get("enum_threshold", 0.1)

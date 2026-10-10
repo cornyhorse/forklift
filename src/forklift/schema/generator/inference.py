@@ -172,8 +172,7 @@ class DataTypeInferrer:
             delimiter=delimiter, quote_char='"', double_quote=True, newlines_in_values=True
         )
 
-        for attempt, block_size in enumerate(block_sizes):
-            is_last = attempt == len(block_sizes) - 1
+        for block_size in block_sizes:
             read_options = pv_csv.ReadOptions(
                 encoding=encoding, use_threads=False, block_size=block_size
             )
@@ -192,15 +191,15 @@ class DataTypeInferrer:
                     raise ValueError(
                         f"Failed to read CSV sample: {self._csv_error(exc)}"
                     ) from None
-                if is_last:
-                    raise ValueError(
-                        "Failed to read CSV sample: a header or record is larger than the "
-                        "maximum supported size"
-                    ) from None
             except UnicodeError:
                 raise ValueError(
                     f"Failed to read CSV sample: data is not valid {encoding} text"
                 ) from None
+        else:
+            raise ValueError(
+                "Failed to read CSV sample: a header or record is larger than the "
+                "maximum supported size"
+            )
 
         if nrows is not None and table.num_rows > nrows:
             table = table.slice(0, nrows)
@@ -270,10 +269,16 @@ class DataTypeInferrer:
             if len(head) >= block_size or stream.read(1):
                 return None
         try:
-            text = head.decode(encoding)
+            # Arrow drops a BOM itself; the names must match the names it reports
+            text = head.decode(encoding).lstrip("\ufeff")
+        except UnicodeError:
+            raise ValueError(
+                "Failed to read CSV sample: invalid text for the configured encoding"
+            ) from None
+        try:
             header = next(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter), [])
-        except (UnicodeError, csv.Error):
-            header = []
+        except csv.Error:
+            raise ValueError("Failed to read CSV sample: invalid CSV header") from None
         if not header:
             raise ValueError("Failed to read CSV sample: file is empty") from None
         return pa.table({name: pa.array([], pa.string()) for name in header})

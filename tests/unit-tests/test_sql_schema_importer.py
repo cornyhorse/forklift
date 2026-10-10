@@ -907,3 +907,59 @@ class TestSqlSchemaImporterComprehensiveCoverage:
         assert importer.matches_include_pattern("any_schema", "any_table") == True
         assert importer.matches_include_pattern(None, "any_table") == True
         assert importer.matches_include_pattern("", "") == True
+
+
+class TestSqlSchemaImporterTableLookupAndColumnRules:
+    """Table lookup by name and validation of column length bounds and SQL type mappings."""
+
+    @staticmethod
+    def _schema(tables, **x_sql):
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/test.json",
+            "title": "Test Schema",
+            "type": "object",
+            "properties": {"id": {"type": "integer"}},
+            "x-sql": {"tables": tables, **x_sql},
+        }
+
+    def test_empty_schema_name_finds_a_table_without_schema(self):
+        tables = [
+            {"select": {"schema": "sales", "name": "users"}, "outputName": "sales_users"},
+            {"select": {"name": "users"}, "outputName": "plain_users"},
+        ]
+        importer = SqlSchemaImporter(self._schema(tables))
+
+        assert importer.get_table_by_name("", "users")["outputName"] == "plain_users"
+        assert importer.get_table_by_name("sales", "users")["outputName"] == "sales_users"
+        assert importer.get_table_by_name("", "orders") is None
+
+    def test_lookup_skips_tables_with_malformed_select(self):
+        tables = [
+            {"select": "users", "outputName": "broken"},
+            {"select": {"name": "users"}, "outputName": "plain_users"},
+        ]
+        importer = SqlSchemaImporter(self._schema(tables), validate=False)
+
+        assert importer.get_table_by_name(None, "users")["outputName"] == "plain_users"
+
+    def test_min_length_above_max_length_is_rejected(self):
+        columns = {"code": {"type": "string", "minLength": 5, "maxLength": 2}}
+        tables = [{"select": {"name": "codes"}, "columns": columns}]
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            SqlSchemaImporter(self._schema(tables))
+
+        assert "Table 0 column 'code' minLength exceeds maxLength" in str(exc_info.value)
+
+    @pytest.mark.parametrize("sql_type", ["", "   "], ids=["empty", "blank"])
+    def test_sql_to_parquet_mapping_keys_must_name_a_sql_type(self, sql_type):
+        mapping = {"sqlToParquet": {sql_type: "int32"}}
+        schema = self._schema([{"select": {"name": "codes"}}], parquetTypeMapping=mapping)
+
+        with pytest.raises(SchemaValidationError) as exc_info:
+            SqlSchemaImporter(schema)
+
+        assert "x-sql.parquetTypeMapping.sqlToParquet keys must be SQL type names" in str(
+            exc_info.value
+        )

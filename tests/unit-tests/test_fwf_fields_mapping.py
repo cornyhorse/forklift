@@ -195,6 +195,37 @@ class TestFieldMapper:
         assert result["type2_specific"]["_appears_in_variants"] == ["TYPE2"]
         assert result["type3_specific"]["_appears_in_variants"] == ["TYPE3"]
 
+    def test_get_all_possible_fields_lists_each_flag_value_once(self):
+        """Variants that share a flag value (or repeat a field) record that value once."""
+        schema_variants = [
+            {
+                "flagValue": "H",
+                "fields": [
+                    {"name": "code", "start": 2, "length": 3, "parquetType": "string"},
+                    {"name": "code", "start": 5, "length": 3, "parquetType": "string"},
+                ],
+            },
+            {
+                "flagValue": "H",
+                "fields": [{"name": "code", "start": 2, "length": 3, "parquetType": "string"}],
+            },
+            {
+                "flagValue": "D",
+                "fields": [{"name": "code", "start": 2, "length": 3, "parquetType": "string"}],
+            },
+        ]
+
+        result = FieldMapper.get_all_possible_fields(
+            has_conditional_schemas=True,
+            traditional_fields=[],
+            flag_column=None,
+            schema_variants=schema_variants,
+        )
+
+        assert list(result) == ["code"]
+        assert result["code"]["_appears_in_variants"] == ["H", "D"]
+        assert result["code"]["start"] == 2
+
     def test_get_all_possible_fields_conditional_fields_without_names(self):
         """Test get_all_possible_fields with variant fields missing names."""
         schema_variants = [

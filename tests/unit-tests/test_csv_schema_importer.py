@@ -882,3 +882,62 @@ class TestSpecificCoverageTargets:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+class TestCsvSchemaImporterCalculatedColumnAccessors:
+    """Accessors for the ``x-calculatedColumns`` and ``x-rowHash`` sections."""
+
+    @staticmethod
+    def _importer(**extensions):
+        schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://github.com/cornyhorse/forklift/schema-standards/orders.json",
+            "title": "Orders",
+            "type": "object",
+            "properties": {"id": {"type": "integer"}, "region": {"type": "string"}},
+            "x-csv": {"delimiter": ","},
+        }
+        schema.update(extensions)
+        return CsvSchemaImporter(schema)
+
+    def test_sections_are_returned_as_written(self):
+        calculated = {"constants": [{"name": "source", "value": "crm"}]}
+        row_hash = {"enabled": True, "columns": ["id"]}
+
+        importer = self._importer(**{"x-calculatedColumns": calculated, "x-rowHash": row_hash})
+
+        assert importer.get_calculated_columns_config() is calculated
+        assert importer.get_row_hash_config() is row_hash
+
+    def test_schema_without_sections_has_no_calculated_columns(self):
+        importer = self._importer()
+
+        assert importer.get_calculated_columns_config() is None
+        assert importer.get_row_hash_config() is None
+        assert importer.has_calculated_columns() is False
+        assert importer.get_partition_columns() == []
+        assert importer.get_index_columns() == []
+
+    @pytest.mark.parametrize("kind", ["constants", "expressions", "calculated"])
+    def test_any_non_empty_definition_list_counts(self, kind):
+        importer = self._importer(**{"x-calculatedColumns": {kind: [{"name": "x"}]}})
+
+        assert importer.has_calculated_columns() is True
+
+    def test_only_empty_definition_lists_count_as_none(self):
+        section = {"constants": [], "expressions": [], "calculated": [], "partitionColumns": []}
+
+        assert self._importer(**{"x-calculatedColumns": section}).has_calculated_columns() is False
+
+    def test_partition_and_index_columns_default_to_empty(self):
+        importer = self._importer(**{"x-calculatedColumns": {"constants": [{"name": "x"}]}})
+
+        assert importer.get_partition_columns() == []
+        assert importer.get_index_columns() == []
+
+    def test_partition_and_index_columns_are_returned(self):
+        section = {"partitionColumns": ["region"], "indexColumns": ["id", "region"]}
+        importer = self._importer(**{"x-calculatedColumns": section})
+
+        assert importer.get_partition_columns() == ["region"]
+        assert importer.get_index_columns() == ["id", "region"]

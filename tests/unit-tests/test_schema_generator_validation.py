@@ -187,6 +187,19 @@ class TestSchemaValidator:
         assert is_compatible == False
         assert any("Required field 'id' has null values" in issue for issue in issues)
 
+    def test_validate_data_compatibility_required_field_missing_from_data(self):
+        """A required field the data lacks is reported as missing, not as having nulls."""
+        schema = {
+            "properties": {"id": {"type": "string"}, "name": {"type": "string"}},
+            "required": ["name", "id"],
+        }
+        table = pa.table({"id": ["1", "2"]})
+
+        is_compatible, issues = SchemaValidator.validate_data_compatibility(schema, table)
+
+        assert is_compatible is False
+        assert issues == ["Columns missing in data: name"]
+
     def test_validate_transformation_config_valid(self):
         """Test transformation config validation with valid config."""
         transform_config = {

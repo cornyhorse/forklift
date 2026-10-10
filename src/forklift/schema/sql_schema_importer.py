@@ -555,13 +555,6 @@ class SqlSchemaImporter:
         # Individual tables are explicitly listed in the schema
         return True
 
-    def _matches_pattern(
-        self, full_name: str, pattern: str, schema_name: Optional[str], table_name: str
-    ) -> bool:
-        """Check if a table matches a specific pattern - deprecated."""
-        # No longer used since we use explicit table lists instead of glob patterns
-        return True
-
     def _user_sql_to_parquet_mapping(self) -> Dict[str, str]:
         """The user's ``sqlToParquet`` entries, keyed by upper-cased SQL type name."""
         mapping = (

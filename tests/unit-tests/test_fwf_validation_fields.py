@@ -301,3 +301,45 @@ class TestFieldValidator:
 
             errors = FieldValidator._validate_single_field(field, 0, set())
             assert errors == []
+
+
+class TestFieldValidatorTypesAndDuplicates:
+    """Type problems and repeated names inside conditional variants."""
+
+    @staticmethod
+    def _conditional(fields):
+        return {
+            "flagColumn": {"name": "flag", "start": 1, "length": 1},
+            "schemas": [{"flagValue": "A", "fields": fields}],
+        }
+
+    def test_type_without_a_non_null_member_is_reported(self):
+        field = {"name": "note", "start": 1, "length": 5, "type": ["null"]}
+
+        errors = FieldValidator._validate_single_field(field, "note", set())
+
+        assert errors == ["Field note: must declare at least one non-null type"]
+
+    def test_duplicate_names_in_a_variant_are_rejected_by_default(self):
+        schemas = self._conditional(
+            [
+                {"name": "code", "start": 2, "length": 3},
+                {"name": "code", "start": 5, "length": 3},
+            ]
+        )
+
+        errors = FieldValidator.validate_conditional_fields(schemas)
+
+        assert errors == ["Field variant 0 field 1 duplicate name 'code'"]
+
+    def test_duplicate_names_in_a_variant_are_allowed_when_requested(self):
+        schemas = self._conditional(
+            [
+                {"name": "code", "start": 2, "length": 3},
+                {"name": "code", "start": 5, "length": 3},
+            ]
+        )
+
+        assert (
+            FieldValidator.validate_conditional_fields(schemas, allow_duplicate_names=True) == []
+        )

@@ -335,3 +335,49 @@ class TestDataTypeConverter:
         assert result["has_currency_symbols"] == True
         assert result["has_parentheses_negative"] == True
         assert result["has_thousands_separator"] == True
+
+
+def _nested_list(levels: int, inner: str = "int32") -> str:
+    return "list<" * levels + inner + ">" * levels
+
+
+class TestDataTypeConverterParquetTypeStrings:
+    """The ``parquetType`` helpers exposed as ``DataTypeConverter`` static methods."""
+
+    def test_parquet_type_string_round_trips_through_arrow(self):
+        arrow_type = pa.timestamp("us", tz="UTC")
+
+        type_string = DataTypeConverter.arrow_to_parquet_type_string(arrow_type)
+
+        assert type_string == "timestamp[us, tz=UTC]"
+        assert DataTypeConverter.parquet_type_string_to_arrow(type_string) == arrow_type
+
+    def test_nesting_up_to_the_limit_is_accepted(self):
+        arrow_type = DataTypeConverter.parquet_type_string_to_arrow(_nested_list(8))
+
+        for _ in range(8):
+            assert pa.types.is_list(arrow_type)
+            arrow_type = arrow_type.value_type
+        assert arrow_type == pa.int32()
+
+    def test_nesting_beyond_the_limit_is_rejected(self):
+        with pytest.raises(ValueError, match="type is nested too deeply"):
+            DataTypeConverter.parquet_type_string_to_arrow(_nested_list(9))
+        assert DataTypeConverter.is_valid_parquet_type(_nested_list(9)) is False
+
+    @pytest.mark.parametrize(
+        "parquet_type, valid",
+        [("decimal128(10,2)", True), ("decimal128(39,2)", False), (42, False)],
+    )
+    def test_is_valid_parquet_type(self, parquet_type, valid):
+        assert DataTypeConverter.is_valid_parquet_type(parquet_type) is valid
+
+    @pytest.mark.parametrize(
+        "types, expected",
+        [(["int8", "int32"], "int32"), (["date32", "timestamp[ms]"], "timestamp[ms]")],
+    )
+    def test_unify_parquet_types_widens_compatible_types(self, types, expected):
+        assert DataTypeConverter.unify_parquet_types(types) == expected
+
+    def test_unify_parquet_types_rejects_incompatible_types(self):
+        assert DataTypeConverter.unify_parquet_types(["string", "int32"]) is None

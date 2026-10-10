@@ -59,6 +59,11 @@ One page per extension:
 - [S3_TESTING.md](aws/S3_TESTING.md): how the S3 code paths are tested
 - [S3_GITHUB_ACTIONS_SETUP.md](aws/S3_GITHUB_ACTIONS_SETUP.md): S3 integration tests in GitHub Actions
 
+## Design (`design/`)
+
+- [README.md](design/README.md): design documents and architecture decision records
+- [platform.md](design/platform.md): proposed platform around the engine: library, CLI, web service with a REST API, and MCP, with data processing isolated in workers
+
 ## Package readmes (`src/forklift/`)
 
 | Package | Readme |

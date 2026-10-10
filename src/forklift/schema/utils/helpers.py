@@ -316,6 +316,6 @@ def to_json_safe(value: Any) -> Any:
     if callable(item):
         try:
             return to_json_safe(item())
-        except Exception:  # pragma: no cover - defensive
+        except Exception:
             pass
     return str(value)

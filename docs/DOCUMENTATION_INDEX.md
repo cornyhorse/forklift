@@ -63,6 +63,7 @@ One page per extension:
 
 - [README.md](design/README.md): design documents and architecture decision records
 - [platform.md](design/platform.md): proposed platform around the engine: library, CLI, web service with a REST API, and MCP, with data processing isolated in workers
+- [contracts/](../contracts): the job contract's JSON Schemas (`jobspec`, `jobresult`) and the gateway's OpenAPI document, generated and checked in
 
 ## Package readmes (`src/forklift/`)
 
@@ -80,7 +81,8 @@ One page per extension:
 | `processors.schema_validator` | [forklift.processors.schema_validator.readme.md](../src/forklift/processors/schema_validator/forklift.processors.schema_validator.readme.md) |
 | `inputs`, `inputs.sql` | [forklift.inputs.readme.md](../src/forklift/inputs/forklift.inputs.readme.md), [forklift.inputs.sql.readme.md](../src/forklift/inputs/sql/forklift.inputs.sql.readme.md) |
 | `io` | [forklift.io.readme.md](../src/forklift/io/forklift.io.readme.md) |
-| `outputs` | [forklift.outputs.readme.md](../src/forklift/outputs/forklift.outputs.readme.md) |
+| `outputs`, `outputs.sql` (database targets) | [forklift.outputs.readme.md](../src/forklift/outputs/forklift.outputs.readme.md), [forklift.outputs.sql.readme.md](../src/forklift/outputs/sql/forklift.outputs.sql.readme.md) |
+| `jobs` (job contract, `run_job`) | [forklift.jobs.readme.md](../src/forklift/jobs/forklift.jobs.readme.md) |
 | `metadata` | [forklift.metadata.readme.md](../src/forklift/metadata/forklift.metadata.readme.md) |
 | `schema` and sub-packages | [forklift.schema.readme.md](../src/forklift/schema/forklift.schema.readme.md) |
 | `utils`, `utils.transformations`, `utils.date_parser` | [forklift.utils.readme.md](../src/forklift/utils/forklift.utils.readme.md), [forklift.utils.transformations.readme.md](../src/forklift/utils/transformations/forklift.utils.transformations.readme.md), [forklift.utils.date_parser.readme.md](../src/forklift/utils/date_parser/forklift.utils.date_parser.readme.md) |

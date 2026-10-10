@@ -1,0 +1,17 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}{{ schema.name }} v{{ version.number }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:schemas' %}">Schemas</a></li><li><a href="{% url 'ui:schema' schema_id=schema.pk %}">{{ schema.name }}</a></li><li>v{{ version.number }}</li></ol></nav>
+  <h1>{{ schema.name }}, version {{ version.number }}</h1>
+  <dl class="facts">
+    <dt>Saved</dt><dd>{{ version.created_at|date:"Y-m-d H:i e" }} by {{ version.author.username|default:"—" }}</dd>
+    {% if version.notes %}<dt>Notes</dt><dd>{{ version.notes }}</dd>{% endif %}
+    <dt>SHA-256</dt><dd><code>{{ version.sha256 }}</code></dd>
+  </dl>
+  <div class="actions">
+    {% if version.number > 1 %}<a class="button secondary" href="{% url 'ui:schema-diff' schema_id=schema.pk %}?from={{ version.number|add:-1 }}&amp;to={{ version.number }}">Changes from v{{ version.number|add:-1 }}</a>{% endif %}
+    {% if can_edit %}<a class="button" href="{% url 'ui:version-new' schema_id=schema.pk %}?base={{ version.number }}">Start a new version from this one</a>{% endif %}
+  </div>
+  <pre tabindex="0" aria-label="The schema document">{{ version.document|pretty_json }}</pre>
+{% endblock %}

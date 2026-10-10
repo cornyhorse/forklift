@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import pyarrow as pa
 
 from ...processors.base import ValidationResult
+from ..exceptions import COLUMN_MISSING, CONSTRAINT_VIOLATION, with_error_code
 from .type_conversion import HIDDEN_COLUMN_PREFIX, has_raw_columns, raw_rows
 
 logger = logging.getLogger(__name__)
@@ -76,8 +77,6 @@ def _with_column(batch: pa.RecordBatch, name: str, array: pa.Array) -> pa.Record
 
 def _without_column(batch: pa.RecordBatch, name: str) -> pa.RecordBatch:
     position = batch.schema.get_field_index(name)
-    if position < 0:
-        return batch
     keep = [i for i in range(batch.num_columns) if i != position]
     return pa.RecordBatch.from_arrays(
         [batch.column(i) for i in keep], schema=pa.schema([batch.schema.field(i) for i in keep])
@@ -264,7 +263,13 @@ class ExtensionPipeline:
                 if stage is None:
                     continue
                 before = current.column(POSITION_COLUMN).to_pylist()
-                current, results = stage.process_batch(current)
+                try:
+                    current, results = stage.process_batch(current)
+                except ValueError as error:
+                    # errorMode "fail_fast": the first violation ends the import
+                    if stage is self.constraints:
+                        with_error_code(error, CONSTRAINT_VIOLATION)
+                    raise
                 self.record(results)
                 after = set(current.column(POSITION_COLUMN).to_pylist())
                 self._attribute_reasons(reasons, before, after, results, stage_name)
@@ -357,7 +362,10 @@ class ExtensionPipeline:
                 {k: v for k, v in self.summary.items() if k.startswith("VALIDATION_ERROR")}
             )
         if self.constraints is not None:
-            self.constraints.finalize()
+            try:
+                self.constraints.finalize()
+            except ValueError as error:
+                raise with_error_code(error, CONSTRAINT_VIOLATION)
 
     def describe(self) -> Dict[str, Any]:
         """Summary for the processing metadata file."""
@@ -530,8 +538,8 @@ def _calculated_columns_for_input(
         ``(config, warnings)``; ``config`` is a copy when something was left out
 
     Raises:
-        ValueError: An expression calls an unknown function or uses a name that is neither a
-            column, a constant, nor declared in ``properties``
+        ValueError: ``config`` is not an object, or an expression calls an unknown function or
+            uses a name that is neither a column, a constant, nor declared in ``properties``
     """
     from ...processors.calculated_columns.functions import get_available_functions, get_constants
     from ...processors.calculated_columns.limits import ExpressionError
@@ -542,7 +550,7 @@ def _calculated_columns_for_input(
     )
 
     if not isinstance(config, dict):
-        return config, []
+        raise ValueError(f"x-calculatedColumns: must be an object, got {type(config).__name__}")
 
     def entries(key: str) -> List[Any]:
         value = config.get(key)
@@ -692,9 +700,12 @@ def _check_references(
         typos = [c for c in missing if not (lenient and c in declared)]
         if typos:
             shown = ", ".join(repr(c) for c in typos)
-            raise ValueError(
-                f"{extension} refers to column(s) {shown} that are not in the input "
-                f"(columns after mapping: {', '.join(sorted(known))})"
+            raise with_error_code(
+                ValueError(
+                    f"{extension} refers to column(s) {shown} that are not in the input "
+                    f"(columns after mapping: {', '.join(sorted(known))})"
+                ),
+                COLUMN_MISSING,
             )
         shown = ", ".join(repr(c) for c in missing)
         warnings.append(
@@ -714,9 +725,8 @@ def _without_columns(schema: Dict[str, Any], absent: Dict[str, List[str]]) -> Di
         return schema
     view = dict(schema)
 
-    def pruned(section: Any, key: Optional[str], names: Sequence[str]) -> Any:
-        if not isinstance(section, dict):
-            return section
+    # Every section here is an object: referenced_columns only reports columns of objects
+    def pruned(section: Dict[str, Any], key: Optional[str], names: Sequence[str]) -> Any:
         if key is None:
             return {k: v for k, v in section.items() if k not in names}
         copy = dict(section)

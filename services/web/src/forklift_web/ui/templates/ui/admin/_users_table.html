@@ -1,0 +1,23 @@
+<div id="user-table">
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Users">
+    <table>
+      <thead><tr><th scope="col">Username</th><th scope="col">Name</th><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Raw rows</th><th scope="col">State</th><th scope="col">Last sign-in</th></tr></thead>
+      <tbody>
+        {% for person in page %}
+          <tr>
+            <td><a href="{% url 'ui:admin-user' user_id=person.pk %}">{{ person.username }}</a>{% if person.is_service_account %} <span class="badge">service account</span>{% endif %}</td>
+            <td>{{ person.get_full_name|default:"—" }}</td>
+            <td>{{ person.email|default:"—" }}</td>
+            <td>{{ person.get_role_display }}</td>
+            <td>{% if person.role == "admin" %}yes (admin){% elif person.can_view_raw_rows %}yes{% else %}no{% endif %}</td>
+            <td>{% if person.is_active %}<span class="badge active">active</span>{% else %}<span class="badge expired">inactive</span>{% endif %}</td>
+            <td>{{ person.last_login|date:"Y-m-d H:i"|default:"never" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="empty">No users match.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "ui/_pagination.html" %}
+</div>

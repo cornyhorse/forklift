@@ -213,12 +213,11 @@ class FwfInputHandler:
 
         # Handle conditional schemas - collect all unique fields from all schemas
         if self.config.conditional_schemas:
-            # Add flag column if present
-            if self.config.flag_column:
-                arrow_type = FwfTypeConverter.get_arrow_type(self.config.flag_column.parquet_type)
-                unique_fields[self.config.flag_column.name] = pa.field(
-                    self.config.flag_column.name, arrow_type
-                )
+            # The flag column comes first (the config validator requires one here)
+            arrow_type = FwfTypeConverter.get_arrow_type(self.config.flag_column.parquet_type)
+            unique_fields[self.config.flag_column.name] = pa.field(
+                self.config.flag_column.name, arrow_type
+            )
 
             # Add all fields from all conditional schemas
             for schema in self.config.conditional_schemas:

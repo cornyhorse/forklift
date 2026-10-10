@@ -1,0 +1,53 @@
+{% extends "ui/base.html" %}
+{% block title %}{{ schema.name }}: v{{ old.number }} to v{{ new.number }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:schemas' %}">Schemas</a></li><li><a href="{% url 'ui:schema' schema_id=schema.pk %}">{{ schema.name }}</a></li><li>Compare</li></ol></nav>
+  <h1>{{ schema.name }}: changes from v{{ old.number }} to v{{ new.number }}</h1>
+  <form method="get" class="inline-form">
+    <div class="field">
+      <label for="diff-from">From version</label>
+      <select id="diff-from" name="from">{% for number in numbers %}<option value="{{ number }}"{% if number == old.number %} selected{% endif %}>v{{ number }}</option>{% endfor %}</select>
+    </div>
+    <div class="field">
+      <label for="diff-to">To version</label>
+      <select id="diff-to" name="to">{% for number in numbers %}<option value="{{ number }}"{% if number == new.number %} selected{% endif %}>v{{ number }}</option>{% endfor %}</select>
+    </div>
+    <button type="submit" class="secondary">Compare</button>
+  </form>
+
+  <h2>Summary</h2>
+  {% if summary.empty %}
+    <p>The two documents are the same.</p>
+  {% else %}
+    <dl class="facts">
+      {% if summary.added %}<dt>Columns added</dt><dd>{{ summary.added|join:", " }}</dd>{% endif %}
+      {% if summary.removed %}<dt>Columns removed</dt><dd>{{ summary.removed|join:", " }}</dd>{% endif %}
+      {% if summary.changed %}<dt>Columns changed</dt><dd>{{ summary.changed|join:", " }}</dd>{% endif %}
+      {% if summary.now_required %}<dt>Now required</dt><dd>{{ summary.now_required|join:", " }}</dd>{% endif %}
+      {% if summary.no_longer_required %}<dt>No longer required</dt><dd>{{ summary.no_longer_required|join:", " }}</dd>{% endif %}
+      {% if summary.other_keys %}<dt>Other settings changed</dt><dd>{{ summary.other_keys|join:", " }}</dd>{% endif %}
+    </dl>
+  {% endif %}
+
+  {% if lines %}
+    <h2>Line by line</h2>
+    <p class="muted">Removed lines are marked “-”, added lines “+”; unchanged stretches are shortened to “…”.</p>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Differences line by line">
+      <table class="diff">
+        <thead><tr><th scope="col">v{{ old.number }}</th><th scope="col">v{{ new.number }}</th><th scope="col"><span class="visually-hidden">Change</span></th><th scope="col">Line</th></tr></thead>
+        <tbody>
+          {% for line in lines %}
+            <tr class="{{ line.kind }}">
+              {% if line.kind == "gap" %}<td colspan="4">…</td>{% else %}
+                <td class="ln">{{ line.old|default_if_none:"" }}</td>
+                <td class="ln">{{ line.new|default_if_none:"" }}</td>
+                <td class="sign">{{ line.sign }}<span class="visually-hidden">{% if line.kind == "added" %} added{% elif line.kind == "removed" %} removed{% endif %}</span></td>
+                <td>{{ line.text }}</td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,30 @@
+{# One retention level's form: per kind, inherit / keep until deleted / keep n days. #}
+<form method="post" action="{% url 'ui:admin-retention-save' %}" class="stack">
+  {% csrf_token %}
+  <input type="hidden" name="scope" value="{{ level.scope }}">
+  <input type="hidden" name="prefix" value="{{ level.prefix }}">
+  {% if choose_dataset %}
+    <div class="field">
+      <label for="{{ level.prefix }}-target">Dataset</label>
+      <select id="{{ level.prefix }}-target" name="target">{% for dataset in level.datasets %}<option value="{{ dataset.pk }}">{{ dataset.name }} ({{ dataset.get_classification_display|lower }})</option>{% endfor %}</select>
+    </div>
+  {% else %}
+    <input type="hidden" name="target" value="{{ level.target }}">
+  {% endif %}
+  {% include "ui/_form_errors.html" with form=level.form %}
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Retention of {{ level.title|default:'a dataset' }}">
+    <table>
+      <thead><tr><th scope="col">What</th><th scope="col">Rule</th><th scope="col">Days</th></tr></thead>
+      <tbody>
+        {% for label, mode, days in level.form.kinds %}
+          <tr>
+            <th scope="row"><label for="{{ mode.id_for_label }}">{{ label }}</label></th>
+            <td>{{ mode }}{{ mode.errors }}</td>
+            <td><label class="visually-hidden" for="{{ days.id_for_label }}">{{ days.label }}</label>{{ days }}{{ days.errors }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="actions"><button type="submit">Save{% if level.title %}<span class="visually-hidden"> the policy of {{ level.title }}</span>{% endif %}</button></div>
+</form>

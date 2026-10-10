@@ -13,6 +13,7 @@ This guide provides comprehensive examples and workflows for using Forklift effe
 - [Excel and SQL Sources](#excel-and-sql-sources)
 - [S3 Integration](#s3-integration)
 - [Command Line](#command-line)
+- [Running Jobs](#running-jobs)
 
 ## Installation
 
@@ -751,8 +752,9 @@ results = forklift.import_sql(
 )
 ```
 
-- Install `forklift-etl[sql]` and the ODBC driver for your database. The schema file names the tables explicitly (`"x-sql": {"tables": [{"select": {"schema": "dbo", "name": "orders"}, "outputName": "orders"}]}`); a `select` with only a `pattern` is rejected, and names must look like identifiers.
-- Names are checked against the database catalog and always quoted; the connection is requested read-only; the connection string is redacted (`Pwd=***`) in `metadata.json` and in error messages.
+- Install `forklift-etl[sql]` and the ODBC driver for your database (PostgreSQL, MySQL/MariaDB, SQL Server and Oracle are tested). The schema file names the tables explicitly (`"x-sql": {"tables": [{"select": {"schema": "dbo", "name": "orders"}, "outputName": "orders"}]}`); a `select` with only a `pattern` is rejected, and names must look like identifiers.
+- To read only some columns, list them in the `select`: `{"schema": "dbo", "name": "orders", "columns": ["id", "amount"]}`. A login with column-level grants needs this; without it, the failed table's reason names the columns the login may read and the declaration to add.
+- Names are checked against the database catalog (exactly, then ignoring case) and always quoted; the session is made read-only where the database allows it (SQL Server cannot: connect as a login that may only `SELECT`); the connection string is redacted (`Pwd=***`) in `metadata.json` and in error messages.
 - A table that fails is aborted without leaving a partial file; the other tables still run and a `ProcessingError` is raised at the end (the partial results are on `error.results`). Pass `continue_on_error=True` to get the results back instead; failed tables are in `results.errors` and under `failed_tables` in `metadata.json`.
 - The output location may be on S3 (`s3://bucket/prefix/`).
 
@@ -799,3 +801,96 @@ forklift ingest data.csv --dest ./output/ --input-kind csv --schema schema.json 
 For a CSV import the summary also lists the schema extensions that were applied, the findings they counted (`Findings by the schema extensions:`, one `CODE:column: count` line each) and, on stderr, the warnings (see [Applying Schema Extensions](#applying-schema-extensions)).
 
 Exit codes: `0` success, `1` processing failed (or the run reported errors), `2` usage errors and input kinds that are not implemented (`--input-kind fwf`). `--encoding-priority` accepts several encodings but only the first one is used; the engine does not fall back to the others.
+
+## Running Jobs
+
+A job spec describes a whole run as data: what to read, how to check it and where the results go. `forklift.run_job()` and `forklift run-job` run it and return a job result with a stable status, error code, counts and the list of files written. It is the same entry point the service's workers use, so a spec that works locally works there. The format is published as JSON Schema in [`contracts/`](../../contracts/); the [jobs package readme](../../src/forklift/jobs/forklift.jobs.readme.md) lists every field.
+
+```python
+import forklift
+
+result = forklift.run_job(
+    {
+        "spec_version": 1,
+        "job_id": "sales-2026-10",
+        "kind": "run",
+        "input": {
+            "format": "csv",
+            "location": {"type": "file", "path": "in/sales.csv"},
+            "options": {"delimiter": ";", "header_mode": "auto"},
+        },
+        "schema": {"properties": {"id": {"type": "integer"}}, "required": ["id"]},
+        "output": {"location": {"type": "file", "path": "out/"}, "compression": "zstd"},
+        "options": {"batch_size": 50000},
+        "limits": {"max_input_bytes": 10_000_000_000, "max_seconds": 3600},
+    },
+    base_dir="/data/jobs/sales",
+)
+
+if result.status == "succeeded":
+    for artifact in result.artifacts:          # data, bad_rows, metadata ..., manifest last
+        print(artifact.kind, artifact.path, artifact.rows, artifact.sha256)
+else:
+    print(result.error.code, result.error.message)  # e.g. COLUMN_MISSING, and what to fix
+```
+
+- **Paths are relative to `base_dir`** and may not leave it, not even through a symbolic link. The schema is part of the spec (inline JSON), never a path.
+- **A job does not raise for its own failures.** An invalid spec, an unreadable input, a schema problem or a threshold failure is a `failed` result with an error code: `SPEC_INVALID`, `SCHEMA_INVALID`, `INPUT_UNREADABLE`, `ENCODING_ERROR`, `COLUMN_MISSING`, `BAD_ROWS_THRESHOLD_EXCEEDED` (the kept `bad_rows.parquet` is still listed), `CONSTRAINT_VIOLATION`, `LIMIT_EXCEEDED`, `PERMISSION_DENIED`, `TARGET_WRITE_FAILED`, `CANCELLED` or `INTERNAL`. `JobSpec.from_dict()` lists every problem of a spec with the field it is about.
+- **Results never hold cell values**, and neither connection strings nor presigned URLs appear in results, logs or messages.
+
+### Kinds of Jobs
+
+| `kind` | Does | Writes |
+|---|---|---|
+| `run` | The full import (CSV, Excel or SQL input), and for a `sql_table` output the load into the table | The import's files |
+| `preview` | The first `options.preview_rows` rows as text (CSV, Excel), bounded by `options.preview_max_bytes` | `preview.json` |
+| `validate_schema` | The engine's checks of the schema against the input's header, and an import of `options.sample_rows` rows (CSV) | `report.json` |
+| `generate_schema` | Infers a schema from `options.sample_rows` rows (CSV, Excel) | `schema.json` |
+
+The interactive kinds write to the `file` directory in `output.location`, or `out/` when there is no output.
+
+### Outputs
+
+An output `location` is a `file` directory, an `s3` prefix (read and written with the caller's credentials; pass `s3_client=` to `run_job` for an S3-compatible store), or a database table:
+
+```python
+spec["output"] = {
+    "location": {
+        "type": "sql_table",
+        "connection_string": "Driver={PostgreSQL Unicode};Server=db;Database=dw;Uid=loader;Pwd=...",
+        "table": "sales",
+        "schema_name": "staging",
+        "mode": "upsert",          # create | append | replace | upsert
+        "key_columns": ["id"],
+    },
+    "artifacts": {"type": "file", "path": "parquet/"},   # where data/bad_rows Parquet go
+}
+```
+
+The import runs first and writes `data.parquet` / `bad_rows.parquet` as usual (they stay in the result's artifacts); then only the validated rows are loaded, all or nothing, with `forklift.outputs.sql.write_table`. `counts.rows_written` says how many.
+
+### Progress, Cancellation and Limits
+
+`run_job(..., progress=callback, cancel=callback)` reports every batch boundary as `{"rows_read", "rows_rejected", "bytes_read"}` and stops when `cancel()` returns True (`status: "cancelled"`). `limits.max_rows`, `limits.max_input_bytes` and `limits.max_seconds` are checked at the same points; a known input size is checked before anything is read.
+
+The import functions take the same callbacks directly:
+
+```python
+results = forklift.import_csv(
+    "big.csv", "out/", progress=lambda event: print(event["rows_read"]), cancel=stop_requested
+)
+```
+
+`import_csv` and `import_sql` report every batch, `import_excel` every sheet. A cancelled import raises `forklift.ImportCancelled` and keeps none of its outputs (the SQL importer does not go on with its other tables, the Excel importer removes the sheets it had written).
+
+### Streamed Inputs
+
+A CSV input can be a presigned URL for one object, read as a forward-only HTTP stream without a local copy: `{"type": "presigned_url", "url": "...", "size": 53687091200, "etag": "..."}`. Header detection reads the start in small range requests, a dropped connection resumes where it stopped, and the object must not change in between (`If-Match`). Only hosts passed as `allowed_url_hosts` (or `--allow-url-host`) are contacted, and redirects to other hosts are refused. Footer detection works on streamed inputs too.
+
+### From the Command Line
+
+```bash
+forklift run-job spec.json --base-dir /data/jobs/sales --result result.json --progress-jsonl
+```
+
+The exit code is 0 when the job succeeded, 1 when it failed or was cancelled and 2 when the spec is invalid; the result is written to `--result` in every case. Logs go to stderr, and with `--progress-jsonl` stdout carries one JSON line per progress event. SIGTERM cancels the job at its next batch.

@@ -1,0 +1,180 @@
+# The forklift platform on one machine: gateway, worker, PostgreSQL and RustFS.
+#
+#   python deploy/compose/generate_env.py > deploy/compose/.env     # once: random secrets
+#   docker compose -f deploy/compose/docker-compose.yml up -d --build --wait
+#   open http://localhost:8080 and sign in as "admin" (password: FORKLIFT_ADMIN_PASSWORD in .env)
+#
+# See README.md next to this file. Networks keep the trust boundary of docs/design/platform.md:
+#   public    the gateway's public port (UI, /api/v1) and RustFS, both published to the host
+#             (browsers upload and download through presigned URLs, straight to the store)
+#   internal  gateway, worker, RustFS; no route outside it. The worker reaches only the gateway's
+#             internal port (8081, never published) and the store
+#   db        PostgreSQL and the gateway processes; the worker is not on it
+name: forklift
+
+x-gateway: &gateway
+  image: ${FORKLIFT_WEB_IMAGE:-forklift-web:local}
+  build:
+    context: ../..
+    dockerfile: services/web/Dockerfile
+    args:
+      PYTHON_IMAGE: ${FORKLIFT_PYTHON_IMAGE:-python:3.13-slim}
+  environment:
+    FORKLIFT_SECRET_KEY: ${FORKLIFT_SECRET_KEY:?set it in .env (generate_env.py)}
+    FORKLIFT_SECRETS_KEYS: ${FORKLIFT_SECRETS_KEYS:?set it in .env (generate_env.py)}
+    FORKLIFT_DB_HOST: postgres
+    FORKLIFT_DB_NAME: forklift
+    FORKLIFT_DB_USER: forklift
+    FORKLIFT_DB_PASSWORD: ${FORKLIFT_DB_PASSWORD:?set it in .env (generate_env.py)}
+    # The gateway's own calls (HEAD, multipart bookkeeping, copies, deletes) and the URLs it signs
+    # for workers go to RustFS on the internal network; browser URLs to the published port.
+    FORKLIFT_S3_ENDPOINT_URL: http://rustfs:9000
+    FORKLIFT_S3_WORKER_ENDPOINT_URL: http://rustfs:9000
+    FORKLIFT_S3_PUBLIC_ENDPOINT_URL: ${FORKLIFT_PUBLIC_STORE_URL:-http://localhost:9000}
+    FORKLIFT_S3_BUCKET: forklift
+    FORKLIFT_S3_REGION: us-east-1
+    FORKLIFT_S3_ACCESS_KEY_ID: ${FORKLIFT_STORE_ACCESS_KEY:?set it in .env (generate_env.py)}
+    FORKLIFT_S3_SECRET_ACCESS_KEY: ${FORKLIFT_STORE_SECRET_KEY:?set it in .env (generate_env.py)}
+    FORKLIFT_ALLOWED_HOSTS: ${FORKLIFT_ALLOWED_HOSTS:-localhost,127.0.0.1,gateway}
+    FORKLIFT_CSRF_TRUSTED_ORIGINS: ${FORKLIFT_PUBLIC_URL:-http://localhost:8080}
+    # Plain HTTP on localhost; put a TLS proxy in front (and set these to true) anywhere else
+    FORKLIFT_SECURE_COOKIES: ${FORKLIFT_SECURE_COOKIES:-false}
+    FORKLIFT_BEHIND_TLS_PROXY: ${FORKLIFT_BEHIND_TLS_PROXY:-false}
+    FORKLIFT_LOG_LEVEL: ${FORKLIFT_LOG_LEVEL:-INFO}
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: [no-new-privileges:true]
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: ${FORKLIFT_POSTGRES_IMAGE:-postgres:16}
+    environment:
+      POSTGRES_DB: forklift
+      POSTGRES_USER: forklift
+      POSTGRES_PASSWORD: ${FORKLIFT_DB_PASSWORD:?set it in .env (generate_env.py)}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    networks: [db]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "forklift", "-d", "forklift"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  rustfs:
+    image: ${FORKLIFT_RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
+    environment:
+      RUSTFS_ACCESS_KEY: ${FORKLIFT_STORE_ACCESS_KEY:?set it in .env (generate_env.py)}
+      RUSTFS_SECRET_KEY: ${FORKLIFT_STORE_SECRET_KEY:?set it in .env (generate_env.py)}
+    volumes: [store:/data]
+    ports: ["${FORKLIFT_STORE_HOST_PORT:-9000}:9000"]
+    networks: [public, internal]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # One-shot setup, safe to repeat: database migrations, the first admin, the bucket and its
+  # CORS rule (browsers PUT uploads straight to the store), and the workers' token. It runs as
+  # root only to hand the token file to the worker's uid; the gateway itself never does.
+  init:
+    <<: *gateway
+    user: "0:0"
+    read_only: false
+    restart: "no"
+    environment:
+      FORKLIFT_SECRET_KEY: ${FORKLIFT_SECRET_KEY}
+      FORKLIFT_SECRETS_KEYS: ${FORKLIFT_SECRETS_KEYS}
+      FORKLIFT_DB_HOST: postgres
+      FORKLIFT_DB_NAME: forklift
+      FORKLIFT_DB_USER: forklift
+      FORKLIFT_DB_PASSWORD: ${FORKLIFT_DB_PASSWORD}
+      FORKLIFT_S3_ENDPOINT_URL: http://rustfs:9000
+      FORKLIFT_S3_BUCKET: forklift
+      FORKLIFT_S3_REGION: us-east-1
+      FORKLIFT_S3_ACCESS_KEY_ID: ${FORKLIFT_STORE_ACCESS_KEY}
+      FORKLIFT_S3_SECRET_ACCESS_KEY: ${FORKLIFT_STORE_SECRET_KEY}
+      FORKLIFT_ADMIN_USERNAME: ${FORKLIFT_ADMIN_USERNAME:-admin}
+      FORKLIFT_ADMIN_PASSWORD: ${FORKLIFT_ADMIN_PASSWORD:?set it in .env (generate_env.py)}
+      FORKLIFT_CORS_ORIGINS: ${FORKLIFT_PUBLIC_URL:-http://localhost:8080}
+      FORKLIFT_WORKER_UID: "10001"
+    command: ["sh", "/init/init.sh"]
+    volumes:
+      - ./init:/init:ro
+      - worker-token:/tokens
+    networks: [internal, db]
+    depends_on:
+      postgres: {condition: service_healthy}
+      rustfs: {condition: service_healthy}
+
+  gateway:
+    <<: *gateway
+    ports: ["${FORKLIFT_PUBLIC_HOST_PORT:-8080}:8080"]     # 8081 (workers) is not published
+    networks: [public, internal, db]
+    depends_on:
+      init: {condition: service_completed_successfully}
+
+  # Deletes what retention policies say has expired, every hour (audited). Healthy while its
+  # last sweep finished less than two hours ago (it touches the heartbeat file after each one)
+  sweeper:
+    <<: *gateway
+    command:
+      - forklift-web
+      - sweep_retention
+      - --every=3600
+      - --heartbeat=/tmp/sweeper.alive
+    networks: [internal, db]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/sweeper.alive') > 7200)"
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+      start_interval: 2s
+    depends_on:
+      init: {condition: service_completed_successfully}
+
+  worker:
+    image: ${FORKLIFT_WORKER_IMAGE:-forklift-worker:local}
+    build:
+      context: ../..
+      dockerfile: services/worker/Dockerfile
+    command:
+      - --gateway=http://gateway:8081
+      - --lanes=${FORKLIFT_WORKER_LANES:-batch,interactive}
+      - --concurrency=${FORKLIFT_WORKER_CONCURRENCY:-2}
+      - --store-host=rustfs:9000
+      - --landlock=${FORKLIFT_WORKER_LANDLOCK:-auto}
+    environment:
+      FORKLIFT_WORKER_LOG_LEVEL: ${FORKLIFT_WORKER_LOG_LEVEL:-info}
+    volumes:
+      - worker-token:/run/secrets:ro
+      - scratch:/scratch
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 512
+    mem_limit: ${FORKLIFT_WORKER_MEMORY:-4g}
+    networks: [internal]
+    restart: unless-stopped
+    depends_on:
+      init: {condition: service_completed_successfully}
+      gateway: {condition: service_healthy}
+
+networks:
+  public: {}
+  internal: {internal: true}
+  db: {internal: true}
+
+volumes:
+  pgdata: {}
+  store: {}
+  worker-token: {}
+  scratch: {}

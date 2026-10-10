@@ -99,7 +99,7 @@ def parse_arrow_type(type_str: str) -> Optional[pa.DataType]:
         if value_type is not None and index_type is not None:
             try:
                 return pa.dictionary(index_type, value_type)
-            except (pa.ArrowInvalid, pa.ArrowNotImplementedError, ValueError):
+            except (pa.ArrowInvalid, pa.ArrowNotImplementedError, TypeError, ValueError):
                 return None
 
     return None

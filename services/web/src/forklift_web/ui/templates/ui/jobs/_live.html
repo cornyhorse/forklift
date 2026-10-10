@@ -1,0 +1,153 @@
+{% load forklift_ui %}
+{# The part of a job page that changes while it runs. Until the job finishes, HTMX polls this fragment every 2 s and swaps it; the finished fragment has no trigger, so polling stops. `seen` tells the server which status the page shows, so that a change is announced once. #}
+<div id="job-live"{% if not finished %} hx-get="{% url 'ui:job-live' job_id=job.pk %}?seen={{ job.status }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if request.GET.seen and request.GET.seen != job.status %}
+    <div id="job-announce" hx-swap-oob="innerHTML">The job is now {{ job.get_status_display|lower }}.</div>
+  {% endif %}
+  <dl class="facts">
+    <dt>Status</dt>
+    <dd><span class="badge {{ job.status }}">{{ job.get_status_display }}</span>
+      {% if job.cancel_requested_at and not finished %} <span class="muted">cancellation requested; the worker stops at its next step</span>{% endif %}
+      {% if not finished %} <span class="muted">(updates by itself)</span>{% endif %}</dd>
+    <dt>Attempt</dt><dd>{{ job.attempt }} of {{ job.max_attempts }}</dd>
+    {% if job.lease_worker %}<dt>Worker</dt><dd>{{ job.lease_worker.worker_id }}</dd>{% endif %}
+    <dt>Created</dt><dd>{{ job.created_at|date:"Y-m-d H:i:s e" }}</dd>
+    {% if job.started_at %}<dt>Started</dt><dd>{{ job.started_at|date:"Y-m-d H:i:s e" }}</dd>{% endif %}
+    {% if job.finished_at %}<dt>Finished</dt><dd>{{ job.finished_at|date:"Y-m-d H:i:s e" }}</dd>{% endif %}
+  </dl>
+
+  {% if not finished %}
+    <section aria-labelledby="progress-heading">
+      <h2 id="progress-heading">Progress</h2>
+      {% if job.status == "queued" %}
+        <p>Waiting for a worker of the {{ job.lane }} lane.</p>
+      {% endif %}
+      {% if percent is not None %}
+        <label for="job-progress">Input read: {{ percent }}% of {{ input_size|filesize }}</label>
+        <progress id="job-progress" max="100" value="{{ percent }}">{{ percent }}%</progress>
+      {% endif %}
+      {% if progress %}
+        <ul class="stats">
+          {% if progress.rows_read is not None %}<li><strong>{{ progress.rows_read }}</strong> rows read</li>{% endif %}
+          {% if progress.rows_rejected is not None %}<li><strong>{{ progress.rows_rejected }}</strong> rows rejected</li>{% endif %}
+          {% if progress.bytes_read is not None %}<li><strong>{{ progress.bytes_read|filesize }}</strong> read</li>{% endif %}
+          {% if progress.rows_written is not None %}<li><strong>{{ progress.rows_written }}</strong> rows written</li>{% endif %}
+        </ul>
+      {% endif %}
+      {% if can_cancel %}
+        <form method="post" action="{% url 'ui:job-cancel' job_id=job.pk %}" data-confirm="Cancel this job?">
+          {% csrf_token %}
+          <button type="submit" class="secondary">Cancel the job</button>
+        </form>
+      {% endif %}
+    </section>
+  {% endif %}
+
+  {% if job.error_code %}
+    <section class="alert error" aria-labelledby="error-heading">
+      <h2 id="error-heading">Why it {% if job.status == "cancelled" %}stopped{% else %}failed{% endif %}</h2>
+      <p><code>{{ job.error_code }}</code>: {{ job.error_message }}</p>
+      {% if result.error.retryable %}<p>Running the same job again may succeed.</p>{% endif %}
+    </section>
+  {% endif %}
+
+  {% if counts %}
+    <section aria-labelledby="counts-heading">
+      <h2 id="counts-heading">Rows</h2>
+      <ul class="stats">
+        {% for label, count in counts %}<li><strong>{{ count }}</strong> {{ label }}</li>{% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if result.validation_summary %}
+    <section aria-labelledby="findings-heading">
+      <h2 id="findings-heading">Findings</h2>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Findings by rule">
+        <table>
+          <thead><tr><th scope="col">Rule (and column)</th><th scope="col" class="num">Rows</th></tr></thead>
+          <tbody>
+            {% for rule, count in result.validation_summary.items %}<tr><td><code>{{ rule }}</code></td><td class="num">{{ count }}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if result.warnings %}
+    <section aria-labelledby="warnings-heading">
+      <h2 id="warnings-heading">Warnings</h2>
+      <ul>{% for warning in result.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+    </section>
+  {% endif %}
+
+  {% if artifacts %}
+    <section aria-labelledby="files-heading">
+      <h2 id="files-heading">Files</h2>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="Files of this job">
+        <table>
+          <thead><tr><th scope="col">File</th><th scope="col">Kind</th><th scope="col" class="num">Rows</th><th scope="col" class="num">Size</th><th scope="col">Kept until</th><th scope="col">Download</th></tr></thead>
+          <tbody>
+            {% for row in artifacts %}
+              <tr>
+                <td>{{ row.artifact.name }}{% if row.artifact.attempt != job.attempt %} <span class="muted">(attempt {{ row.artifact.attempt }})</span>{% endif %}</td>
+                <td>{{ row.artifact.get_kind_display }}</td>
+                <td class="num">{{ row.artifact.rows|default_if_none:"—" }}</td>
+                <td class="num">{{ row.artifact.bytes|filesize }}</td>
+                <td>{% if row.deleted %}deleted {{ row.artifact.deleted_at|date:"Y-m-d" }}{% else %}{{ row.expires_at|date:"Y-m-d"|default:"no expiry" }}{% endif %}</td>
+                <td>
+                  {% if row.can_download %}
+                    <a href="{% url 'ui:artifact-download' artifact_id=row.artifact.pk %}">Download<span class="visually-hidden"> {{ row.artifact.name }}</span></a>
+                  {% elif row.deleted %}
+                    <span class="muted">Deleted by retention</span>
+                  {% else %}
+                    <span class="muted">Needs the “view raw rows” permission (sensitive data)</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+
+  {% for row in viewers %}
+    <section aria-labelledby="viewer-{{ row.artifact.pk }}">
+      <h2 id="viewer-{{ row.artifact.pk }}">{% if row.artifact.kind == "preview" %}Preview{% elif row.artifact.kind == "report" %}Validation report{% else %}Generated schema{% endif %}</h2>
+      {% if row.can_download %}
+        {% if row.artifact.kind == "preview" and job.classification == "sensitive" %}
+          <div data-artifact-view="{% url 'api-v1:download_artifact' artifact_id=row.artifact.pk %}" data-kind="preview">
+            <p class="muted">These are rows of sensitive data; showing them is recorded in the audit log.</p>
+            <button type="button" class="secondary" data-viewer-load hidden>Show the rows</button>
+            <p class="muted" data-viewer-status aria-live="polite"><noscript>Showing this file needs JavaScript; download it instead.</noscript></p>
+            <div data-viewer-body></div>
+          </div>
+        {% else %}
+          <div data-artifact-view="{% url 'api-v1:download_artifact' artifact_id=row.artifact.pk %}" data-kind="{{ row.artifact.kind }}" data-autoload>
+            <p class="muted" data-viewer-status aria-live="polite"><noscript>Showing this file needs JavaScript; download it instead.</noscript></p>
+            <div data-viewer-body></div>
+          </div>
+        {% endif %}
+        {% if row.artifact.kind == "schema" and can_save_schema %}
+          <p class="actions"><a class="button" href="{% url 'ui:schema-new' %}?from_artifact={{ row.artifact.pk }}{% if job.upload_id %}&amp;upload={{ job.upload_id }}{% endif %}">Edit and save it as a new schema</a></p>
+        {% endif %}
+      {% elif row.deleted %}
+        <p class="muted">This file was deleted by retention.</p>
+      {% else %}
+        <p class="alert warn">This job read sensitive data: showing its rows needs the “view raw rows” permission, which your account does not have. An admin can grant it.</p>
+      {% endif %}
+    </section>
+  {% endfor %}
+
+  {% if events %}
+    <details>
+      <summary>Recent events</summary>
+      <ol reversed>
+        {% for event in events %}
+          <li><time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"H:i:s" }}</time> {{ event.get_type_display }} (attempt {{ event.attempt }}){% if event.payload %}: {{ event|event_text }}{% endif %}</li>
+        {% endfor %}
+      </ol>
+    </details>
+  {% endif %}
+</div>

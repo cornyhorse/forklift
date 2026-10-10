@@ -1,12 +1,12 @@
 # processors/base.py
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from ..config import ImportConfig, ProcessingResults
+from abc import ABC, abstractmethod
+
+from ..config import ImportConfig, ProcessingResults
 
 
 class BaseProcessor(ABC):
     @abstractmethod
-    def process(self, config: "ImportConfig") -> "ProcessingResults":
+    def process(self, config: ImportConfig) -> ProcessingResults:
         pass

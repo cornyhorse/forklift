@@ -54,8 +54,6 @@ def _tokenize_run(run: str) -> Optional[List[Tuple[str, str]]]:
             position += 1
         else:
             return None
-    if all(kind == "lit" for kind, _ in items):
-        return None
     return items
 
 
@@ -200,10 +198,8 @@ def _strict_pattern(fmt: str) -> Optional["re.Pattern[str]"]:
     while position < len(fmt):
         char = fmt[position]
         if char == "%":
-            if position + 1 >= len(fmt):
-                return None
-            directive = fmt[position + 1]
-            pattern = _STRICT_DIRECTIVES.get(directive)
+            # A trailing "%" gives "", which is unknown like any other unsupported directive
+            pattern = _STRICT_DIRECTIVES.get(fmt[position + 1 : position + 2])
             if pattern is None:
                 return None
             pieces.append(pattern)
@@ -211,10 +207,8 @@ def _strict_pattern(fmt: str) -> Optional["re.Pattern[str]"]:
         else:
             pieces.append(re.escape(char))
             position += 1
-    try:
-        return re.compile("".join(pieces))
-    except re.error:
-        return None
+    # Every piece is a complete, valid regex fragment, so the joined pattern always compiles
+    return re.compile("".join(pieces))
 
 
 def _round_trip_matches(value: str, fmt: str, parsed: datetime.datetime) -> bool:

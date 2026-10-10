@@ -1,0 +1,42 @@
+{% extends "ui/base.html" %}
+{% block title %}{% if dataset %}Edit {{ dataset.name }}{% else %}New dataset{% endif %}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:datasets' %}">Datasets</a></li>{% if dataset %}<li><a href="{% url 'ui:dataset' dataset_id=dataset.pk %}">{{ dataset.name }}</a></li><li>Edit</li>{% else %}<li>New</li>{% endif %}</ol></nav>
+  <h1>{% if dataset %}Edit {{ dataset.name }}{% else %}New dataset{% endif %}</h1>
+  <form method="post" class="stack">
+    {% csrf_token %}
+    {% include "ui/_form_errors.html" %}
+    {% include "ui/_field.html" with field=form.name %}
+    {% include "ui/_field.html" with field=form.description %}
+    <div class="row2">
+      {% include "ui/_field.html" with field=form.classification %}
+      {% include "ui/_field.html" with field=form.schema_version %}
+    </div>
+    <fieldset>
+      <legend>Source</legend>
+      <div class="row2">
+        {% include "ui/_field.html" with field=form.source_connection %}
+        {% include "ui/_field.html" with field=form.input_format %}
+      </div>
+      {% include "ui/_field.html" with field=form.source_path %}
+      {% include "ui/_field.html" with field=form.input_options %}
+    </fieldset>
+    <fieldset>
+      <legend>Destination</legend>
+      {% include "ui/_field.html" with field=form.destination_connection %}
+      {% include "ui/_field.html" with field=form.destination_prefix %}
+      <div class="row2">
+        {% include "ui/_field.html" with field=form.destination_table %}
+        {% include "ui/_field.html" with field=form.destination_schema_name %}
+        {% include "ui/_field.html" with field=form.destination_mode %}
+        {% include "ui/_field.html" with field=form.destination_key_columns %}
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Output and options</legend>
+      {% include "ui/_field.html" with field=form.compression %}
+      {% include "ui/_field.html" with field=form.options %}
+    </fieldset>
+    <div class="actions"><button type="submit">{% if dataset %}Save{% else %}Create the dataset{% endif %}</button></div>
+  </form>
+{% endblock %}

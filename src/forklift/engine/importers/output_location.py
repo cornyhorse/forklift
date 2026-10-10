@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Optional, Set, Union
+from typing import Any, Optional, Sequence, Set, Union
 
 from ...io import S3Path, UnifiedIOHandler, is_s3_path
 
@@ -125,3 +125,25 @@ def discard_partial_output(writer: Optional[Any], target: Union[Path, str]) -> N
             )
     if not is_s3_path(str(target)):
         Path(target).unlink(missing_ok=True)
+
+
+def discard_finished_outputs(targets: Sequence[Union[Path, str]], s3_client: Any = None) -> None:
+    """Delete outputs an import had finished before it was stopped (local files or S3 objects).
+
+    Used when an import is interrupted on purpose (cancelled, or a limit was exceeded): the
+    caller asked for the run to stop, so none of it may look like a result. Failures are
+    logged and never mask the interruption.
+    """
+    handler = UnifiedIOHandler(s3_client)
+    for target in targets:
+        text = str(target)
+        try:
+            if is_s3_path(text):
+                location = S3Path(text)
+                handler.s3_client._s3_client.delete_object(
+                    Bucket=location.bucket, Key=location.key
+                )
+            else:
+                Path(text).unlink(missing_ok=True)
+        except Exception as exc:  # best effort
+            logger.warning("Could not remove output %s (%s)", text, type(exc).__name__)

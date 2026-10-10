@@ -98,15 +98,13 @@ class NumericTransformer:
                 converted_values.append(None)
                 continue
 
-            try:
-                cleaned_value = self._clean_money_string(value, config)
-                if cleaned_value is None:
-                    converted_values.append(None)
-                    continue
-                number = float(cleaned_value)
-            except (ValueError, ArithmeticError):
+            # _clean_money_string turns every unparseable value into None; float() of the finite
+            # Decimal it returns cannot fail (it is inf when out of float range)
+            cleaned_value = self._clean_money_string(value, config)
+            if cleaned_value is None:
                 converted_values.append(None)
                 continue
+            number = float(cleaned_value)
             converted_values.append(number if math.isfinite(number) else None)
 
         return pa.array(converted_values, type=pa.float64())

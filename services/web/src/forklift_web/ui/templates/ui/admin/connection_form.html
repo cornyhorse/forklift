@@ -1,0 +1,52 @@
+{% extends "ui/base.html" %}
+{% block title %}{% if connection %}{{ connection.name }}{% else %}New connection{% endif %}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:admin-connections' %}">Connections</a></li><li>{% if connection %}{{ connection.name }}{% else %}New{% endif %}</li></ol></nav>
+  <h1>{% if connection %}{{ connection.name }}{% else %}New {% if kind == "s3" %}S3-compatible bucket{% elif kind == "sql" %}SQL database{% else %}local directory{% endif %}{% endif %}</h1>
+  {% include "ui/admin/_nav.html" %}
+  {% if kind == "localfs" %}<div class="alert warn"><p>Local directories cannot be dataset sources or destinations yet (job contract v1 has no location for a directory mounted into a worker).</p></div>{% endif %}
+
+  {% if connection %}
+    <section aria-labelledby="test-heading">
+      <h2 id="test-heading">Test it</h2>
+      <form method="post" action="{% url 'ui:admin-connection-test' connection_id=connection.pk %}" hx-post="{% url 'ui:admin-connection-test' connection_id=connection.pk %}" hx-target="#test-result" hx-swap="innerHTML" class="actions">
+        {% csrf_token %}
+        <button type="submit" class="secondary">Test the connection</button>
+        <span class="htmx-indicator muted">Testing…</span>
+      </form>
+      <div id="test-result" aria-live="polite">
+        {% if connection.last_tested_at %}<p class="muted">Last tested {{ connection.last_tested_at|date:"Y-m-d H:i e" }}: {{ connection.last_test_message }}</p>{% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+  <h2>{% if connection %}Settings{% else %}Details{% endif %}</h2>
+  <form method="post" class="stack" autocomplete="off">
+    {% csrf_token %}
+    {% include "ui/_form_errors.html" %}
+    {% include "ui/_field.html" with field=form.name %}
+    {% include "ui/_field.html" with field=form.description %}
+    <fieldset>
+      <legend>Where</legend>
+      {% for field in form.config_boundfields %}{% include "ui/_field.html" %}{% endfor %}
+    </fieldset>
+    {% if form.secret_names %}
+      <fieldset>
+        <legend>Secrets</legend>
+        <p class="help">Write-only: stored encrypted and never shown again{% if connection %}. Leave a field empty to keep its value{% endif %}.</p>
+        {% for field in form.secret_boundfields %}{% include "ui/_field.html" %}{% endfor %}
+      </fieldset>
+    {% endif %}
+    {% include "ui/_field.html" with field=form.allowed_roles %}
+    <div class="actions"><button type="submit">{% if connection %}Save{% else %}Create the connection{% endif %}</button></div>
+  </form>
+
+  {% if connection %}
+    <h2>Delete it</h2>
+    <form method="post" action="{% url 'ui:admin-connection-delete' connection_id=connection.pk %}" data-confirm="Delete the connection {{ connection.name }}?">
+      {% csrf_token %}
+      <p>Connections that datasets use cannot be deleted; change those datasets first.</p>
+      <button type="submit" class="danger">Delete the connection</button>
+    </form>
+  {% endif %}
+{% endblock %}

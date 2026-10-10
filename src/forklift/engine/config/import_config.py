@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union
@@ -93,6 +93,10 @@ class ImportConfig:
             ``x-constraintHandling`` and ``x-rowHash``. Rows rejected by validation or
             constraints go to bad_rows.parquet with a ``_rejection_reason`` column. Set to False
             to ignore them (types, null markers and ``required`` still apply).
+        s3_client: S3 client (``forklift.io.S3StreamingClient``) for ``s3://`` inputs, schema
+            files and outputs; default: one built from boto3's default credential chain. Use it
+            for S3-compatible stores (``S3StreamingClient(endpoint_url=...)``) or explicit
+            credentials. It is not shown in ``repr()`` and not compared.
     """
 
     input_path: Union[str, Path]
@@ -124,6 +128,9 @@ class ImportConfig:
     compression: str = "snappy"
     include_value_statistics: bool = False
     apply_schema_extensions: bool = True
+
+    # Storage
+    s3_client: Optional[Any] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         """Coerce string enum values and validate them."""

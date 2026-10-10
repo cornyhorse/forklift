@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Proposed |
 | **Date** | 2026-10-09 |
-| **Decisions** | [ADR 0001](adr/0001-monorepo-layout.md) monorepo layout, [ADR 0002](adr/0002-job-contract.md) job contract, [ADR 0003](adr/0003-pull-lease-workers.md) pull-lease workers, [ADR 0004](adr/0004-trust-boundary.md) trust boundary, [ADR 0005](adr/0005-storage-and-destinations.md) storage and destinations, [ADR 0006](adr/0006-streaming-large-inputs.md) streaming large inputs |
+| **Decisions** | [ADR 0001](adr/0001-monorepo-layout.md) monorepo layout, [ADR 0002](adr/0002-job-contract.md) job contract, [ADR 0003](adr/0003-pull-lease-workers.md) pull-lease workers, [ADR 0004](adr/0004-trust-boundary.md) trust boundary, [ADR 0005](adr/0005-storage-and-destinations.md) storage and destinations, [ADR 0006](adr/0006-streaming-large-inputs.md) streaming large inputs, [ADR 0007](adr/0007-database-sources-and-targets.md) database sources and targets |
 
 ## 1. Summary
 
@@ -39,10 +39,12 @@ The design rests on three ideas:
 | Tenancy | Single organisation |
 | Deployment | Docker Compose and a Helm chart |
 | Processing isolation | Data processing runs in separate worker processes/services, away from the login-facing app |
-| Storage | "S3" means *S3-compatible*: cloud-agnostic, cloud-friendly (MinIO, Ceph, R2, AWS S3, ...) |
+| Storage | "S3" means *S3-compatible*: cloud-agnostic, cloud-friendly (RustFS, Ceph, R2, AWS S3, MinIO, ...) |
+| Bundled object store | RustFS (Apache-2.0) in Docker Compose, the Helm chart's optional in-cluster store and the integration tests; it replaces MinIO |
 | Sensitivity | Varies: anything from public data to PII; the design has to handle both |
 | Authentication | Local accounts plus API tokens; SSO (OIDC) later |
-| Destinations | Parquet on S3-compatible storage and on local file systems first; database tables only after that is solid |
+| Destinations | Parquet on S3-compatible storage and local file systems, and tables in PostgreSQL, MySQL, SQL Server and Oracle ([ADR 0007](adr/0007-database-sources-and-targets.md)); Snowflake, Databricks and BigQuery next |
+| First service release | The MVP of milestone M3 with workers: upload, schema, run, download; staged and streamed inputs; the four roles; purpose-built admin screens instead of the Django admin |
 | Package names | `forklift-web`, `forklift-worker`, `forklift-client`, `forklift-mcp` (beside `forklift-etl`) |
 | API framework | Django Ninja |
 | Input sizes | Plan for single inputs larger than 10 GB: inputs above `stageMaxBytes` (default 2 GiB) are streamed to the engine through presigned URLs ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
@@ -54,7 +56,8 @@ The design rests on three ideas:
 - Multi-tenancy (several organisations isolated from each other in one installation).
 - A general workflow/orchestration engine. Forklift runs cleaning jobs and schedules simple
   recurring ones; Airflow and friends orchestrate.
-- Writing to databases (see [ADR 0005](adr/0005-storage-and-destinations.md)).
+- Cloud warehouses (Snowflake, Databricks, BigQuery) as sources or targets: next, after the
+  relational databases ([ADR 0007](adr/0007-database-sources-and-targets.md)).
 - Masking/anonymisation (`x-pii` stays documentation-only until it is designed separately).
 
 ## 2. Who uses it, and how
@@ -189,8 +192,13 @@ Rules:
   separate, permission-checked artifact.
 - **Stable error codes.** Every failure maps to a code (`SCHEMA_INVALID`, `INPUT_UNREADABLE`,
   `ENCODING_ERROR`, `COLUMN_MISSING`, `BAD_ROWS_THRESHOLD_EXCEEDED`, `CONSTRAINT_VIOLATION`,
-  `LIMIT_EXCEEDED`, `CANCELLED`, `INTERNAL`) plus the engine's verbose message. A threshold failure
-  still lists the kept `bad_rows` artifact.
+  `LIMIT_EXCEEDED`, `PERMISSION_DENIED`, `TARGET_WRITE_FAILED`, `SPEC_INVALID`, `CANCELLED`,
+  `INTERNAL`) plus the engine's verbose message. A threshold failure still lists the kept
+  `bad_rows` artifact.
+- **As built (v1):** `limits` also has `max_rows` (previews); a `sql_table` output has `mode`,
+  `key_columns` and `staging` (`table` or `none`), and `output.artifacts` names the `file`
+  directory that keeps the validated Parquet and `bad_rows` of a table load. The JSON Schemas in
+  `contracts/` are normative.
 - **Versioning.** `spec_version` is an integer. Workers advertise the versions they accept when they
   lease; the gateway only hands out jobs a worker understands. Additive changes keep the version;
   anything else bumps it, and the gateway supports N and N-1.
@@ -214,10 +222,12 @@ and it is the exact code path the worker uses.
 | `Job` | kind, lane, status, spec (JSON), result (JSON), dataset?, requested_by, attempt, lease (worker, expires_at), timestamps | State machine in §5.3 |
 | `JobEvent` | job, time, type (`progress`, `log`, `state`), payload | Progress and logs without cell values |
 | `Artifact` | job, kind (`data`, `bad_rows`, `manifest`, `metadata`, `preview`), object key, rows, bytes, sha256, expires_at | Downloads go through permission checks and presigned GETs |
-| `RetentionPolicy` | scope (installation, classification), per artifact kind: keep for *n* days or keep until deleted | Set by admins (§5.7) |
-| `Schedule` | dataset, cron expression, timezone, enabled, next_run_at | A small scheduler loop in the gateway enqueues jobs |
+| `RetentionPolicy` | scope (installation, classification, dataset), days per kind (uploads, data, bad_rows, previews, metadata, job_records; null = keep until deleted) | Set by admins (§5.7) |
+| `Schedule` | dataset, cron expression, timezone, enabled, next_run_at | A small scheduler loop in the gateway enqueues jobs (not built yet) |
 | `AuditLog` | actor, action, object, time, request id, ip | Downloads of sensitive artifacts, connection changes, token use |
 | `Worker` | id, lanes, versions, last_seen | For the admin view and lease bookkeeping |
+| `WorkerToken` | name, prefix, hash, expires_at, revoked_at | Created by admins; accepted only by `/internal/v1` |
+| `InstallationSetting` | key, value | Admin-set values with defaults in code (stage_max_bytes, lease_seconds, max_attempts, lane limits, URL lifetimes) |
 
 ### 5.2 Roles
 
@@ -229,8 +239,19 @@ and it is the exact code path the worker uses.
 | Admin | Everything, including connections, users, tokens, retention and audit |
 
 Sensitive datasets add one permission, **view raw rows**, required to preview data or download
-`bad_rows` / outputs. Tokens carry scopes (`jobs:run`, `jobs:read`, `schemas:write`, ...) that can
-only narrow their owner's role.
+`bad_rows` / outputs. Admins always have it; an admin grants it to users of the other roles.
+Every download is audited, admins' included. Tokens carry scopes that can only narrow their owner's role
+(a token's effective scopes are its own scopes intersected with the role's):
+
+| Role | Scopes (each role includes the one above) |
+|---|---|
+| Viewer | `schemas:read`, `datasets:read`, `connections:read`, `jobs:read`, `artifacts:read`, `tokens:read`, `tokens:write` |
+| Operator | + `uploads:read`, `uploads:write`, `jobs:run` |
+| Author | + `schemas:write`, `datasets:write` |
+| Admin | + `admin:read`, `admin:write` |
+
+Uploads are used by their uploader and jobs are cancelled by their requester (admins may do both);
+connections are used by the roles they allow.
 
 ### 5.3 Job lifecycle
 
@@ -249,6 +270,9 @@ only narrow their owner's role.
   progress (rows read, rows rejected, bytes). Cancellation is answered on the next heartbeat.
 - Jobs are idempotent per attempt: outputs go to `jobs/<job>/attempt-<n>/`, and only a successful
   attempt is published (§6.3). Retrying never mixes two attempts' files.
+- A lease is (worker token, attempt); calls about a job the worker no longer holds answer `409`.
+  Lease calls requeue expired leases; on the last attempt the job fails with `LEASE_EXPIRED`, or
+  is cancelled if cancellation was requested.
 
 ### 5.4 APIs
 
@@ -268,7 +292,11 @@ only narrow their owner's role.
 
 **Internal** (`/internal/v1`, separate port, not routed by the ingress, worker tokens only):
 `POST /leases` (lanes, accepted spec versions → a job or 204), `POST /jobs/{id}/heartbeat`,
-`POST /jobs/{id}/complete`, `POST /jobs/{id}/presign` (more upload URLs for outputs).
+`POST /jobs/{id}/complete`, `POST /jobs/{id}/presign` (more upload URLs for outputs),
+`POST /jobs/{id}/input-url` (a fresh presigned URL for a streamed input). One gateway process
+serves both ports and routes each request by the local port its connection arrived on, never by
+a header. The admin endpoints (`/api/v1/admin/...`: users and roles, tokens, worker tokens,
+workers, retention, audit log, settings) are part of the public API and need the Admin role.
 
 ### 5.5 UI
 
@@ -336,8 +364,19 @@ exactly one object, for a limited time, and the engine's network is limited to t
 | **no-network** | Where user namespaces are available | As standard, plus its own empty network namespace; only staged inputs (a larger input is refused, or routed to a `standard` lane if the admin allows it) | Untrusted files from outside the organisation |
 | **sandboxed** | Helm | As standard (or no-network), plus a sandboxed runtime (`runtimeClassName`, for example gVisor or Kata) or one Kubernetes Job per run | Sensitive data from untrusted sources |
 
+As implemented in `services/worker`: both profiles add Landlock where the kernel has it
+(`--landlock required` in production). With it, the engine reads only system paths and the Python
+installation, writes only its own scratch directory, and cannot signal or ptrace outside its
+sandbox (signal scoping from Linux 6.12). From Linux 6.7 it also makes no TCP connections for
+staged inputs and reaches only the store's port for streamed ones. `no-network` puts the engine in
+an unprivileged user and network namespace; Docker's and Kubernetes' default seccomp profiles
+forbid creating one, so such workers need a seccomp profile that allows `unshare`, and the worker
+refuses to start without it. `sandboxed` is this image under a sandboxed runtime with
+`--max-jobs 1`. `services/worker/README.md` lists what each profile enforces and what it leaves to
+the deployment.
+
 Limiting egress to "the object store" depends on where the store is. NetworkPolicies match IP
-addresses, not host names: an in-cluster MinIO is selected by its pods, an external store by its
+addresses, not host names: an in-cluster RustFS is selected by its pods, an external store by its
 CIDR ranges where they are stable, and otherwise through an egress proxy that allows only the
 store's host name. The chart supports all three (§10.2).
 
@@ -348,6 +387,11 @@ then copies the files to the destination prefix with the data files first and `m
 so a reader that trusts only complete manifests never sees half a load. A threshold failure
 publishes nothing to the destination but keeps `bad_rows.parquet` as a job artifact, matching the
 engine's behaviour.
+
+As built: for an `s3` destination the gateway publishes when the run completes, with server-side
+copies (data first, `manifest.json` last), so the destination must be on the installation's own
+store; a failed copy fails the job with `TARGET_WRITE_FAILED` and keeps the artifacts. Table
+destinations are written by the engine itself (`sql_table`, ADR 0007).
 
 ## 7. Storage and sources
 
@@ -373,11 +417,18 @@ under the connection's root only. Paths are resolved and checked against the roo
 is queued and again in the supervisor (the engine already rejects output names that escape their
 directory).
 
-### 7.3 SQL sources (later milestone)
+As built: `localfs` connections can be created and tested, but are not dataset sources or
+destinations yet, because job contract v1 has no location for a directory mounted into the
+worker.
 
-SQL extraction needs network access to the database, so it runs on a separate `sql` lane whose
-workers' egress allows the configured database hosts. The job's connection secret is delivered with
-the lease over TLS, held in memory only, and the engine connects read-only (its default).
+### 7.3 SQL sources and targets
+
+Reading from or writing to a database needs network access to it, so those jobs run on a
+separate `sql` lane whose workers' egress allows the configured database hosts. The job's
+connection secret is delivered with the lease over TLS and lives only in memory and in the job's
+scratch spec, which is deleted with the scratch directory. Reads use read-only sessions (the
+engine's default, enforced by the database where it can be); a load goes through validated
+Parquet and publishes all-or-nothing ([ADR 0007](adr/0007-database-sources-and-targets.md)).
 
 ## 8. Security model
 
@@ -431,11 +482,18 @@ can instead call `forklift.run_job` in a task; the result has the same shape.
 ### 10.1 Docker Compose
 
 `deploy/compose/docker-compose.yml` brings up `gateway`, `worker` (batch and interactive lanes in one
-process for small installations), `postgres` and `minio`, with an optional `caddy` profile for TLS and
+process for small installations), `postgres` and `rustfs`, with an optional `caddy` profile for TLS and
 an optional `mcp` profile. One `.env` file holds the secrets. Data and database live in named volumes.
 Workers sit on an `internal` Docker network that reaches only the gateway's internal port and
-MinIO; with an external store, an optional allow-listing proxy service limits their egress to that
+RustFS; with an external store, an optional allow-listing proxy service limits their egress to that
 store's host. It is the development environment and a supported way to run a small installation.
+
+As built: `deploy/compose/docker-compose.yml` has `gateway`, `worker`, `sweeper`, `postgres` and
+`rustfs`, plus a one-shot `init` (migrations, the first admin, the bucket and its CORS rule, and
+a worker token in a volume only the worker mounts). Three networks: `public` (the gateway's public
+port and the store, published), `internal` (no route out: gateway, worker, store) and `db`
+(PostgreSQL and the gateway processes). The `caddy`, `mcp` and egress-proxy profiles are not built
+yet. `deploy/compose/e2e` holds the end-to-end tests CI runs against it.
 
 ### 10.2 Helm
 
@@ -467,7 +525,7 @@ objectStore: {endpoint: https://s3.example.org, bucket: forklift, existingSecret
 networkPolicies:
   enabled: true
   storeEgress:                              # how workers may reach the object store
-    mode: cidr                              # podSelector (in-cluster MinIO) | cidr | proxy
+    mode: cidr                              # podSelector (in-cluster RustFS) | cidr | proxy
     cidrs: [203.0.113.0/24]
     proxy: {enabled: false, allowHosts: [s3.example.org]}
 image: {registry: ghcr.io/cornyhorse}       # forklift-web, forklift-worker, forklift-mcp
@@ -539,12 +597,12 @@ These are small, useful on their own to library users, and the foundation for ev
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | This design is reviewed and merged | — |
-| M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI; a streamed CSV (presigned URL against MinIO) gives the same output as the local file |
+| M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI; a streamed CSV (presigned URL against RustFS) gives the same output as the local file |
 | M2 | `forklift-mcp` (stdio) | An agent can generate, validate and apply a schema to a local file and explain a failed run |
-| M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; staged and streamed inputs both work; an end-to-end Compose test runs in CI and a run on an input larger than 10 GB runs on demand |
+| M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; staged and streamed inputs both work; the four roles and the admin screens; database connections as sources and destinations on the `sql` lane; an end-to-end Compose test runs in CI and a run on an input larger than 10 GB runs on demand |
 | M4 | Helm, hardening, authoring | Chart with NetworkPolicies and isolation profiles; schema editor; connections admin (S3-compatible, localfs); datasets, schedules, retention, audit |
-| M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC, SQL lane |
-| M6 | Database tables as destinations | Only after Parquet to S3-compatible and local storage is solid: tested against MinIO and a local volume, safe on retries and crashes, manifest-last publishing, runs on inputs larger than 10 GB (including uniqueness checks), kept `bad_rows` on failure |
+| M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC |
+| M6 | Cloud warehouses | Snowflake, Databricks and BigQuery as sources and targets through their own bulk-load paths; tests that run in CI when an account's credentials are configured ([ADR 0007](adr/0007-database-sources-and-targets.md)) |
 
 ## 14. Alternatives considered
 

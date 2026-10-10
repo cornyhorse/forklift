@@ -139,10 +139,7 @@ def _parse(
         return parsed
 
     if is_epoch_timestamp(value):
-        try:
-            return parse_epoch_timestamp(value)
-        except ValueError:
-            pass  # fall through to the other parsing methods
+        return parse_epoch_timestamp(value)  # cannot fail for text that passed the check
 
     parsed = _resolve_default(value, fuzzy, dayfirst)
     if parsed is None:

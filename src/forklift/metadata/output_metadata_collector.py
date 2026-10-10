@@ -294,9 +294,6 @@ class OutputMetadataCollector:
         # Get non-null values for analysis
         non_null_column = pc.drop_null(column)
 
-        if len(non_null_column) == 0:
-            return
-
         try:
             if stats["is_numeric"]:
                 self._update_numeric_stats(column_name, stats, non_null_column)
@@ -306,7 +303,7 @@ class OutputMetadataCollector:
                 # For strings, track length stats
                 lengths = pc.utf8_length(non_null_column)
                 self._update_min_max(stats, pc.min(lengths), pc.max(lengths))
-        except Exception as exc:  # pragma: no cover - defensive, never log values
+        except Exception as exc:  # e.g. out-of-range timestamps; never log values
             logger.debug("Skipping value statistics for column %r: %s", column_name, exc)
 
         self._track_distinct(column_name, stats, non_null_column)
@@ -315,8 +312,6 @@ class OutputMetadataCollector:
     def _update_min_max(stats: Dict[str, Any], col_min: pa.Scalar, col_max: pa.Scalar) -> None:
         """Fold a batch minimum/maximum into the running exact minimum/maximum."""
         col_min, col_max = col_min.as_py(), col_max.as_py()
-        if col_min is None or col_max is None:
-            return
         if stats["min_value"] is None or col_min < stats["min_value"]:
             stats["min_value"] = col_min
         if stats["max_value"] is None or col_max > stats["max_value"]:
@@ -376,7 +371,7 @@ class OutputMetadataCollector:
                 batch_values = [_NAN_KEY if v != v else v for v in batch_values]
             seen = stats["unique_values"]
             unseen = [v for v in batch_values if v not in seen]
-        except (pa.ArrowException, TypeError) as exc:
+        except (pa.ArrowException, TypeError, OverflowError) as exc:
             logger.debug("Distinct tracking unavailable for column %r: %s", column_name, exc)
             stats["distinct_supported"] = False
             self._value_counters.pop(column_name, None)

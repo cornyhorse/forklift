@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import csv
+import io
 import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, List, Optional, Union
+from typing import BinaryIO, Callable, Iterable, Iterator, List, Optional, TextIO, Union
 
 import pyarrow as pa
 import pyarrow.csv as pv_csv
 
 from ...io import S3Path, UnifiedIOHandler, is_s3_path
 from ..config import ExcessColumnMode, ImportConfig
+from ..exceptions import ENCODING_ERROR, INPUT_UNREADABLE, with_error_code
+from ..input_source import CountingReader, InputSource
 from .text_utils import read_encoding, sanitize_arrow_error
 from .type_conversion import ColumnConverter, visible_schema, with_raw_columns
 
@@ -27,6 +30,9 @@ PreConvertHook = Callable[[pa.RecordBatch], pa.RecordBatch]
 #: Values of ``BatchProcessor.last_reject_reason``
 REJECT_TYPE_CONVERSION = "type_conversion_failed"
 REJECT_EXCESS_COLUMNS = "too_many_fields"
+
+#: A local file path, or the stream source of an input that is not opened by path
+LocalInput = Union[Path, InputSource]
 
 
 class BatchProcessor:
@@ -43,6 +49,7 @@ class BatchProcessor:
         established_schema: Schema of the first batch produced; later batches are cast to it
         last_reject_reason: Why the batch most recently handed to ``reject_handler`` was rejected
             (``REJECT_TYPE_CONVERSION`` or ``REJECT_EXCESS_COLUMNS``)
+        input_source: Stream source read instead of the input path (see ``InputSource``)
     """
 
     def __init__(
@@ -52,6 +59,7 @@ class BatchProcessor:
         converter: Optional[ColumnConverter] = None,
         reject_handler: Optional[RejectHandler] = None,
         pre_convert: Optional[PreConvertHook] = None,
+        input_source: Optional[InputSource] = None,
     ):
         """Initialize batch processor with configuration.
 
@@ -62,17 +70,20 @@ class BatchProcessor:
             reject_handler: Called with an all-string batch for every group of rejected rows
             pre_convert: Called with each raw batch before the schema types are applied (the
                 schema extensions use it to clean text columns); must keep the row count
+            input_source: Read this stream source instead of the input path
         """
         self.config = config
         self.io_handler = io_handler
         self.converter = converter if converter is not None else ColumnConverter()
         self.reject_handler = reject_handler
         self.pre_convert = pre_convert
+        self.input_source = input_source
         self.last_reject_reason: Optional[str] = None
         self.truncated_rows = 0
         self.rejected_rows = 0
         self.established_schema: Optional[pa.Schema] = None
         self._batches_yielded = 0
+        self._counters: List[CountingReader] = []
 
     def _reset_state(self) -> None:
         """Forget what a previous read established (one processor may read several files)."""
@@ -80,9 +91,39 @@ class BatchProcessor:
         self.rejected_rows = 0
         self.established_schema = None
         self._batches_yielded = 0
+        self._counters = []
+
+    @property
+    def bytes_read(self) -> int:
+        """Bytes of the input consumed so far (0 for ``s3://`` inputs, which are not counted).
+
+        The row reader that takes over after a column-count mismatch reads the input again
+        from the start, so this is the furthest any pass has got, not the sum.
+        """
+        return max((counter.count for counter in self._counters), default=0)
+
+    def _open_binary(self, file_path: LocalInput) -> BinaryIO:
+        """Open a local file or a new stream of the input source, counting the bytes read."""
+        if isinstance(file_path, InputSource):
+            raw = file_path.open()
+        else:
+            raw = open(file_path, "rb", buffering=0)  # the BufferedReader below buffers
+        counter = CountingReader(raw)
+        self._counters.append(counter)
+        return io.BufferedReader(counter, buffer_size=1024 * 1024)
+
+    def _open_text(self, file_path: LocalInput) -> TextIO:
+        """Text stream for Python's csv module (line breaks inside quoted fields preserved)."""
+        return io.TextIOWrapper(
+            self._open_binary(file_path), encoding=read_encoding(self.config.encoding), newline=""
+        )
 
     def create_batch_reader(
-        self, file_path: Path, column_names: List[str], header_row_index: int, footer_detector_func
+        self,
+        file_path: LocalInput,
+        column_names: List[str],
+        header_row_index: int,
+        footer_detector_func,
     ) -> Iterator[pa.RecordBatch]:
         """Create a streaming batch reader for the CSV file.
 
@@ -90,7 +131,9 @@ class BatchProcessor:
         and handles footer detection by creating filtered temporary files.
 
         Args:
-            file_path: Path to the input CSV file
+            file_path: Path to the input CSV file, or an input source (read as a stream; it
+                never gets a filtered copy: :meth:`create_s3_batch_reader` reads a source with
+                footer detection through the row reader instead)
             column_names: List of column names for the data
             header_row_index: Index of the header row
             footer_detector_func: Function to detect footer rows
@@ -103,7 +146,8 @@ class BatchProcessor:
                 contains row content.
         """
         # Check if file is empty before processing
-        if file_path.stat().st_size == 0:
+        size = file_path.size if isinstance(file_path, InputSource) else file_path.stat().st_size
+        if size == 0:
             return  # Return empty generator for empty files
 
         self._reset_state()
@@ -213,7 +257,7 @@ class BatchProcessor:
         consuming the batches are never mistaken for problems in the file.
         """
         try:
-            with open(file_path, "rb") as f:
+            with self._open_binary(file_path) as f:
                 csv_reader = pv_csv.open_csv(
                     f,
                     parse_options=parse_options,
@@ -227,8 +271,6 @@ class BatchProcessor:
                         batch = csv_reader.read_next_batch()
                     except StopIteration:
                         break
-                    if batch is None:
-                        break
                     yield batch
         except pa.ArrowInvalid as exc:
             errors.append(exc)
@@ -237,10 +279,13 @@ class BatchProcessor:
         """Arrow error without row content, with a hint for encoding problems."""
         message = str(error)
         if "UTF8" in message or "utf8" in message:
-            return pa.ArrowInvalid(
-                f"Input contains bytes that are not valid for encoding "
-                f"'{self.config.encoding}' ({sanitize_arrow_error(message)}). "
-                "Set the encoding the file was written with (for example 'latin-1' or 'cp1252')."
+            return with_error_code(
+                pa.ArrowInvalid(
+                    f"Input contains bytes that are not valid for encoding "
+                    f"'{self.config.encoding}' ({sanitize_arrow_error(message)}). Set the "
+                    "encoding the file was written with (for example 'latin-1' or 'cp1252')."
+                ),
+                ENCODING_ERROR,
             )
         return pa.ArrowInvalid(sanitize_arrow_error(message))
 
@@ -250,10 +295,13 @@ class BatchProcessor:
             return  # types are fixed after the first block
         for field in batch.schema:
             if pa.types.is_binary(field.type) or pa.types.is_large_binary(field.type):
-                raise pa.ArrowInvalid(
-                    f"Column '{field.name}' contains bytes that are not valid for encoding "
-                    f"'{self.config.encoding}'. Set the encoding the file was written with "
-                    "(for example 'latin-1' or 'cp1252')."
+                raise with_error_code(
+                    pa.ArrowInvalid(
+                        f"Column '{field.name}' contains bytes that are not valid for encoding "
+                        f"'{self.config.encoding}'. Set the encoding the file was written with "
+                        "(for example 'latin-1' or 'cp1252')."
+                    ),
+                    ENCODING_ERROR,
                 )
 
     def _split_batch(self, batch: pa.RecordBatch) -> Iterator[pa.RecordBatch]:
@@ -329,7 +377,11 @@ class BatchProcessor:
         Yields:
             PyArrow RecordBatch objects containing data from the CSV
         """
-        if is_s3_path(input_path):
+        if self.input_source is not None:
+            yield from self._create_source_batches(
+                self.input_source, column_names, header_row_index, footer_detector_func
+            )
+        elif is_s3_path(input_path):
             # S3 input - use fallback to row-by-row processing since PyArrow CSV
             # doesn't directly stream from S3
             yield from self._create_s3_csv_batches(
@@ -339,6 +391,40 @@ class BatchProcessor:
             # Local file - use existing PyArrow streaming
             yield from self.create_batch_reader(
                 Path(input_path), column_names, header_row_index, footer_detector_func
+            )
+
+    def _create_source_batches(
+        self,
+        source: InputSource,
+        column_names: List[str],
+        header_row_index: int,
+        footer_detector_func,
+    ) -> Iterator[pa.RecordBatch]:
+        """Batches from an input source, which is only ever read as a forward-only stream.
+
+        Without footer detection Arrow's streaming reader reads it, as for a local file. With
+        footer detection the row reader does (as for S3 inputs): it stops at the footer row
+        directly, where the local path would first write a filtered copy of the whole input.
+        """
+        if not self.config.footer_detection:
+            yield from self.create_batch_reader(
+                source, column_names, header_row_index, footer_detector_func
+            )
+            return
+        if not column_names:
+            return  # nothing to read
+
+        self._reset_state()
+        rows_to_skip = header_row_index + 1 if header_row_index >= 0 else 0
+        with self._open_text(source) as text:
+            records = csv.reader(
+                text,
+                delimiter=self.config.delimiter,
+                quotechar=self.config.quote_char,
+                escapechar=self.config.escape_char,
+            )
+            yield from self._batches_from_records(
+                records, column_names, rows_to_skip, footer_detector_func
             )
 
     def _create_s3_csv_batches(
@@ -393,7 +479,7 @@ class BatchProcessor:
         processes them according to the excess_column_mode configuration.
 
         Args:
-            file_path: Path to the CSV file
+            file_path: Path to the CSV file, or the input source (read again from the start)
             skip_rows: Number of rows to skip
             column_names: List of column names
             skip_data_rows: Data rows to skip after ``skip_rows`` because the Arrow reader
@@ -405,7 +491,7 @@ class BatchProcessor:
         if not column_names:
             return  # Return empty generator for empty column names
 
-        with open(file_path, "r", encoding=read_encoding(self.config.encoding), newline="") as f:
+        with self._open_text(file_path) as f:
             reader = csv.reader(
                 f,
                 delimiter=self.config.delimiter,
@@ -474,12 +560,15 @@ class BatchProcessor:
                     continue
                 elif mode == ExcessColumnMode.PASSTHROUGH:
                     if self._batches_yielded > 0 or self.established_schema is not None:
-                        raise ValueError(
-                            f"Data row {data_row} has {len(row)} fields but the output was "
-                            f"already started with {expected_columns} columns; "
-                            "excess_column_mode='passthrough' cannot add columns once data "
-                            "has been written. Put the widest row first, or use 'truncate' "
-                            "or 'reject'."
+                        raise with_error_code(
+                            ValueError(
+                                f"Data row {data_row} has {len(row)} fields but the output was "
+                                f"already started with {expected_columns} columns; "
+                                "excess_column_mode='passthrough' cannot add columns once data "
+                                "has been written. Put the widest row first, or use 'truncate' "
+                                "or 'reject'."
+                            ),
+                            INPUT_UNREADABLE,
                         )
                     # Keep all columns - generate default names for the extra columns
                     for i in range(len(column_names), len(row)):
@@ -633,12 +722,10 @@ class BatchProcessor:
         """
         # PyArrow error messages often include the problematic line content
         # Format: "CSV parse error: Expected X columns, got Y: actual_line_content"
-        if ": " in error_message:
-            parts = error_message.split(": ")
-            if len(parts) >= 3:
-                # The last part after the last colon should be the line content
-                return parts[-1].strip()
-        return ""
+        # (the line itself may contain ": ", so everything after the column counts is kept)
+        _, _, counts_and_line = error_message.partition("columns, got ")
+        _, _, line = counts_and_line.partition(": ")
+        return line.strip()
 
     def _contains_problematic_content(self, line_content: str) -> bool:
         """Check if line content contains problematic characters that indicate corruption.
@@ -649,9 +736,6 @@ class BatchProcessor:
         Returns:
             True if the content appears to be corrupted, False otherwise
         """
-        if not line_content:
-            return False
-
         # Check for null bytes and other control characters that shouldn't be in CSV
         problematic_chars = {
             "\x00",

@@ -1,5 +1,9 @@
 # Forklift Outputs Package
 
+> **Writing database tables:** the `forklift.outputs.sql` subpackage (`write_table`) is new and is
+> used: it loads validated Parquet into PostgreSQL, MySQL/MariaDB, SQL Server and Oracle tables,
+> all or nothing. See [forklift.outputs.sql.readme.md](sql/forklift.outputs.sql.readme.md).
+
 > **Note:** this package is not used by the engine. `ForkliftCore`, `CSVProcessor` and the importers write
 > Parquet, manifests and metadata themselves (with S3 support through `forklift.io`); the classes here are
 > local-filesystem-only and kept for backwards compatibility. `ManifestGenerator` raises for a corrupt

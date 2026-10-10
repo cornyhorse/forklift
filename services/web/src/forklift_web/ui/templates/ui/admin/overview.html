@@ -1,0 +1,57 @@
+{% extends "ui/base.html" %}
+{% block title %}Admin overview{% endblock %}
+{% block content %}
+  <h1>Administration</h1>
+  {% include "ui/admin/_nav.html" %}
+
+  {% if warnings %}
+    <section class="alert warn" aria-labelledby="warnings-heading">
+      <h2 id="warnings-heading">Retention warnings</h2>
+      <ul>{% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+      <p><a href="{% url 'ui:admin-retention' %}">Set retention</a></p>
+    </section>
+  {% endif %}
+
+  <ul class="stats" aria-label="At a glance">
+    <li><strong>{{ online|length }}</strong> worker{{ online|length|pluralize }} online</li>
+    <li><strong>{{ running|length }}</strong> job{{ running|length|pluralize }} running</li>
+    <li><strong>{{ failed_today }}</strong> failed in the last 24 hours</li>
+  </ul>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="store-heading">
+      <h2 id="store-heading">Object store</h2>
+      <div hx-get="{% url 'ui:admin-store' %}" hx-trigger="load" hx-swap="innerHTML">
+        <p class="muted">Checking the store… <noscript><a href="{% url 'ui:admin-store' %}">Check it</a></noscript></p>
+      </div>
+    </section>
+    <section class="card" aria-labelledby="queue-heading">
+      <h2 id="queue-heading">Queue</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Lane</th><th scope="col" class="num">Queued</th><th scope="col">Oldest</th></tr></thead>
+          <tbody>
+            {% for lane in lanes %}<tr><td>{{ lane.lane }}</td><td class="num">{{ lane.count }}</td><td>{% if lane.oldest %}{{ lane.oldest|timesince }} ago{% else %}—{% endif %}</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="card" aria-labelledby="workers-heading">
+      <h2 id="workers-heading">Workers</h2>
+      {% if online %}
+        <ul>{% for worker in online %}<li>{{ worker.worker_id }} ({{ worker.lanes|join:", " }}), seen {{ worker.last_seen_at|timesince }} ago</li>{% endfor %}</ul>
+      {% else %}
+        <p class="alert warn">No worker is online: queued jobs wait until one leases them.</p>
+      {% endif %}
+      {% if offline %}<p class="muted">{{ offline|length }} more not seen recently.</p>{% endif %}
+      <p><a href="{% url 'ui:admin-workers' %}">Workers and worker tokens</a></p>
+    </section>
+  </div>
+
+  <h2>Running jobs</h2>
+  {% include "ui/jobs/_rows.html" with rows=running admin=True empty="Nothing is running." %}
+
+  <h2>Recently failed jobs</h2>
+  {% include "ui/jobs/_rows.html" with rows=failed admin=True empty="No job has failed." %}
+  <p><a href="{% url 'ui:admin-jobs' %}">All jobs</a></p>
+{% endblock %}

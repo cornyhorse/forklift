@@ -277,11 +277,9 @@ class ExcelInputHandler:
     def close_workbook(self) -> None:
         """Close the opened workbook if applicable."""
         if self._workbook is not None:
-            closer = getattr(self._workbook, "close", None) or getattr(
-                self._workbook, "release_resources", None
-            )
-            if closer is not None:
-                closer()
+            # openpyxl workbooks have close(), xlrd books release_resources()
+            closer = getattr(self._workbook, "close", None) or self._workbook.release_resources
+            closer()
         self._workbook = None
         self._engine = None
 
@@ -464,7 +462,7 @@ class ExcelInputHandler:
             with contextlib.closing(rows):
                 for number, row in enumerate(rows, start=first_row):
                     yield number, row
-        elif self._engine == "xlrd":
+        else:  # xlrd: open_workbook only keeps a workbook for an engine it supports
             import xlrd
 
             sheet = self._workbook.sheet_by_name(sheet_name)
@@ -474,8 +472,6 @@ class ExcelInputHandler:
                 yield index + 1, [
                     self._xlrd_value(xlrd, cell, datemode) for cell in sheet.row(index)
                 ]
-        else:
-            raise ValueError(f"Unsupported engine: {self._engine}")
 
     @staticmethod
     def _xlrd_value(xlrd, cell, datemode: int) -> Any:
@@ -527,9 +523,9 @@ class ExcelInputHandler:
         kept: List[Sequence[Any]] = []
         scanned_cells = 0
 
+        # _iter_rows stops at data_end; numbering is gap-free, so the max_rows check on the
+        # sheet row number also bounds the number of rows kept.
         for number, row in self._iter_rows(sheet_name, first_row, data_end):
-            if data_end is not None and number > data_end:
-                break
             if number > cfg.max_rows:
                 raise ValueError(
                     f"Sheet '{sheet_name}' has data beyond row {cfg.max_rows} (max_rows); "
@@ -555,10 +551,6 @@ class ExcelInputHandler:
 
             if width == 0 and skip_blank:
                 continue
-            if len(kept) >= cfg.max_rows:
-                raise ValueError(
-                    f"Sheet '{sheet_name}' has more than max_rows={cfg.max_rows} data rows"
-                )
             kept.append(tuple(row[:width]))
 
         while kept and not kept[-1]:

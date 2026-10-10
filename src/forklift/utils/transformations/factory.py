@@ -6,7 +6,6 @@ from schema configuration dictionaries.
 
 from __future__ import annotations
 
-import inspect
 from typing import Any, Callable, Dict
 
 import pyarrow as pa
@@ -62,14 +61,7 @@ def create_transformation_from_config(
         A misspelled option (``{"zeropad": False}``) used to be dropped silently, so the
         transformation ran with the default instead of the intended setting.
         """
-        if hasattr(config_class, "__dataclass_fields__"):
-            # For dataclasses, get field names
-            valid_fields = set(config_class.__dataclass_fields__.keys())
-        else:
-            # For regular classes, get constructor parameters
-            sig = inspect.signature(config_class.__init__)
-            valid_fields = set(sig.parameters.keys()) - {"self"}
-
+        valid_fields = set(config_class.__dataclass_fields__)  # every config class is a dataclass
         _reject_unknown_keys(transform_type, config_dict, valid_fields)
         return {k: v for k, v in config_dict.items() if k in valid_fields}
 

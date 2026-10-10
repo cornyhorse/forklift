@@ -1,0 +1,38 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}Upload a file{% endblock %}
+{% block scripts %}<script src="{% asset 'ui/upload.js' %}" defer></script>{% endblock %}
+{% block content %}
+  <h1>Upload a file</h1>
+  <p class="lead">The file goes straight from your browser into the object store; Forklift never routes it through its own servers. Then you choose what to do with it: run it with a schema, generate a schema from it, validate one first, or preview it.</p>
+  <noscript><div class="alert warn"><p>Uploading needs JavaScript in this browser. Scripts can upload through the API instead (<code>POST /api/v1/uploads</code>).</p></div></noscript>
+  <form id="upload-form" class="stack"
+        data-create-url="{% url 'api-v1:create_upload' %}"
+        data-parts-url="{% url 'api-v1:part_urls' upload_id=placeholder %}"
+        data-complete-url="{% url 'api-v1:complete_upload' upload_id=placeholder %}"
+        data-delete-url="{% url 'api-v1:delete_upload' upload_id=placeholder %}"
+        data-detail-url="{% url 'ui:upload-detail' upload_id=placeholder %}"
+        data-placeholder="{{ placeholder }}">
+    <div class="field">
+      <label for="upload-file">File <span class="muted">(required)</span></label>
+      <p class="help" id="upload-file-help">CSV, Excel or fixed-width text, up to {{ upload_max_bytes|filesize }}. Files above {{ multipart_threshold_bytes|filesize }} are sent in parts.</p>
+      <input type="file" id="upload-file" name="file" required aria-describedby="upload-file-help">
+    </div>
+    <div class="field">
+      <label for="upload-classification">Classification</label>
+      <p class="help" id="upload-classification-help">How restricted the data is. Rows of sensitive data can only be previewed and downloaded by admins and by people an admin gave the “view raw rows” permission.</p>
+      <select id="upload-classification" name="classification" aria-describedby="upload-classification-help">
+        {% for value, label in classifications %}<option value="{{ value }}"{% if value == default_classification %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="actions">
+      <button type="submit">Upload</button>
+      <button type="button" class="danger" id="upload-cancel" hidden>Cancel the upload</button>
+    </div>
+    <div>
+      <progress id="upload-progress" max="100" value="0" hidden aria-labelledby="upload-amount"></progress>
+      <p id="upload-amount" class="muted"></p>
+      <p id="upload-status" class="editor-status" role="status" aria-live="polite"></p>
+    </div>
+  </form>
+{% endblock %}

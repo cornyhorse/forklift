@@ -1,0 +1,20 @@
+{% extends "ui/base.html" %}
+{% block title %}New {{ what }}{% endblock %}
+{% block content %}
+  <h1>Your new {{ what }}</h1>
+  <div class="alert warn" role="alert">
+    <p><strong>Copy it now: this is the only time it is shown.</strong> Forklift stores only a hash of it; if you lose it, revoke it and create another.</p>
+  </div>
+  <dl class="facts">
+    <dt>Name</dt><dd>{{ token.name }}</dd>
+    {% if token.owner %}<dt>Owner</dt><dd>{{ token.owner.username }}</dd>{% endif %}
+    {% if token.scopes %}<dt>Scopes</dt><dd>{{ token.scopes|join:", " }}</dd>{% endif %}
+    <dt>Expires</dt><dd>{{ token.expires_at|date:"Y-m-d H:i e"|default:"never" }}</dd>
+  </dl>
+  <p class="label" id="token-label">The token</p>
+  <p class="secret" id="token-value" aria-labelledby="token-label">{{ raw }}</p>
+  <div class="actions">
+    <button type="button" class="secondary" data-copy="token-value" hidden>Copy the token</button>
+    <a class="button" href="{% url back %}">Done</a>
+  </div>
+{% endblock %}

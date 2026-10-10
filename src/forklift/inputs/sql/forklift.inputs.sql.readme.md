@@ -11,6 +11,7 @@ The package is organized into modular components that follow separation of conce
 - **`schema.py`** - Schema discovery and PyArrow schema generation
 - **`reader.py`** - Data reading and batch processing
 - **`types.py`** - SQL to PyArrow type conversion utilities
+- **`errors.py`** - The package's errors (`TableLookupError`, `ColumnLookupError`, `ColumnPrivilegeError`, all `SqlSourceError`s whose messages hold only names and codes) and how a database error is described without its message text
 - **`__init__.py`** - Package exports and public API
 
 ## Core Components
@@ -43,6 +44,9 @@ with SqlInputHandler(config) as handler:
     for batch in handler.read_table_data("main", "users"):
         # Process PyArrow RecordBatch
         print(f"Processed {len(batch)} rows")
+    # Only some columns, in this order (what x-sql select.columns declares)
+    for batch in handler.read_table_data("main", "users", columns=["id", "email"]):
+        ...
 ```
 
 ### SqlConnectionManager (connection.py)
@@ -61,7 +65,19 @@ Manages database connections using pyodbc with proper error handling and timeout
 - Additional connection parameters (appended as `key=value`; values containing `;`, `=`, `{` or `}` are brace-escaped, and a parameter name that could inject another attribute is rejected with `ValueError`)
 - Connection timeout settings
 - Query timeout configuration
-- `read_only` (default `True`): the connection is opened with `readonly=True`, which pyodbc maps to the driver's read-only access mode. A driver that cannot honour or rejects that attribute makes `connect()` fail with `ConnectionError`; pass `read_only=False` for such drivers
+- `read_only` (default `True`): the database itself is made to refuse writes, because ODBC drivers commonly ignore pyodbc's `readonly` flag (psqlODBC, MariaDB Connector/ODBC and Microsoft's SQL Server driver all do). If the statement that does it fails, `connect()` raises `ConnectionError` (pass `read_only=False` to connect without it).
+
+  | Database | How | What it covers |
+  |---|---|---|
+  | PostgreSQL | `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` | the whole session, including functions a view calls |
+  | MySQL, MariaDB | `SET SESSION TRANSACTION READ ONLY` | the whole session |
+  | SQLite | `PRAGMA query_only = ON` | the whole connection |
+  | Oracle | `SET TRANSACTION READ ONLY`, when connecting and again before each table (`begin_read()`) | the reading transaction only: Oracle has no read-only session, the setting ends at a commit or rollback, and a function that runs in an autonomous transaction (`PRAGMA AUTONOMOUS_TRANSACTION`) still writes |
+  | SQL Server, others | nothing it could set: a warning is logged | nothing; connect as a login that may only `SELECT` (SQL Server functions cannot write, so a view cannot hide a write) |
+
+  On Oracle the driver's own read-only access mode is switched off after connecting: it sends `SET TRANSACTION READ ONLY` before prepared statements and catalog calls, which fails inside forklift's read-only transaction (ORA-01453). A read-only transaction cannot read a table created or altered in the seconds before it began (ORA-01466); forklift then starts a new one and tries again, up to 5 times one second apart.
+- `query_timeout`: applied as `statement_timeout` (PostgreSQL), `max_execution_time` (MySQL) or `max_statement_time` (MariaDB); elsewhere through pyodbc's `Connection.timeout` (SQL Server). Where the driver has no query timeout (Oracle's), forklift cancels a statement still running after `query_timeout` seconds itself (`statement_deadline()`, each query and each batch fetched); the cancelled statement fails with the driver's error (Oracle: ORA-01013, SQLSTATE HYT00).
+- Per-database session setup: Oracle sessions use `TIME_ZONE = 'UTC'` (so `TIMESTAMP WITH [LOCAL] TIME ZONE` values arrive in UTC); output converters read SQL Server `datetimeoffset` (which pyodbc cannot read) as UTC timestamps and Oracle `BOOLEAN` (which pyodbc reads as False whatever the value) as booleans.
 
 ### SqlSchemaManager (schema.py)
 
@@ -72,7 +88,9 @@ Handles database schema discovery and PyArrow schema generation.
 - Column metadata extraction (types, sizes, nullability)
 - PyArrow schema generation with proper type mapping
 - Table specification parsing (schema.table format)
-- Catalog validation: every requested schema/table name is resolved against the database catalog (an exact match first, then a unique case-insensitive match) before it is used; an unknown table or a name that exists in several schemas raises `ValueError`. An explicit schema never falls back to a table of another schema
+- Catalog validation: every requested schema/table name is resolved against the database catalog (an exact match first, then a unique case-insensitive match; schema and table are compared on their own) before it is used; an unknown table, a name that exists in several schemas, or names that differ only in case raise `TableLookupError` (a `ValueError`). An explicit schema never falls back to a table of another schema
+- Declared columns: `get_table_schema(schema, table, columns=[...])` keeps only those columns, in that order, each resolved against the table's catalog columns the same way (Oracle reports `ID` for `id`); a column that is not there (or that MySQL's catalog hides because the login may not read it) raises `ColumnLookupError` listing the columns there are. The schema's fields carry the catalog's spelling
+- Oracle: tables and columns are read from the data dictionary (`ALL_TABLES`, `ALL_VIEWS`, `ALL_TAB_COLUMNS`), which lists only what the login may access, like the ODBC catalog functions. The Oracle driver's `SQLColumns` fails on `NVARCHAR2`, `CLOB`, `BLOB`, `RAW`, `BOOLEAN` and other columns, and its `SQLTables` matches names case-sensitively
 - Database identifier quoting: identifiers are **always** quoted (using the quote character the driver reports, `"` if unknown) with embedded quote characters doubled
 
 **Supported Operations:**
@@ -89,7 +107,8 @@ Handles reading data from SQL databases and converting to PyArrow format with ba
 - Streaming data reads with configurable batch sizes
 - Automatic PyArrow RecordBatch generation
 - Memory-efficient processing of large datasets
-- Query construction from catalog-verified, always-quoted identifiers (`SELECT * FROM <quoted schema>.<quoted table>`)
+- Query construction from catalog-verified, always-quoted identifiers (`SELECT * FROM <quoted schema>.<quoted table>`, or `SELECT <quoted columns> FROM ...` for declared columns)
+- Refused reads are explained: when the database refuses the query for a missing privilege (SQLSTATE 42501; MySQL 1142/1143, SQL Server 229/230, Oracle ORA-01031/ORA-41900), each column is tried on its own (`SELECT <column> ... WHERE 1=0`, no rows read) and `ColumnPrivilegeError` (a `PermissionError`, `error_code` `PERMISSION_DENIED`) names the columns the login may read and the `select.columns` declaration that imports them, for example `"select": {"schema": "sales", "name": "orders", "columns": ["id", "amount"]}`. Its message holds names and codes only; the database error is its `__cause__`
 - Row-to-column transposition for PyArrow compatibility
 
 **Performance Options:**
@@ -110,8 +129,10 @@ Handles conversion between SQL data types and PyArrow data types with comprehens
 - **Date/Time**: DATE → date32, TIME → time64[us], TIMESTAMP/DATETIME/DATETIME2/SMALLDATETIME → timestamp[us], TIMESTAMPTZ → timestamp[us, UTC]
 - **Binary**: BINARY/VARBINARY/BLOB/BYTEA → binary
 - **Text**: VARCHAR/CHAR/TEXT → string (default for unknown types, and UNIQUEIDENTIFIER)
+- **Oracle**: NUMBER(p,s) → decimal128(p,s) (`INTEGER` is NUMBER(38,0)); NUMBER without precision → float64 (the driver returns a double); BINARY_DOUBLE → float64, BINARY_FLOAT → float32; DATE → timestamp[us] (Oracle's DATE holds a time of day); TIMESTAMP(n) → timestamp[us]; TIMESTAMP WITH TIME ZONE and WITH LOCAL TIME ZONE → timestamp[us, UTC]; RAW/LONG RAW/BLOB → binary; VARCHAR2/NVARCHAR2/CHAR/CLOB/NCLOB → string; BOOLEAN → bool. INTERVAL columns cannot be read through pyodbc: leave them out with `select.columns`
+- **SQL Server**: datetime2/datetime/smalldatetime → timestamp[us] (pyodbc returns microseconds, so datetime2's 100 ns digit is dropped); datetimeoffset → timestamp[us, UTC]; money/smallmoney → decimal128(19,4)/(10,4); uniqueidentifier → string; `timestamp`/rowversion and image → binary; time → time64[us]. `sql_variant`, `hierarchyid`, `geometry` and `geography` cannot be read through pyodbc: leave them out with `select.columns`
 
-A trailing `IDENTITY` in the reported type name (SQL Server reports `int identity`) is ignored.
+Parameters in type names are ignored (`TIMESTAMP(6) WITH TIME ZONE` is a TIMESTAMP WITH TIME ZONE), and so is a trailing `IDENTITY` (SQL Server reports `int identity`). Where the catalog reports the ODBC type code, it settles names that mean different things on different databases: a binary code makes a column binary (SQL Server's `timestamp`), a timestamp code makes a DATE a timestamp.
 
 **Features:**
 - ODBC type constant conversion
@@ -150,7 +171,7 @@ credentials. The importers (`import_sql`) additionally redact the connection str
 - **`fetch_size`**: ODBC cursor fetch size for performance tuning
 - **`null_values`**: List of string values to treat as NULL
 - **`use_quoted_identifiers`**: Accepted for backward compatibility only. Identifiers are always quoted, because they are interpolated into SQL text
-- **`read_only`**: Request a read-only connection (default: `True`)
+- **`read_only`**: Make the session read-only (default: `True`; enforced by the database on PostgreSQL, MySQL, MariaDB and SQLite, see above)
 - **`schema_name`**, **`enable_streaming`**, **`date_formats`**, **`timestamp_formats`**: accepted by `SqlInputConfig` but not used by the reader at present (rows are always fetched in `batch_size` chunks and no date/time text formats are parsed)
 
 ## Database Support
@@ -158,26 +179,29 @@ credentials. The importers (`import_sql`) additionally redact the connection str
 The package supports any database with an ODBC driver:
 
 ### Tested Databases
-- **SQLite** - File-based database for development and testing
-- **PostgreSQL** - Open-source relational database
-- **MySQL/MariaDB** - Popular open-source databases
-- **Microsoft SQL Server** - Enterprise database system
-- **Oracle Database** - Enterprise database system
+PostgreSQL, MySQL, SQL Server and Oracle are tested against real servers, as logins with only
+the privileges each test grants (`tests/integration-tests/services`, see its README); SQLite and
+others are covered by unit tests with fake drivers.
 
-### Driver Requirements
-Each database requires appropriate ODBC drivers:
-- SQLite: SQLite ODBC Driver
-- PostgreSQL: psqlODBC
-- MySQL: MySQL ODBC Connector
-- SQL Server: ODBC Driver for SQL Server
-- Oracle: Oracle ODBC Driver
+| Database | Tested with | ODBC driver |
+|---|---|---|
+| PostgreSQL | 16 | psqlODBC (`PostgreSQL Unicode`) |
+| MySQL | 8.4 | MariaDB Connector/ODBC or MySQL Connector/ODBC |
+| SQL Server | 2022 | Microsoft ODBC Driver 18 for SQL Server |
+| Oracle | Oracle Database Free 23 | Oracle Instant Client ODBC driver (23) |
+| SQLite | (unit tests) | SQLite ODBC driver |
+
+What a database cannot do: Oracle grants `SELECT` on whole tables only (no column-level `SELECT`
+grants: give a login a view of the columns it may read), and makes only transactions read-only;
+SQL Server has no read-only session a login could set.
 
 ## Error Handling
 
 The package provides comprehensive error handling:
 
 - **Connection Errors**: Detailed error messages for connection failures
-- **Schema Errors**: A missing or ambiguous table raises `ValueError`; a table without any column in the catalog raises `ValueError`
+- **Schema Errors**: A missing or ambiguous table raises `TableLookupError` (a `ValueError`); a declared column that is not in the table raises `ColumnLookupError` (a `ValueError`, `error_code` `COLUMN_MISSING`); a table without any column in the catalog raises `ValueError`
+- **Privilege Errors**: A query refused for a missing privilege raises `ColumnPrivilegeError` (a `PermissionError`, `error_code` `PERMISSION_DENIED`) that says which columns the login may read and how to declare them
 - **Type Conversion Errors**: Text columns fall back to strings; other values that do not fit the declared type raise `ValueError`
 - **Query Errors**: Proper cleanup and error propagation
 - **Timeout Errors**: Configurable timeouts with appropriate error messages

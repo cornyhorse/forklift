@@ -1,7 +1,7 @@
 """Processing results class for Forklift engine."""
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from dataclasses import asdict, dataclass, field
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -44,3 +44,12 @@ class ProcessingResults:
     warnings: List[str] = field(default_factory=list)
     validation_summary: Dict[str, int] = field(default_factory=dict)
     schema_extensions: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """The results as a dictionary of plain JSON values (lists and dicts are copies).
+
+        Every field is included under its attribute name, so ``ProcessingResults(**d)`` rebuilds
+        the object. Like the results themselves it holds counts, codes, column names and file
+        paths, never cell values.
+        """
+        return asdict(self)

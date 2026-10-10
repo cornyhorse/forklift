@@ -1,0 +1,1045 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cornyhorse/forklift/blob/main/contracts/jobspec.schema.json",
+  "title": "Forklift JobSpec v1",
+  "type": "object",
+  "description": "A job for the forklift engine (job contract v1).",
+  "properties": {
+    "spec_version": {
+      "description": "Version of the job contract",
+      "type": "integer",
+      "const": 1
+    },
+    "job_id": {
+      "description": "Identifies the job (the gateway assigns one; any unique id for local runs); letters, digits, '.', '_' and '-'",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "kind": {
+      "description": "run: a full import; preview: the first rows as text; validate_schema: check the schema against the input's header and a sample; generate_schema: infer a schema",
+      "type": "string",
+      "enum": [
+        "run",
+        "preview",
+        "validate_schema",
+        "generate_schema"
+      ]
+    },
+    "input": {
+      "description": "What the job reads",
+      "$ref": "#/$defs/InputSpec"
+    },
+    "schema": {
+      "description": "Inline forklift JSON schema (never a path); required for validate_schema and for sql inputs",
+      "type": [
+        "object",
+        "null"
+      ],
+      "default": null
+    },
+    "output": {
+      "description": "Where the results go; required for run (the other kinds write their artifacts to a file location, default out/)",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OutputSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "options": {
+      "description": "Processing options",
+      "$ref": "#/$defs/JobOptions"
+    },
+    "limits": {
+      "description": "Limits that fail the job",
+      "$ref": "#/$defs/Limits"
+    }
+  },
+  "required": [
+    "spec_version",
+    "job_id",
+    "kind",
+    "input"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "run"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "output": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "output"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "validate_schema"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "schema": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input": {
+            "properties": {
+              "format": {
+                "const": "sql"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "schema": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input": {
+            "properties": {
+              "format": {
+                "const": "sql"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "properties": {
+              "location": {
+                "properties": {
+                  "type": {
+                    "const": "sql"
+                  }
+                }
+              }
+            },
+            "required": [
+              "location"
+            ]
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input": {
+            "properties": {
+              "location": {
+                "properties": {
+                  "type": {
+                    "const": "sql"
+                  }
+                }
+              }
+            },
+            "required": [
+              "location"
+            ]
+          }
+        },
+        "required": [
+          "input"
+        ]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "properties": {
+              "format": {
+                "const": "sql"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "input": {
+            "properties": {
+              "location": {
+                "properties": {
+                  "type": {
+                    "const": "presigned_url"
+                  }
+                }
+              }
+            },
+            "required": [
+              "location"
+            ]
+          }
+        },
+        "required": [
+          "input"
+        ]
+      },
+      "then": {
+        "properties": {
+          "input": {
+            "properties": {
+              "format": {
+                "const": "csv"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "preview",
+              "validate_schema",
+              "generate_schema"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "output": {
+            "properties": {
+              "location": {
+                "properties": {
+                  "type": {
+                    "not": {
+                      "enum": [
+                        "s3",
+                        "sql_table"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "FileLocation": {
+      "type": "object",
+      "description": "A file or directory inside the base directory given to run_job.",
+      "properties": {
+        "type": {
+          "const": "file"
+        },
+        "path": {
+          "description": "Path relative to the base directory, '/' separated; a directory for outputs",
+          "type": "string",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*\\\\)(?!.*\\x00)(?!(?:.*/)?\\.\\.(?:/|$)).+$"
+        }
+      },
+      "required": [
+        "type",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "FooterDetection": {
+      "type": "object",
+      "description": "Where the data of a CSV input ends (rows from the footer on are not read).",
+      "properties": {
+        "stop_on_blank": {
+          "description": "Stop at the first blank row",
+          "type": "boolean",
+          "default": false
+        },
+        "column_index": {
+          "description": "0-based column that patterns are matched against (requires patterns)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "default": null
+        },
+        "patterns": {
+          "description": "Regular expressions; a row whose column_index cell matches one is the footer (requires column_index)",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "column_index": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "column_index"
+            ]
+          },
+          "then": {
+            "properties": {
+              "patterns": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "patterns"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "patterns": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "patterns"
+            ]
+          },
+          "then": {
+            "properties": {
+              "column_index": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "column_index"
+            ]
+          }
+        }
+      ]
+    },
+    "InputOptions": {
+      "type": "object",
+      "description": "Options for reading the input; unset options keep the engine's defaults.",
+      "properties": {
+        "encoding": {
+          "description": "CSV: text encoding (default utf-8; a UTF-8 byte order mark is ignored)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "default": null
+        },
+        "delimiter": {
+          "description": "CSV: field delimiter (default ',')",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1,
+          "default": null
+        },
+        "quote_char": {
+          "description": "CSV: quote character (default '\"')",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1,
+          "default": null
+        },
+        "escape_char": {
+          "description": "CSV: escape character (default: none)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1,
+          "default": null
+        },
+        "header_mode": {
+          "description": "CSV: present (the first non-comment row is the header), absent (the schema names the columns, or col_1..col_N), auto (detected); default present",
+          "type": "string",
+          "enum": [
+            "present",
+            "absent",
+            "auto",
+            null
+          ],
+          "default": null
+        },
+        "header_search_rows": {
+          "description": "CSV: rows searched for the header (default 10)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null
+        },
+        "skip_blank_lines": {
+          "description": "CSV: skip blank rows above the header (default true)",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "comment_rows": {
+          "description": "CSV: regular expressions for comment rows above the header (default: a single '#' cell; [] turns comment detection off)",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "footer_detection": {
+          "description": "CSV: where the data ends",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FooterDetection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "excess_column_mode": {
+          "description": "CSV: rows with more fields than the header: truncate (default), reject (to bad_rows) or passthrough (extra columns col_N)",
+          "type": "string",
+          "enum": [
+            "truncate",
+            "reject",
+            "passthrough",
+            null
+          ],
+          "default": null
+        },
+        "sheet": {
+          "description": "Excel: sheet name, or 0-based index (default: every sheet)",
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ],
+          "default": null
+        },
+        "values_only": {
+          "description": "Excel: read cached values instead of formulas (default true)",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        },
+        "engine": {
+          "description": "Excel: reader (default: by file type)",
+          "type": "string",
+          "enum": [
+            "openpyxl",
+            "xlrd",
+            null
+          ],
+          "default": null
+        },
+        "date_system": {
+          "description": "Excel: date system when the workbook does not say (default 1900)",
+          "type": "string",
+          "enum": [
+            "1900",
+            "1904",
+            null
+          ],
+          "default": null
+        },
+        "query_timeout": {
+          "description": "SQL: query timeout in seconds (default 300)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null
+        },
+        "connection_timeout": {
+          "description": "SQL: connection timeout in seconds (default 30)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null
+        },
+        "schema_name": {
+          "description": "SQL: default database schema for x-sql tables without one",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "default": null
+        },
+        "null_values": {
+          "description": "SQL: values read as NULL",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "enable_streaming": {
+          "description": "SQL: fetch rows in batches instead of all at once (default true)",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "InputSpec": {
+      "type": "object",
+      "description": "What the job reads.",
+      "properties": {
+        "format": {
+          "description": "Input format",
+          "type": "string",
+          "enum": [
+            "csv",
+            "excel",
+            "fwf",
+            "sql"
+          ]
+        },
+        "location": {
+          "description": "Where the input is",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "file",
+                "s3",
+                "presigned_url",
+                "sql"
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "file"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/FileLocation"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "s3"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/S3Location"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "presigned_url"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/PresignedUrlLocation"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "sql"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/SqlLocation"
+              }
+            }
+          ]
+        },
+        "options": {
+          "description": "How to read it",
+          "$ref": "#/$defs/InputOptions"
+        }
+      },
+      "required": [
+        "format",
+        "location"
+      ],
+      "additionalProperties": false
+    },
+    "JobOptions": {
+      "type": "object",
+      "description": "How the job processes its input.",
+      "properties": {
+        "apply_schema_extensions": {
+          "description": "Apply the schema's x-... extensions (CSV runs and validate_schema)",
+          "type": "boolean",
+          "default": true
+        },
+        "batch_size": {
+          "description": "Rows per batch (CSV and SQL inputs)",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 10000
+        },
+        "include_value_statistics": {
+          "description": "Let the output metadata and generated schemas hold statistics that copy cell values (top values, min/max, quantiles)",
+          "type": "boolean",
+          "default": false
+        },
+        "preview_rows": {
+          "description": "preview: rows to return at most",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 100
+        },
+        "preview_max_bytes": {
+          "description": "preview: size limit of preview.json in bytes",
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 67108864,
+          "default": 1048576
+        },
+        "sample_rows": {
+          "description": "validate_schema and generate_schema: rows of the input to check or analyse",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 1000
+        },
+        "infer_primary_key": {
+          "description": "generate_schema: propose x-primaryKey from columns that are unique in the sample",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "Limits": {
+      "type": "object",
+      "description": "Limits that fail the job with LIMIT_EXCEEDED (unset: no limit).",
+      "properties": {
+        "max_input_bytes": {
+          "description": "Largest input to read, in bytes",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null
+        },
+        "max_seconds": {
+          "description": "Longest run time, in seconds (checked at batch boundaries)",
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0,
+          "default": null
+        },
+        "max_rows": {
+          "description": "Most input rows to read",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "default": null
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "OutputSpec": {
+      "type": "object",
+      "description": "Where a run writes its results (and the other kinds their artifacts).",
+      "properties": {
+        "location": {
+          "description": "Directory (file), prefix (s3) or table (sql_table) for the output",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "file",
+                "s3",
+                "sql_table"
+              ]
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "file"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/FileLocation"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "s3"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/S3Location"
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "type": {
+                    "const": "sql_table"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              },
+              "then": {
+                "$ref": "#/$defs/SqlTableLocation"
+              }
+            }
+          ]
+        },
+        "compression": {
+          "description": "Parquet compression",
+          "type": "string",
+          "enum": [
+            "snappy",
+            "gzip",
+            "brotli",
+            "zstd",
+            "lz4",
+            "none"
+          ],
+          "default": "snappy"
+        },
+        "artifacts": {
+          "description": "Directory for the data and bad_rows Parquet files of a sql_table output (default out/); only for sql_table outputs",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FileLocation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "location"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "location": {
+                "properties": {
+                  "type": {
+                    "const": "sql_table"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "anyOf": [
+              {
+                "not": {
+                  "required": [
+                    "artifacts"
+                  ]
+                }
+              },
+              {
+                "properties": {
+                  "artifacts": {
+                    "type": "null"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "PresignedUrlLocation": {
+      "type": "object",
+      "description": "One object behind a presigned GET URL, read as a stream (CSV inputs only).",
+      "properties": {
+        "type": {
+          "const": "presigned_url"
+        },
+        "url": {
+          "description": "The presigned http(s) URL (a secret: never logged or reported)",
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "size": {
+          "description": "Size of the object in bytes, if known (checked against limits.max_input_bytes)",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "default": null
+        },
+        "etag": {
+          "description": "ETag of the object, if known; a resumed read is refused when the object changed",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "type",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "S3Location": {
+      "type": "object",
+      "description": "An S3 object (input) or prefix (output), read and written with the caller's credentials.",
+      "properties": {
+        "type": {
+          "const": "s3"
+        },
+        "uri": {
+          "description": "s3://bucket/key for an input, s3://bucket/prefix/ for an output",
+          "type": "string",
+          "pattern": "^s3://[^/\\s]+(/.*)?$"
+        }
+      },
+      "required": [
+        "type",
+        "uri"
+      ],
+      "additionalProperties": false
+    },
+    "SqlLocation": {
+      "type": "object",
+      "description": "A database to read from; the tables come from the schema's x-sql section.",
+      "properties": {
+        "type": {
+          "const": "sql"
+        },
+        "connection_string": {
+          "description": "ODBC connection string (a secret: never logged or reported)",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type",
+        "connection_string"
+      ],
+      "additionalProperties": false
+    },
+    "SqlTableLocation": {
+      "type": "object",
+      "description": "A database table the validated rows are loaded into (forklift.outputs.sql.write_table).",
+      "properties": {
+        "type": {
+          "const": "sql_table"
+        },
+        "connection_string": {
+          "description": "ODBC connection string (a secret: never logged or reported)",
+          "type": "string",
+          "minLength": 1
+        },
+        "table": {
+          "description": "Name of the target table",
+          "type": "string",
+          "minLength": 1
+        },
+        "schema_name": {
+          "description": "Database schema of the table (default: the login's default schema)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "default": null
+        },
+        "mode": {
+          "description": "create: a new table; append: add rows; replace: swap the contents; upsert: update or insert by key_columns",
+          "type": "string",
+          "enum": [
+            "create",
+            "append",
+            "replace",
+            "upsert"
+          ],
+          "default": "append"
+        },
+        "key_columns": {
+          "description": "Columns that identify a row (required for mode upsert)",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "default": null
+        },
+        "staging": {
+          "description": "table: load a staging table, then publish it in one transaction; none: load directly inside one transaction (for logins that may not create tables)",
+          "type": "string",
+          "enum": [
+            "table",
+            "none"
+          ],
+          "default": "table"
+        }
+      },
+      "required": [
+        "type",
+        "connection_string",
+        "table"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "upsert"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "key_columns": {
+                "type": "array"
+              }
+            },
+            "required": [
+              "key_columns"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

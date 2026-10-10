@@ -516,7 +516,3 @@ class DataValidationProcessor(BaseProcessor):
     def _handle_bad_row(self, batch, row_idx, errors):
         """Backward compatibility wrapper for _handle_bad_row."""
         return self.bad_rows_handler.add_bad_row(batch, row_idx, errors)
-
-    def _infer_field_type(self, field_name, bad_rows):
-        """Backward compatibility wrapper for _infer_field_type."""
-        return self.bad_rows_handler._infer_field_type(field_name, bad_rows)

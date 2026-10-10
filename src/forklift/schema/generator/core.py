@@ -163,9 +163,9 @@ class SchemaGenerator:
 
         # Add metadata if requested
         if self.config.generate_metadata:
-            metadata = self.metadata_generator.generate_metadata(table, self._metadata_config())
-            if metadata:
-                schema["x-metadata"] = metadata
+            schema["x-metadata"] = self.metadata_generator.generate_metadata(
+                table, self._metadata_config()
+            )
 
         return schema
 
@@ -236,6 +236,8 @@ class SchemaGenerator:
                 print(f"Failed to copy to clipboard: {e}")
                 print("Falling back to stdout:")
                 print(schema_json)
+        else:
+            raise ValueError(f"Unsupported output target: {self.config.output_target}")
 
     def validate_generated_schema(self, schema: Dict[str, Any], table: pa.Table) -> tuple:
         """Validate the generated schema against the data.

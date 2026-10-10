@@ -18,6 +18,10 @@ class TestFwfExtensionValidator:
         assert len(errors) == 1
         assert "Missing required 'x-fwf' extension" in errors[0]
 
+    @pytest.mark.parametrize("fwf_ext", [["utf-8"], "utf-8", 1], ids=["list", "str", "int"])
+    def test_validate_extension_that_is_not_an_object(self, fwf_ext):
+        assert FwfExtensionValidator.validate(fwf_ext) == ["x-fwf must be an object"]
+
     def test_validate_valid_minimal_extension(self):
         """Test validation with minimal valid extension."""
         fwf_ext = {"encoding": "utf-8"}

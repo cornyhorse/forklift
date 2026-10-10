@@ -54,6 +54,31 @@ def sql_identifier_problem(value: Any) -> Optional[str]:
     return None
 
 
+def sql_column_problem(value: Any) -> Optional[str]:
+    """Return why ``value`` is not an acceptable column name for ``select.columns``, or None.
+
+    Column names are checked like schema and table names, except that any printable character
+    other than a quote, semicolon or backslash is allowed (columns such as ``Unit Price (USD)``
+    or ``growth_%`` are common). They are resolved against the database catalog and always
+    quoted before they reach SQL text.
+    """
+    if not isinstance(value, str):
+        return "must be a string"
+    if not value:
+        return "must not be empty"
+    if len(value) > _MAX_IDENTIFIER_LENGTH:
+        return f"is longer than {_MAX_IDENTIFIER_LENGTH} characters"
+    if value != value.strip():
+        return "must not start or end with whitespace"
+    if any(unicodedata.category(char) in _FORBIDDEN_CATEGORIES for char in value):
+        return "contains control or non-printing characters"
+    if any(marker in value for marker in _COMMENT_MARKERS):
+        return "contains an SQL comment marker"
+    if any(char in _FORBIDDEN_IDENTIFIER_CHARS for char in value):
+        return "contains a quote, semicolon or backslash"
+    return None
+
+
 def output_name_problem(value: Any) -> Optional[str]:
     """Return why ``value`` is not a plain output file stem, or None if it is fine."""
     if not isinstance(value, str):
@@ -84,7 +109,8 @@ class SqlSchemaImporter:
       * Access to the raw schema dict (``.schema``)
       * Extraction of Forklift SQL extension (``.sql_ext``)
       * Comprehensive schema validation with detailed error reporting
-      * Table selection by explicit schema/name (pattern-based selection is rejected)
+      * Table selection by explicit schema/name (pattern-based selection is rejected), and
+        optionally the columns to read (``select.columns``)
       * Parquet data type mapping and validation
       * SQL-specific configuration validation (connection, query patterns)
     """
@@ -205,6 +231,32 @@ class SqlSchemaImporter:
                 table_list.append((schema_name, table_name, output_name))
 
         return table_list
+
+    def get_selected_columns(
+        self, schema_name: str, table_name: str, output_name: Optional[str] = None
+    ) -> Optional[List[str]]:
+        """The columns a table entry declares in ``select.columns``, in their declared order.
+
+        The entry is the one :meth:`get_table_list` returns as ``(schema_name, table_name,
+        output_name)``; the SQL importer rejects two entries with the same output file, so the
+        triple names one entry.
+
+        Returns:
+            The declared column names, or None when the entry declares none (every column is
+            read) or no entry matches
+        """
+        for table in self.tables:
+            if not isinstance(table, dict) or not isinstance(table.get("select"), dict):
+                continue
+            select = table["select"]
+            if (
+                select.get("schema", "default") == schema_name
+                and select.get("name") == table_name
+                and table.get("outputName") == output_name
+            ):
+                columns = select.get("columns")
+                return list(columns) if isinstance(columns, list) else None
+        return None
 
     def validate_schema(self) -> None:
         """Perform comprehensive schema validation and collect all errors."""
@@ -369,6 +421,9 @@ class SqlSchemaImporter:
             if problem:
                 errors.append(f"Table {table_index} select.{key} {problem}")
 
+        if "columns" in select:
+            errors.extend(self._validate_select_columns(select["columns"], table_index))
+
         if "pattern" in select:
             pattern = select["pattern"]
             if not isinstance(pattern, str):
@@ -383,6 +438,26 @@ class SqlSchemaImporter:
                     " supported; list each table explicitly with 'name'"
                 )
 
+        return errors
+
+    def _validate_select_columns(self, columns: Any, table_index: int) -> List[str]:
+        """Validate ``select.columns``: a non-empty list of distinct column names."""
+        where = f"Table {table_index} select.columns"
+        if not isinstance(columns, list) or not columns:
+            return [
+                f"{where} must be a non-empty array of column names (leave it out to read "
+                "every column)"
+            ]
+        errors = []
+        seen = set()
+        for j, column in enumerate(columns):
+            problem = sql_column_problem(column)
+            if problem:
+                errors.append(f"{where}[{j}] {problem}")
+            elif column in seen:
+                errors.append(f"{where}[{j}] repeats the column '{column}'")
+            else:
+                seen.add(column)
         return errors
 
     def _validate_table_columns(self, columns: Dict[str, Any], table_index: int) -> List[str]:
@@ -555,13 +630,6 @@ class SqlSchemaImporter:
         # Individual tables are explicitly listed in the schema
         return True
 
-    def _matches_pattern(
-        self, full_name: str, pattern: str, schema_name: Optional[str], table_name: str
-    ) -> bool:
-        """Check if a table matches a specific pattern - deprecated."""
-        # No longer used since we use explicit table lists instead of glob patterns
-        return True
-
     def _user_sql_to_parquet_mapping(self) -> Dict[str, str]:
         """The user's ``sqlToParquet`` entries, keyed by upper-cased SQL type name."""
         mapping = (
@@ -625,5 +693,6 @@ __all__ = [
     "SqlSchemaImporter",
     "SchemaValidationError",
     "sql_identifier_problem",
+    "sql_column_problem",
     "output_name_problem",
 ]

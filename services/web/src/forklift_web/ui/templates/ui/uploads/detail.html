@@ -1,0 +1,57 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}{{ upload.filename }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:uploads' %}">Files</a></li><li>{{ upload.filename }}</li></ol></nav>
+  <h1>{{ upload.filename }}</h1>
+  <dl class="facts">
+    <dt>Size</dt><dd>{{ upload.size|filesize }}{% if upload.size >= 1024 %} ({{ upload.size }} bytes){% endif %}{% if upload.multipart_upload_id %}, uploaded in parts{% endif %}</dd>
+    <dt>Classification</dt><dd><span class="badge {{ upload.classification }}">{{ upload.get_classification_display }}</span></dd>
+    <dt>State</dt><dd><span class="badge {{ upload.status }}">{{ upload.get_status_display }}</span></dd>
+    <dt>Uploaded by</dt><dd>{{ upload.uploaded_by.username|default:"—" }}, {{ upload.created_at|date:"Y-m-d H:i e" }}</dd>
+    {% if upload.status == "complete" %}<dt>Kept until</dt><dd>{{ expires_at|date:"Y-m-d"|default:"no expiry (no retention policy expires it)" }}</dd>{% endif %}
+  </dl>
+
+  {% if form %}
+    <h2 id="run-heading">What to do with it</h2>
+    <form method="post" action="{% url 'ui:upload-run' upload_id=upload.pk %}" class="stack" aria-labelledby="run-heading">
+      {% csrf_token %}
+      {% include "ui/_form_errors.html" %}
+      {% include "ui/_field.html" with field=form.action %}
+      <div class="row2">
+        {% include "ui/_field.html" with field=form.schema_version %}
+        {% include "ui/_field.html" with field=form.dataset %}
+      </div>
+      {% if can.schema_edit %}<p class="help">No schema yet? Choose “Generate a schema from it”, or <a href="{% url 'ui:schema-new' %}?upload={{ upload.pk }}">write one</a> and check it against this file as you type.</p>{% endif %}
+      <fieldset>
+        <legend>How to read the file</legend>
+        <div class="row2">
+          {% include "ui/_field.html" with field=form.format %}
+          {% include "ui/_field.html" with field=form.delimiter %}
+          {% include "ui/_field.html" with field=form.encoding %}
+          {% include "ui/_field.html" with field=form.header_mode %}
+          {% include "ui/_field.html" with field=form.sheet %}
+        </div>
+        {% include "ui/_field.html" with field=form.more_options %}
+      </fieldset>
+      {{ form.idempotency_key }}
+      <div class="actions"><button type="submit">Start</button></div>
+    </form>
+  {% elif upload.status == "pending" %}
+    <div class="alert warn"><p>This upload has not been completed: the file was not (fully) sent, or the browser was closed. Upload it again.</p></div>
+  {% elif upload.status != "complete" %}
+    <div class="alert warn"><p>This file is no longer in the store ({{ upload.get_status_display|lower }}); its jobs keep their history.</p></div>
+  {% endif %}
+
+  <h2>Jobs that read it</h2>
+  {% include "ui/jobs/_rows.html" with rows=jobs empty="No jobs have read this file yet." %}
+
+  {% if can_change and upload.status == "complete" or can_change and upload.status == "pending" %}
+    <h2>Delete it</h2>
+    <form method="post" action="{% url 'ui:upload-delete' upload_id=upload.pk %}" data-confirm="Delete {{ upload.filename }} from the store? Its jobs keep their history and files.">
+      {% csrf_token %}
+      <p>The file is removed from the store; the record and the jobs that read it stay.</p>
+      <button type="submit" class="danger">Delete the file</button>
+    </form>
+  {% endif %}
+{% endblock %}

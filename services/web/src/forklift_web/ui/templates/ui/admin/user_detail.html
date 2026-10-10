@@ -1,0 +1,46 @@
+{% extends "ui/base.html" %}
+{% block title %}{{ person.username }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:admin-users' %}">Users</a></li><li>{{ person.username }}</li></ol></nav>
+  <h1>{{ person.username }}{% if person.is_service_account %} <span class="badge">service account</span>{% endif %}</h1>
+  {% include "ui/admin/_nav.html" %}
+  <dl class="facts">
+    <dt>Joined</dt><dd>{{ person.date_joined|date:"Y-m-d H:i e" }}</dd>
+    <dt>Last sign-in</dt><dd>{{ person.last_login|date:"Y-m-d H:i e"|default:"never" }}</dd>
+  </dl>
+  {% if last_admin %}
+    <div class="alert warn"><p>{{ person.username }} is the only active admin: they cannot be demoted or deactivated until another user is an active admin.</p></div>
+  {% endif %}
+
+  <div class="split">
+    <section aria-labelledby="edit-heading">
+      <h2 id="edit-heading">Role and details</h2>
+      <form method="post" action="{% url 'ui:admin-user' user_id=person.pk %}" class="stack">
+        {% csrf_token %}
+        {% include "ui/_form_errors.html" with form=edit_form %}
+        {% for field in edit_form %}{% include "ui/_field.html" %}{% endfor %}
+        <div class="actions"><button type="submit">Save</button></div>
+      </form>
+    </section>
+    <div>
+      {% if not person.is_service_account or password_form.is_bound %}
+        <section aria-labelledby="password-heading">
+          <h2 id="password-heading">Set a password</h2>
+          <form method="post" action="{% url 'ui:admin-user-password' user_id=person.pk %}" class="stack">
+            {% csrf_token %}
+            {% include "ui/_form_errors.html" with form=password_form %}
+            {% for field in password_form %}{% include "ui/_field.html" %}{% endfor %}
+            <div class="actions"><button type="submit">Set the password</button></div>
+          </form>
+        </section>
+      {% endif %}
+      <section aria-labelledby="tokens-heading">
+        <h2 id="tokens-heading">API tokens</h2>
+        {% if tokens %}
+          <ul>{% for token in tokens %}<li>{{ token.name }} <code>{{ token.prefix }}…</code>{% if token.revoked_at %} <span class="badge revoked">revoked</span>{% endif %}</li>{% endfor %}</ul>
+        {% else %}<p class="muted">None.</p>{% endif %}
+        <p><a href="{% url 'ui:admin-tokens' %}?owner={{ person.pk }}">Manage {{ person.username }}'s tokens</a></p>
+      </section>
+    </div>
+  </div>
+{% endblock %}

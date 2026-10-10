@@ -1,0 +1,5 @@
+{% if store.ok %}
+  <p><span class="badge ok">reachable</span> {{ store.message }}</p>
+{% else %}
+  <div class="alert error" role="alert"><p><span class="badge error">unreachable</span> {{ store.message }}</p></div>
+{% endif %}

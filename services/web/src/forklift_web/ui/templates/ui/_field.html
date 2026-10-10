@@ -1,0 +1,25 @@
+{# One form field with its label, help text and errors, linked for screen readers. #}
+{% if field.is_hidden %}{{ field }}{% elif field.widget_type == "checkbox" %}
+  <div class="field">
+    <div class="check">
+      {{ field }}
+      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    </div>
+    {% if field.help_text %}<p class="help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
+    {{ field.errors }}
+  </div>
+{% elif field.widget_type == "checkboxselectmultiple" or field.widget_type == "radioselect" %}
+  <fieldset class="field">
+    <legend>{{ field.label }}</legend>
+    {% if field.help_text %}<p class="help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
+    {{ field.errors }}
+    {{ field }}
+  </fieldset>
+{% else %}
+  <div class="field{% if wide %} wide{% endif %}">
+    <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span class="muted">(required)</span>{% endif %}</label>
+    {% if field.help_text %}<p class="help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
+    {{ field.errors }}
+    {{ field }}
+  </div>
+{% endif %}

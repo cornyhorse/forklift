@@ -1,0 +1,13 @@
+{% extends "ui/base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+  <h1>Audit log</h1>
+  {% include "ui/admin/_nav.html" %}
+  <p class="lead">Who changed what, who downloaded what, sign-ins and retention deletions. Entries never change and hold no secrets or cell values.</p>
+  <form method="get" class="inline-form" hx-get="{% url 'ui:admin-audit' %}" hx-target="#audit-table" hx-swap="outerHTML" hx-push-url="true" hx-trigger="change, submit">
+    {% for field in form %}{% include "ui/_field.html" %}{% endfor %}
+    <button type="submit" class="secondary">Filter</button>
+    <a class="button secondary" href="{% url 'ui:admin-audit-export' %}{% if request.GET %}?{{ request.GET.urlencode }}{% endif %}" download>Export as CSV</a>
+  </form>
+  {% include "ui/admin/_audit_table.html" %}
+{% endblock %}

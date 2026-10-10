@@ -8,7 +8,7 @@ This directory contains shell scripts for common development tasks. All scripts 
 |--------|---------|-----------|
 | `run-tests.sh` | Test runner with coverage by default | `--integration`, `--no-coverage`, `--no-html`, `--performance` |
 | `lint.sh` | Code formatting and linting | `--apply-black`, `--black-only`, `--flake8-only` |
-| `manage-databases.sh` | Database container management | `start`, `stop`, `wipe`, `status`, `logs` |
+| `test-services.sh` | RustFS, PostgreSQL and MySQL for the service-backed integration tests | `up`, `down`, `status`, `logs`, `test` |
 | `setup-dev.sh` | Development environment bootstrap (`pip install -e ".[all,dev]"` + pre-commit hooks from `.pre-commit-config.yaml`) | No flags (setup script) |
 
 The scripts find the repository from their own location (`git rev-parse --show-toplevel`, falling back to
@@ -78,7 +78,7 @@ Real S3 testing requires your own AWS-compatible storage credentials configured 
 
 3. **AWS CLI Configuration**: `aws configure`
 
-> **Note**: If you have your own S3-compatible storage (AWS S3, Hetzner, MinIO, etc.) and configure the correct credentials and bucket location, the tests will execute accordingly. Tests automatically skip when credentials are not available.
+> **Note**: If you have your own S3-compatible storage (AWS S3, Hetzner, RustFS, MinIO, etc.) and configure the correct credentials and bucket location, the tests will execute accordingly. Tests automatically skip when credentials are not available.
 
 ### Example Output
 ```

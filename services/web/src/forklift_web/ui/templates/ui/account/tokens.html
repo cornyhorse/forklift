@@ -1,0 +1,44 @@
+{% extends "ui/base.html" %}
+{% block title %}Your API tokens{% endblock %}
+{% block content %}
+  <h1>Your API tokens</h1>
+  <p class="lead">Tokens let scripts and pipelines call <code>/api/v1</code> as you. A token can only do what your role allows, narrowed to the scopes you pick.</p>
+
+  <h2>Tokens</h2>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Your API tokens">
+    <table>
+      <thead><tr><th scope="col">Name</th><th scope="col">Prefix</th><th scope="col">Scopes</th><th scope="col">Created</th><th scope="col">Expires</th><th scope="col">Last used</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+        {% for token in tokens %}
+          <tr>
+            <td>{{ token.name }}</td>
+            <td><code>{{ token.prefix }}…</code></td>
+            <td>{{ token.scopes|join:", " }}</td>
+            <td>{{ token.created_at|date:"Y-m-d H:i" }}</td>
+            <td>{{ token.expires_at|date:"Y-m-d H:i"|default:"never" }}</td>
+            <td>{{ token.last_used_at|date:"Y-m-d H:i"|default:"never" }}</td>
+            <td>{% if token.revoked_at %}<span class="badge revoked">revoked</span>{% elif token.is_usable %}<span class="badge active">active</span>{% else %}<span class="badge expired">expired</span>{% endif %}</td>
+            <td>
+              {% if not token.revoked_at %}
+                <form method="post" action="{% url 'ui:token-revoke' token_id=token.pk %}" data-confirm="Revoke the token {{ token.name }}? Scripts using it stop working at once.">
+                  {% csrf_token %}
+                  <button type="submit" class="danger small">Revoke<span class="visually-hidden"> {{ token.name }}</span></button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" class="empty">You have no API tokens yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="new-token">Create a token</h2>
+  <form method="post" class="stack" aria-labelledby="new-token">
+    {% csrf_token %}
+    {% include "ui/_form_errors.html" %}
+    {% for field in form %}{% include "ui/_field.html" %}{% endfor %}
+    <div class="actions"><button type="submit">Create the token</button></div>
+  </form>
+{% endblock %}

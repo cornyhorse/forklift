@@ -7,7 +7,7 @@ import logging
 import math
 import os
 import time
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Sequence, Union
 
@@ -20,6 +20,15 @@ from ...processors.data_validation.data_validation_processor import (
     BadRowsThresholdExceededError,
 )
 from ..config import HeaderMode, ImportConfig, ProcessingResults
+from ..exceptions import (
+    COLUMN_MISSING,
+    ENCODING_ERROR,
+    INPUT_UNREADABLE,
+    SCHEMA_INVALID,
+    with_error_code,
+)
+from ..input_source import InputSource
+from ..progress import NO_HOOKS, ImportHooks
 from .base_processor import BaseProcessor
 from .batch_processor import BatchProcessor
 from .extensions import (
@@ -63,9 +72,9 @@ class _ParquetOutputs:
         self.good_writer = None
         self.bad_writer = None
         self.good_schema: Optional[pa.Schema] = None
-        self.bad_schema: Optional[pa.Schema] = None
         self.good_written = False
         self.bad_written = False
+        self.sizes: dict = {}  # bytes of each finished file, for the manifest
 
     def _create_writer(self, path: str, schema: pa.Schema):
         return create_parquet_writer(
@@ -84,8 +93,7 @@ class _ParquetOutputs:
     def write_good(self, batch: pa.RecordBatch) -> None:
         """Append rows to the data file."""
         self.ensure_good_writer(batch.schema)
-        if len(batch) > 0:
-            self.good_writer.write_table(pa.Table.from_batches([batch]))
+        self.good_writer.write_table(pa.Table.from_batches([batch]))
 
     def write_bad(
         self, batch: pa.RecordBatch, reason: Union[str, Sequence[str], None] = None
@@ -98,16 +106,11 @@ class _ParquetOutputs:
         When the file has a reason column (the schema asks for validation or constraints),
         ``reason`` is one text for all rows or one text per row.
         """
-        if len(batch) == 0:
-            return
         batch = raw_rows(batch)
         if self._reason_column:
             batch = self._with_reason(batch, reason)
         if self.bad_writer is None:
             self.bad_writer = self._create_writer(self.bad_file, batch.schema)
-            self.bad_schema = batch.schema
-        elif not batch.schema.equals(self.bad_schema):
-            batch = self._align(batch, self.bad_schema)
         self.bad_writer.write_table(pa.Table.from_batches([batch]))
 
     @staticmethod
@@ -124,18 +127,6 @@ class _ParquetOutputs:
             schema=pa.schema(list(batch.schema) + [pa.field(REASON_COLUMN, pa.string())]),
         )
 
-    @staticmethod
-    def _align(batch: pa.RecordBatch, schema: pa.Schema) -> pa.RecordBatch:
-        """Arrange ``batch`` by column name in the order of ``schema`` (missing -> null)."""
-        arrays = []
-        for field in schema:
-            position = batch.schema.get_field_index(field.name)
-            if position >= 0:
-                arrays.append(batch.column(position))
-            else:
-                arrays.append(pa.nulls(len(batch), type=field.type))
-        return pa.RecordBatch.from_arrays(arrays, names=schema.names)
-
     def close(self) -> None:
         """Finish both files; if one fails to close the other is discarded."""
         if self.good_writer is not None:
@@ -147,6 +138,7 @@ class _ParquetOutputs:
                 self.abort()
                 raise
             self.good_written = True
+            self.sizes[self.good_file] = _written_size(writer, self.good_file)
 
         if self.bad_writer is not None:
             writer, self.bad_writer = self.bad_writer, None
@@ -154,8 +146,12 @@ class _ParquetOutputs:
                 writer.close()
             except BaseException:
                 self._abort_writer(writer, self.bad_file)
+                # The run fails after all: its finished data file must not be left behind
+                self.good_written = False
+                _delete_output(self._io_handler, self.good_file, self._use_s3_output)
                 raise
             self.bad_written = True
+            self.sizes[self.bad_file] = _written_size(writer, self.bad_file)
 
     def keep_bad_rows(self) -> Optional[str]:
         """Finish the bad-rows file and discard the data file (for a run that stops on purpose).
@@ -190,45 +186,49 @@ class _ParquetOutputs:
 
     @staticmethod
     def _abort_writer(writer, path: str) -> None:
-        """Drop a partial output without publishing it."""
+        """Drop a partial output without publishing it.
+
+        S3 writers have ``abort()``, which drops their temporary file instead of uploading it;
+        a local ``ParquetWriter`` is closed and its file removed.
+        """
         abort = getattr(writer, "abort", None)
         if callable(abort):
             try:
                 abort()
             except Exception:
                 logger.warning("Could not abort partial output %s", path, exc_info=True)
-            if not is_s3_path(path):
-                try:
-                    Path(path).unlink()
-                except OSError:
-                    pass
-            return
-
-        # Writers without abort(): an S3 writer keeps its data in a temporary file that close()
-        # would upload, so release the temporary file directly instead of closing
-        temp_path = getattr(writer, "_temp_path", None)
-        if temp_path is not None:
+        else:
             try:
-                inner = getattr(writer, "_writer", None)
-                if inner is not None:
-                    inner.close()
+                writer.close()
             except Exception:
                 pass
-            try:
-                Path(temp_path).unlink()
-            except OSError:
-                pass
-            return
-
-        try:
-            writer.close()
-        except Exception:
-            pass
         if not is_s3_path(path):
             try:
                 Path(path).unlink()
             except OSError:
                 pass
+
+
+def _written_size(writer, path: str) -> int:
+    """Bytes in a closed output: S3 writers report what they uploaded, local files are stat'ed.
+
+    Asking the store instead would need read access to the output prefix, which a write-only
+    login does not have.
+    """
+    size = getattr(writer, "bytes_written", None)
+    return size if size is not None else os.path.getsize(path)
+
+
+def _delete_output(io_handler: UnifiedIOHandler, path: str, use_s3_output: bool) -> None:
+    """Delete an output file (local file or S3 object) if it exists; a failure is logged."""
+    try:
+        if use_s3_output:
+            target = S3Path(path)
+            io_handler.s3_client._s3_client.delete_object(Bucket=target.bucket, Key=target.key)
+        else:
+            Path(path).unlink(missing_ok=True)
+    except Exception:
+        logger.warning("Could not remove output %s", path, exc_info=True)
 
 
 def _json_safe(value: Any) -> Any:
@@ -237,15 +237,9 @@ def _json_safe(value: Any) -> Any:
         return {str(k): _json_safe(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe(v) for v in value]
-    if isinstance(value, (set, frozenset)):
-        return [_json_safe(v) for v in sorted(value, key=str)]
     if isinstance(value, float):
         return value if math.isfinite(value) else None
-    if value is None or isinstance(value, (bool, int, str)):
-        return value
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    return str(value)
+    return value
 
 
 class CSVProcessor(BaseProcessor):
@@ -258,7 +252,12 @@ class CSVProcessor(BaseProcessor):
         self.header_detector = None
         self.batch_processor = None
 
-    def process(self, config: ImportConfig) -> ProcessingResults:
+    def process(
+        self,
+        config: ImportConfig,
+        hooks: Optional[ImportHooks] = None,
+        input_source: Optional[InputSource] = None,
+    ) -> ProcessingResults:
         """Process CSV file with streaming and validation.
 
         Main processing method that orchestrates the entire CSV import workflow
@@ -267,12 +266,16 @@ class CSVProcessor(BaseProcessor):
 
         Args:
             config: ImportConfig instance with processing configuration
+            hooks: Progress and cancellation callbacks, called after every batch
+            input_source: Stream source to read instead of ``config.input_path``
 
         Returns:
             ProcessingResults object containing processing statistics and output paths
 
         Raises:
-            Exception: Any failure is recorded in ``results.errors`` and re-raised. A failed run
+            Exception: Any failure is recorded in ``results.errors`` and re-raised; where the
+                engine knows what went wrong the exception has an ``error_code`` (see
+                ``forklift.engine.exceptions``). A failed run
                 leaves no partial ``data.parquet`` / ``bad_rows.parquet`` behind (local files
                 are removed, S3 uploads are not completed), and outputs of earlier runs in the
                 destination are removed when processing starts. One exception: a
@@ -283,19 +286,29 @@ class CSVProcessor(BaseProcessor):
         start_time = time.time()
         results = ProcessingResults()
         outputs: Optional[_ParquetOutputs] = None
+        hooks = hooks or NO_HOOKS
 
         try:
             # Initialize components
-            self.io_handler = UnifiedIOHandler()
+            self.io_handler = UnifiedIOHandler(getattr(config, "s3_client", None))
             self.schema_processor = SchemaProcessor(config, self.io_handler)
-            self.header_detector = HeaderDetector(config, self.io_handler)
+            self.header_detector = HeaderDetector(
+                config, self.io_handler, input_source=input_source
+            )
 
             # Load schema if provided
-            schema = self.schema_processor.load_schema()
-            converter = self.schema_processor.build_converter()
+            try:
+                schema = self.schema_processor.load_schema()
+                converter = self.schema_processor.build_converter()
+            except (ValueError, TypeError, KeyError, FileNotFoundError) as e:
+                raise with_error_code(e, SCHEMA_INVALID)
 
-            # Detect header - now works with S3 inputs
-            header_row_index, column_names = self._detect_header_row(config)
+            # Detect header - now works with S3 inputs (an undecodable header is reported as
+            # an encoding error by _friendly_error)
+            try:
+                header_row_index, column_names = self._detect_header_row(config)
+            except ValueError as e:
+                raise with_error_code(e, INPUT_UNREADABLE)
 
             # Required columns are looked up by name, so they have to exist
             required_columns = self._required_columns(config)
@@ -304,9 +317,12 @@ class CSVProcessor(BaseProcessor):
             # Schema extensions (x-transformations, x-columnMapping, x-calculatedColumns,
             # x-validation, x-primaryKey, x-rowHash, ...). Misconfiguration fails here, before
             # any output is written.
-            pipeline = self._build_extension_pipeline(
-                config, column_names, results, mark_nulls=converter.mark_nulls
-            )
+            try:
+                pipeline = self._build_extension_pipeline(
+                    config, column_names, results, mark_nulls=converter.mark_nulls
+                )
+            except ValueError as e:
+                raise with_error_code(e, SCHEMA_INVALID)
 
             # Prepare output paths - support both local and S3 outputs
             good_file, bad_file, use_s3_output = self._prepare_output_paths(config)
@@ -341,6 +357,7 @@ class CSVProcessor(BaseProcessor):
                 converter=converter,
                 reject_handler=write_rejected,
                 pre_convert=pipeline.pre_convert if pipeline and pipeline.has_pre_stage else None,
+                input_source=input_source,
             )
 
             # Process batches using extracted batch processor (no columns: nothing to read)
@@ -392,6 +409,11 @@ class CSVProcessor(BaseProcessor):
 
                 results.total_rows += len(batch)
 
+                # Batch boundary: report progress, stop here if the caller cancelled
+                hooks.report(
+                    results.total_rows, results.invalid_rows, self.batch_processor.bytes_read
+                )
+
             # A header without rows (or only rejected rows) still yields an empty data file
             # that carries the schema
             if outputs.good_writer is None and column_names:
@@ -423,6 +445,7 @@ class CSVProcessor(BaseProcessor):
             self._create_output_files(config, results, output_metadata_collector, outputs)
 
             results.execution_time = time.time() - start_time
+            return results
 
         except BadRowsThresholdExceededError as e:
             # Too many rows were rejected: the data file is discarded, the rejected rows are kept
@@ -442,8 +465,6 @@ class CSVProcessor(BaseProcessor):
             # Nothing is left open on success; after a failure this discards partial outputs
             if outputs is not None:
                 outputs.abort()
-
-        return results
 
     def _build_extension_pipeline(
         self,
@@ -496,10 +517,13 @@ class CSVProcessor(BaseProcessor):
     def _friendly_error(error: Exception, config: ImportConfig) -> Exception:
         """Undecodable input gets one clear message (Python's own names the byte, not the fix)."""
         if isinstance(error, UnicodeDecodeError):
-            return ValueError(
-                f"Input contains bytes that are not valid for encoding '{config.encoding}' "
-                f"(byte offset {error.start}). Set the encoding the file was written with "
-                "(for example 'latin-1' or 'cp1252')."
+            return with_error_code(
+                ValueError(
+                    f"Input contains bytes that are not valid for encoding '{config.encoding}' "
+                    f"(byte offset {error.start}). Set the encoding the file was written with "
+                    "(for example 'latin-1' or 'cp1252')."
+                ),
+                ENCODING_ERROR,
             )
         return error
 
@@ -534,9 +558,12 @@ class CSVProcessor(BaseProcessor):
             return  # nothing to read
         missing = [name for name in required_columns if name not in column_names]
         if missing:
-            raise ValueError(
-                "Required column(s) missing from the input header: "
-                + ", ".join(repr(name) for name in missing)
+            raise with_error_code(
+                ValueError(
+                    "Required column(s) missing from the input header: "
+                    + ", ".join(repr(name) for name in missing)
+                ),
+                COLUMN_MISSING,
             )
 
     def _prepare_output_paths(self, config: ImportConfig):
@@ -560,19 +587,7 @@ class CSVProcessor(BaseProcessor):
     def _remove_stale_outputs(self, files: Sequence[str], use_s3_output: bool) -> None:
         """Delete the parquet files an earlier run may have left (only the names written here)."""
         for path in files:
-            try:
-                if use_s3_output:
-                    client = self.io_handler.s3_client
-                    delete = getattr(client, "delete", None)
-                    if callable(delete):
-                        delete(path)
-                    else:
-                        target = S3Path(path)
-                        client._s3_client.delete_object(Bucket=target.bucket, Key=target.key)
-                else:
-                    Path(path).unlink(missing_ok=True)
-            except Exception:
-                logger.warning("Could not remove stale output %s", path, exc_info=True)
+            _delete_output(self.io_handler, path, use_s3_output)
 
     def _initialize_metadata_collector(self, config: ImportConfig):
         """Initialize output metadata collector if enabled."""
@@ -632,7 +647,10 @@ class CSVProcessor(BaseProcessor):
         for name in required_columns:
             position = batch.schema.get_field_index(name)
             if position < 0:
-                raise ValueError(f"Required column '{name}' is missing from the input")
+                raise with_error_code(
+                    ValueError(f"Required column '{name}' is missing from the input"),
+                    COLUMN_MISSING,
+                )
 
             column = batch.column(position)
             column_ok = pc.is_valid(column)
@@ -668,7 +686,7 @@ class CSVProcessor(BaseProcessor):
         # Create manifest and metadata (support S3 outputs)
         if config.create_manifest:
             results.manifest_file = self._create_s3_manifest(
-                config.output_path, results.output_files
+                config.output_path, results.output_files, outputs.sizes
             )
 
         if config.create_metadata:
@@ -693,6 +711,7 @@ class CSVProcessor(BaseProcessor):
                     output_metadata_path = output_metadata_collector.save_metadata(
                         str(config.output_path),
                         "output_data_metadata.json",
+                        self.io_handler.s3_client if outputs._use_s3_output else None,
                         schema=outputs.good_schema,
                         source_info=source_info,
                     )
@@ -721,14 +740,18 @@ class CSVProcessor(BaseProcessor):
             f.write(text)
         return path
 
-    def _create_s3_manifest(self, output_path: Union[str, Path], files: list) -> str:
-        """Create manifest file supporting S3 output locations."""
+    def _create_s3_manifest(self, output_path: Union[str, Path], files: list, sizes: dict) -> str:
+        """Create manifest file supporting S3 output locations.
+
+        ``sizes`` holds the bytes of each file as its writer reported them, so writing the
+        manifest needs no read access to the output location.
+        """
         manifest = {
             "format_version": "1.0",
             "files": [
                 {
                     "file_path": S3Path(f).name if is_s3_path(f) else os.path.basename(str(f)),
-                    "file_size": self.io_handler.get_size(f) if self.io_handler.exists(f) else 0,
+                    "file_size": sizes[f],
                 }
                 for f in files
             ],

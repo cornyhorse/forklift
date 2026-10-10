@@ -1,0 +1,7 @@
+{% if result.ok %}
+  <p class="alert ok"><span class="badge ok">ok</span> {{ result.message }}</p>
+{% elif result.ok is False %}
+  <p class="alert error"><span class="badge error">failed</span> {{ result.message }}</p>
+{% else %}
+  <p class="alert warn"><span class="badge unknown">unknown</span> {{ result.message }}</p>
+{% endif %}

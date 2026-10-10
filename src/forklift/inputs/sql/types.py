@@ -15,6 +15,23 @@ logger = logging.getLogger(__name__)
 # Arrow's decimal128 holds at most 38 digits.
 _MAX_DECIMAL_PRECISION = 38
 
+# ODBC type codes (SQLColumns DATA_TYPE) that say how the driver returns a column's values. They
+# settle names that mean different things on different databases: SQL Server's TIMESTAMP is a
+# row version (binary), Oracle's DATE holds a time of day (a timestamp).
+_ODBC_BINARY_TYPES = {-2, -3, -4}  # SQL_BINARY, SQL_VARBINARY, SQL_LONGVARBINARY
+_ODBC_TIMESTAMP_TYPES = {11, 93}  # SQL_TIMESTAMP, SQL_TYPE_TIMESTAMP
+
+
+def base_type_name(sql_type: str) -> str:
+    """A type name without its parameters, in upper case, as the mapping compares it.
+
+    ``TIMESTAMP(6) WITH TIME ZONE`` (Oracle) becomes ``TIMESTAMP WITH TIME ZONE``,
+    ``datetime2(7)`` ``DATETIME2``; a trailing ``IDENTITY`` (SQL Server reports
+    ``int identity``) is dropped.
+    """
+    name = " ".join(re.sub(r"\([^)]*\)", " ", sql_type).upper().split())
+    return re.sub(r" IDENTITY$", "", name)
+
 
 class SqlTypeConverter:
     """Handles conversion between SQL data types and PyArrow data types."""
@@ -102,25 +119,31 @@ class SqlTypeConverter:
         return "VARCHAR"
 
     def sql_type_to_pyarrow(
-        self, sql_type: str, size: Optional[int] = None, decimal_digits: Optional[int] = None
+        self,
+        sql_type: str,
+        size: Optional[int] = None,
+        decimal_digits: Optional[int] = None,
+        odbc_type: Optional[int] = None,
     ) -> pa.DataType:
         """Convert SQL data type to PyArrow data type.
 
         Args:
-            sql_type: SQL type name
-            size: Column size
-            decimal_digits: Number of decimal digits
+            sql_type: SQL type name (parameters such as ``(6)`` are ignored)
+            size: Column size (the precision of a DECIMAL/NUMERIC/NUMBER)
+            decimal_digits: Number of decimal digits (the scale)
+            odbc_type: The ODBC type code the catalog reports (SQLColumns ``DATA_TYPE``), if
+                known. A binary code makes the column binary whatever its name (SQL Server's
+                ``timestamp`` is a row version); a timestamp code makes a DATE a timestamp
+                (Oracle's DATE holds a time of day).
 
         Returns:
             PyArrow data type
         """
-        # SQL Server reports identity columns as e.g. "int identity"
-        sql_type = re.sub(r"\s+IDENTITY$", "", sql_type.strip().upper())
-
-        # Use schema importer mapping if available
-        if self.schema_importer and hasattr(self.schema_importer, "parquet_type_mapping"):
-            # This would need to be enhanced to map SQL types to Parquet types
-            pass
+        sql_type = base_type_name(sql_type)
+        if odbc_type in _ODBC_BINARY_TYPES:
+            return pa.binary()
+        if odbc_type in _ODBC_TIMESTAMP_TYPES and sql_type == "DATE":
+            return pa.timestamp("us")
 
         # Map common SQL types to PyArrow types
         if sql_type in ("INT", "INTEGER", "INT4"):
@@ -133,13 +156,15 @@ class SqlTypeConverter:
             # SQL Server TINYINT is unsigned (0-255) and overflows int8; MySQL TINYINT is
             # signed (-128..127). int16 holds both losslessly.
             return pa.int16()
-        elif sql_type in ("REAL", "FLOAT4"):
+        elif sql_type in ("REAL", "FLOAT4", "BINARY_FLOAT"):
             return pa.float32()
-        elif sql_type in ("FLOAT", "DOUBLE", "DOUBLE PRECISION", "FLOAT8"):
+        elif sql_type in ("FLOAT", "DOUBLE", "DOUBLE PRECISION", "FLOAT8", "BINARY_DOUBLE"):
             # FLOAT is a double in SQL Server, SQLite and Oracle; float32 would silently
             # round values (123456789.123 -> 123456792.0). REAL is the single-precision type.
             return pa.float64()
-        elif sql_type in ("DECIMAL", "NUMERIC", "DEC"):
+        elif sql_type in ("DECIMAL", "NUMERIC", "DEC", "NUMBER"):
+            # Oracle's NUMBER(p,s) is a DECIMAL; a NUMBER without precision is a floating-point
+            # number that the driver returns as a double, hence float64 below.
             if size and decimal_digits is not None:
                 if 0 <= decimal_digits <= size <= _MAX_DECIMAL_PRECISION:
                     return pa.decimal128(size, decimal_digits)
@@ -169,9 +194,25 @@ class SqlTypeConverter:
             "TIMESTAMP WITHOUT TIME ZONE",
         ):
             return pa.timestamp("us")
-        elif sql_type in ("TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE"):
+        elif sql_type in (
+            "TIMESTAMPTZ",
+            "TIMESTAMP WITH TIME ZONE",
+            # Oracle returns both in the session time zone, which forklift sets to UTC
+            "TIMESTAMP WITH LOCAL TIME ZONE",
+            # SQL Server; forklift reads the values as UTC (see the connection's converters)
+            "DATETIMEOFFSET",
+        ):
             return pa.timestamp("us", tz="UTC")
-        elif sql_type in ("BINARY", "VARBINARY", "BLOB", "BYTEA"):
+        elif sql_type in (
+            "BINARY",
+            "VARBINARY",
+            "BLOB",
+            "BYTEA",
+            "RAW",
+            "LONG RAW",
+            "IMAGE",
+            "ROWVERSION",
+        ):
             return pa.binary()
         elif sql_type == "UNIQUEIDENTIFIER":
             return pa.string()

@@ -58,6 +58,14 @@
                   "name": {
                     "type": "string",
                     "description": "Exact table name to import"
+                  },
+                  "columns": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "minItems": 1,
+                    "uniqueItems": true,
+                    "description": "Optional: the columns to read, in this order (SELECT col1, col2, ... instead of SELECT *). Names are matched against the database catalog like table names (exact spelling first, then ignoring case) and always quoted. Use it when the login may read only some columns (column-level grants), or to leave columns out. Omit it to read every column.",
+                    "examples": [["id", "amount", "created_at"]]
                   }
                 },
                 "required": ["name"],

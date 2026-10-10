@@ -795,28 +795,37 @@ class TestBatchProcessorRows:
         )
         assert results.total_rows == 2
 
-    def test_filtered_file_is_removed_when_copying_fails(self, tmp_path):
+    @staticmethod
+    def _private_tempdir(tmp_path, monkeypatch):
+        """Temporary files go to an empty directory of this test's own, not the shared /tmp
+        (other processes write there, so comparing its listings is flaky)."""
+        scratch = Path(tmp_path) / "scratch"
+        scratch.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+        return scratch
+
+    def test_filtered_file_is_removed_when_copying_fails(self, tmp_path, monkeypatch):
         path = Path(tmp_path) / "in.csv"
         path.write_bytes(b"a,b\n1,\xff\xfe\n")  # not valid UTF-8: copying raises
         processor, _, _ = self._processor(footer_detection={"stop_on_blank": True})
+        scratch = self._private_tempdir(tmp_path, monkeypatch)
 
-        before = set(os.listdir(tempfile.gettempdir()))
         with pytest.raises(UnicodeDecodeError):
             processor._create_filtered_file(path, 0, lambda row: False)
-        assert set(os.listdir(tempfile.gettempdir())) == before
+        assert os.listdir(scratch) == []
 
-    def test_filtered_file_is_removed_when_option_building_fails(self, tmp_path):
+    def test_filtered_file_is_removed_when_option_building_fails(self, tmp_path, monkeypatch):
         path = Path(tmp_path) / "in.csv"
         path.write_text("a,b\n1,2\n")
         processor, _, _ = self._processor(footer_detection={"stop_on_blank": True})
-        before = set(os.listdir(tempfile.gettempdir()))
+        scratch = self._private_tempdir(tmp_path, monkeypatch)
         with patch(
             "forklift.engine.processors.batch_processor.pv_csv.ConvertOptions",
             side_effect=RuntimeError("bad options"),
         ):
             with pytest.raises(RuntimeError):
                 list(processor.create_batch_reader(path, ["a", "b"], 0, lambda row: False))
-        assert set(os.listdir(tempfile.gettempdir())) == before
+        assert os.listdir(scratch) == []
 
     def test_filtered_file_honours_the_quote_character(self, tmp_path):
         # with the default quote char the second row would split into 3 fields and its
@@ -940,11 +949,24 @@ class TestManifestAndMetadata:
     def test_s3_destination_uses_s3_uris_not_a_local_path(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         processor, written = self._processor()
-        path = processor._create_s3_manifest("s3://bkt/out/", ["s3://bkt/out/data.parquet"])
+        path = processor._create_s3_manifest(
+            "s3://bkt/out/", ["s3://bkt/out/data.parquet"], {"s3://bkt/out/data.parquet": 42}
+        )
 
         assert path == "s3://bkt/out/manifest.json"
-        assert json.loads(written[path])["files"][0]["file_path"] == "data.parquet"
+        (entry,) = json.loads(written[path])["files"]
+        assert entry == {"file_path": "data.parquet", "file_size": 42}
         assert not any(p.name.startswith("s3") for p in tmp_path.iterdir())
+
+    def test_manifest_sizes_come_from_the_writers_not_the_store(self, tmp_path):
+        # A write-only login cannot HEAD its own outputs; the manifest must not need to
+        processor, written = self._processor()
+        processor._create_s3_manifest(
+            "s3://bkt/out/", ["s3://bkt/out/data.parquet"], {"s3://bkt/out/data.parquet": 7}
+        )
+
+        processor.io_handler.exists.assert_not_called()
+        processor.io_handler.get_size.assert_not_called()
 
     def test_nan_values_do_not_break_json_output(self, tmp_path):
         processor, written = self._processor()

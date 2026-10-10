@@ -359,8 +359,6 @@ class RowHashProcessor(BaseProcessor):
         """A single (combined) Arrow array from an Arrow array or chunked array."""
         if isinstance(values, pa.ChunkedArray):
             values = values.combine_chunks()
-            if isinstance(values, pa.ChunkedArray):  # zero chunks on some pyarrow versions
-                values = pa.array([], type=values.type)
         if not isinstance(values, pa.Array):
             raise TypeError(f"{argument} must be a pyarrow Array, got {type(values).__name__}")
         return values
@@ -575,8 +573,6 @@ class RowHashProcessor(BaseProcessor):
 
 def _cells(column: pa.Array) -> List[Optional[Tuple[bytes, bytes]]]:
     """Per-row ``(type tag, payload)`` for the version-2 encoding; ``None`` for NULL."""
-    if isinstance(column, pa.ChunkedArray):
-        column = column.combine_chunks()
     t = column.type
 
     if pa.types.is_dictionary(t):

@@ -1,0 +1,31 @@
+{% extends "ui/base.html" %}
+{% block title %}Connections{% endblock %}
+{% block content %}
+  <h1>Connections</h1>
+  {% include "ui/admin/_nav.html" %}
+  <p class="lead">Buckets, mounted directories and databases that datasets read from and write to. Secrets are encrypted and write-only: nobody can read them back, here or through the API.</p>
+  <div class="actions">
+    <a class="button" href="{% url 'ui:admin-connection-new' kind='s3' %}">New S3-compatible bucket</a>
+    <a class="button" href="{% url 'ui:admin-connection-new' kind='sql' %}">New SQL database</a>
+    <a class="button secondary" href="{% url 'ui:admin-connection-new' kind='localfs' %}">New local directory</a>
+  </div>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Connections">
+    <table>
+      <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Where</th><th scope="col">Secrets set</th><th scope="col">Used by</th><th scope="col">Last test</th></tr></thead>
+      <tbody>
+        {% for connection in connections %}
+          <tr>
+            <td><a href="{% url 'ui:admin-connection' connection_id=connection.pk %}">{{ connection.name }}</a></td>
+            <td>{{ connection.get_kind_display }}</td>
+            <td>{% if connection.kind == "s3" %}{{ connection.config.endpoint_url|default:"AWS S3" }} / {{ connection.config.bucket }}{% if connection.config.prefix %}/{{ connection.config.prefix }}{% endif %}{% elif connection.kind == "sql" %}{{ connection.config.dialect }}: {{ connection.config.host }}:{{ connection.config.port }}/{{ connection.config.database }} as {{ connection.config.username }}{% else %}{{ connection.config.root_path }}{% endif %}</td>
+            <td>{{ connection.secret_fields|join:", "|default:"none" }}</td>
+            <td>{{ connection.allowed_roles|join:", "|default:"admins only" }}</td>
+            <td>{% if connection.last_tested_at %}{% if connection.last_test_ok %}<span class="badge ok">ok</span>{% elif connection.last_test_ok is False %}<span class="badge error">failed</span>{% else %}<span class="badge unknown">unknown</span>{% endif %} {{ connection.last_tested_at|date:"Y-m-d H:i" }}{% else %}never{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty">No connections yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -35,21 +35,16 @@ class TestBatchProcessor:
         return Mock(spec=UnifiedIOHandler)
 
     @pytest.fixture
-    def sample_csv_file(self):
-        """Create a sample CSV file for testing."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False, newline=""
-        ) as tmp_file:
-            writer = csv.writer(tmp_file)
+    def sample_csv_file(self, tmp_path):
+        """A sample CSV file, closed (and so flushed) before the test reads it."""
+        path = tmp_path / "sample.csv"
+        with open(path, "w", newline="") as handle:
+            writer = csv.writer(handle)
             writer.writerow(["Name", "Age", "City"])  # Header
             writer.writerow(["Alice", "25", "New York"])
             writer.writerow(["Bob", "30", "Los Angeles"])
             writer.writerow(["Charlie", "35", "Chicago"])
-
-            yield Path(tmp_file.name)
-
-        # Cleanup
-        Path(tmp_file.name).unlink(missing_ok=True)
+        return path
 
     def test_init(self, mock_config, mock_io_handler):
         """Test BatchProcessor initialization."""
@@ -78,26 +73,15 @@ class TestBatchProcessor:
         """Test batch reader with normal CSV file."""
         processor = BatchProcessor(mock_config, mock_io_handler)
 
-        # Instead of mocking PyArrow internals, let's test the actual functionality
-        # by allowing it to process the real file and checking the results
-        try:
-            batches = list(
-                processor.create_batch_reader(
-                    sample_csv_file, ["Name", "Age", "City"], 0, lambda x: False
-                )
+        batches = list(
+            processor.create_batch_reader(
+                sample_csv_file, ["Name", "Age", "City"], 0, lambda x: False
             )
+        )
 
-            # The test should pass if we get at least one batch with data
-            assert len(batches) >= 0  # Allow for real PyArrow behavior
-
-            # If we get batches, verify they're PyArrow RecordBatch objects
-            for batch in batches:
-                assert hasattr(batch, "num_rows")
-                assert hasattr(batch, "num_columns")
-        except Exception as e:
-            # If PyArrow isn't available or there are import issues,
-            # we can't run this test meaningfully
-            pytest.skip(f"PyArrow CSV processing not available: {e}")
+        table = pa.Table.from_batches(batches)
+        assert table.column_names == ["Name", "Age", "City"]
+        assert table.column("Name").to_pylist() == ["Alice", "Bob", "Charlie"]
 
     def test_create_batch_reader_with_footer_detection(
         self, mock_config, mock_io_handler, sample_csv_file
@@ -106,28 +90,16 @@ class TestBatchProcessor:
         mock_config.footer_detection = True
         processor = BatchProcessor(mock_config, mock_io_handler)
 
-        # Test that footer detection works by actually testing the functionality
-        # rather than mocking internal method calls
-        try:
-            batches = list(
-                processor.create_batch_reader(
-                    sample_csv_file, ["Name", "Age", "City"], 0, lambda x: False
-                )
+        batches = list(
+            processor.create_batch_reader(
+                sample_csv_file, ["Name", "Age", "City"], 0, lambda x: False
             )
+        )
 
-            # The key test is that footer detection doesn't break the processing
-            # and we get valid results (the internal _create_filtered_file call
-            # is an implementation detail that we've verified works manually)
-            assert len(batches) >= 0  # Should process successfully with footer detection
-
-            # If we get batches, verify they're valid PyArrow RecordBatch objects
-            for batch in batches:
-                assert hasattr(batch, "num_rows")
-                assert hasattr(batch, "num_columns")
-
-        except Exception as e:
-            # If there are PyArrow issues, we can't meaningfully test this
-            pytest.skip(f"PyArrow CSV processing with footer detection not available: {e}")
+        # No row is a footer here, so filtering the file keeps every data row
+        table = pa.Table.from_batches(batches)
+        assert table.column("Name").to_pylist() == ["Alice", "Bob", "Charlie"]
+        assert table.column("City").to_pylist() == ["New York", "Los Angeles", "Chicago"]
 
     def test_create_batch_reader_empty_csv_error(
         self, mock_config, mock_io_handler, sample_csv_file

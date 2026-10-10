@@ -160,7 +160,7 @@ class ConfigurationParser:
                     score += 4
                 elif name_tokens & {"key", "pk"}:
                     score += 3
-                elif "id" in name_tokens:
+                else:  # "id", the remaining _PK_NAME_TOKENS entry
                     score += 5
 
                 # Penalty for very large distinct counts
@@ -185,26 +185,23 @@ class ConfigurationParser:
         candidates.sort(key=lambda x: x["score"], reverse=True)
         best_candidate = candidates[0]
 
-        # Only return if the score is reasonable
-        if best_candidate["score"] >= 8:
-            return {
-                "description": "Inferred primary key from metadata analysis",
-                "columns": [best_candidate["column"]],
-                "type": "single",
-                "enforceUniqueness": True,
-                "allowNulls": False,
-                "description_detail": f"Inferred primary key on {best_candidate['column']} field "
-                f"(uniqueness: {best_candidate['uniqueness_ratio']:.1%}, "
-                f"distinct values: {best_candidate['distinct_count']}, "
-                f"score: {best_candidate['score']})",
-                "inference_metadata": {
-                    "method": "metadata_analysis",
-                    "score": best_candidate["score"],
-                    "uniqueness_ratio": best_candidate["uniqueness_ratio"],
-                    "distinct_count": best_candidate["distinct_count"],
-                    "rows_analyzed": table.num_rows,
-                    "alternative_candidates": [c["column"] for c in candidates[1:3]],
-                },
-            }
-
-        return None
+        # Every candidate scores at least 11 (10 + name bonus - at most 2 for size)
+        return {
+            "description": "Inferred primary key from metadata analysis",
+            "columns": [best_candidate["column"]],
+            "type": "single",
+            "enforceUniqueness": True,
+            "allowNulls": False,
+            "description_detail": f"Inferred primary key on {best_candidate['column']} field "
+            f"(uniqueness: {best_candidate['uniqueness_ratio']:.1%}, "
+            f"distinct values: {best_candidate['distinct_count']}, "
+            f"score: {best_candidate['score']})",
+            "inference_metadata": {
+                "method": "metadata_analysis",
+                "score": best_candidate["score"],
+                "uniqueness_ratio": best_candidate["uniqueness_ratio"],
+                "distinct_count": best_candidate["distinct_count"],
+                "rows_analyzed": table.num_rows,
+                "alternative_candidates": [c["column"] for c in candidates[1:3]],
+            },
+        }

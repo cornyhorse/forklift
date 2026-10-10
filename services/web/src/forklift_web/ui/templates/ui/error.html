@@ -1,0 +1,7 @@
+{% extends "ui/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+  <h1>{{ title }}</h1>
+  {% include "ui/_error.html" %}
+  <p><a href="{% url 'ui:home' %}">Back to the home page</a></p>
+{% endblock %}

@@ -7,7 +7,9 @@ from .api import (
     generate_schema_from_excel,
     generate_schema_from_parquet,
 )
+from .engine.exceptions import ImportCancelled
 from .engine.forklift_core import import_csv, import_excel, import_fwf, import_sql
+from .jobs import JobResult, JobSpec, run_job
 from .readers import DataFrameReader, read_csv, read_excel, read_fwf, read_sql
 
 __version__ = "0.1.4"
@@ -18,6 +20,11 @@ __all__ = [
     "import_fwf",
     "import_excel",
     "import_sql",
+    "ImportCancelled",
+    # Declarative jobs (the job contract in contracts/)
+    "run_job",
+    "JobSpec",
+    "JobResult",
     # Ad-hoc DataFrame reader functions (return DataFrames)
     "read_csv",
     "read_excel",

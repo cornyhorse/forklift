@@ -173,6 +173,7 @@ markers = [
     "performance: marks tests as performance tests (deselected by default)",
     "slow: marks tests as slow running",
     "integration: marks tests as integration tests",
+    "services: needs the services in tests/integration-tests/services (FORKLIFT_TEST_SERVICES=1)",
 ]
 filterwarnings = [
     # PyArrow FutureWarning about schema vs names parameter - expected during API transitions

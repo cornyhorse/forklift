@@ -1,0 +1,28 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}Files{% endblock %}
+{% block content %}
+  <h1>Files</h1>
+  <p class="lead">{% if user.role == "admin" %}Every uploaded file (admins see everyone's).{% else %}The files you uploaded.{% endif %}</p>
+  {% if can.upload %}<p class="actions"><a class="button" href="{% url 'ui:upload' %}">Upload a file</a></p>{% endif %}
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Uploaded files">
+    <table>
+      <thead><tr><th scope="col">File</th><th scope="col" class="num">Size</th><th scope="col">Classification</th><th scope="col">State</th><th scope="col">Uploaded by</th><th scope="col">Uploaded</th></tr></thead>
+      <tbody>
+        {% for upload in page %}
+          <tr>
+            <td><a href="{% url 'ui:upload-detail' upload_id=upload.pk %}">{{ upload.filename }}</a></td>
+            <td class="num">{{ upload.size|filesize }}</td>
+            <td><span class="badge {{ upload.classification }}">{{ upload.get_classification_display }}</span></td>
+            <td><span class="badge {{ upload.status }}">{{ upload.status }}</span></td>
+            <td>{{ upload.uploaded_by.username|default:"—" }}</td>
+            <td>{{ upload.created_at|date:"Y-m-d H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty">No files yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "ui/_pagination.html" %}
+{% endblock %}

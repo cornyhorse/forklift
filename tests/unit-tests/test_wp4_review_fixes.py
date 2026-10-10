@@ -469,9 +469,11 @@ def fake_pyodbc(monkeypatch):
         SQL_WVARCHAR=-9,
         SQL_WLONGVARCHAR=-10,
         SQL_IDENTIFIER_QUOTE_CHAR=29,
+        SQL_DBMS_NAME=17,
     ).items():
         setattr(module, name, value)
     module.pooling = True
+    module.Error = type("Error", (Exception,), {})
     module.connect = MagicMock(name="pyodbc.connect")
     monkeypatch.setitem(sys.modules, "pyodbc", module)
     return module

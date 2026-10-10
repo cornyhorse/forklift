@@ -47,10 +47,10 @@ class TestDateTimeTransformer:
 
     def test_timezone_conversion_without_astimezone_mock(self):
         """Test timezone conversion with Mock object without astimezone method."""
-        # Create a mock that doesn't have astimezone
-        mock_dt = Mock()
+        # spec=[]: a plain Mock() would create astimezone on first access
+        mock_dt = Mock(spec=[])
         mock_dt._mock_name = "mock_datetime"
-        # Don't add astimezone method
+        assert not hasattr(mock_dt, "astimezone")
 
         test_data = pa.array(["2023-01-01"])
 
@@ -62,8 +62,9 @@ class TestDateTimeTransformer:
         ):
             result = self.transformer.apply_datetime_transformation(test_data, config)
 
-        # Should handle gracefully without calling astimezone
-        assert result is not None
+        # No conversion is attempted and the unconvertible mock becomes NULL
+        assert result.type == pa.timestamp("us", tz="UTC")
+        assert result.to_pylist() == [None]
 
     def test_timezone_aware_datetime_conversion(self):
         """Test timezone conversion with real timezone-aware datetime (line 90)."""
@@ -442,3 +443,42 @@ class TestDateTimeTransformer:
 
         # Should handle exception and return None
         assert result_list[0] is None
+
+
+class TestFloatEpochCells:
+    """A double column holding epochs is read without the float's ".0" suffix."""
+
+    def test_whole_number_float_parses_and_fractional_float_is_null(self):
+        column = pa.array([1700000000.0, 1700000000.5, None])
+
+        result = DateTimeTransformer().apply_datetime_transformation(
+            column, DateTimeTransformConfig(from_epoch=True)
+        )
+
+        assert result.to_pylist() == [
+            datetime.datetime(2023, 11, 14, 22, 13, 20, tzinfo=datetime.timezone.utc),
+            None,  # "1700000000.5" is not an epoch timestamp
+            None,
+        ]
+
+
+class TestTimestampTargetWithTimezone:
+    """``target_type="timestamp"`` gives POSIX seconds, whatever the configured zone."""
+
+    def test_converted_values_keep_their_instant(self):
+        column = pa.array(["2023-01-01 12:00:00", "2023-01-01T12:00:00+01:00"])
+        config = DateTimeTransformConfig(target_type="timestamp", timezone="America/New_York")
+
+        result = DateTimeTransformer().apply_datetime_transformation(column, config)
+
+        # Naive text is UTC; the offset of aware text is honoured
+        assert result.to_pylist() == [1672574400.0, 1672570800.0]
+
+    def test_aware_value_without_timezone_conversion_keeps_its_offset(self):
+        column = pa.array(["2023-01-01T12:00:00+01:00"])
+
+        result = DateTimeTransformer().apply_datetime_transformation(
+            column, DateTimeTransformConfig(target_type="timestamp")
+        )
+
+        assert result.to_pylist() == [1672570800.0]

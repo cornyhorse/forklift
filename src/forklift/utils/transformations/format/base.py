@@ -87,10 +87,3 @@ class ValidationMixin:
         """
         match = re.fullmatch(r"\s*(\d+)\.0+\s*", value)
         return match.group(1) if match else value
-
-    @staticmethod
-    def validate_length(value: str, expected_length: int, allow_shorter: bool = False) -> bool:
-        """Validate string length."""
-        if allow_shorter:
-            return len(value) <= expected_length
-        return len(value) == expected_length

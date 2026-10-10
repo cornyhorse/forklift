@@ -1,0 +1,24 @@
+{% load forklift_ui %}
+<div id="audit-table">
+  {% if problem %}<div class="alert error" role="alert"><p>{{ problem }}</p></div>{% endif %}
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Audit entries">
+    <table>
+      <thead><tr><th scope="col">When (UTC)</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Object</th><th scope="col">Details</th><th scope="col">From</th></tr></thead>
+      <tbody>
+        {% for entry in page %}
+          <tr>
+            <td><time datetime="{{ entry.created_at|date:'c' }}">{{ entry.created_at|date:"Y-m-d H:i:s" }}</time></td>
+            <td>{{ entry.actor_label }}{% if entry.token_prefix %} <span class="muted">(token {{ entry.token_prefix }}…)</span>{% endif %}</td>
+            <td><code>{{ entry.action }}</code></td>
+            <td>{% if entry.object_type %}{{ entry.object_type }}: {{ entry.object_repr }} <span class="muted">({{ entry.object_id }})</span>{% else %}—{% endif %}</td>
+            <td>{% if entry.details %}<code>{{ entry.details|compact_json|truncatechars:300 }}</code>{% endif %}</td>
+            <td>{{ entry.ip|default:"—" }}{% if entry.request_id %} <span class="muted">{{ entry.request_id|truncatechars:12 }}</span>{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty">No entries match.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "ui/_pagination.html" %}
+</div>

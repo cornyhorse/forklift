@@ -1,15 +1,16 @@
 # ADR 0005: S3-compatible object storage and local volumes; Parquet first, tables later
 
-- **Status**: Proposed
+- **Status**: Proposed; the ordering of database tables is changed by
+  [ADR 0007](0007-database-sources-and-targets.md)
 - **Date**: 2026-10-09
 - **Context document**: [platform design](../platform.md), §7
 
 ## Context
 
 The platform should be cloud-agnostic but cloud-friendly. "S3" here means any store that speaks the
-S3 API (MinIO, Ceph, Cloudflare R2, Backblaze B2, AWS S3, ...). Some installations will only have a
-disk. Writing to database tables is wanted eventually, but Parquet output has to be dependable
-first.
+S3 API (RustFS, Ceph, Cloudflare R2, Backblaze B2, AWS S3, MinIO, ...). Some installations will
+only have a disk. Writing to database tables is wanted eventually, but Parquet output has to be
+dependable first.
 
 ## Decision
 
@@ -22,13 +23,14 @@ first.
 - Destinations are Parquet on either kind of storage, published manifest-last (data files first,
   `manifest.json` last) from attempt-scoped staging prefixes.
 - Database tables become a destination only after Parquet output meets these criteria: end-to-end
-  tests against MinIO and a local volume, retries and crashes never mix attempts, manifest-last
+  tests against RustFS and a local volume, retries and crashes never mix attempts, manifest-last
   publishing verified, runs on inputs larger than 10 GB, and `bad_rows` kept when a run fails on
   its threshold.
 
 ## Consequences
 
-- Compose ships MinIO; any S3-compatible service works in production.
+- Compose ships RustFS (Apache-2.0), the S3-compatible store the integration tests already run
+  against; any S3-compatible service works in production.
 - No dependency on a particular cloud's IAM: large inputs are streamed through presigned GETs with
   range requests ([ADR 0006](0006-streaming-large-inputs.md)), which every S3-compatible store
   supports, rather than through short-lived scoped credentials, which many do not.

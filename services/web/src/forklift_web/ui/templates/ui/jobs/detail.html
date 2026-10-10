@@ -1,0 +1,27 @@
+{% extends "ui/base.html" %}
+{% load forklift_ui %}
+{% block title %}{{ job.get_kind_display }} job {{ job.pk|stringformat:"s"|slice:":8" }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:jobs' %}">Jobs</a></li><li>{{ job.pk }}</li></ol></nav>
+  <h1>{{ job.get_kind_display }} job</h1>
+  <dl class="facts">
+    <dt>Id</dt><dd><code>{{ job.pk }}</code></dd>
+    <dt>Input</dt>
+    <dd>
+      {% if job.dataset %}Dataset <a href="{% url 'ui:dataset' dataset_id=job.dataset_id %}">{{ job.dataset.name }}</a>{% if job.upload_id %}, {% endif %}{% endif %}
+      {% if job.upload_id %}{% if can_see_upload %}file <a href="{% url 'ui:upload-detail' upload_id=job.upload_id %}">{{ job.upload.filename }}</a> ({{ job.upload.size|filesize }}){% else %}an upload of {{ job.requested_by.username|default:"another user" }}{% endif %}{% endif %}
+    </dd>
+    <dt>Schema</dt>
+    <dd>{% if job.schema_version %}<a href="{% url 'ui:schema-version' schema_id=job.schema_version.schema_id number=job.schema_version.number %}">{{ job.schema_version }}</a>{% elif job.kind == "generate_schema" %}generated from the input{% elif job.spec.schema %}a draft (not saved){% else %}none{% endif %}</dd>
+    <dt>Classification</dt><dd><span class="badge {{ job.classification }}">{{ job.get_classification_display }}</span></dd>
+    <dt>Lane</dt><dd>{{ job.get_lane_display }}</dd>
+    <dt>Requested by</dt><dd>{{ job.requested_by.username|default:"—" }}{% if job.requested_with_token %} (with an API token){% endif %}</dd>
+  </dl>
+  <div id="job-announce" class="visually-hidden" role="status" aria-live="polite"></div>
+  {% include "ui/jobs/_live.html" %}
+  <details>
+    <summary>The job's spec</summary>
+    <p class="muted">As stored: inputs in the store and database connections are placeholders, filled in only for the worker that leases the job.</p>
+    <pre>{{ job.spec|pretty_json }}</pre>
+  </details>
+{% endblock %}

@@ -204,6 +204,14 @@ class StringTransformer:
                     str_value, config.preserve_newlines, preserve_tabs_for_removal
                 )
 
+            # Accent and ASCII handling. Runs before the whitespace handling: dropping characters
+            # can leave doubled or leading/trailing spaces ("\u4e2d\u6587 test" -> " test").
+            if config.remove_accents or config.ascii_only:
+                str_value = self._remove_accents(str_value)
+
+            if config.ascii_only:
+                str_value = self._to_ascii_only(str_value)
+
             # Whitespace handling
             if config.collapse_whitespace:
                 if config.tab_replacement != " " and len(config.tab_replacement) > 1:
@@ -216,13 +224,6 @@ class StringTransformer:
 
             if config.strip_whitespace:
                 str_value = str_value.strip()
-
-            # Accent and ASCII handling
-            if config.remove_accents or config.ascii_only:
-                str_value = self._remove_accents(str_value)
-
-            if config.ascii_only:
-                str_value = self._to_ascii_only(str_value)
 
             # Case handling
             if config.fix_case_issues:
@@ -454,11 +455,7 @@ class StringTransformer:
         """Convert to ASCII-only characters."""
         # First remove accents to ensure proper ASCII conversion
         text_no_accents = self._remove_accents(text)
-        try:
-            return text_no_accents.encode("ascii", "ignore").decode("ascii")
-        except (UnicodeError, UnicodeEncodeError):
-            # Fallback: manually filter to ASCII characters
-            return "".join(char for char in text_no_accents if ord(char) < 128)
+        return text_no_accents.encode("ascii", "ignore").decode("ascii")
 
     def _fix_case_issues(self, text: str, title_case_exceptions: list, acronyms: list) -> str:
         """Fix common case issues."""

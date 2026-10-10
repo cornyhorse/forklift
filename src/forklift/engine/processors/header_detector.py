@@ -2,27 +2,38 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import re
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import Iterator, List, Optional, Tuple, Union
 
 from ...io import UnifiedIOHandler
 from ..config import HeaderMode, ImportConfig
+from ..input_source import CountingReader, InputSource
 from .text_utils import read_encoding
 
 
 class HeaderDetector:
     """Handles header detection for CSV files with various modes and patterns."""
 
-    def __init__(self, config: ImportConfig, io_handler: UnifiedIOHandler):
+    def __init__(
+        self,
+        config: ImportConfig,
+        io_handler: UnifiedIOHandler,
+        input_source: Optional[InputSource] = None,
+    ):
         """Initialize header detector with configuration.
 
         Args:
             config: Import configuration with header detection settings
             io_handler: Unified I/O handler for file operations
+            input_source: Stream source to read instead of the input path (only its first
+                rows are read, through :meth:`InputSource.open_head`)
         """
         self.config = config
         self.io_handler = io_handler
+        self.input_source = input_source
 
     def detect_header_row(
         self, input_path: Union[str, Path], schema_columns: Optional[List[str]] = None
@@ -59,8 +70,18 @@ class HeaderDetector:
         else:  # AUTO mode
             return self._auto_detect_header(input_path)
 
+    def rows(self, input_path: Union[str, Path]) -> Iterator[List[str]]:
+        """The rows of the input from the first one, as header detection reads them.
+
+        A UTF-8 byte order mark is dropped; blank lines are empty lists. Reading is lazy, so
+        stopping early reads only the start of the input (``forklift.jobs`` previews use it).
+        """
+        return self._iter_rows(input_path)
+
     def _iter_rows(self, input_path: Union[str, Path]):
         """Rows of the file as lists of cells; a UTF-8 byte order mark is dropped."""
+        if self.input_source is not None:
+            return self._iter_source_rows(self.input_source)
         return self.io_handler.csv_reader(
             input_path,
             delimiter=self.config.delimiter,
@@ -68,6 +89,19 @@ class HeaderDetector:
             encoding=read_encoding(self.config.encoding),
             escapechar=self.config.escape_char,
         )
+
+    def _iter_source_rows(self, source: InputSource) -> Iterator[List[str]]:
+        """Rows from the start of a stream source (read lazily: only what is needed)."""
+        stream = io.BufferedReader(CountingReader(source.open_head()))
+        with io.TextIOWrapper(
+            stream, encoding=read_encoding(self.config.encoding), newline=""
+        ) as text:
+            yield from csv.reader(
+                text,
+                delimiter=self.config.delimiter,
+                quotechar=self.config.quote_char,
+                escapechar=self.config.escape_char,
+            )
 
     def _header_not_found(self) -> ValueError:
         """Error for a file whose first ``header_search_rows`` rows hold no header."""
@@ -172,14 +206,11 @@ class HeaderDetector:
         based on the ratio of text content to numeric content.
 
         Args:
-            row: List of cell values from a CSV row
+            row: Cell values of a non-empty CSV row (callers skip empty rows)
 
         Returns:
             True if row appears to be a header, False otherwise
         """
-        if not row:
-            return False
-
         text_count = 0
         number_count = 0
 
@@ -207,14 +238,11 @@ class HeaderDetector:
         ``#,name,amount`` is a header. ``comment_rows=[]`` switches comment detection off.
 
         Args:
-            row: List of cell values from a CSV row
+            row: Cell values of a non-empty CSV row (callers skip empty rows)
 
         Returns:
             True if row matches a comment pattern, False otherwise
         """
-        if not row:
-            return False
-
         first_cell = row[0].strip()
 
         if self.config.comment_rows is None:

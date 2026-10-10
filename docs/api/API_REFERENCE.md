@@ -5,6 +5,7 @@ Complete API documentation for all Forklift functions and classes.
 ## Table of Contents
 
 - [Import Functions](#import-functions)
+- [Running Jobs](#running-jobs)
 - [Reader Functions](#reader-functions)
 - [Schema Generation Functions](#schema-generation-functions)
 - [Configuration Classes](#configuration-classes)
@@ -24,6 +25,9 @@ def import_csv(
     input_path: Union[str, Path],
     output_path: Union[str, Path],
     schema_file: Optional[Union[str, Path]] = None,
+    *,
+    progress: Optional[Callable[[Dict[str, int]], None]] = None,
+    cancel: Optional[Callable[[], bool]] = None,
     **kwargs,
 ) -> ProcessingResults
 ```
@@ -32,7 +36,9 @@ def import_csv(
 - `input_path`: Path to CSV file (local or S3 URI)
 - `output_path`: Output directory path (local or S3 URI)
 - `schema_file`: Optional path to JSON schema file (local or S3 URI)
-- `**kwargs`: Any other [`ImportConfig`](#importconfig) field, for example `delimiter`, `encoding`, `header_mode`, `excess_column_mode`, `batch_size`, `footer_detection`, `include_value_statistics`, `apply_schema_extensions`. `header_mode` and `excess_column_mode` accept the enum member or a case-insensitive string (`"absent"`); an unknown value raises `ValueError`
+- `progress`: Called after every batch with `{"rows_read", "rows_rejected", "bytes_read"}` (rows read so far, rows rejected so far, bytes of the input consumed so far; `bytes_read` is 0 for `s3://` inputs)
+- `cancel`: Asked after every batch; returning True raises [`ImportCancelled`](#importcancelled-and-limitexceedederror) and leaves no output behind
+- `**kwargs`: Any other [`ImportConfig`](#importconfig) field, for example `delimiter`, `encoding`, `header_mode`, `excess_column_mode`, `batch_size`, `footer_detection`, `include_value_statistics`, `apply_schema_extensions`, `s3_client` (a `forklift.io.S3StreamingClient` for `s3://` inputs, schemas and outputs, for example one with `endpoint_url=` for an S3-compatible store). `header_mode` and `excess_column_mode` accept the enum member or a case-insensitive string (`"absent"`); an unknown value raises `ValueError`
 
 **Returns:** [`ProcessingResults`](#processingresults) object with processing statistics
 
@@ -41,7 +47,7 @@ def import_csv(
 - `bad_rows.parquet`: rejected rows, only when there are some; all columns are strings, in the shape of the input columns. When the schema configures `x-validation` or a constraint it has an extra last column `_rejection_reason` (`CODE` or `CODE:column`, several joined by `; `, never a cell value; rows rejected by type conversion, `required` or excess fields get `type_conversion_failed`, `required_value_missing` or `too_many_fields`)
 - `manifest.json`, `metadata.json` (which also records `schema_extensions`, `validation_summary` and `warnings`) and `output_data_metadata.json` (see `create_manifest` / `create_metadata`)
 
-Files with these names left by an earlier run are removed when a run starts. If the run fails, the exception is re-raised and no partial `data.parquet` / `bad_rows.parquet` remains (except after `BadRowsThresholdExceededError`, which keeps a finished `bad_rows.parquet`, see below).
+Files with these names left by an earlier run are removed when a run starts. If the run fails, the exception is re-raised and no partial `data.parquet` / `bad_rows.parquet` remains (except after `BadRowsThresholdExceededError`, which keeps a finished `bad_rows.parquet`, see below). Where the engine knows what went wrong the exception carries an [`error_code`](#error-codes).
 
 **How a schema is applied:** the schema's types are applied to the output (`x-csv.parquetTypeMapping` first, otherwise the JSON `type`/`format`), so a `string` column keeps `00123` as written. A row whose value cannot be converted goes to `bad_rows.parquet`. `required` columns are matched by column name; a null or an empty string in one sends the row to `bad_rows.parquet`. Blank lines are skipped.
 
@@ -76,7 +82,7 @@ def import_excel(
 - `input_path`: Path to a local `.xlsx` or `.xls` file
 - `output_path`: Output directory path (local) or `s3://bucket/prefix`
 - `schema_file`: Optional path to an Excel schema (`x-excel`); when given it selects the sheets
-- `**kwargs`: `sheet` (name or 0-based index; default all sheets), `values_only` (default `True`), `engine` (`"openpyxl"` or `"xlrd"`, detected from the extension), `date_system` (`"1900"` / `"1904"`) and `s3_client`
+- `**kwargs`: `sheet` (name or 0-based index; default all sheets), `values_only` (default `True`), `engine` (`"openpyxl"` or `"xlrd"`, detected from the extension), `date_system` (`"1900"` / `"1904"`), `s3_client`, and `progress` / `cancel` (called after every sheet, as for [`import_csv`](#import_csv); a cancelled import removes the sheets it had written)
 
 Sheets are read with openpyxl in read-only streaming mode (`.xlsx`) or xlrd (`.xls`). `.xlsx` archives are checked against size and compression-ratio limits and sheets against row/cell caps before they are read (`ExcelInputConfig`: `max_uncompressed_bytes`, `max_compression_ratio`, `max_rows`, `max_cells`); exceeding one raises `ValueError`. A sheet name or index that does not exist raises `ValueError`. Only empty and whitespace-only cells are null by default. See the [importers readme](../../src/forklift/engine/importers/forklift.engine.importers.readme.md) for the sheet settings (`header.row` is 0-based, `dataStartRow` / `dataEndRow` are 1-based and inclusive).
 
@@ -111,12 +117,79 @@ def import_sql(
 **Parameters:**
 - `connection_string`: ODBC connection string
 - `output_path`: Output directory path (local) or `s3://bucket/prefix`
-- `schema_file`: **Required**: JSON schema with an `x-sql.tables` list naming the tables (a missing schema raises `ProcessingError`; a `select` with only a `pattern` is rejected)
-- `**kwargs`: `batch_size`, `query_timeout`, `connection_timeout`, `use_quoted_identifiers` (accepted for compatibility; identifiers are always quoted), `schema_name`, `enable_streaming`, `null_values`, `continue_on_error` and `s3_client`
+- `schema_file`: **Required**: JSON schema with an `x-sql.tables` list naming the tables (a missing schema raises `ProcessingError`; a `select` with only a `pattern` is rejected). A table's `select.columns` lists the columns to read, in order (for logins with column-level grants); without it every column is read
+- `**kwargs`: `batch_size`, `query_timeout`, `connection_timeout`, `use_quoted_identifiers` (accepted for compatibility; identifiers are always quoted), `schema_name`, `enable_streaming`, `null_values`, `continue_on_error`, `s3_client`, and `progress` / `cancel` (called after every batch, as for [`import_csv`](#import_csv); a cancelled import stops at once and keeps none of its tables)
 
-Table and schema names are validated against the database catalog and always quoted, the connection is requested read-only, and the connection string is redacted (`Pwd=***`) in `metadata.json` and in logs. If a table fails, its partial file is removed, the others are still processed, and afterwards a `ProcessingError` is raised with the partial results on `error.results`; pass `continue_on_error=True` to get the results back instead (failed tables are in `results.errors` and under `failed_tables` in `metadata.json`).
+Table, schema and column names are validated against the database catalog and always quoted, the session is made read-only where the database allows it (PostgreSQL, MySQL/MariaDB and SQLite sessions; Oracle transactions; SQL Server cannot, and a warning says so), and the connection string is redacted (`Pwd=***`) in `metadata.json` and in logs. A table refused for a missing privilege fails with a reason that names the columns the login may read and the `select.columns` declaration that imports them. If a table fails, its partial file is removed, the others are still processed, and afterwards a `ProcessingError` is raised with the partial results on `error.results`; pass `continue_on_error=True` to get the results back instead (failed tables are in `results.errors` and under `failed_tables` in `metadata.json`).
 
 **Returns:** `ProcessingResults`
+
+## Running Jobs
+
+A job spec runs the engine declaratively; it is the code path of `forklift run-job` and of the service's workers. The contract is published as JSON Schema in `contracts/jobspec.schema.json` and `contracts/jobresult.schema.json`; the [jobs package readme](../../src/forklift/jobs/forklift.jobs.readme.md) documents every field, kind and artifact.
+
+### `run_job()`
+
+```python
+def run_job(
+    spec: Union[JobSpec, Mapping[str, Any]],
+    *,
+    base_dir: Union[str, Path],
+    allowed_url_hosts: Iterable[str] = (),
+    progress: Optional[Callable[[Dict[str, int]], None]] = None,
+    cancel: Optional[Callable[[], bool]] = None,
+    s3_client: Optional[S3StreamingClient] = None,
+) -> JobResult
+```
+
+Importable as `forklift.run_job` and `forklift.jobs.run_job`.
+
+**Parameters:**
+- `spec`: A `JobSpec`, or its JSON form as a dict (checked first; an invalid one is a `failed` result with code `SPEC_INVALID`)
+- `base_dir`: Directory every `file` location is relative to; no `file` location may lead out of it
+- `allowed_url_hosts`: Hosts (or `host:port`) a `presigned_url` input may point at (default: none)
+- `progress`: Called at every batch boundary with `{"rows_read", "rows_rejected", "bytes_read"}`, plus `"rows_written"` while a `sql_table` output is loaded
+- `cancel`: Asked after every batch; True ends the job with `status: "cancelled"`
+- `s3_client`: Client for `s3` locations (default: boto3's credential chain)
+
+**Returns:** a [`JobResult`](#jobspec-and-jobresult). Job failures are results, never exceptions; only wrong arguments raise (`ValueError` when `base_dir` is not a directory or `allowed_url_hosts` is a string, `TypeError` for a callback that is not callable).
+
+**Kinds:** `run` (CSV, Excel and SQL inputs; `fwf` gives `SPEC_INVALID` because fixed-width import is not implemented), `preview` (CSV, Excel; `preview.json`), `validate_schema` (CSV; `report.json`) and `generate_schema` (CSV, Excel; `schema.json`).
+
+```python
+from forklift import run_job
+
+result = run_job(
+    {
+        "spec_version": 1,
+        "job_id": "check-1",
+        "kind": "validate_schema",
+        "input": {"format": "csv", "location": {"type": "file", "path": "people.csv"}},
+        "schema": {"properties": {"id": {"type": "integer"}}, "required": ["id"]},
+        "options": {"sample_rows": 500},
+    },
+    base_dir="./data",
+)
+print(result.status, result.warnings, [a.path for a in result.artifacts])  # out/report.json
+```
+
+### `JobSpec` and `JobResult`
+
+`forklift.jobs.JobSpec` and `forklift.jobs.JobResult` are plain dataclasses (also exported from `forklift`).
+
+- `JobSpec.from_dict(document)` checks a document against the contract and builds the spec; it raises `forklift.jobs.ContractError` (a `ValueError`) listing every problem with the path of its field, for example `input.options.delimeter: unknown field (did you mean 'delimiter'?)`. `JobResult.from_dict()` works the same way.
+- `to_dict()` returns the JSON form (optional fields that are unset are left out). `repr()` hides connection strings and presigned URLs.
+- Top-level spec fields: `spec_version` (1), `job_id`, `kind`, `input` (`format`, `location`, `options`), `schema` (inline), `output` (`location`, `compression`, `artifacts`), `options` (`apply_schema_extensions`, `batch_size`, `include_value_statistics`, `preview_rows`, `preview_max_bytes`, `sample_rows`, `infer_primary_key`) and `limits` (`max_input_bytes`, `max_seconds`, `max_rows`).
+- Locations: `file` (`path`), `s3` (`uri`), `presigned_url` (`url`, `size`, `etag`; CSV inputs only), `sql` (`connection_string`), `sql_table` (`connection_string`, `table`, `schema_name`, `mode`, `key_columns`, `staging`).
+- Result fields: `spec_version`, `job_id`, `status` (`succeeded`, `failed`, `cancelled`), `counts`, `schema_extensions`, `validation_summary`, `warnings`, `artifacts` (`kind`, `path`, `rows`, `bytes`, `sha256`) and `error` (`code`, `message`, `retryable`).
+
+`python -m forklift.jobs.contract` regenerates the JSON Schemas from the dataclasses (`--check` exits with 1 when the checked-in files are out of date).
+
+### Error codes
+
+`forklift.engine.exceptions.ERROR_CODES` (also `forklift.jobs.ERROR_CODES`): `SPEC_INVALID`, `SCHEMA_INVALID`, `INPUT_UNREADABLE`, `ENCODING_ERROR`, `COLUMN_MISSING`, `BAD_ROWS_THRESHOLD_EXCEEDED`, `CONSTRAINT_VIOLATION`, `LIMIT_EXCEEDED`, `PERMISSION_DENIED`, `TARGET_WRITE_FAILED`, `CANCELLED`, `INTERNAL`.
+
+Exceptions the import functions raise carry an `error_code` attribute with one of these codes where the engine knows what went wrong (a schema that cannot be loaded, a missing header, a required column that is not in the input, undecodable bytes, a violated `fail_fast` constraint, failed SQL tables, ...); the type and message of the exception are unchanged. `run_job` maps every other exception by its type.
 
 ## Reader Functions
 
@@ -469,6 +542,8 @@ class ProcessingResults:
 
 `errors` also records a failure to write `output_data_metadata.json`: the data files are already complete at that point, so the run does not raise. For `import_sql(..., continue_on_error=True)` it lists the failed tables.
 
+`results.to_dict()` returns every field as plain JSON values (copies of the lists and dicts); `ProcessingResults(**results.to_dict())` rebuilds the object.
+
 ## Exception Classes
 
 Forklift raises standard exceptions (`ValueError` for invalid configuration or input, `FileNotFoundError`, `ImportError` for missing optional packages) plus a few of its own:
@@ -476,6 +551,10 @@ Forklift raises standard exceptions (`ValueError` for invalid configuration or i
 ### `ProcessingError`
 
 `forklift.engine.exceptions.ProcessingError` (also importable from `forklift.engine`). Raised by the Excel and SQL importers for invalid schemas and failed tables. `import_sql` attaches the partial `ProcessingResults` as `error.results`.
+
+### `ImportCancelled` and `LimitExceededError`
+
+`forklift.engine.exceptions.ImportCancelled` (also `forklift.ImportCancelled`) is raised when the `cancel` callback of `import_csv`, `import_excel` or `import_sql` returns True; `LimitExceededError` is raised by `run_job` from its progress callback when a `limits` value is exceeded. Both are `ImportInterrupted` (a `ProcessingError`) and stop the whole import at once: no output of it is kept (the SQL importer does not go on with its other tables, the Excel importer removes the sheets it had written). Their `error_code` is `CANCELLED` and `LIMIT_EXCEEDED`.
 
 ### Errors from the schema extensions
 

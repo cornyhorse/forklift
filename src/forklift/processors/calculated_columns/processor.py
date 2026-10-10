@@ -43,10 +43,6 @@ class CalculatedColumnsProcessor(BaseProcessor):
         """Backward compatibility property for accessing available functions."""
         return self.evaluator._available_functions
 
-    def _init_functions(self) -> Dict[str, Any]:
-        """Backward compatibility method for initializing functions."""
-        return self.evaluator._available_functions
-
     def _calculate_column(
         self, batch: pa.RecordBatch, column_config: CalculatedColumn
     ) -> pa.Array:

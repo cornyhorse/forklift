@@ -27,7 +27,7 @@ engine to become single-pass. Option 3 is the simplest but moves the cost to dis
 
 ## Decision
 
-- Inputs up to `stageMaxBytes` (an admin setting; proposed default 2 GiB) are staged into scratch as
+- Inputs up to `stageMaxBytes` (an admin setting; default 2 GiB) are staged into scratch as
   before. Larger inputs are **streamed**: the spec's input location is a `presigned_url` for that one
   object, valid for a limited time.
 - The engine reads a streamed input with Arrow's streaming CSV reader over a forward-only HTTPS

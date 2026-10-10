@@ -45,7 +45,7 @@ The design rests on three ideas:
 | Destinations | Parquet on S3-compatible storage and on local file systems first; database tables only after that is solid |
 | Package names | `forklift-web`, `forklift-worker`, `forklift-client`, `forklift-mcp` (beside `forklift-etl`) |
 | API framework | Django Ninja |
-| Input sizes | Plan for single inputs larger than 10 GB: large inputs are streamed to the engine through presigned URLs ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
+| Input sizes | Plan for single inputs larger than 10 GB: inputs above `stageMaxBytes` (default 2 GiB) are streamed to the engine through presigned URLs ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
 | Retention | Configured by admins (installation, classification and dataset level); no fixed defaults built in |
 | Registry | GHCR for images; the Helm chart as an OCI artifact on GHCR |
 
@@ -313,7 +313,7 @@ Inputs reach the engine one of two ways, chosen per input by size
 
 | Mode | When | How | Engine network |
 |---|---|---|---|
-| **Staged** | Inputs up to `stageMaxBytes` (admin setting; proposed default 2 GiB) | The supervisor downloads the object through a presigned GET into scratch and the spec points at the local copy | None needed: the `no-network` profile applies |
+| **Staged** | Inputs up to `stageMaxBytes` (admin setting; default 2 GiB) | The supervisor downloads the object through a presigned GET into scratch and the spec points at the local copy | None needed: the `no-network` profile applies |
 | **Streamed** | Larger inputs (planned for well beyond 10 GB) | The spec carries a presigned URL for that one object. The engine reads it as a forward-only stream (resuming with range requests after a dropped connection) plus small range reads for header detection. When a URL is about to expire, the engine asks the supervisor for a fresh one over the pipe | The object store endpoint only |
 
 Outputs are written to scratch and uploaded by the supervisor with presigned multipart PUTs.
@@ -568,8 +568,4 @@ These are small, useful on their own to library users, and the foundation for ev
 | Largest input to plan for | More than 10 GB: inputs above `stageMaxBytes` are streamed through presigned URLs, with the engine's network limited to the object store ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
 | Retention defaults | None built in: admins set retention per installation, classification and dataset (§5.7) |
 | Registry | GHCR for the images; the Helm chart as an OCI artifact on GHCR |
-
-### Still open
-
-1. **`stageMaxBytes` default.** Proposed 2 GiB: below it inputs are copied to scratch and the
-   `no-network` profile is possible; above it they are streamed.
+| Staging threshold | `stageMaxBytes` defaults to 2 GiB (admins can change it): smaller inputs are copied to scratch and can use the `no-network` profile, larger ones are streamed |

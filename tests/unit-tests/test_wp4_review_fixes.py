@@ -306,10 +306,22 @@ class TestExcelSettings:
 
 
 class TestExcelResourceLimits:
-    def test_sparse_sheet_is_not_expanded_to_its_bounding_box(self, tmp_path):
-        """One stray cell at row 100000 / column 30 took 11 s and 839 MB through pandas."""
-        import time
+    def test_sparse_sheet_is_not_expanded_to_its_bounding_box(self, tmp_path, monkeypatch):
+        """One stray cell at row 100000 / column 30 took 11 s and 839 MB through pandas.
+
+        The check counts the cells the reader hands over rather than timing the read: with
+        the sheet's <dimension> tag trusted, openpyxl pads each of the 100000 rows to 30
+        cells (3,000,000 in all) by reusing one shared tuple, which is neither slow nor big
+        enough for a time or memory bound to tell apart from the fix, while a wall-clock
+        bound fails on a slow CI runner.
+
+        A small workbook is read first so the memory bound measures this sheet, not one-time
+        costs: the first read in a process makes pyarrow import pandas (about 20 MB) when
+        pandas is installed.
+        """
         import tracemalloc
+
+        _read(_write_xlsx(tmp_path / "warm-up.xlsx", [["a"], [1]]))
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -318,16 +330,26 @@ class TestExcelResourceLimits:
         path = tmp_path / "sparse.xlsx"
         wb.save(path)
 
+        cells_read = 0
+        iter_rows = ExcelInputHandler._iter_rows
+
+        def counting_iter_rows(self, *args, **kwargs):
+            nonlocal cells_read
+            for number, row in iter_rows(self, *args, **kwargs):
+                cells_read += len(row)
+                yield number, row
+
+        monkeypatch.setattr(ExcelInputHandler, "_iter_rows", counting_iter_rows)
+
         tracemalloc.start()
-        started = time.time()
         table = _read(path)
-        elapsed = time.time() - started
         peak = tracemalloc.get_traced_memory()[1]
         tracemalloc.stop()
 
         assert table.num_rows == 2  # row 2 and the stray row; blank rows in between skipped
         assert table.num_columns == 30
-        assert elapsed < 5
+        # 2 + 1 + 30 cells with content-sized rows; 3,000,000 if rows are padded
+        assert cells_read < 1000
         assert peak < 20 * 1024 * 1024
 
     def test_trailing_empty_rows_and_columns_are_trimmed(self, tmp_path):

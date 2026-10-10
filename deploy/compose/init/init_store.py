@@ -1,8 +1,6 @@
-"""Create the platform's bucket and let the UI's origin upload to it (the Compose "init" step).
+"""Create the platform's bucket if it does not exist (the Compose "init" step; safe to repeat).
 
-Browsers PUT uploads and GET downloads straight to the store through presigned URLs, so the
-bucket needs a CORS rule for the UI's origin (FORKLIFT_CORS_ORIGINS, comma-separated). Safe to
-repeat: an existing bucket is kept and its CORS rule replaced.
+The bucket's CORS rule for the UI's origins is set afterwards by `forklift-web configure_cors`.
 """
 
 import os
@@ -12,7 +10,6 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 bucket = os.environ["FORKLIFT_S3_BUCKET"]
-origins = [o.strip() for o in os.environ.get("FORKLIFT_CORS_ORIGINS", "").split(",") if o.strip()]
 client = boto3.client(
     "s3",
     endpoint_url=os.environ["FORKLIFT_S3_ENDPOINT_URL"],
@@ -28,20 +25,3 @@ try:
 except ClientError:
     client.create_bucket(Bucket=bucket)
     print(f"init_store: created bucket {bucket}")
-
-if origins:
-    client.put_bucket_cors(
-        Bucket=bucket,
-        CORSConfiguration={
-            "CORSRules": [
-                {
-                    "AllowedOrigins": origins,
-                    "AllowedMethods": ["GET", "PUT", "HEAD"],
-                    "AllowedHeaders": ["*"],
-                    "ExposeHeaders": ["ETag"],
-                    "MaxAgeSeconds": 3600,
-                }
-            ]
-        },
-    )
-    print(f"init_store: CORS for {', '.join(origins)}")

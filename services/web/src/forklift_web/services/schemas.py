@@ -22,7 +22,7 @@ from forklift_web.services import audit, installation
 
 
 def canonical_json(document) -> bytes:
-    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(document, separators=(",", ":"), ensure_ascii=False).encode()
 
 
 def check_document(document) -> str:

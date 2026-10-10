@@ -204,9 +204,9 @@ jobs:
       if: failure()
       run: docker compose -f tests/integration-tests/services/compose.yaml logs
 
-  # forklift-web, the gateway: its own package, Python and coverage gate. Role matrix over every
-  # endpoint, queue concurrency, trust boundary (no engine, no pyarrow), the real two-port
-  # gunicorn, and the check that contracts/openapi.json is current.
+  # forklift-web, the gateway: its own package, Python and coverage gate. Role matrices over every
+  # endpoint and every page, queue concurrency, trust boundary (no engine, no pyarrow), the real
+  # two-port gunicorn, browser tests, and the check that contracts/openapi.json is current.
   web:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -232,6 +232,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[test]" "black>=23.12" "isort>=5.13" "flake8>=6.0"
+
+    # The UI's browser tests (sign in, uploads through real presigned PUTs, admin flows)
+    - name: Install Chromium for Playwright
+      run: python -m playwright install --with-deps chromium
 
     - name: Check formatting and lint
       run: |

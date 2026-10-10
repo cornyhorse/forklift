@@ -175,6 +175,15 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     queue with heartbeats, cancellation, lease expiry and requeue, presigned outputs and
     completion checks. Connections (`s3`, `localfs`, `sql`) keep write-only secrets encrypted at
     rest; retention per installation, classification and dataset with an audited sweeper.
+  - **The web interface** (part of `forklift-web`; Django templates and HTMX, no build step, no
+    Django admin): uploads straight to the store (multipart for large files), schemas with
+    versions, diffs and live validation against a file, datasets, jobs with live status, previews
+    and downloads, own API tokens, and admin screens for users and roles, API tokens, workers,
+    connections (write-only secrets), retention, the audit log (with CSV export), installation
+    settings and all jobs. A strict Content-Security-Policy; `forklift-web configure_cors` sets the
+    bucket CORS rule browsers need. Schema documents and job specs keep their key order (they are
+    stored as text, not `jsonb`, which sorts keys: a file without a header row is named after the
+    order of `properties`).
   - **`forklift-worker`, the supervisor** (`services/worker`, its own package and image; standard
     library only). It leases jobs from the gateway's internal API, stages inputs up to
     `stage_max_bytes` through presigned GETs (checking size, ETag and MD5) and passes larger ones

@@ -19,6 +19,7 @@ from forklift_web.core.choices import (
 )
 from forklift_web.core.models.accounts import ApiToken, User, WorkerToken
 from forklift_web.core.models.catalog import Dataset, SchemaVersion
+from forklift_web.core.models.fields import OrderedJSONField
 
 
 class Upload(models.Model):
@@ -102,7 +103,7 @@ class Job(models.Model):
     status = models.CharField(max_length=16, choices=JobStatus.choices, default=JobStatus.QUEUED)
     classification = models.CharField(max_length=16, choices=Classification.choices)
     spec_version = models.PositiveSmallIntegerField(default=1)
-    spec = models.JSONField()
+    spec = OrderedJSONField()  # holds the schema, whose key order is meaningful
     result = models.JSONField(null=True, blank=True)
     error_code = models.CharField(max_length=64, blank=True, default="")
     error_message = models.TextField(blank=True, default="")

@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from forklift_web.core.choices import Classification, ConnectionKind, InputFormat, Role
 from forklift_web.core.models.accounts import User
+from forklift_web.core.models.fields import OrderedJSONField
 
 
 def _default_allowed_roles() -> list:
@@ -78,7 +79,7 @@ class SchemaVersion(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     schema = models.ForeignKey(Schema, on_delete=models.PROTECT, related_name="versions")
     number = models.PositiveIntegerField()
-    document = models.JSONField()
+    document = OrderedJSONField()  # key order is meaningful (properties order)
     sha256 = models.CharField(max_length=64)
     author = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"

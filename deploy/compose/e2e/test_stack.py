@@ -215,6 +215,25 @@ class TestUploadRunDownload:
         bad = pq.read_table(io.BytesIO(artifact(admin, job, "bad_rows")))
         assert bad.num_rows == 10
 
+    def test_a_file_without_a_header_takes_the_schemas_column_order(self, admin):
+        # Stored as jsonb, the schema's properties would come back sorted ("a" before
+        # "zeta_name") and the values would land under the wrong names.
+        schema = {"properties": {"zeta_name": {"type": "string"}, "a": {"type": "integer"}}}
+        body = b"Ana,1\nBo,2\n"
+
+        job = run_job(
+            admin,
+            kind="run",
+            upload_id=upload(admin, "no-header.csv", body),
+            format="csv",
+            schema=schema,
+            input_options={"header_mode": "absent"},
+        )
+
+        assert job["status"] == "succeeded", job["error"]
+        rows = pq.read_table(io.BytesIO(artifact(admin, job, "data"))).to_pylist()
+        assert rows == [{"zeta_name": "Ana", "a": 1}, {"zeta_name": "Bo", "a": 2}]
+
     def test_an_input_above_stage_max_bytes_is_streamed(self, admin):
         _, before = admin.request("GET", "/api/v1/admin/settings")
         admin.request("PATCH", "/api/v1/admin/settings", {"stage_max_bytes": 1024})
@@ -259,3 +278,23 @@ class TestRoles:
 
     def test_the_worker_api_is_not_on_the_public_port(self, admin):
         admin.request("POST", "/internal/v1/leases", {}, expect=(404,))
+
+
+class TestPages:
+    def test_signed_in_pages_admin_screens_and_static_files_are_served(self, settings):
+        session = Client(settings["FORKLIFT_PUBLIC_URL"])
+        session.sign_in(settings["FORKLIFT_ADMIN_USERNAME"], settings["FORKLIFT_ADMIN_PASSWORD"])
+
+        for path in ("/", "/schemas/", "/jobs/", "/admin/", "/admin/users/", "/admin/audit/"):
+            with session.opener.open(session.base_url + path, timeout=30) as response:
+                page = response.read().decode()
+            assert response.status == 200, path
+            assert "<html" in page.lower(), path
+        scripts = re.findall(r'<script[^>]+src="([^"]+)"', page)
+        assert scripts, "pages load their scripts from the gateway"
+        with urllib.request.urlopen(session.base_url + scripts[0], timeout=30) as response:
+            assert response.status == 200
+
+    def test_signed_out_visitors_are_sent_to_sign_in(self, settings):
+        with urllib.request.urlopen(settings["FORKLIFT_PUBLIC_URL"] + "/admin/", timeout=30) as r:
+            assert "/accounts/login/" in r.url

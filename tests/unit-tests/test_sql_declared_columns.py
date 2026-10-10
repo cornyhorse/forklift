@@ -35,6 +35,16 @@ from forklift.schema.sql_schema_importer import SqlSchemaImporter, sql_column_pr
 SCHEMA_ID = "https://github.com/cornyhorse/forklift/schema-standards/test.json"
 
 
+def undecodable(message):
+    """What pyodbc raises when the driver's message is not valid UTF-16 (here a lone surrogate)."""
+    try:
+        (message.encode("utf-16-le") + b"\x00\xd8A\x00").decode("utf-16-le")
+    except UnicodeDecodeError as cause:
+        error = SystemError("<class 'pyodbc.Error'> returned a result with an exception set")
+        error.__cause__ = cause
+        return error
+
+
 class DriverError(Exception):
     """Shaped like pyodbc.Error: args are (SQLSTATE, message)."""
 
@@ -412,6 +422,7 @@ class TestPrivilegeErrors:
             ("microsoft sql server", denied(229, "42000")),
             ("oracle", denied(1031, "HY000")),
             ("oracle", denied(41900, "HY000")),
+            ("oracle", undecodable("[Oracle][ODBC][Ora]ORA-01031: insufficient privileges")),
         ],
     )
     def test_missing_privileges_are_recognised(self, dbms, error):
@@ -424,6 +435,7 @@ class TestPrivilegeErrors:
             ("sqlite", denied(1142, "42000")),  # a code that means nothing there
             ("", denied(230, "42000")),
             ("postgresql", ValueError("no SQLSTATE")),
+            ("oracle", SystemError("not a driver message")),
         ],
     )
     def test_other_errors_are_not(self, dbms, error):
@@ -437,6 +449,9 @@ class TestPrivilegeErrors:
             None,
         )
         assert describe_database_error(RuntimeError("x")) == ""
+        assert describe_database_error(undecodable("[Oracle][ODBC][Ora]ORA-00942: x")) == (
+            "no SQLSTATE, driver error 942"
+        )
 
 
 # --------------------------------------------------------------------------- Oracle

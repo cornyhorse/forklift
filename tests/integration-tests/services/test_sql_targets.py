@@ -339,7 +339,13 @@ class TestModes:
         assert _events_rows(database) == [(1, "new-1"), (2, "again-2"), (3, "again-3")]
         with pytest.raises(TableWriteError) as raised:  # the primary key refuses a duplicate
             _write(database, login, _events([3]), mode="append")
-        assert raised.value.sqlstate in ("23000", "23505")
+        # Oracle's driver now and then sends a message pyodbc cannot decode; the SQLSTATE is lost
+        # with it, and the ORA code (ORA-00001) is what is left
+        failure = raised.value
+        assert failure.sqlstate in ("23000", "23505") or (database.kind, failure.native_code) == (
+            "oracle",
+            1,
+        )
 
     def test_upsert_without_staging_lets_the_last_row_of_a_key_win(self, database):
         _seed_events(database)

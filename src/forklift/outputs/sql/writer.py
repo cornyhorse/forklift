@@ -405,7 +405,8 @@ class _TableWriter:
         """Run database calls as one step; a database error becomes a TableWriteError.
 
         pyodbc raises SystemError when it cannot even decode the driver's message (Oracle's
-        driver sends undecodable bytes after some errors); that is a database error too.
+        driver sends undecodable bytes after some errors); that is a database error too, and
+        the ORA code in the raw message still says which.
         """
         try:
             yield

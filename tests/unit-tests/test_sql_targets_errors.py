@@ -19,6 +19,16 @@ class DriverError(Exception):
     """A pyodbc-style error: ``(SQLSTATE, message)`` from the driver."""
 
 
+def undecodable(message):
+    """What pyodbc raises when the driver's message is not valid UTF-16 (here a lone surrogate)."""
+    try:
+        (message.encode("utf-16-le") + b"\x00\xd8A\x00").decode("utf-16-le")
+    except UnicodeDecodeError as cause:
+        error = SystemError("<class 'pyodbc.Error'> returned a result with an exception set")
+        error.__cause__ = cause
+        return error
+
+
 CODES = DriverCodes(
     {1142: "command denied", 1213: "deadlock"},
     privilege=frozenset({1142}),
@@ -34,6 +44,17 @@ class TestDatabaseErrorCodes:
     def test_oracle_errors_give_the_ora_number_even_with_trailing_padding(self):
         error = DriverError("HY000", "[Oracle][ODBC][Ora]ORA-01031: insufficient\n\x00\x00LLL")
         assert database_error_codes(error) == ("HY000", 1031)
+
+    def test_an_undecodable_oracle_message_still_gives_its_ora_number(self):
+        error = undecodable("[Oracle][ODBC][Ora]ORA-00001: unique constraint violated")
+        assert database_error_codes(error) == (None, 1)
+
+    def test_other_system_errors_have_no_codes(self):
+        assert database_error_codes(SystemError("no cause")) == (None, None)
+        assert database_error_codes(undecodable("no Oracle code")) == (None, None)
+        caused = SystemError("other")
+        caused.__cause__ = ValueError("not a decoding error")
+        assert database_error_codes(caused) == (None, None)
 
     def test_a_driver_error_without_a_code(self):
         assert database_error_codes(

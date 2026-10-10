@@ -28,6 +28,7 @@ _SQLSTATE_MEANINGS = {
 _SQLSTATE = re.compile(r"[0-9A-Z]{5}")
 # pyodbc messages end with the driver's numeric code, e.g. "... (1142) (SQLExecDirectW)"
 _NATIVE_CODE = re.compile(r"\((-?\d+)\)\s*\(SQL\w+\)\s*$")
+_ORACLE_CODE = re.compile(r"ORA-(\d{5})")
 
 # The driver codes that mean "missing privilege", by the server's SQL_DBMS_NAME (lower case,
 # matched as a prefix). PostgreSQL says so with SQLSTATE 42501, which counts on every database;
@@ -87,25 +88,41 @@ def database_error_codes(error: BaseException) -> Tuple[Optional[str], Optional[
     """The SQLSTATE and the driver's numeric code of a pyodbc-style error (``None`` if absent).
 
     pyodbc errors carry ``(SQLSTATE, message)`` in ``args``; the message ends with the driver's
-    numeric code in parentheses.
+    numeric code in parentheses. When pyodbc could not decode the driver's message at all, only
+    the code in the raw message is left (see :func:`undecodable_message_code`).
     """
     args = getattr(error, "args", ())
     if len(args) < 2 or not isinstance(args[0], str) or not _SQLSTATE.fullmatch(args[0]):
-        return None, None
+        return None, undecodable_message_code(error)
     native = _NATIVE_CODE.search(str(args[1]))
     return args[0], int(native.group(1)) if native else None
+
+
+def undecodable_message_code(error: BaseException) -> Optional[int]:
+    """The ORA code in a driver message pyodbc could not decode (``None`` for any other error).
+
+    Oracle's ODBC driver can report a message as longer than the text it wrote. pyodbc decodes
+    the rest of its buffer too and, when those bytes are not valid UTF-16, raises SystemError
+    (caused by a UnicodeDecodeError that holds the raw message) instead of the driver's error.
+    The SQLSTATE is lost with it; the message still names the ORA code.
+    """
+    cause = error.__cause__ if isinstance(error, SystemError) else None
+    if not isinstance(cause, UnicodeDecodeError):
+        return None
+    code = _ORACLE_CODE.search(bytes(cause.object).decode(cause.encoding, errors="replace"))
+    return int(code.group(1)) if code else None
 
 
 def describe_database_error(error: BaseException) -> str:
     """Why a database call failed, without the driver's message text (which can quote data).
 
     The SQLSTATE, what that state means, and the driver's numeric code: enough to tell a missing
-    privilege from a timeout, never the values involved. ``""`` when ``error`` carries no
-    SQLSTATE.
+    privilege from a timeout, never the values involved. ``""`` when ``error`` carries neither a
+    SQLSTATE nor a driver code.
     """
     state, native = database_error_codes(error)
     if state is None:
-        return ""
+        return "" if native is None else f"no SQLSTATE, driver error {native}"
     reason = f"SQLSTATE {state}"
     if state in _SQLSTATE_MEANINGS:
         reason += f", {_SQLSTATE_MEANINGS[state]}"

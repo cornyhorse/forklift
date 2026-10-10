@@ -63,6 +63,16 @@ def driver_error(state="42000", native=None):
     return FakeError(state, f"[{state}] driver message quoting {SECRET}{code} (SQLExecDirectW)")
 
 
+def undecodable(message):
+    """What pyodbc raises when the driver's message is not valid UTF-16 (here a lone surrogate)."""
+    try:
+        (message.encode("utf-16-le") + b"\x00\xd8A\x00").decode("utf-16-le")
+    except UnicodeDecodeError as cause:
+        error = SystemError("<class 'pyodbc.Error'> returned a result with an exception set")
+        error.__cause__ = cause
+        return error
+
+
 class FakeDatabase:
     """One schema of a database, as the fake driver shows it, and what was done to it."""
 
@@ -894,6 +904,17 @@ class TestStagedWrites:
 
         with pytest.raises(TableWriteError, match="no SQLSTATE or driver code reported"):
             write(pyodbc, database)
+
+    def test_an_undecodable_message_still_tells_a_refusal_by_its_ora_number(self, pyodbc):
+        database = existing("oracle")
+        database.fail("INSERT INTO", undecodable(f"[Oracle][ODBC][Ora]ORA-01031: {SECRET}"))
+
+        with pytest.raises(TableWriteError) as raised:
+            write(pyodbc, database)
+
+        assert raised.value.native_code == 1031 and raised.value.sqlstate is None
+        assert raised.value.error_code == "PERMISSION_DENIED"
+        assert SECRET not in str(raised.value)
 
 
 # ---------------------------------------------------------------------------- loading

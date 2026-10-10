@@ -170,7 +170,7 @@ def database_error_codes(error: BaseException) -> Tuple[Optional[str], Optional[
     """
     args = getattr(error, "args", ())
     if len(args) < 2 or not all(isinstance(arg, str) for arg in args[:2]):
-        return None, None
+        return None, undecodable_message_code(error)
     if _SQLSTATE.fullmatch(args[0]):
         text = args[1]
         native = _NATIVE_CODE.search(text) or _ORACLE_CODE.search(text)
@@ -181,6 +181,21 @@ def database_error_codes(error: BaseException) -> Tuple[Optional[str], Optional[
                 return state, None
         return args[1], None
     return None, None
+
+
+def undecodable_message_code(error: BaseException) -> Optional[int]:
+    """The ORA code in a driver message pyodbc could not decode (``None`` for any other error).
+
+    Oracle's ODBC driver can report a message as longer than the text it wrote. pyodbc decodes
+    the rest of its buffer too and, when those bytes are not valid UTF-16, raises SystemError
+    (caused by a UnicodeDecodeError that holds the raw message) instead of the driver's error.
+    The SQLSTATE is lost with it; the message still names the ORA code.
+    """
+    cause = error.__cause__ if isinstance(error, SystemError) else None
+    if not isinstance(cause, UnicodeDecodeError):
+        return None
+    code = _ORACLE_CODE.search(bytes(cause.object).decode(cause.encoding, errors="replace"))
+    return int(code.group(1)) if code else None
 
 
 def describe_failure(error: BaseException, codes: DriverCodes) -> DatabaseFailure:

@@ -285,6 +285,11 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   (was a string), the time-zone kinds as UTC timestamps, `RAW` as binary, and `BOOLEAN` correctly
   (every value was read as False). `query_timeout` is applied by cancelling the statement (the
   driver ignored it).
+- **Oracle errors pyodbc cannot decode**: Oracle's driver sometimes reports an error message as
+  longer than it is, and pyodbc then fails to decode the bytes past the end (about 1 error in 40
+  in our tests). The SQLSTATE is lost, but forklift now reads the ORA code from the raw message,
+  so a missing privilege (ORA-01031) is still `PERMISSION_DENIED` and a failed table still says
+  why, on sources and targets.
 - **SQL Server sources**: `datetimeoffset` is read as UTC timestamps (pyodbc could not read it, so
   the table failed); `timestamp`/rowversion and `image` are binary (rowversion failed the table).
 - Schema and table names are matched independently, so `sales.orders` finds `SALES.orders`.

@@ -52,6 +52,25 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   connects and before each table), and the connection fails if that fails; for other databases
   (SQL Server) a warning says to connect as a login that may only `SELECT`.
 
+- **Sign-in rate limit.** Wrong passwords (at sign-in, and the old password when changing one's
+  own) are counted per username (any letter case, whether or not the account exists) and per
+  client address (IPv6 by /64). At `sign_in_max_failures` (5) or `sign_in_ip_max_failures` (30)
+  within `sign_in_window_seconds` (900), signing in is refused for `sign_in_lock_seconds` (900)
+  with HTTP 429 and `Retry-After`, before the password is checked. Attempts are counted when they
+  start, so a burst of parallel attempts gets no more password checks than the limit; a correct
+  password clears the username's count and never ends a lock another attempt started. Locks and unlocks are audited, passwords are never logged; admins see and
+  clear locks on the user page and through `GET/DELETE /api/v1/admin/sign-in-locks`. Behind a
+  TLS proxy set `FORKLIFT_TRUSTED_PROXIES` (now passed through by the Compose file), or every
+  sign-in counts against the proxy's address. Client addresses taken from `X-Forwarded-For` drop
+  a port the proxy adds (`203.0.113.50:5001`, `[2001:db8::1]:443`), which also fixes a 500 on
+  sign-in behind such proxies (the audit log refused the address).
+- **Webhook requests cannot reach the installation's own network.** Only `https://` URLs; every
+  address the host resolves to must be publicly routable (IPv6 forms that embed an IPv4 address
+  count as that address); the connection goes to exactly a checked address (no second lookup),
+  TLS is verified against the host name, redirects are not followed, the whole exchange, the DNS
+  lookup included, has 10 s and the answer's body is never read. `FORKLIFT_WEBHOOK_ALLOWED_HOSTS` and
+  `FORKLIFT_WEBHOOK_ALLOW_HTTP` relax this for receivers on an internal network.
+
 ### Changed
 
 - **Breaking - `import_csv` applies the schema extensions.** Until now the CSV engine ignored every
@@ -156,6 +175,14 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   `transformations.py`, `data_validation.py`, `utils/date_parser.py`) were removed; the packages of
   the same names are unchanged.
 
+- **The internal `input-url` endpoint signs only the input**, for as long as at lease time, so an
+  unusable output connection no longer fails it. It answers 400 `not_streamed` for inputs that
+  are not streamed (SQL and non-CSV inputs: it never hands out a connection string again) and
+  410 for an input that is gone (it answered 409, which workers read as a lost lease).
+- `output_max_bytes` goes up to 5 TiB and defaults to 1 TiB (it was at most, and by default,
+  5 GiB).
+- `forklift-web` depends on `tzdata`, so slim images have time zone data.
+
 ### Added
 
 - **The forklift platform, first release (service MVP).** Alongside the engine, the repository now
@@ -170,7 +197,8 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     tokens; admin endpoints for users and roles, tokens, worker tokens, workers, connections,
     retention, the audit log and installation settings. Roles Viewer, Operator, Author and Admin,
     a "view raw rows" permission for `sensitive` data (admins always have it; admins grant it
-    to the other roles), and token scopes that only narrow their owner's role, all decided by one policy and covered by a role matrix over every endpoint.
+    to the other roles), and token scopes that only narrow their owner's role, all decided by one
+    policy and covered by a role matrix over every endpoint.
     `/internal/v1` for workers on its own port only: a PostgreSQL `FOR UPDATE SKIP LOCKED` lease
     queue with heartbeats, cancellation, lease expiry and requeue, presigned outputs and
     completion checks. Connections (`s3`, `localfs`, `sql`) keep write-only secrets encrypted at
@@ -204,6 +232,74 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     URL, run on the worker, download Parquet, generate a schema, keep `bad_rows` on a threshold
     failure, stream a large input, and check a viewer's limits. CI runs them, and builds and tests
     each package in its own job.
+- **Platform: schedules, webhooks, a sign-in rate limit, a schema editor, outputs of any size and
+  fresh input URLs** (user guides in `docs/platform/`):
+  - **Schedules.** A dataset that reads from a connection runs on a cron expression in an IANA
+    time zone: five fields with lists, ranges, steps, month and weekday names, Sunday as 0 or 7,
+    the Vixie day rule, and `@hourly` ... `@yearly`. A local time the clocks skip runs once at
+    the end of the gap; a repeated one runs once, at its first occurrence. The new
+    `forklift-web dispatch` command (Compose service `dispatcher`, a pass every 10 s, healthy
+    while its passes succeed) queues each due slot exactly once, also with several dispatchers.
+    It skips a slot while the previous run is queued or running; after downtime it runs only
+    the most recent missed slot within the installation setting `schedule_catch_up_seconds`
+    (default 3600; 0 turns catching up off) and records the others as `missed`; a run that cannot
+    be queued is recorded as `failed_to_enqueue` and the schedule stays. Scheduled jobs name the
+    schedule and the slot (`schedule_id`, `scheduled_for`), have no requester, and can be
+    cancelled by Authors and admins. API: `GET/POST /api/v1/datasets/{id}/schedules`,
+    `GET /api/v1/schedules`, `GET/PATCH/DELETE /api/v1/schedules/{id}`,
+    `POST /api/v1/schedules/preview`; UI: a Schedules section on the dataset page with a live
+    preview of the next runs, changing a schedule, and a page of every schedule. Audited.
+  - **Webhooks.** Signed notifications when a job succeeds, fails or is cancelled, for one
+    dataset, for the owner's own jobs (including through their API tokens) or, for admins, every
+    job. A payload holds the outcome, counts, error code and message and API links, never data;
+    `Forklift-Signature` is HMAC-SHA256 over the timestamp and the body, and the secret is shown
+    once and can be rotated. Deliveries are queued in the transaction that finishes the job and
+    sent by the dispatcher (test events too: the gateway sends nothing while it answers a
+    request), retried over about 20 hours. After a failed attempt the webhook's other deliveries
+    wait with it (a circuit breaker whose waits grow while the receiver stays down), and a pass
+    takes the webhooks in turns. A webhook is disabled after `webhook_disable_after_failures` (10)
+    failed attempts in a row, about two and a half days of a receiver that never answers; a user
+    may have `webhook_max_per_owner` (25) webhooks. New scopes `webhooks:read` and
+    `webhooks:write` for every role; `/api/v1/webhooks` (`POST .../test` queues a test event: 202,
+    one at a time; the delivery log and redelivery) and `/api/v1/admin/webhooks`; account and
+    admin pages. Deliveries follow the
+    job-records retention; `rotate_secrets` re-encrypts webhook secrets. New
+    `FORKLIFT_PUBLIC_URL` for the links in payloads.
+  - **The schema editor** is CodeMirror 6: completion of keys and values from the schema
+    standards, JSON syntax errors at once, and the gateway's review of the draft (what saving
+    refuses, and the shape mistakes the engine would refuse) at its JSON path. A Columns view
+    edits the common parts as a form (order, name, type and nullability, format, special type,
+    description, required, primary key, unique, rules, transformation steps) and keeps
+    everything it does not show. "Start from a sample" generates a schema from an upload, and
+    Ctrl+Enter checks the draft against a file. It works under the unchanged
+    Content-Security-Policy (it lives in a shadow root) and without JavaScript, with no keyboard
+    trap. The bundle and the completion vocabulary are built from `services/web/frontend/` with
+    pinned versions, and CI checks that the committed files are reproducible. A generated schema
+    on a job's page is shown as the engine wrote it, so its columns keep their order.
+  - **Outputs of any size.** Outputs above `multipart_threshold_bytes` go up as multipart
+    uploads: the worker asks for them (`multipart: true`), sends each part with `Content-MD5`
+    from bounded reads, retries a part with a fresh URL after a connection error, a 5xx or a 403,
+    and stops between parts on cancellation or a lost lease; heartbeats carry `bytes_uploaded`.
+    The new `POST /internal/v1/jobs/{id}/parts` signs more or fresh part URLs. `complete` takes
+    each multipart artifact's `upload_id`, `part_count` and `parts_sha256` (the sha256 of its
+    parts' ETags, in order, so a report does not grow with the number of parts) and checks them
+    against the parts the store holds; every check that can refuse a completion runs before any
+    upload is completed, objects completed by a call that is refused anyway are deleted, and
+    nothing is recorded when a check fails. Pending uploads are aborted when their attempt ends,
+    and the sweeper aborts stale ones under `jobs/` (counted as `output_uploads`, audited).
+    Workers that do not ask for multipart uploads keep getting single PUTs (up to 5 GiB). A run
+    whose publishing to its `s3` destination fails for any reason (also a destination secret
+    that cannot be decrypted) is failed with `TARGET_WRITE_FAILED` and announced to its webhooks.
+  - **Fresh URLs for streamed inputs.** `run_job(..., refresh_input_url=)` replaces a
+    `presigned_url` input's URL before it expires (SigV4 `X-Amz-Date` + `X-Amz-Expires`: within
+    5 minutes or after half its lifetime) and after the store refuses it (403, or 400
+    `ExpiredToken` once the temporary credentials that signed it have ended), at most once per
+    request and 100 times per input; a fresh URL must name the same object. `forklift run-job
+    --input-url-requests [--input-url-timeout SECONDS]` asks for them over its pipes (a
+    `{"type": "input_url"}` line on stdout, one `{"url"}` or `{"error"}` line on stdin;
+    `forklift.jobs.pipe`), and the worker answers from `POST /internal/v1/jobs/{id}/input-url`
+    for the job's lease (only URLs on the input's host, at most 100 per job; a 409 stops the job
+    as a lost lease).
 - **Declarative jobs (`forklift.jobs`)**: `JobSpec`, `JobResult` and `run_job()` (also
   `forklift.run_job`) run the engine from a versioned job spec (contract v1): kinds `run`,
   `preview`, `validate_schema` and `generate_schema`; locations `file`, `s3`, `presigned_url`, `sql`
@@ -368,10 +464,15 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   `sql_variant`/`hierarchyid`/`geometry`/`geography` columns cannot be read through pyodbc; leave
   them out with `select.columns`.
 - Jobs: `validate_schema` checks CSV inputs only, and `preview` / `generate_schema` do not read
-  SQL sources. A streamed input's presigned URL is not refreshed during a job, so it must stay
-  valid for the job's `max_seconds` plus a margin. Uniqueness checks keep every key in memory.
-- The service has no schedules or webhooks yet, and an `s3` destination must be on the
-  installation's own store (it is published by server-side copies).
+  SQL sources. Uniqueness checks keep every key in memory.
+- Service: an `s3` destination must be on the installation's own store (it is published by
+  server-side copies). Only datasets that read from a connection can be scheduled. Webhooks are
+  sent directly, not through an HTTP proxy, one at a time within a 30-second budget per
+  dispatcher pass (the webhooks take turns). Publishing is not resumed: if the gateway stops in the middle of copying a run
+  to its `s3` destination, the job stays succeeded but not (wholly) published, and its webhooks
+  are not told. A completion the gateway refuses leaves the job to its lease:
+  it is retried, and fails as `LEASE_EXPIRED` after its last attempt. Anyone who knows a username
+  can lock its sign-in for `sign_in_lock_seconds` (an admin can unlock it).
 - Schema extensions are applied by the CSV engine only; the Excel, SQL and fixed-width importers
   ignore them. `x-pii` is documentation (no masking). Not implemented, and reported as warnings:
   cross-field and global validations, `x-dataQuality` completeness/uniqueness/consistency/accuracy

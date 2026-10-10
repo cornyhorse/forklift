@@ -1,5 +1,13 @@
 {% extends "ui/base.html" %}
+{% load forklift_ui %}
 {% block title %}{% if schema %}New version of {{ schema.name }}{% else %}New schema{% endif %}{% endblock %}
+{% block scripts %}
+  {# The editor enhances the text area below; without these scripts the text area is the editor. #}
+  <script src="{% asset 'ui/vendor/codemirror.min.js' %}" defer></script>
+  <script src="{% asset 'ui/schema-json.js' %}" defer></script>
+  <script src="{% asset 'ui/schema-form.js' %}" defer></script>
+  <script src="{% asset 'ui/schema-editor.js' %}" defer></script>
+{% endblock %}
 {% block content %}
   <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:schemas' %}">Schemas</a></li>{% if schema %}<li><a href="{% url 'ui:schema' schema_id=schema.pk %}">{{ schema.name }}</a></li><li>New version</li>{% else %}<li>New</li>{% endif %}</ol></nav>
   <h1>{% if schema %}{{ schema.name }}: version {{ schema.latest_version|add:1 }}{% else %}New schema{% endif %}</h1>
@@ -12,40 +20,72 @@
       <div class="stack">
         {% include "ui/_form_errors.html" %}
         {% if form.name %}{% include "ui/_field.html" with field=form.name %}{% include "ui/_field.html" with field=form.description %}{% endif %}
-        <div class="field editor">
-          <label for="{{ form.document.id_for_label }}">{{ form.document.label }} <span class="muted">(required)</span></label>
-          <p class="help" id="{{ form.document.auto_id }}_helptext">A forklift schema: <code>properties</code> name the columns and their types; <code>required</code> lists the columns that must be there; <code>x-…</code> keys add rules.{% if validate_form.fields.source.choices %} Ctrl+Enter checks the draft against the file chosen beside it.{% endif %}</p>
+        <div class="field editor" data-schema-editor data-check-url="{% url 'ui:schema-check' %}" data-vocabulary="{% asset 'ui/schema-vocabulary.json' %}">
+          <div class="editor-head">
+            <label for="{{ form.document.id_for_label }}">{{ form.document.label }} <span class="muted">(required)</span></label>
+            <div class="view-switch" role="group" aria-label="Edit the schema as" hidden>
+              <button type="button" class="secondary small" data-view="json" aria-pressed="true">JSON</button>
+              <button type="button" class="secondary small" data-view="columns" aria-pressed="false">Columns</button>
+            </div>
+          </div>
+          <p class="help" id="{{ form.document.auto_id }}_helptext">A forklift schema: <code>properties</code> name the columns, in the order a file without a header row has them, and their types; <code>required</code> lists the columns that must be there; <code>x-…</code> keys add rules. The Columns view edits the common parts as a form and keeps everything else as it is.</p>
+          <p class="help" data-editor-keys hidden>Keys in the editor: Tab and Shift+Tab move to the next and previous control, as anywhere on the page; Ctrl+Space lists what fits at the cursor and Escape closes the list; Ctrl+] and Ctrl+[ indent; F8 goes to the next problem; Ctrl+Z undoes, changes made in the Columns view too.{% if validate_form.fields.source.choices %} Ctrl+Enter checks the draft against the file chosen beside it.{% endif %}</p>
           {{ form.document.errors }}
           <textarea name="{{ form.document.html_name }}" id="{{ form.document.id_for_label }}" class="code" rows="24" spellcheck="false" autocapitalize="off" data-json-editor aria-describedby="{{ form.document.auto_id }}_helptext {{ form.document.auto_id }}-status"{% if generated %} data-load-artifact="{% url 'api-v1:download_artifact' artifact_id=generated.pk %}"{% endif %}>{{ form.document.value|default_if_none:"" }}</textarea>
+          <div class="columns-view" data-columns-view hidden></div>
           <p class="editor-status" id="{{ form.document.auto_id }}-status" aria-live="polite"></p>
-          <div class="actions"><button type="button" class="secondary small" data-format-json="{{ form.document.id_for_label }}" hidden>Format the JSON</button></div>
+          <ul class="problems" data-problems aria-label="Problems in the draft" hidden></ul>
+          <div class="actions"><button type="button" class="secondary small" data-format-json hidden>Format the JSON</button></div>
         </div>
         {% include "ui/_field.html" with field=form.notes %}
         <div class="actions"><button type="submit">{% if schema %}Save version {{ schema.latest_version|add:1 }}{% else %}Create the schema{% endif %}</button></div>
       </div>
 
-      <section aria-labelledby="check-heading">
-        <h2 id="check-heading">Check it against a file</h2>
-        {% if validate_form %}
-          {% if validate_form.fields.source.choices %}
-            <p class="muted">A worker reads the file's header and a sample of its rows with this draft; nothing is saved.</p>
-            <div class="stack">
-              {% include "ui/_field.html" with field=validate_form.source %}
-              {% include "ui/_field.html" with field=validate_form.delimiter %}
-              <div class="check"><input type="checkbox" id="auto-validate"><label for="auto-validate">Check again whenever I pause typing</label></div>
-              <div class="actions">
-                <button type="submit" class="secondary" id="validate-button" formaction="{% url 'ui:schema-validate' %}" formnovalidate hx-post="{% url 'ui:schema-validate' %}" hx-target="#validation" hx-swap="innerHTML">Check the draft</button>
-                <span class="htmx-indicator muted">Sending…</span>
+      <div>
+        <section aria-labelledby="sample-heading">
+          <h2 id="sample-heading">Start from a sample</h2>
+          {% if generate_form %}
+            {% if generate_form.fields.upload.choices %}
+              <p class="muted">A worker reads one of your files and proposes columns and types; you choose whether the draft takes them.</p>
+              <div class="stack">
+                {% include "ui/_field.html" with field=generate_form.upload %}
+                {% include "ui/_field.html" with field=generate_form.format %}
+                <div class="actions">
+                  <button type="submit" class="secondary" formaction="{% url 'ui:schema-generate' %}" formnovalidate hx-post="{% url 'ui:schema-generate' %}" hx-target="#generation" hx-swap="innerHTML">Generate a schema</button>
+                </div>
               </div>
-            </div>
-            <div id="validation" aria-live="polite"></div>
+              <div id="generation" aria-live="polite"></div>
+            {% else %}
+              <p class="muted">A schema can be generated from one of your files, and you have none yet. <a href="{% url 'ui:upload' %}">Upload a file</a></p>
+            {% endif %}
           {% else %}
-            <p class="muted">Drafts are checked against a CSV file's header and first rows, and you have no files yet. <a href="{% url 'ui:upload' %}">Upload a file</a></p>
+            <p class="muted">Generating a schema runs a job, which your role does not allow.</p>
           {% endif %}
-        {% else %}
-          <p class="muted">Checking drafts runs a job, which your role does not allow.</p>
-        {% endif %}
-      </section>
+        </section>
+
+        <section aria-labelledby="check-heading">
+          <h2 id="check-heading">Check it against a file</h2>
+          {% if validate_form %}
+            {% if validate_form.fields.source.choices %}
+              <p class="muted">A worker reads the file's header and a sample of its rows with this draft; nothing is saved.</p>
+              <div class="stack">
+                {% include "ui/_field.html" with field=validate_form.source %}
+                {% include "ui/_field.html" with field=validate_form.delimiter %}
+                <div class="check"><input type="checkbox" id="auto-validate"><label for="auto-validate">Check again whenever I pause typing</label></div>
+                <div class="actions">
+                  <button type="submit" class="secondary" id="validate-button" formaction="{% url 'ui:schema-validate' %}" formnovalidate hx-post="{% url 'ui:schema-validate' %}" hx-target="#validation" hx-swap="innerHTML">Check the draft</button>
+                  <span class="htmx-indicator muted">Sending…</span>
+                </div>
+              </div>
+              <div id="validation" aria-live="polite"></div>
+            {% else %}
+              <p class="muted">Drafts are checked against a CSV file's header and first rows, and you have no files yet. <a href="{% url 'ui:upload' %}">Upload a file</a></p>
+            {% endif %}
+          {% else %}
+            <p class="muted">Checking drafts runs a job, which your role does not allow.</p>
+          {% endif %}
+        </section>
+      </div>
     </div>
   </form>
 {% endblock %}

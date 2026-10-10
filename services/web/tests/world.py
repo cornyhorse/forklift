@@ -13,6 +13,7 @@ from datetime import timedelta
 
 from conftest import put_url
 from django.utils import timezone
+from webhook_support import make_webhook
 
 from forklift_web import secret_backend, storage
 from forklift_web.core.choices import (
@@ -32,10 +33,13 @@ from forklift_web.core.models import (
     Dataset,
     Job,
     RetentionPolicy,
+    Schedule,
     Schema,
     SchemaVersion,
     Upload,
     User,
+    Webhook,
+    WebhookDelivery,
     Worker,
     WorkerToken,
 )
@@ -275,6 +279,50 @@ class World:
         upload.multipart_upload_id = storage.store().create_multipart(upload.key)
         upload.save()
         return upload
+
+    # Objects only some tests need
+
+    def schedule(self) -> Schedule:
+        """A daily schedule of a dataset that reads an object of ``connection`` (made the first
+        time it is asked for)."""
+        if "schedule" not in self.extra:
+            self.extra["schedule"] = make_schedule(self.author, self.version, self.connection)
+        return self.extra["schedule"]
+
+    def webhook(self) -> Webhook:
+        """The operator's webhook, with one failed delivery of ``finished_job`` (made the first
+        time it is asked for)."""
+        if "webhook" not in self.extra:
+            webhook = make_webhook(self.operator)
+            WebhookDelivery.objects.create(
+                webhook=webhook,
+                job=self.finished_job,
+                event="job.succeeded",
+                payload="{}",
+                status="failed",
+                attempts=7,
+            )
+            self.extra["webhook"] = webhook
+        return self.extra["webhook"]
+
+
+def make_schedule(author: User, version: SchemaVersion, connection: Connection, **fields):
+    """A schedule (``fields`` override its own) of a new dataset reading from ``connection``."""
+    dataset = Dataset.objects.create(
+        name=f"scheduled-{uuid.uuid4().hex[:8]}",
+        schema_version=version,
+        source_connection=connection,
+        source_path="exports/people.csv",
+        created_by=author,
+    )
+    values = {
+        "cron": "0 2 * * *",
+        "timezone": "UTC",
+        "next_run_at": timezone.now() + timedelta(hours=1),
+        "created_by": author,
+        **fields,
+    }
+    return Schedule.objects.create(dataset=dataset, **values)
 
 
 def job_result(

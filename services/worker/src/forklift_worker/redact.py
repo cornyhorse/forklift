@@ -74,6 +74,11 @@ class Redactor:
     def __init__(self, secrets: Iterable[str] = ()):
         self.secrets = [s for s in secrets if len(s) >= _MIN_SECRET]
 
+    def add(self, secrets: Iterable[str]) -> None:
+        """Redact ``secrets`` too from now on (a fresh presigned URL, for example)."""
+        known = {*self.secrets, *(s for s in secrets if len(s) >= _MIN_SECRET)}
+        self.secrets = sorted(known, key=len, reverse=True)  # a URL before its query string
+
     def __call__(self, text: str) -> str:
         for secret in self.secrets:
             text = text.replace(secret, REDACTED)

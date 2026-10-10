@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Optional
 from urllib.parse import quote, urlsplit
@@ -44,6 +45,24 @@ class Purpose(StrEnum):
 class ObjectInfo:
     size: int
     etag: str
+
+
+@dataclass(frozen=True)
+class PartInfo:
+    """A part the store holds for a pending multipart upload."""
+
+    number: int
+    size: int
+    etag: str
+
+
+@dataclass(frozen=True)
+class PendingUpload:
+    """A multipart upload that was started and neither completed nor aborted."""
+
+    key: str
+    upload_id: str
+    initiated: datetime
 
 
 def content_disposition(filename: str) -> str:
@@ -201,6 +220,50 @@ class Bucket:
             raise _client_error("aborting the multipart upload", key, error) from None
         except BotoCoreError as error:
             raise _client_error("aborting the multipart upload", key, error) from None
+
+    def list_parts(self, key: str, upload_id: str) -> Optional[list]:
+        """The parts a pending multipart upload holds (PartInfo, by number), or None when
+        there is no such pending upload (never started, completed or aborted)."""
+        try:
+            pages = (
+                self.client(Purpose.UPLOAD)
+                .get_paginator("list_parts")
+                .paginate(Bucket=self.bucket, Key=key, UploadId=upload_id)
+            )
+            parts = [
+                PartInfo(
+                    number=part["PartNumber"], size=part["Size"], etag=part["ETag"].strip('"')
+                )
+                for page in pages
+                for part in page.get("Parts", [])
+            ]
+        except ClientError as error:
+            # S3 answers NoSuchUpload for an unknown upload id, RustFS InvalidArgument for one
+            # that is not even well-formed
+            if error.response.get("Error", {}).get("Code") in {"NoSuchUpload", "InvalidArgument"}:
+                return None
+            raise _client_error("listing the parts", key, error) from None
+        except BotoCoreError as error:
+            raise _client_error("listing the parts", key, error) from None
+        return sorted(parts, key=lambda part: part.number)
+
+    def list_multipart_uploads(self, prefix: str) -> list:
+        """The multipart uploads pending under ``prefix`` (PendingUpload)."""
+        try:
+            pages = (
+                self.client(Purpose.DELETE)
+                .get_paginator("list_multipart_uploads")
+                .paginate(Bucket=self.bucket, Prefix=prefix)
+            )
+            return [
+                PendingUpload(
+                    key=item["Key"], upload_id=item["UploadId"], initiated=item["Initiated"]
+                )
+                for page in pages
+                for item in page.get("Uploads", [])
+            ]
+        except (ClientError, BotoCoreError) as error:
+            raise _client_error("listing the multipart uploads", prefix, error) from None
 
     def delete(self, key: str) -> None:
         try:

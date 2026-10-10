@@ -104,12 +104,14 @@ SETTINGS: dict[str, Setting] = {
     ),
     "multipart_threshold_bytes": Setting(
         256 * MIB,
-        "Uploads larger than this use a multipart upload (one presigned URL per part).",
+        "Uploads and job outputs larger than this use a multipart upload (one presigned URL "
+        "per part).",
         _integer(5 * MIB, 5 * GIB),
     ),
     "multipart_part_bytes": Setting(
         64 * MIB,
-        "Part size of multipart uploads (raised when needed to stay within 10,000 parts).",
+        "Part size of multipart uploads and outputs (raised when needed to stay within 10,000 "
+        "parts).",
         _integer(5 * MIB, 5 * GIB),
     ),
     "download_url_seconds": Setting(
@@ -124,7 +126,10 @@ SETTINGS: dict[str, Setting] = {
         3600, "Lifetime of the URLs workers upload outputs with.", _integer(60, 7 * DAY)
     ),
     "output_max_bytes": Setting(
-        5 * GIB, "Largest single output file a worker may upload.", _integer(1, 5 * GIB)
+        1 * TIB,
+        "Largest single output file a worker may upload (those above multipart_threshold_bytes "
+        "go up in parts; at most 5 TiB, the largest object S3 stores).",
+        _integer(1, 5 * TIB),
     ),
     "validate_wait_seconds": Setting(
         10,
@@ -138,6 +143,46 @@ SETTINGS: dict[str, Setting] = {
         None,
         "Longest lifetime of a new API token in days (null: tokens may never expire).",
         _integer(1, 3650, nullable=True),
+    ),
+    "sign_in_max_failures": Setting(
+        5,
+        "Wrong passwords for one username (in any letter case, whether or not the account "
+        "exists; sign-ins and password changes) within sign_in_window_seconds before signing "
+        "in with it is refused for sign_in_lock_seconds.",
+        _integer(1, 1000),
+    ),
+    "sign_in_ip_max_failures": Setting(
+        30,
+        "Failed sign-ins from one client address (an IPv6 address counts by its /64) within "
+        "sign_in_window_seconds before signing in from it is refused for sign_in_lock_seconds.",
+        _integer(1, 100_000),
+    ),
+    "sign_in_window_seconds": Setting(
+        900,
+        "How long failed sign-ins are counted, from the first one; then counting starts again.",
+        _integer(60, DAY),
+    ),
+    "sign_in_lock_seconds": Setting(
+        900,
+        "How long signing in is refused once a sign-in limit is reached (admins can unlock).",
+        _integer(60, DAY),
+    ),
+    "webhook_disable_after_failures": Setting(
+        10,
+        "A webhook is disabled once this many delivery attempts in a row failed (with the "
+        "growing waits between them, 10 take about two and a half days); its owner can enable "
+        "it again.",
+        _integer(1, 1000),
+    ),
+    "webhook_max_per_owner": Setting(
+        25, "The most webhooks one user may have.", _integer(1, 1000)
+    ),
+    "schedule_catch_up_seconds": Setting(
+        3600,
+        "After the dispatcher was not running, a schedule's most recent missed run still starts "
+        "if it is at most this many seconds late; older ones are recorded as missed (0: no "
+        "catching up).",
+        _integer(0, 7 * DAY),
     ),
     "lane_limits": Setting(
         DEFAULT_LANE_LIMITS,

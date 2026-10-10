@@ -1,4 +1,5 @@
-"""The worker against RustFS presigned URLs, signed the way the gateway signs them."""
+"""The worker against RustFS presigned URLs, signed the way the gateway signs them (and signed
+anew when the engine of a streamed input asks for a fresh one)."""
 
 from __future__ import annotations
 
@@ -6,6 +7,10 @@ import hashlib
 import io
 import json
 import logging
+import random
+import sys
+import time
+from pathlib import Path
 
 import pyarrow.parquet as pq
 import pytest
@@ -67,6 +72,18 @@ def test_a_streamed_input_gives_the_same_rows(store_gateway, make_store_settings
 
     assert job.completed["result"]["status"] == "succeeded", job.completed["result"]
     assert data_rows(store_gateway, job.completed) == ["alice", "bob"]
+
+
+def test_a_streamed_input_whose_url_expired_gets_a_fresh_one(store_gateway, make_store_settings):
+    store_gateway.stage_max_bytes = 10
+    staged = store_gateway.put_object("uploads/h/people.csv", CSV)
+    location = store_gateway.location("uploads/h/people.csv", staged["size"], staged["etag"], 1)
+    time.sleep(2)  # expired before the engine starts: it asks for a fresh URL over the pipe
+    job, _ = run(store_gateway, make_store_settings, csv_spec("h", location))
+
+    assert job.completed["result"]["status"] == "succeeded", job.completed["result"]
+    assert data_rows(store_gateway, job.completed) == ["alice", "bob"]
+    assert len(store_gateway.calls("input-url")) == 1
 
 
 def test_a_multipart_object_is_staged(store_gateway, make_store_settings):
@@ -146,3 +163,52 @@ def test_a_presigned_url_for_another_store_is_refused(store_gateway, make_store_
     error = job.completed["result"]["error"]
     assert error["code"] == "SPEC_INVALID"
     assert "not an object store this worker may read" in error["message"]
+
+
+MIB = 1024 * 1024
+FAKE_ENGINE = Path(__file__).resolve().parents[1] / "fake_engine.py"
+
+
+def test_a_large_output_goes_up_in_parts_byte_for_byte(store_gateway, make_store_settings):
+    store_gateway.multipart_threshold, store_gateway.part_size = 5 * MIB, 5 * MIB
+    store_gateway.first_parts, store_gateway.stage_max_bytes = 1, 64 * MIB
+    text = bytes(random.Random(7).choices(b"abcdefghij,\n", k=11 * MIB))
+    location = store_gateway.put_object("uploads/j/big.csv", text)
+    job, _ = run(
+        store_gateway,
+        make_store_settings,
+        csv_spec("j", location),
+        engine_command=[
+            sys.executable,
+            str(FAKE_ENGINE),
+        ],  # its data.parquet: the input upper-cased
+        engine_read_path=[FAKE_ENGINE.parent],
+    )
+
+    report = job.completed
+    assert report["result"]["status"] == "succeeded", report["result"]
+    data = next(a for a in report["artifacts"] if a["name"] == "data.parquet")
+    assert data["part_count"] == 3 and len(store_gateway.calls("parts")) == 1
+    assert store_gateway.read(data["key"]) == text.upper()
+    head = store_gateway.s3.head_object(Bucket=store_gateway.bucket, Key=data["key"])
+    assert head["ETag"].strip('"').endswith("-3"), "RustFS assembled it from three parts"
+    assert store_gateway.store.unfinished_uploads(store_gateway.bucket) == []
+
+
+def test_a_parquet_output_of_the_real_engine_goes_up_in_parts(store_gateway, make_store_settings):
+    store_gateway.multipart_threshold, store_gateway.part_size = 5 * MIB, 5 * MIB
+    store_gateway.stage_max_bytes = 64 * MIB
+    rng = random.Random(11)
+    rows = [b"%d,%032x" % (n, rng.getrandbits(128)) for n in range(250_000)]
+    location = store_gateway.put_object(
+        "uploads/k/big.csv", b"id,name\n" + b"\n".join(rows) + b"\n"
+    )
+    job, _ = run(store_gateway, make_store_settings, csv_spec("k", location))
+
+    report = job.completed
+    assert report["result"]["status"] == "succeeded", report["result"]
+    data = next(a for a in report["artifacts"] if a["name"] == "data.parquet")
+    assert data["part_count"] >= 2, f"data.parquet has only {data['bytes']} bytes"
+    stored = store_gateway.read(data["key"])
+    assert hashlib.sha256(stored).hexdigest() == data["sha256"] and len(stored) == data["bytes"]
+    assert pq.read_table(io.BytesIO(stored)).num_rows == 250_000

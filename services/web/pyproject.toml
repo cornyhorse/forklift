@@ -30,6 +30,9 @@ dependencies = [
     "cryptography>=42",
     "gunicorn>=22",
     "whitenoise>=6.6",
+    # Schedules read cron expressions in IANA time zones (zoneinfo); slim images have no
+    # system time zone data.
+    "tzdata>=2024.1",
 ]
 
 [project.optional-dependencies]

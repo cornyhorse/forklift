@@ -17,7 +17,8 @@ results with them and never imports the engine).
 | `spec.py` | `JobSpec` and its parts: `InputSpec`, `InputOptions`, `FooterDetection`, `OutputSpec`, `JobOptions`, `Limits`, the locations |
 | `result.py` | `JobResult`, `Artifact`, `JobError` |
 | `runner.py` | `run_job()`: runs a spec with the engine |
-| `http_input.py` | `PresignedUrlSource`: a presigned URL read as a stream (with Range requests) |
+| `http_input.py` | `PresignedUrlSource`: a presigned URL read as a stream (with Range requests), replaced by a fresh one when it expires |
+| `pipe.py` | `JobPipe`: the JSON lines `forklift run-job` writes on stdout and the answers it reads on stdin |
 | `errors.py` | `classify_error()`: an exception as an error code, a clean message and `retryable` |
 | `contract.py` | Generates the JSON Schemas; `python -m forklift.jobs.contract [--check] [DIR]` |
 | `_model.py` | The small field system the dataclasses, their validation and the schemas share |
@@ -46,7 +47,8 @@ result = run_job(
 print(result.status, result.counts, [a.path for a in result.artifacts])
 ```
 
-`run_job(spec, *, base_dir, allowed_url_hosts=(), progress=None, cancel=None, s3_client=None)`
+`run_job(spec, *, base_dir, allowed_url_hosts=(), progress=None, cancel=None, s3_client=None,
+refresh_input_url=None)`
 
 - `spec`: a `JobSpec` or its JSON form as a dict. An invalid dict gives a `failed` result with
   code `SPEC_INVALID` whose message lists every problem with its field
@@ -63,6 +65,9 @@ print(result.status, result.counts, [a.path for a in result.artifacts])
   `status: "cancelled"` and code `CANCELLED`.
 - `s3_client`: a `forklift.io.S3StreamingClient` for `s3` locations (library use; default: boto3's
   credential chain).
+- `refresh_input_url()`: returns a fresh presigned URL for the `presigned_url` input (the same
+  object), when its URL is about to expire or the store refused it (see below). Without it the
+  URL is used as it is until the store refuses it.
 
 A job never raises for its own failures: the result says what happened. `run_job` raises only
 for wrong arguments (`ValueError` when `base_dir` is not a directory, `TypeError` for a callback
@@ -173,17 +178,53 @@ from `Content-Range` must match `size` when it is given). Proxy settings of the 
 (`HTTPS_PROXY`, `NO_PROXY`) are honoured. The URL never appears in output files: the input is
 called by its URL without the query string there.
 
+### Fresh URLs
+
+A presigned URL stops working when it expires, and earlier when the credentials it was signed
+with were temporary ones that have ended (an IAM role session lasts 1 to 12 hours, whatever
+`X-Amz-Expires` says). With `refresh_input_url`:
+
+- **Before a request** (the first one, a resume after a dropped connection, a range read of the
+  header), a SigV4 URL that expires within 5 minutes, or has used up half its lifetime if that
+  is shorter, is replaced (`X-Amz-Date` plus `X-Amz-Expires` say when it expires; a URL without
+  them is never replaced in advance). If no fresh URL can be had, the current one is used and a
+  warning is logged.
+- **After a refusal**: a request answered with HTTP 403 (an expired or invalid signature), or
+  with HTTP 400 `ExpiredToken` (S3's answer once temporary credentials have ended), is sent
+  once more with a fresh URL. If there is none, the job fails with `PERMISSION_DENIED`: "The
+  input URL expired and a fresh one could not be obtained: ...".
+
+A request gets at most one fresh URL, and an input at most 100. A fresh URL must name the same
+object: the same scheme, host, port and path, and no user information; anything else fails the
+job (`INPUT_UNREADABLE`) without being contacted. The ETag sent as `If-Match` keeps guaranteeing
+that the bytes did not change. Fresh URLs are secrets like the first one: they never appear in
+messages or results.
+
 ## Command line
 
 ```
-forklift run-job SPEC.json --base-dir DIR --result RESULT.json [--allow-url-host HOST]... [--progress-jsonl]
+forklift run-job SPEC.json --base-dir DIR --result RESULT.json [--allow-url-host HOST]...
+                 [--progress-jsonl] [--input-url-requests [--input-url-timeout SECONDS]]
 ```
 
 Exit code 0: succeeded; 1: failed or cancelled; 2: invalid spec (including a spec file that
 cannot be read and a `--base-dir` that is not a directory). The result is written atomically to
-`--result` in every case. Logs go to stderr; with `--progress-jsonl` stdout carries one JSON
-object per progress event and nothing else. SIGTERM cancels the job: it stops at the next batch
-boundary and the result says `cancelled`.
+`--result` in every case. Logs go to stderr; stdout carries JSON lines only (below). SIGTERM
+cancels the job: it stops at the next batch boundary and the result says `cancelled`.
+
+stdout and stdin carry a line protocol (`pipe.py`), one JSON object per line:
+
+- `--progress-jsonl`: every progress event, `{"rows_read": 30, "rows_rejected": 1,
+  "bytes_read": 4096}` (no `type` key).
+- `--input-url-requests`: when the `presigned_url` input needs a fresh URL (above), the engine
+  writes `{"type": "input_url"}` and reads exactly one line from stdin: `{"url": "https://..."}`
+  or `{"error": "why there is none"}`, within `--input-url-timeout` seconds (default 120).
+  Requests are sent one at a time. An answer that does not come in time, or is neither of those
+  objects (or longer than 64 KiB), ends the conversation: a late line could not be matched to
+  its request, so every later request fails at once. Without the flag stdin is never read.
+
+The worker's supervisor starts the engine with `--input-url-requests` for streamed inputs and
+answers each request from the gateway's `POST /internal/v1/jobs/{id}/input-url`.
 
 The engine writes temporary files (S3 upload spools, the filtered copy that footer detection
 makes of a local CSV) in the system temporary directory; a sandboxed engine process should get

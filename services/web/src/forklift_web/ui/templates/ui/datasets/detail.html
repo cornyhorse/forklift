@@ -36,6 +36,8 @@
     </form>
   {% endif %}
 
+  {% include "ui/schedules/_dataset_section.html" %}
+
   <h2>Recent runs</h2>
   {% include "ui/jobs/_rows.html" with rows=jobs empty="This dataset has not run yet." %}
 
@@ -43,7 +45,7 @@
     <h2>Delete it</h2>
     <form method="post" action="{% url 'ui:dataset-delete' dataset_id=dataset.pk %}" data-confirm="Delete the dataset {{ dataset.name }}?">
       {% csrf_token %}
-      <p>Only datasets without jobs can be deleted, so that history stays readable.</p>
+      <p>Only datasets without jobs can be deleted, so that history stays readable. Deleting this one also deletes its schedules.</p>
       <button type="submit" class="danger">Delete the dataset</button>
     </form>
   {% endif %}

@@ -9,11 +9,12 @@ from django.test import Client
 from django.urls import reverse
 from test_ui_matrix import ROWS, call
 from ui_support import PREVIEW, Page, as_json, finish
+from webhook_support import make_webhook
 from world import World, make_job
 
 from forklift_web import secret_backend
 from forklift_web.core.choices import JobKind
-from forklift_web.core.models import ApiToken, Connection, User
+from forklift_web.core.models import ApiToken, Connection, User, WebhookDelivery
 from forklift_web.middleware import INTERNAL, SURFACE_KEY
 from forklift_web.policy import Actor
 from forklift_web.services import accounts, workers
@@ -60,8 +61,18 @@ def test_signing_in_and_out_need_the_csrf_token(make_user):
 def pages(world: World) -> list:
     """Every page an admin can open, including the forms of each connection kind."""
     urls = [
-        row.url(world) for row in ROWS if row.method == "GET" and row.name != "artifact-download"
+        row.url(world)
+        for row in ROWS
+        if row.method == "GET"
+        and row.name not in {"artifact-download", "webhook", "webhook-deliveries"}
     ]
+    # A webhook's pages are its owner's alone: the admin's own, with a delivery to send again
+    webhook = make_webhook(world.admin)
+    WebhookDelivery.objects.create(
+        webhook=webhook, job=world.finished_job, event="job.succeeded", payload="{}"
+    )
+    for name in ("ui:webhook", "ui:webhook-deliveries"):
+        urls.append(reverse(name, kwargs={"webhook_id": webhook.pk}))
     for connection in Connection.objects.all():
         urls.append(reverse("ui:admin-connection", kwargs={"connection_id": connection.pk}))
     for kind in ("s3", "sql", "localfs"):
@@ -80,6 +91,9 @@ def build_world() -> World:
     world = World.build()
     world.extra["validation"] = make_job(
         world.operator, world.upload, kind=JobKind.VALIDATE_SCHEMA
+    )
+    world.extra["generation"] = make_job(
+        world.operator, world.upload, kind=JobKind.GENERATE_SCHEMA
     )
     finish(
         make_job(world.operator, world.upload, kind=JobKind.PREVIEW),

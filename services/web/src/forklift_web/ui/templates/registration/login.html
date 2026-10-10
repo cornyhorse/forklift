@@ -2,7 +2,11 @@
 {% block title %}Sign in{% endblock %}
 {% block content %}
   <h1>Sign in to Forklift</h1>
-  {% if form.errors %}
+  {% if form.refused %}
+    <div class="alert error" role="alert">
+      <p>{{ form.refused.message }}</p>
+    </div>
+  {% elif form.errors %}
     <div class="alert error" role="alert">
       <p>Your username and password did not match, or the account is not active. Please try again.</p>
     </div>

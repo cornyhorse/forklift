@@ -1,11 +1,14 @@
-"""The home page, changing one's own password, and one's own API tokens."""
+"""Signing in, the home page, changing one's own password, and one's own API tokens."""
 
 from __future__ import annotations
+
+import math
 
 from django.contrib import messages
 from django.contrib.auth import views as auth_views
 from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
+from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
@@ -14,7 +17,7 @@ from forklift_web.core.choices import TERMINAL_STATUSES, UploadStatus
 from forklift_web.errors import ServiceError
 from forklift_web.policy import Action, allowed, check
 from forklift_web.services import accounts, audit, installation, jobs, uploads
-from forklift_web.ui.forms import TokenForm
+from forklift_web.ui.forms import PasswordChangeForm, SignInForm, TokenForm
 from forklift_web.ui.views.base import form_failed, page, token_created
 
 RECENT = 10
@@ -41,11 +44,39 @@ def home(request, actor):
     return render(request, "ui/home.html", recent(actor))
 
 
+def throttled(response, form):
+    """``response`` as a 429 with Retry-After when the sign-in throttle refused ``form``."""
+    if form.refused is not None:
+        seconds = (form.refused.retry_at - timezone.now()).total_seconds()
+        response.status_code = 429
+        response["Retry-After"] = str(max(1, math.ceil(seconds)))
+    return response
+
+
+class SignInView(auth_views.LoginView):
+    """Django's sign-in view, throttled per username and client address
+    (forklift_web.services.sign_in): a locked one gets the page back with 429."""
+
+    form_class = SignInForm
+    redirect_authenticated_user = True
+
+    def form_invalid(self, form):
+        return throttled(super().form_invalid(form), form)
+
+
 class PasswordChangeView(auth_views.PasswordChangeView):
-    """Django's own view (old password, new one twice, the password validators), audited."""
+    """Django's own view (old password, new one twice, the password validators), audited; wrong
+    old passwords count against the sign-in limit of the username."""
 
     template_name = "ui/account/password.html"
     success_url = reverse_lazy("ui:home")
+    form_class = PasswordChangeForm
+
+    def get_form_kwargs(self):
+        return {**super().get_form_kwargs(), "actor": actor_for_request(self.request)}
+
+    def form_invalid(self, form):
+        return throttled(super().form_invalid(form), form)
 
     def form_valid(self, form):
         response = super().form_valid(form)

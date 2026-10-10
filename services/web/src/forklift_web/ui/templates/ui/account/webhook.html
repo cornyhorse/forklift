@@ -1,0 +1,42 @@
+{% extends "ui/base.html" %}
+{% block title %}{{ webhook.name }}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:webhooks' %}">Webhooks</a></li><li>{{ webhook.name }}</li></ol></nav>
+  <h1>{{ webhook.name }} {% if webhook.active %}<span class="badge active">active</span>{% else %}<span class="badge disabled">disabled</span>{% endif %}</h1>
+  {% if not webhook.active %}
+    <div class="alert warn"><p>{{ webhook.get_disabled_reason_display|default:"Disabled" }}: no deliveries are sent, and those still due are skipped. Tick “Active” below and save to enable it again.</p></div>
+  {% endif %}
+  <dl class="facts">
+    <dt>Sends to</dt><dd><code>{{ webhook.url }}</code></dd>
+    <dt>Signing secret</dt><dd><code>{{ webhook.secret_prefix }}…</code></dd>
+    <dt>Failed attempts in a row</dt><dd>{{ webhook.consecutive_failures }}{% if webhook.backoff_until and webhook.backoff_until > now %} <span class="muted">(nothing is sent before {{ webhook.backoff_until|date:"Y-m-d H:i:s e" }})</span>{% endif %}</dd>
+    <dt>Created</dt><dd>{{ webhook.created_at|date:"Y-m-d H:i e" }}</dd>
+  </dl>
+  <div class="actions">
+    <form method="post" action="{% url 'ui:webhook-test' webhook_id=webhook.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="secondary">Send a test event</button>
+    </form>
+    <form method="post" action="{% url 'ui:webhook-rotate' webhook_id=webhook.pk %}" data-confirm="Rotate the signing secret of {{ webhook.name }}? The receiver must use the new one from now on.">
+      {% csrf_token %}
+      <button type="submit" class="secondary">Rotate the secret</button>
+    </form>
+    <form method="post" action="{% url 'ui:webhook-delete' webhook_id=webhook.pk %}" data-confirm="Delete the webhook {{ webhook.name }} and its delivery log?">
+      {% csrf_token %}
+      <button type="submit" class="danger">Delete</button>
+    </form>
+  </div>
+
+  <h2 id="settings-heading">Settings</h2>
+  <form method="post" action="{% url 'ui:webhook' webhook_id=webhook.pk %}" class="stack" aria-labelledby="settings-heading">
+    {% csrf_token %}
+    {% include "ui/_form_errors.html" %}
+    {% for field in form %}{% include "ui/_field.html" %}{% endfor %}
+    <div class="actions"><button type="submit">Save</button></div>
+  </form>
+
+  <h2 id="deliveries-heading">Deliveries</h2>
+  <p class="muted">Newest first. A failed attempt is retried after 1 minute, 5 minutes, 30 minutes, 2, 6 and 12 hours (longer while the webhook's attempts keep failing); then the delivery has failed. While a failed attempt waits for its retry, the webhook's other deliveries wait with it. The status code is the receiver's answer to the last attempt.</p>
+  <div id="webhook-announce" class="visually-hidden" role="status" aria-live="polite"></div>
+  {% include "ui/account/_webhook_deliveries.html" %}
+{% endblock %}

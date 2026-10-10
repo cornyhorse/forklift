@@ -18,6 +18,8 @@ from forklift_web.api.routes_admin import router as admin_router
 from forklift_web.api.routes_catalog import connections_router, datasets_router, schemas_router
 from forklift_web.api.routes_jobs import artifacts_router, jobs_router, uploads_router
 from forklift_web.api.routes_me import router as me_router
+from forklift_web.api.routes_schedules import dataset_schedules_router, schedules_router
+from forklift_web.api.routes_webhooks import router as webhooks_router
 from forklift_web.errors import ServiceError
 
 api = NinjaAPI(
@@ -37,9 +39,12 @@ api.add_router("", me_router)
 api.add_router("/uploads", uploads_router)
 api.add_router("/schemas", schemas_router)
 api.add_router("/datasets", datasets_router)
+api.add_router("/datasets", dataset_schedules_router)
+api.add_router("/schedules", schedules_router)
 api.add_router("/jobs", jobs_router)
 api.add_router("/artifacts", artifacts_router)
 api.add_router("/connections", connections_router)
+api.add_router("/webhooks", webhooks_router)
 api.add_router("/admin", admin_router)
 
 

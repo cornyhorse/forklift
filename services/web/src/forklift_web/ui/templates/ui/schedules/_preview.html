@@ -1,0 +1,11 @@
+{% load tz %}{# The next runs of the expression being typed; swapped into the form's live region. #}
+{% if error %}
+  <p class="alert error">{{ error }}</p>
+{% elif runs %}
+  <p>The next runs of <code>{{ expression }}</code> in {{ time_zone }}:</p>
+  <ol>
+    {% for run in runs %}<li><time datetime="{{ run.isoformat }}">{{ run|timezone:time_zone|date:"D Y-m-d H:i T" }}</time></li>{% endfor %}
+  </ol>
+{% else %}
+  <p class="muted">Type a cron expression to see when it would run.</p>
+{% endif %}

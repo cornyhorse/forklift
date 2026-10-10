@@ -17,8 +17,9 @@ def _sleep(seconds: float) -> None:
 
 class Command(BaseCommand):
     help = (
-        "Delete expired uploads, artifacts and job records from the store and the database, "
-        "recording each deletion in the audit log. With --every, keep sweeping."
+        "Delete expired uploads, artifacts and job records from the store and the database, and "
+        "abort stale multipart output uploads, recording each deletion in the audit log. With "
+        "--every, keep sweeping."
     )
 
     def add_arguments(self, parser):
@@ -41,9 +42,12 @@ class Command(BaseCommand):
         while True:
             report = retention.sweep(actor, dry_run=dry_run)
             verb = "Would delete" if dry_run else "Deleted"
+            abort = "would abort" if dry_run else "aborted"
             self.stdout.write(
                 f"{verb} {report.expired_uploads} expired pending uploads, {report.uploads} "
-                f"uploads, {report.artifacts} artifacts and {report.jobs} job records."
+                f"uploads, {report.artifacts} artifacts and {report.jobs} job records; {abort} "
+                f"{report.output_uploads} stale multipart output uploads. {verb} "
+                f"{report.deliveries} webhook deliveries."
             )
             for error in report.errors:
                 self.stderr.write(error)

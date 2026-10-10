@@ -53,6 +53,17 @@ class Gone(ServiceError):
     code = "gone"
 
 
+class TooManyAttempts(ServiceError):
+    """Too many failed attempts: refused, without being looked at, until ``retry_at`` (429)."""
+
+    status = 429
+    code = "too_many_attempts"
+
+    def __init__(self, message: str, *, retry_at):
+        super().__init__(message)
+        self.retry_at = retry_at
+
+
 class StoreUnavailable(ServiceError):
     """The object store or another upstream service did not answer as expected (502)."""
 

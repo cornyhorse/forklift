@@ -129,3 +129,16 @@ def test_client_ip_trusts_only_the_configured_proxies():
     with override_settings(FORKLIFT_TRUSTED_PROXIES=3):
         assert client_ip(request) == "10.0.0.2"  # fewer entries than proxies: not trusted
     assert client_ip(factory.get("/", REMOTE_ADDR="")) is None
+
+
+@override_settings(FORKLIFT_TRUSTED_PROXIES=1)
+def test_client_ip_drops_the_port_a_proxy_writes():
+    factory = RequestFactory()
+    for forwarded, expected in (
+        ("203.0.113.5:5555", "203.0.113.5"),
+        ("[2001:db8::1]:443", "2001:db8::1"),
+        ("2001:DB8::1", "2001:db8::1"),
+        ("unknown", "unknown"),  # no address: passed on as it is
+    ):
+        request = factory.get("/", HTTP_X_FORWARDED_FOR=forwarded, REMOTE_ADDR="10.0.0.2")
+        assert client_ip(request) == expected

@@ -19,6 +19,7 @@ import http.cookiejar
 import io
 import json
 import os
+import random
 import re
 import time
 import urllib.error
@@ -255,6 +256,40 @@ class TestUploadRunDownload:
         assert job["status"] == "succeeded", job["error"]
         assert job["result"]["counts"]["valid_rows"] == 5000
         assert before is not None
+
+    def test_an_output_above_the_multipart_threshold_goes_up_in_parts(self, admin):
+        rng = random.Random(11)  # random text: its Parquet stays larger than 5 MiB
+        body = b"id,name\n" + b"".join(
+            b"%d,%032x\n" % (i, rng.getrandbits(128)) for i in range(250_000)
+        )
+        upload_id = upload(admin, "wide.csv", body)  # still one PUT: the default threshold
+        five_mib = 5 * 1024 * 1024
+        admin.request(
+            "PATCH",
+            "/api/v1/admin/settings",
+            {"multipart_threshold_bytes": five_mib, "multipart_part_bytes": five_mib},
+        )
+        try:
+            job = run_job(
+                admin,
+                kind="run",
+                upload_id=upload_id,
+                format="csv",
+                schema={"properties": {"id": {"type": "integer"}, "name": {"type": "string"}}},
+            )
+        finally:
+            admin.request(
+                "PATCH",
+                "/api/v1/admin/settings",
+                {"multipart_threshold_bytes": None, "multipart_part_bytes": None},
+            )
+
+        assert job["status"] == "succeeded", job["error"]
+        _, artifacts = admin.request("GET", f"/api/v1/jobs/{job['id']}/artifacts")
+        (data,) = [a for a in artifacts if a["kind"] == "data"]
+        assert data["bytes"] > five_mib, "the output is large enough for two parts"
+        table = pq.read_table(io.BytesIO(artifact(admin, job, "data")))
+        assert table.num_rows == 250_000
 
 
 class TestRoles:

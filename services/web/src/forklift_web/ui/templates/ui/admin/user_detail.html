@@ -11,6 +11,16 @@
   {% if last_admin %}
     <div class="alert warn"><p>{{ person.username }} is the only active admin: they cannot be demoted or deactivated until another user is an active admin.</p></div>
   {% endif %}
+  {% if sign_in_lock %}
+    <section class="alert warn" aria-labelledby="lock-heading">
+      <h2 id="lock-heading">Signing in is locked</h2>
+      <p>Signing in as {{ person.username }} is refused until {{ sign_in_lock.locked_until|date:"Y-m-d H:i e" }}: {{ sign_in_lock.failures }} wrong password{{ sign_in_lock.failures|pluralize }} for this username (in any letter case, signing in or changing the password) since {{ sign_in_lock.window_started_at|date:"Y-m-d H:i e" }}.</p>
+      <form method="post" action="{% url 'ui:admin-user-unlock' user_id=person.pk %}">
+        {% csrf_token %}
+        <button type="submit">Unlock</button>
+      </form>
+    </section>
+  {% endif %}
 
   <div class="split">
     <section aria-labelledby="edit-heading">

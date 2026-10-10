@@ -16,6 +16,7 @@
     <li><strong>{{ online|length }}</strong> worker{{ online|length|pluralize }} online</li>
     <li><strong>{{ running|length }}</strong> job{{ running|length|pluralize }} running</li>
     <li><strong>{{ failed_today }}</strong> failed in the last 24 hours</li>
+    <li><strong>{{ sign_in_locks }}</strong> {% if sign_in_locks %}<a href="{% url 'ui:admin-audit' %}?action=account.sign_in_locked">sign-in lock{{ sign_in_locks|pluralize }}</a>{% else %}sign-in locks{% endif %} active</li>
   </ul>
 
   <div class="grid">

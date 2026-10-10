@@ -1,0 +1,12 @@
+{% extends "ui/base.html" %}
+{% block title %}Schedules{% endblock %}
+{% block content %}
+  <h1>Schedules</h1>
+  <p class="lead">Datasets that run on a timer. Add a schedule on the dataset's page; the dispatcher queues each run when it is due.</p>
+  <form method="get" class="inline-form">
+    {% for field in form %}{% include "ui/_field.html" %}{% endfor %}
+    <button type="submit" class="secondary">Filter</button>
+  </form>
+  {% include "ui/schedules/_rows.html" with rows=rows show_dataset=True empty="No schedules match." %}
+  {% include "ui/_pagination.html" %}
+{% endblock %}

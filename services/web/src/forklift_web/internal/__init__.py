@@ -6,9 +6,28 @@ tokens (``Authorization: Bearer fkw_...``); API tokens and sessions are refused.
 
 - ``POST /leases`` -> 200 with a job, or 204 when there is nothing to do
 - ``POST /jobs/{id}/heartbeat`` -> lease extended, ``cancel`` flag; 409 if the lease is lost
-- ``POST /jobs/{id}/presign`` -> PUT URLs under ``jobs/<id>/attempt-<n>/``
+- ``POST /jobs/{id}/presign`` -> PUT URLs under ``jobs/<id>/attempt-<n>/``, or multipart uploads
+- ``POST /jobs/{id}/parts`` -> more (or fresh) URLs for the parts of a multipart upload
 - ``POST /jobs/{id}/complete`` -> result and artifacts recorded
-- ``POST /jobs/{id}/input-url`` -> a fresh presigned input URL for a streamed input
+- ``POST /jobs/{id}/input-url`` -> a fresh presigned input URL for a streamed input (400 for an
+  input that is not streamed, 410 for one that is gone)
+
+Outputs above ``multipart_threshold_bytes`` go up in parts when the worker says it can
+(``multipart: true`` in presign; workers that do not are given single PUTs, up to 5 GiB): the
+answer has an ``upload_id``, a ``part_size`` (every part but the last has exactly this size),
+the ``part_count`` and the URLs of the first parts; ``POST /parts`` signs the others, at most
+1,000 at a time, and fresh ones for URLs that expired (``expires_in`` seconds after they were
+signed). Each part is PUT with ``Content-MD5``, so the store refuses a corrupted part. Complete
+reports each multipart artifact's ``upload_id``, ``part_count`` and ``parts_sha256``: the sha256
+(hex) of its parts' ETags as their PUTs were answered, without quotes, in part order, each
+followed by a newline (``queue.parts_sha256``), so a report stays small whatever the number of
+parts. The gateway checks them against the parts the store holds (parts 1 to part_count there,
+their ETags giving that digest, all but the last of one size, together the artifact's size) and
+every other object's size with a HEAD, and completes the uploads only once all of that passed.
+Any failure answers 400 (or 502 when the store fails) and records nothing; objects completed by
+a call that is then refused are deleted again. Workers never abort uploads: the gateway aborts
+every upload still pending under an attempt's prefix when the attempt ends (complete, with any
+status, or its lease expired), and the retention sweeper aborts any it missed.
 """
 
 import uuid
@@ -77,18 +96,47 @@ class OutputFile(Schema):
 class PresignIn(Schema):
     attempt: int
     files: list[OutputFile]
+    multipart: bool = Field(
+        False, description="The worker uploads files above multipart_threshold_bytes in parts"
+    )
+
+
+class PartUrl(Schema):
+    part_number: int
+    url: str
 
 
 class UploadUrl(Schema):
     name: str
     key: str
-    url: str
+    url: Optional[str] = Field(None, description="PUT the whole file here (single uploads)")
     method: str
     headers: dict[str, str]
+    expires_in: int = Field(description="Seconds the URLs stay valid")
+    upload_id: Optional[str] = Field(None, description="Multipart uploads only")
+    part_size: Optional[int] = Field(None, description="Multipart uploads: bytes per part")
+    part_count: Optional[int] = None
+    parts: list[PartUrl] = Field(
+        default_factory=list,
+        description="Multipart uploads: URLs for the first parts (POST /jobs/{id}/parts for more "
+        "or fresh ones)",
+    )
 
 
 class PresignOut(Schema):
     uploads: list[UploadUrl]
+
+
+class PartsIn(Schema):
+    attempt: int
+    name: str
+    upload_id: str
+    part_numbers: list[int]
+
+
+class PartsOut(Schema):
+    parts: list[PartUrl]
+    expires_in: int
 
 
 class ReportedArtifact(Schema):
@@ -98,6 +146,13 @@ class ReportedArtifact(Schema):
     bytes: int
     sha256: Optional[str] = None
     rows: Optional[int] = None
+    upload_id: Optional[str] = Field(None, description="Multipart uploads only")
+    part_count: Optional[int] = Field(None, description="Multipart uploads: how many parts")
+    parts_sha256: Optional[str] = Field(
+        None,
+        description="Multipart uploads: sha256 of the parts' ETags (unquoted, in part order, each "
+        "followed by a newline)",
+    )
 
 
 class CompleteIn(Schema):
@@ -157,9 +212,14 @@ def presign(request, job_id: uuid.UUID, payload: PresignIn):
     files = [entry.model_dump() for entry in payload.files]
     return {
         "uploads": queue.presign_outputs(
-            request.auth, job_id, attempt=payload.attempt, files=files
+            request.auth, job_id, attempt=payload.attempt, files=files, multipart=payload.multipart
         )
     }
+
+
+@internal_api.post("/jobs/{job_id}/parts", response={200: PartsOut, **ERRORS}, tags=["queue"])
+def parts(request, job_id: uuid.UUID, payload: PartsIn):
+    return queue.part_urls(request.auth, job_id, **payload.model_dump())
 
 
 @internal_api.post(
@@ -177,7 +237,9 @@ def complete(request, job_id: uuid.UUID, payload: CompleteIn):
 
 
 @internal_api.post(
-    "/jobs/{job_id}/input-url", response={200: InputUrlOut, **ERRORS}, tags=["queue"]
+    "/jobs/{job_id}/input-url",
+    response={200: InputUrlOut, **ERRORS, 410: ErrorOut},
+    tags=["queue"],
 )
 def input_url(request, job_id: uuid.UUID, payload: InputUrlIn):
     return {"location": queue.refresh_input(request.auth, job_id, attempt=payload.attempt)}

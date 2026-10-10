@@ -237,7 +237,11 @@ def _build_parser():
             "Run SPEC (a JobSpec JSON file) with every file location relative to --base-dir and "
             "write the JobResult to --result. Exit code 0: succeeded, 1: failed or cancelled, "
             "2: invalid spec. SIGTERM cancels the job (the result says 'cancelled'). Logs go to "
-            "stderr; with --progress-jsonl stdout carries one JSON object per progress event."
+            "stderr; with --progress-jsonl stdout carries one JSON object per progress event. "
+            "With --input-url-requests the job asks for a fresh URL for its presigned_url input "
+            'when the URL is about to expire or is refused: it writes {"type": "input_url"} as '
+            'a line on stdout and reads one line from stdin, {"url": "..."} (the same object) '
+            'or {"error": "..."}; see forklift.jobs.pipe.'
         ),
     )
     run_job.add_argument("spec", help="Path of the JobSpec JSON file")
@@ -257,7 +261,29 @@ def _build_parser():
         action="store_true",
         help="Print every progress event as one JSON line on stdout",
     )
+    run_job.add_argument(
+        "--input-url-requests",
+        action="store_true",
+        help="Ask for fresh presigned_url input URLs on stdout and read the answers from stdin",
+    )
+    run_job.add_argument(
+        "--input-url-timeout",
+        type=_seconds,
+        metavar="SECONDS",
+        help="How long to wait for the answer to an input URL request (default: 120)",
+    )
     return p, ingest, schema_gen
+
+
+def _seconds(text: str) -> float:
+    """A positive number of seconds (an argparse type)."""
+    try:
+        value = float(text)
+    except ValueError:
+        value = 0.0
+    if not 0 < value < float("inf"):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a positive number of seconds")
+    return value
 
 
 def _run_ingest(args: argparse.Namespace) -> None:
@@ -402,6 +428,7 @@ def _write_result(path: str, result: Any) -> None:
 
 def _run_job(args: argparse.Namespace) -> None:
     from .jobs import JobResult, run_job
+    from .jobs.pipe import JobPipe
     from .jobs.result import JobError
 
     def invalid(message: str, job_id: Optional[str] = None) -> None:
@@ -419,17 +446,16 @@ def _run_job(args: argparse.Namespace) -> None:
         job_id = document.get("job_id") if isinstance(document, dict) else None
         invalid(f"--base-dir {args.base_dir} is not a directory", job_id)
 
-    def report(event: Dict[str, Any]) -> None:
-        print(json.dumps(event, separators=(",", ":")), flush=True)
-
+    pipe = JobPipe(sys.stdout, sys.stdin, timeout=args.input_url_timeout)
     cancelled = [False]
     with _logs_to_stderr(), _cancel_on_sigterm(cancelled):
         result = run_job(
             document,
             base_dir=args.base_dir,
             allowed_url_hosts=args.allow_url_host,
-            progress=report if args.progress_jsonl else None,
+            progress=pipe.send if args.progress_jsonl else None,
             cancel=lambda: cancelled[0],
+            refresh_input_url=pipe.input_url if args.input_url_requests else None,
         )
     _write_result(args.result, result)
     print(

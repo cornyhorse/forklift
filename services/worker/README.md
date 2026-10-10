@@ -29,11 +29,19 @@ presigned URLs. They have no inbound ports and no database access.
    The download must match the lease: `Content-Length` and the byte count equal `size`, the
    `ETag` header equals `etag`, and for a single-part object the MD5 of the bytes equals the ETag.
    Transient failures restart the download. A larger input stays a `presigned_url`, and the
-   engine gets `--allow-url-host` for that URL's host only.
+   engine gets `--allow-url-host` for that URL's host only, and `--input-url-requests`: when the
+   URL is about to expire or the store refuses it, the engine writes `{"type": "input_url"}` on
+   stdout, and the supervisor answers with one line on the engine's stdin, `{"url": ...}` from
+   `POST /jobs/{id}/input-url` (only if it points at that same host) or `{"error": ...}`. It asks
+   the gateway up to three times on connection errors and 5xx, at most 100 times per job, and
+   answers within the engine's `--input-url-timeout` (three times `--http-timeout` plus room).
+   A 409 answers with an error and stops the job as a lost lease; a 401 or 403 also stops the
+   worker.
 4. **Run the engine** in a private scratch directory (mode 0700) holding `spec.json` (mode 0600),
    `in/`, `out/` and `tmp/`: `python -I -m forklift run-job spec.json --base-dir <scratch>
-   --result result.json --progress-jsonl [--allow-url-host HOST]`, inside the sandbox described
-   below, with a wall-clock limit of `limits.max_seconds` (at most `--max-job-seconds`).
+   --result result.json --progress-jsonl [--allow-url-host HOST --input-url-requests
+   --input-url-timeout SECONDS]`, inside the sandbox described below, with a wall-clock limit of
+   `limits.max_seconds` (at most `--max-job-seconds`).
 5. **Heartbeat** every third of the lease (or `--heartbeat-seconds`) for the whole job, with the
    engine's latest progress. A `cancel: true` answer sends the engine SIGTERM (it writes a
    cancelled result) and SIGKILL after `--kill-grace-seconds`; the job completes as `cancelled`
@@ -41,7 +49,15 @@ presigned URLs. They have no inbound ports and no database access.
    is lost: the engine is stopped and nothing is uploaded or reported.
 6. **Upload** the artifacts the result lists, data files first and the manifest last, through
    `POST /jobs/{id}/presign` and one presigned PUT each (with `Content-MD5`, so the store rejects
-   a corrupted body). The supervisor treats what the engine leaves as untrusted: it opens
+   a corrupted body), or, for files the gateway answers with a multipart upload (those above its
+   `multipart_threshold_bytes`), part by part: each part is read from the file in chunks of at
+   most 1 MiB (once for its `Content-MD5`, once as it is sent), retried on its own with a fresh
+   URL (`POST /jobs/{id}/parts`) after a connection error, a 5xx or a 403 (an expired URL); a
+   cancel, a lost lease or a shutdown stops the upload before the next part. URLs are
+   used only in the first three quarters of their lifetime (`expires_in`): older part URLs are
+   fetched again, older PUT URLs signed again with presign. Heartbeats carry `bytes_uploaded`.
+   The worker never aborts a multipart upload; the gateway aborts what an attempt left pending
+   when it ends. The supervisor treats what the engine leaves as untrusted: it opens
    `result.json` and every artifact one directory at a time without following symbolic links,
    accepts only regular files with no other hard links, computes sizes and sha256 itself, checks
    before uploading that the file is still the one it hashed, and reports a result reduced to
@@ -56,7 +72,8 @@ presigned URLs. They have no inbound ports and no database access.
    that scratch directory.
 
 Gateway calls are retried with exponential backoff and jitter on connection errors, 408, 429
-and 5xx; downloads three times, uploads five times, presign five and complete eight.
+and 5xx; downloads three times, uploads (and each part) five times, presign and part URLs five
+and complete eight.
 
 ## Running it
 
@@ -229,22 +246,34 @@ The internal API of the platform brief, with these details:
   streaming) and `etag` (recommended: it is compared with the store's).
 - `POST /jobs/{id}/heartbeat` sends `progress`: whole numbers only, at most 20 of them:
   `rows_read`, `rows_rejected` and `bytes_read` (0 until the engine reports), `bytes_staged`
-  while an input is staged, and other counters the engine reports (`rows_written` for
-  `sql_table` outputs). The answer may omit `lease_seconds` to keep the lease as it is.
+  while an input is staged, `bytes_uploaded` once artifacts go up, and other counters the engine
+  reports (`rows_written` for `sql_table` outputs). The answer may omit `lease_seconds` to keep
+  the lease as it is.
 - 409 on any job call means the lease is gone; 404 that the job is gone; the worker stops the job
   and reports nothing.
-- `POST /jobs/{id}/presign` sends `files: [{name, bytes}]`; each answer entry needs `name`, `key`,
-  `url` and `method: "PUT"`, and `headers` (optional) are sent as given. The worker adds
-  `Content-Length` and `Content-MD5`, so a signed `Content-Type` is fine but a signed
-  `Content-MD5` is not.
+- `POST /jobs/{id}/presign` sends `files: [{name, bytes}]` and `multipart: true`; each answer
+  entry needs `name` and `key`, and either `url` and `method: "PUT"` (one PUT; `headers`,
+  optional, are sent as given) or a multipart upload: `upload_id`, `part_size` (every part but
+  the last has exactly this size), `part_count` and `parts: [{part_number, url}]` (any number of
+  them, even none). `expires_in` (optional) says how many seconds the URLs stay valid. The worker
+  adds `Content-Length` and `Content-MD5` to every PUT, so a signed `Content-Type` is fine but a
+  signed `Content-MD5` is not.
+- `POST /jobs/{id}/parts` sends `name`, `upload_id` and `part_numbers` (at most 100); the answer
+  needs `parts: [{part_number, url}]` for every one of them, and may give `expires_in`.
 - `POST /jobs/{id}/complete` sends `result` (a JobResult that matches
   `contracts/jobresult.schema.json`, with the sizes and sha256 the supervisor computed, at most
   1 MiB of JSON: longer warning lists and messages are shortened) and `artifacts: [{kind, name,
-  key, bytes, sha256, rows}]` (at most 100), and is retried on 5xx, so it should be idempotent
-  per attempt.
-- Inputs are read once: the engine has no way yet to ask for a fresh URL while it streams, so
-  the worker does not call `POST /jobs/{id}/input-url`; streamed URLs must stay valid for the
-  job's `max_seconds`.
+  key, bytes, sha256, rows}]` (at most 100; a multipart artifact adds its `upload_id`,
+  `part_count` and `parts_sha256`: the sha256 of its parts' ETags as the store answered their
+  PUTs, without quotes, in part order, each followed by a newline, so the report does not grow
+  with the parts), and is retried on 5xx, so it should be idempotent per attempt. The gateway
+  completes the multipart uploads; a refusal (400) leaves the job unreported, so its lease
+  expires.
+- `POST /jobs/{id}/input-url` sends `attempt`; the answer needs `location`, a `presigned_url`
+  location with `url` for the same object as the leased one (the engine checks that scheme,
+  host, port and path are the same). Any other answer (400 for an input that is not streamed,
+  410 for one that is gone) is passed to the engine as an error, and the job fails with
+  `PERMISSION_DENIED` once the store refuses the URL it has.
 
 ## Development
 

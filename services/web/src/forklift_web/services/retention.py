@@ -5,11 +5,16 @@ data, bad_rows, previews, metadata, job_records) to "keep n days" or null ("keep
 deleted"); the most specific level that names a kind wins, and with no policy at all objects are
 kept (a new installation deletes nothing). The sweeper deletes expired objects from the store
 and records each deletion in the audit log; job records outlive their artifacts unless
-``job_records`` expires too (and only once no artifact of the job is left).
+``job_records`` expires too (and only once no artifact of the job is left). It also aborts
+multipart output uploads that no running attempt will complete. The sweeper also
+drops the sign-in counters that have ended (services.sign_in), which are not audited. Webhook
+deliveries go with the job records: they are deleted once the ``job_records`` lifetime of their
+job has passed (one audit entry counts them).
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
@@ -23,16 +28,29 @@ from forklift_web.core.choices import (
     ARTIFACT_RETENTION_KIND,
     TERMINAL_STATUSES,
     Classification,
+    DeliveryStatus,
     JobStatus,
     RetentionKind,
     RetentionScope,
     UploadStatus,
 )
-from forklift_web.core.models import Artifact, Dataset, Job, RetentionPolicy, Upload
+from forklift_web.core.models import (
+    Artifact,
+    Dataset,
+    Job,
+    RetentionPolicy,
+    Upload,
+    WebhookDelivery,
+)
 from forklift_web.errors import InvalidRequest, NotFound, StoreUnavailable
 from forklift_web.policy import Action, Actor, check
-from forklift_web.services import audit
+from forklift_web.services import audit, sign_in
 from forklift_web.services.uploads import remove_object
+
+# Multipart output uploads are aborted by the gateway when their attempt ends; the sweeper
+# aborts the ones it missed once they are this old (the store's clock dates them)
+STALE_OUTPUT_UPLOAD = timedelta(hours=1)
+_ATTEMPT_KEY = re.compile(r"^jobs/([0-9a-f-]{36})/attempt-([0-9]{1,9})/")
 
 _ARTIFACT_KINDS_BY_RETENTION: dict = {}
 for _artifact_kind, _retention_kind in ARTIFACT_RETENTION_KIND.items():
@@ -230,6 +248,9 @@ class SweepReport:
     uploads: int = 0
     artifacts: int = 0
     jobs: int = 0
+    output_uploads: int = 0
+    sign_in_throttles: int = 0
+    deliveries: int = 0
     errors: list = field(default_factory=list)
 
 
@@ -353,6 +374,65 @@ def _sweep_jobs(actor: Actor, policies: Policies, now, report: SweepReport) -> N
                 job.delete()
 
 
+def _sweep_output_uploads(actor: Actor, now, report: SweepReport) -> None:
+    """Abort multipart uploads under jobs/ that no running attempt will complete: the gateway
+    aborts an attempt's pending uploads when it ends, and this catches what that missed (the
+    store was down then, or an upload was started just as its attempt ended)."""
+    bucket = storage.store()
+    try:
+        pending = bucket.list_multipart_uploads("jobs/")
+    except StoreUnavailable as error:
+        report.errors.append(f"pending output uploads: {error.message}")
+        return
+    for upload in pending:
+        if upload.initiated > now - STALE_OUTPUT_UPLOAD:
+            continue
+        match = _ATTEMPT_KEY.match(upload.key)
+        job = Job.objects.filter(pk=match.group(1)).first() if match else None
+        if job and job.status == JobStatus.RUNNING and job.attempt == int(match.group(2)):
+            continue
+        report.output_uploads += 1
+        if report.dry_run:
+            continue
+        try:
+            bucket.abort_multipart(upload.key, upload.upload_id)
+        except StoreUnavailable as error:
+            report.errors.append(f"pending output upload {upload.key}: {error.message}")
+            continue
+        audit.record(
+            actor, "retention.purge", job, {"kind": "pending output upload", "key": upload.key}
+        )
+
+
+def _sweep_deliveries(actor: Actor, policies: Policies, now, report: SweepReport) -> None:
+    """Delete webhook deliveries older than the job_records lifetime of their job (of the
+    installation for test deliveries, which have no job), unless they are still to be sent."""
+    contexts = (
+        WebhookDelivery.objects.order_by()
+        .values_list("job__dataset_id", "job__classification")
+        .distinct()
+    )
+    for dataset_id, classification in list(contexts):
+        days = policies.days(
+            RetentionKind.JOB_RECORDS, classification=classification, dataset_id=dataset_id
+        )
+        if days is None:
+            continue
+        expired = WebhookDelivery.objects.filter(
+            job__dataset_id=dataset_id,
+            job__classification=classification,
+            created_at__lt=now - timedelta(days=days),
+        ).exclude(status=DeliveryStatus.PENDING, next_attempt_at__isnull=False)
+        report.deliveries += expired.count() if report.dry_run else expired.delete()[0]
+    if report.deliveries and not report.dry_run:
+        audit.record(
+            actor,
+            "retention.purge",
+            None,
+            {"kind": "webhook deliveries", "count": report.deliveries},
+        )
+
+
 def sweep(actor: Actor, *, dry_run: bool = False, now=None) -> SweepReport:
     """Delete what retention says has expired (``dry_run``: only count it)."""
     check(actor, Action.RETENTION_MANAGE)
@@ -362,4 +442,7 @@ def sweep(actor: Actor, *, dry_run: bool = False, now=None) -> SweepReport:
     _sweep_uploads(actor, policies, now, report)
     _sweep_artifacts(actor, policies, now, report)
     _sweep_jobs(actor, policies, now, report)
+    _sweep_deliveries(actor, policies, now, report)
+    _sweep_output_uploads(actor, now, report)
+    report.sign_in_throttles = sign_in.sweep(dry_run=dry_run, now=now)
     return report

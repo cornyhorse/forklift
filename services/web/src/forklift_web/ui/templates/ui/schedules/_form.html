@@ -1,0 +1,17 @@
+{# Adding a schedule, or changing `editing`: `form` (prefix "schedule"), with a live preview of the next runs. #}
+<form method="post" action="{% if editing %}{% url 'ui:schedule-edit' schedule_id=editing.pk %}{% else %}{% url 'ui:schedule-new' dataset_id=dataset.pk %}{% endif %}" class="stack" aria-labelledby="schedule-heading">
+  {% csrf_token %}
+  {% include "ui/_form_errors.html" with form=form %}
+  {% include "ui/_field.html" with field=form.cron wide=True %}
+  {% include "ui/_field.html" with field=form.timezone %}
+  <datalist id="time-zones">{% for name in time_zones %}<option value="{{ name }}"></option>{% endfor %}</datalist>
+  <div id="schedule-preview" role="status" aria-live="polite"
+       hx-get="{% url 'ui:schedule-preview' %}"
+       hx-include="#{{ form.cron.id_for_label }}, #{{ form.timezone.id_for_label }}"
+       hx-trigger="{% if form.is_bound or editing %}load, {% endif %}input changed delay:400ms from:#{{ form.cron.id_for_label }}, change from:#{{ form.timezone.id_for_label }}"
+       hx-sync="this:replace">
+    <p class="muted">Type a cron expression to see when it would run.</p>
+  </div>
+  {% include "ui/_field.html" with field=form.enabled %}
+  <div class="actions"><button type="submit">{% if editing %}Save the schedule{% else %}Add the schedule{% endif %}</button></div>
+</form>

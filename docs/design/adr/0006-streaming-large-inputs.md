@@ -54,3 +54,26 @@ engine to become single-pass. Option 3 is the simplest but moves the cost to dis
   number of distinct keys.
 - Option 2 stays open: if the engine becomes single-pass, the supervisor could feed large inputs
   through a pipe and every profile could be network-less.
+
+## Implementation notes
+
+**Fresh URLs** (as built). A presigned URL is signed for the job's `max_seconds` plus
+`input_url_margin_seconds` (at most the 7-day SigV4 limit), but it stops working earlier when the
+gateway signs with temporary credentials (an IAM role session lasts 1 to 12 hours). So:
+
+- `run_job(..., refresh_input_url=callable)` lets `PresignedUrlSource` replace its URL. Before a
+  request it replaces a SigV4 URL that expires within 5 minutes, or has used up half its lifetime
+  if that is sooner (`X-Amz-Date` plus `X-Amz-Expires`; other URLs are not replaced in advance).
+  A request refused with HTTP 403, or with HTTP 400 `ExpiredToken` (S3's answer once temporary
+  credentials have ended), is sent once more with a fresh URL. A request gets at most one fresh
+  URL and an input at most 100. A fresh URL must keep the scheme, host, port and path, and
+  `If-Match` keeps the bytes the same; without a fresh URL the job fails with
+  `PERMISSION_DENIED` ("The input URL expired and a fresh one could not be obtained: ...").
+- `forklift run-job --input-url-requests` asks over its pipes: `{"type": "input_url"}` on
+  stdout, one answer line on stdin (`{"url": ...}` or `{"error": ...}`) within
+  `--input-url-timeout` seconds. A late or malformed answer ends the conversation.
+- The supervisor starts the engine of a streamed input with that flag and answers each request
+  from `POST /internal/v1/jobs/{id}/input-url` for its lease, passing on only URLs on the host
+  the engine may reach. The gateway signs the input again, the same way and for as long as at
+  lease time, answers only for inputs that can be streamed (CSV in a store; 400 otherwise) and
+  answers 410 for an input that is gone (409 means a lost lease to workers).

@@ -37,9 +37,16 @@ x-gateway: &gateway
     FORKLIFT_S3_SECRET_ACCESS_KEY: ${FORKLIFT_STORE_SECRET_KEY:?set it in .env (generate_env.py)}
     FORKLIFT_ALLOWED_HOSTS: ${FORKLIFT_ALLOWED_HOSTS:-localhost,127.0.0.1,gateway}
     FORKLIFT_CSRF_TRUSTED_ORIGINS: ${FORKLIFT_PUBLIC_URL:-http://localhost:8080}
+    # Webhook payloads link to the API under the public URL; receivers on an internal network
+    # (private addresses) must be listed, and http:// receivers allowed, explicitly
+    FORKLIFT_PUBLIC_URL: ${FORKLIFT_PUBLIC_URL:-http://localhost:8080}
+    FORKLIFT_WEBHOOK_ALLOWED_HOSTS: ${FORKLIFT_WEBHOOK_ALLOWED_HOSTS:-}
+    FORKLIFT_WEBHOOK_ALLOW_HTTP: ${FORKLIFT_WEBHOOK_ALLOW_HTTP:-false}
     # Plain HTTP on localhost; put a TLS proxy in front (and set these to true) anywhere else
     FORKLIFT_SECURE_COOKIES: ${FORKLIFT_SECURE_COOKIES:-false}
     FORKLIFT_BEHIND_TLS_PROXY: ${FORKLIFT_BEHIND_TLS_PROXY:-false}
+    # Proxies whose X-Forwarded-For is trusted for the client address (audit log, sign-in limits)
+    FORKLIFT_TRUSTED_PROXIES: ${FORKLIFT_TRUSTED_PROXIES:-0}
     FORKLIFT_LOG_LEVEL: ${FORKLIFT_LOG_LEVEL:-INFO}
   read_only: true
   tmpfs: [/tmp]
@@ -137,6 +144,31 @@ services:
       timeout: 5s
       retries: 3
       start_period: 120s
+      start_interval: 2s
+    depends_on:
+      init: {condition: service_completed_successfully}
+
+  # Every 10 seconds: enqueues the runs of schedules that are due and sends webhook deliveries
+  # (public: webhooks need a route out). Healthy while a pass in which every step succeeded
+  # finished less than a minute ago (it touches the heartbeat file after each one)
+  dispatcher:
+    <<: *gateway
+    command:
+      - forklift-web
+      - dispatch
+      - --every=10
+      - --heartbeat=/tmp/dispatcher.alive
+    networks: [public, internal, db]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/dispatcher.alive') > 60)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
       start_interval: 2s
     depends_on:
       init: {condition: service_completed_successfully}

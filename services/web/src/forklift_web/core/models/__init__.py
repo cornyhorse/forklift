@@ -10,6 +10,9 @@ from forklift_web.core.models.catalog import (
 )
 from forklift_web.core.models.installation import AuditLog, InstallationSetting, RetentionPolicy
 from forklift_web.core.models.jobs import Artifact, Job, JobEvent, Upload, Worker
+from forklift_web.core.models.schedules import Schedule
+from forklift_web.core.models.sign_in import SignInThrottle
+from forklift_web.core.models.webhooks import Webhook, WebhookDelivery
 
 __all__ = [
     "ApiToken",
@@ -22,10 +25,14 @@ __all__ = [
     "Job",
     "JobEvent",
     "RetentionPolicy",
+    "Schedule",
     "Schema",
     "SchemaVersion",
+    "SignInThrottle",
     "Upload",
     "User",
+    "Webhook",
+    "WebhookDelivery",
     "Worker",
     "WorkerToken",
 ]

@@ -100,6 +100,7 @@ def run_job(
     progress: Optional[ProgressCallback] = None,
     cancel: Optional[CancelCallback] = None,
     s3_client: Any = None,
+    refresh_input_url: Optional[Callable[[], str]] = None,
 ) -> JobResult:
     """Run a job and return its result; job failures are results, not exceptions.
 
@@ -116,13 +117,17 @@ def run_job(
         cancel: Asked after every batch; True stops the job (``status: cancelled``)
         s3_client: ``forklift.io.S3StreamingClient`` for ``s3`` locations (default: boto3's
             credential chain)
+        refresh_input_url: Returns a fresh presigned URL for a ``presigned_url`` input (the
+            same object); called when its URL is about to expire or the store refused it. An
+            exception it raises fails the job (``PERMISSION_DENIED``) once the store refuses the
+            URL. Without it the URL is never replaced.
 
     Returns:
         The :class:`JobResult`
 
     Raises:
         ValueError: ``base_dir`` is not a directory, or ``allowed_url_hosts`` is a string
-        TypeError: ``progress`` or ``cancel`` is not callable
+        TypeError: ``progress``, ``cancel`` or ``refresh_input_url`` is not callable
     """
     base = Path(os.path.realpath(os.fspath(base_dir)))
     if not base.is_dir():
@@ -130,12 +135,17 @@ def run_job(
     if isinstance(allowed_url_hosts, str):
         raise ValueError("allowed_url_hosts must be a list of host names, not a string")
     ImportHooks(progress, cancel)  # checks that both are callable
+    if refresh_input_url is not None and not callable(refresh_input_url):
+        raise TypeError(
+            f"refresh_input_url must be callable, got {type(refresh_input_url).__name__}"
+        )
     if not isinstance(spec, JobSpec):
         try:
             spec = JobSpec.from_dict(spec)
         except ContractError as error:
             return _invalid_spec_result(spec, error)
-    return _Job(spec, base, list(allowed_url_hosts), progress, cancel, s3_client).run()
+    hosts = list(allowed_url_hosts)
+    return _Job(spec, base, hosts, progress, cancel, s3_client, refresh_input_url).run()
 
 
 def _invalid_spec_result(document: Any, error: ContractError) -> JobResult:
@@ -163,6 +173,7 @@ class _Job:
         progress: Optional[ProgressCallback],
         cancel: Optional[CancelCallback],
         s3_client: Any,
+        refresh_input_url: Optional[Callable[[], str]],
     ):
         self.spec = spec
         self.base = base
@@ -170,6 +181,8 @@ class _Job:
         self.progress = progress
         self.cancel = cancel
         self.s3_client = s3_client
+        self.refresh_input_url = refresh_input_url
+        self.url_source: Optional[PresignedUrlSource] = None
         self.started = clock()
         self.counts: Dict[str, int] = {}
         self.warnings: List[str] = []
@@ -249,6 +262,8 @@ class _Job:
                 found.append(location.connection_string)
             elif isinstance(location, PresignedUrlLocation):
                 found.extend([location.url, urllib.parse.urlsplit(location.url).query])
+        if self.url_source is not None:
+            found.extend(self.url_source.secrets())  # fresh URLs too
         return found
 
     # ------------------------------------------------------------------ progress, limits
@@ -388,7 +403,9 @@ class _Job:
                 allowed_hosts=self.allowed_url_hosts,
                 size=location.size,
                 etag=location.etag,
+                refresh=self.refresh_input_url,
             )
+            self.url_source = source
             return {"path": source.name, "source": source, "size": location.size}
         return {"path": None, "source": None, "size": None}  # sql: no path
 

@@ -23,11 +23,13 @@ first.
   `manifest.json` last) from attempt-scoped staging prefixes.
 - Database tables become a destination only after Parquet output meets these criteria: end-to-end
   tests against MinIO and a local volume, retries and crashes never mix attempts, manifest-last
-  publishing verified, large-file runs, and `bad_rows` kept when a run fails on its threshold.
+  publishing verified, runs on inputs larger than 10 GB, and `bad_rows` kept when a run fails on
+  its threshold.
 
 ## Consequences
 
 - Compose ships MinIO; any S3-compatible service works in production.
-- No dependency on a particular cloud's IAM; where short-lived scoped credentials exist they can be
-  added later (for example to stream large inputs without staging).
+- No dependency on a particular cloud's IAM: large inputs are streamed through presigned GETs with
+  range requests ([ADR 0006](0006-streaming-large-inputs.md)), which every S3-compatible store
+  supports, rather than through short-lived scoped credentials, which many do not.
 - Readers of a destination should trust only complete manifests.

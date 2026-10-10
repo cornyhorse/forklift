@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | Proposed |
 | **Date** | 2026-10-09 |
-| **Decisions** | [ADR 0001](adr/0001-monorepo-layout.md) monorepo layout, [ADR 0002](adr/0002-job-contract.md) job contract, [ADR 0003](adr/0003-pull-lease-workers.md) pull-lease workers, [ADR 0004](adr/0004-trust-boundary.md) trust boundary, [ADR 0005](adr/0005-storage-and-destinations.md) storage and destinations |
+| **Decisions** | [ADR 0001](adr/0001-monorepo-layout.md) monorepo layout, [ADR 0002](adr/0002-job-contract.md) job contract, [ADR 0003](adr/0003-pull-lease-workers.md) pull-lease workers, [ADR 0004](adr/0004-trust-boundary.md) trust boundary, [ADR 0005](adr/0005-storage-and-destinations.md) storage and destinations, [ADR 0006](adr/0006-streaming-large-inputs.md) streaming large inputs |
 
 ## 1. Summary
 
@@ -43,6 +43,11 @@ The design rests on three ideas:
 | Sensitivity | Varies: anything from public data to PII; the design has to handle both |
 | Authentication | Local accounts plus API tokens; SSO (OIDC) later |
 | Destinations | Parquet on S3-compatible storage and on local file systems first; database tables only after that is solid |
+| Package names | `forklift-web`, `forklift-worker`, `forklift-client`, `forklift-mcp` (beside `forklift-etl`) |
+| API framework | Django Ninja |
+| Input sizes | Plan for single inputs larger than 10 GB: inputs above `stageMaxBytes` (default 2 GiB) are streamed to the engine through presigned URLs ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
+| Retention | Configured by admins (installation, classification and dataset level); no fixed defaults built in |
+| Registry | GHCR for images; the Helm chart as an OCI artifact on GHCR |
 
 ### Non-goals (for now)
 
@@ -68,31 +73,32 @@ The web UI's core loop: **upload → preview → schema (generate, edit, validat
 ## 3. Architecture
 
 ```
-                         ┌───────────────────────────────── internet / office network
-                         │
-                    ┌────▼────┐
-                    │ ingress │  TLS
-                    └────┬────┘
-                         │ public port: UI, /api/v1, (optional) remote MCP
-   ┌─────────────────────▼──────────────────────┐        ┌──────────────┐
-   │ gateway (Django)                            │───────►│  Postgres    │
-   │  accounts, tokens, roles, audit             │        └──────────────┘
-   │  schemas, connections, datasets, schedules  │
-   │  job queue (in Postgres), presigned URLs    │  never imports pyarrow / forklift-etl
-   │  internal port: /internal/v1 (workers only) │  never reads data bytes
-   └───────▲─────────────────────────────────────┘
-           │ outbound only: lease, heartbeat, complete      ┌──────────────────────────┐
-           │                                                │ S3-compatible store      │
-   ┌───────┴──────────────── worker (×N) ─────────┐        │  uploads/  jobs/  outputs │
-   │ supervisor (trusted code):                    │◄──────►│  (presigned GET / PUT)    │
-   │   lease job → stage inputs to scratch →       │        └──────────────────────────┘
-   │   spawn engine → upload outputs → report      │
-   │ ┌───────────────────────────────────────────┐ │        ┌──────────────────────────┐
-   │ │ engine process (forklift-etl, untrusted   │ │◄──────►│ mounted volumes          │
-   │ │ input): one job, rlimits, scratch dir,    │ │        │ (local-fs connections)   │
-   │ │ no network in the hardened profiles       │ │        └──────────────────────────┘
-   │ └───────────────────────────────────────────┘ │
-   └───────────────────────────────────────────────┘
+                     internet / office network
+                                │
+                           ┌────▼────┐
+                           │ ingress │ TLS
+                           └────┬────┘
+                                │ public port: UI, /api/v1, (optional) remote MCP
+   ┌────────────────────────────▼─────────────────┐       ┌────────────┐
+   │ gateway (Django)                             │──────►│  Postgres  │
+   │   accounts, tokens, roles, audit             │       └────────────┘
+   │   schemas, connections, datasets, schedules  │
+   │   job queue (Postgres), presigned URLs       │   never imports pyarrow or the engine
+   │   internal port /internal/v1 (workers only)  │   never reads data bytes
+   └────────────────────▲─────────────────────────┘
+                        │ outbound only: lease, heartbeat, complete
+   ┌────────────────────┴─────── worker (×N) ─────┐       ┌────────────────────────────┐
+   │ supervisor (trusted code)                    │◄─────►│ S3-compatible store        │
+   │   lease → stage small inputs to scratch, or  │ PUT/  │   uploads/  jobs/  outputs │
+   │   pass large ones on as presigned URLs →     │ GET   │   (presigned URLs only)    │
+   │   start engine → upload outputs → report     │       └─────────────▲──────────────┘
+   │  ┌────────────────────────────────────────┐  │                     │
+   │  │ engine process (forklift-etl)          │  │  streamed inputs:   │
+   │  │   one job, rlimits, scratch dir,       │──┼─────────────────────┘
+   │  │   no credentials; network: the store   │  │  range GETs on its own URLs
+   │  │   only, none when inputs are staged    │  │       ┌────────────────────────────┐
+   │  └────────────────────────────────────────┘◄─┼──────►│ mounted volumes (localfs)  │
+   └──────────────────────────────────────────────┘       └────────────────────────────┘
 
    mcp (optional): a client of /api/v1 with a token; no database, no storage credentials
 ```
@@ -140,7 +146,9 @@ See [ADR 0002](adr/0002-job-contract.md).
   "kind": "run",                    // run | preview | validate_schema | generate_schema
   "input": {
     "format": "csv",                // csv | excel | fwf | sql
-    "location": {"type": "file", "path": "in/people.csv"},   // worker-local after staging
+    "location": {"type": "file", "path": "in/people.csv"},   // staged into scratch, or:
+    // {"type": "presigned_url", "url": "https://store.example.org/...", "size": 53687091200,
+    //  "etag": "..."}  for a streamed input (ADR 0006)
     "options": {"encoding": "utf-8", "delimiter": ",", "header_mode": "present"}
   },
   "schema": { "...": "inline JSON schema, never a path on the server" },
@@ -171,10 +179,11 @@ See [ADR 0002](adr/0002-job-contract.md).
 
 Rules:
 
-- **Locations in a spec are always local to whoever runs it.** The gateway never hands a worker a
-  bucket path to read with its own credentials; the worker's supervisor stages inputs into scratch
-  and gives the engine local paths (see §6). A library user can point a spec at `s3://` paths, which
-  the engine supports directly.
+- **Locations never carry credentials.** In the service a location is a local path (an input the
+  supervisor staged into scratch, or an output the engine writes there) or a presigned URL issued
+  for this job and this object only (a streamed input, §6.1). The gateway never hands a worker a
+  bucket path to read with credentials of its own. A library user can still point a spec at
+  `s3://` paths, which the engine reads with the caller's credentials.
 - **No cell values in results.** Counts, codes and column names only, as the engine already does for
   `validation_summary`, `_rejection_reason` and error messages. Row samples (previews) are a
   separate, permission-checked artifact.
@@ -200,11 +209,12 @@ and it is the exact code path the worker uses.
 | `ApiToken` | owner (user or service account), prefix, hash, scopes, expires_at, last_used_at | Shown once at creation; stored as a hash |
 | `Connection` | kind (`s3`, `localfs`, `sql`), name, config (endpoint, bucket, prefix / root path / DSN parts), `secret_ref`, allowed roles | Secrets live in the secret backend, never in `config` |
 | `Schema`, `SchemaVersion` | name; version: JSON document, sha256, author, created_at, notes | Versions are immutable; editing creates a new version |
-| `Dataset` | name, classification (`public`, `internal`, `sensitive`), source (connection + path or pattern), schema version, destination (connection + prefix), retention | The unit people schedule and permission |
+| `Dataset` | name, classification (`public`, `internal`, `sensitive`), source (connection + path or pattern), schema version, destination (connection + prefix), retention override | The unit people schedule and permission |
 | `Upload` | object key, size, sha256, uploader, expires_at | Created before the presigned PUT, finalised after |
 | `Job` | kind, lane, status, spec (JSON), result (JSON), dataset?, requested_by, attempt, lease (worker, expires_at), timestamps | State machine in §5.3 |
 | `JobEvent` | job, time, type (`progress`, `log`, `state`), payload | Progress and logs without cell values |
 | `Artifact` | job, kind (`data`, `bad_rows`, `manifest`, `metadata`, `preview`), object key, rows, bytes, sha256, expires_at | Downloads go through permission checks and presigned GETs |
+| `RetentionPolicy` | scope (installation, classification), per artifact kind: keep for *n* days or keep until deleted | Set by admins (§5.7) |
 | `Schedule` | dataset, cron expression, timezone, enabled, next_run_at | A small scheduler loop in the gateway enqueues jobs |
 | `AuditLog` | actor, action, object, time, request id, ip | Downloads of sensitive artifacts, connection changes, token use |
 | `Worker` | id, lanes, versions, last_seen | For the admin view and lease bookkeeping |
@@ -242,7 +252,7 @@ only narrow their owner's role.
 
 ### 5.4 APIs
 
-**Public** (`/api/v1`, session or token auth, OpenAPI generated and checked in under `contracts/`):
+**Public** (`/api/v1`, built with Django Ninja; session or token auth; OpenAPI generated and checked in under `contracts/`):
 
 | Endpoint | Purpose |
 |---|---|
@@ -276,36 +286,60 @@ environment encrypts secrets in Postgres) to start, Kubernetes Secrets and Vault
 decrypted only to sign URLs (storage) or to hand a single job what it needs (SQL sources, §7.3), and
 they are never logged (the engine already redacts connection strings).
 
+### 5.7 Retention
+
+Retention is set by admins, not built in. A policy says, per artifact kind (uploads, data, `bad_rows`,
+previews, job records), either "keep *n* days" or "keep until deleted", and it can be set at three
+levels: the installation, each classification, and each dataset (the most specific one wins). A new
+installation keeps everything until an admin sets a policy; the admin screens show a warning while
+`sensitive` datasets have no expiry. A sweeper in the gateway deletes expired objects and records
+each deletion in the audit log. Job records can outlive their artifacts so history stays readable.
+
 ## 6. Workers
 
 ### 6.1 Supervisor and engine process
 
 The worker is two processes with different trust:
 
-1. The **supervisor** (small, trusted code) leases a job, validates the signed spec, downloads the
-   inputs through the presigned GETs into a per-job scratch directory, writes the inline schema to
-   a file, and starts:
+1. The **supervisor** (small, trusted code) leases a job, validates the signed spec, prepares a
+   per-job scratch directory, writes the inline schema to a file, and starts:
 2. the **engine process**: `forklift run-job spec.json` (the same entry point library users have),
    with resource limits (CPU time, address space, open files, output size), a wall-clock timeout,
-   the scratch directory as its only writable path and, in the hardened profiles, no network. It
-   reports progress on a pipe.
+   the scratch directory as its only writable path, and no credentials of any kind. It reports
+   progress on a pipe.
 
-When the engine exits, the supervisor uploads the artifacts through presigned PUTs, reports the
-`JobResult`, deletes the scratch directory and takes the next lease. One job per engine process: a
-crash, a leak or an exploit does not outlive its job.
+Inputs reach the engine one of two ways, chosen per input by size
+([ADR 0006](adr/0006-streaming-large-inputs.md)):
 
-Staging trades scratch space and one extra copy for a strong property: **the code that parses
-untrusted data never holds credentials and, when the platform allows it, cannot open a socket.**
-Streaming directly from the store is a later optimisation for very large files (it needs short-lived,
-prefix-scoped credentials, which not every S3-compatible store offers).
+| Mode | When | How | Engine network |
+|---|---|---|---|
+| **Staged** | Inputs up to `stageMaxBytes` (admin setting; default 2 GiB) | The supervisor downloads the object through a presigned GET into scratch and the spec points at the local copy | None needed: the `no-network` profile applies |
+| **Streamed** | Larger inputs (planned for well beyond 10 GB) | The spec carries a presigned URL for that one object. The engine reads it as a forward-only stream (resuming with range requests after a dropped connection) plus small range reads for header detection. When a URL is about to expire, the engine asks the supervisor for a fresh one over the pipe | The object store endpoint only |
+
+Outputs are written to scratch and uploaded by the supervisor with presigned multipart PUTs.
+Parquet output is compressed and usually much smaller than the text it came from, so scratch is
+sized for outputs, not inputs; streaming outputs directly is a later option if that stops being
+true.
+
+When the engine exits, the supervisor uploads the artifacts, reports the `JobResult`, deletes the
+scratch directory and takes the next lease. One job per engine process: a crash, a leak or an
+exploit does not outlive its job.
+
+Either way, **the code that parses untrusted data never holds credentials.** A presigned URL opens
+exactly one object, for a limited time, and the engine's network is limited to the store.
 
 ### 6.2 Isolation profiles
 
 | Profile | Where | Engine process gets | Use for |
 |---|---|---|---|
-| **standard** (default) | Compose and Helm | Non-root, read-only root file system, default seccomp, rlimits, scratch dir; container egress limited by NetworkPolicy to the store and the gateway | Most installations |
-| **no-network** | Where user namespaces are available | As standard, plus its own empty network namespace | Untrusted files from outside the organisation |
-| **sandboxed** | Helm | As no-network, plus a sandboxed runtime (`runtimeClassName`, for example gVisor or Kata) or one Kubernetes Job per run whose inputs are staged by an init container | Sensitive data from untrusted sources |
+| **standard** (default) | Compose and Helm | Non-root, read-only root file system, default seccomp, rlimits, scratch dir; container egress limited to the gateway's internal port and the object store | Most installations |
+| **no-network** | Where user namespaces are available | As standard, plus its own empty network namespace; only staged inputs (a larger input is refused, or routed to a `standard` lane if the admin allows it) | Untrusted files from outside the organisation |
+| **sandboxed** | Helm | As standard (or no-network), plus a sandboxed runtime (`runtimeClassName`, for example gVisor or Kata) or one Kubernetes Job per run | Sensitive data from untrusted sources |
+
+Limiting egress to "the object store" depends on where the store is. NetworkPolicies match IP
+addresses, not host names: an in-cluster MinIO is selected by its pods, an external store by its
+CIDR ranges where they are stable, and otherwise through an egress proxy that allows only the
+store's host name. The chart supports all three (§10.2).
 
 ### 6.3 Publishing outputs
 
@@ -321,9 +355,9 @@ engine's behaviour.
 
 | Prefix | Written by | Read by | Lifetime |
 |---|---|---|---|
-| `uploads/<upload>/` | Browser or client (presigned PUT) | Workers (presigned GET) | Until used, then per retention |
-| `jobs/<job>/attempt-<n>/` | Workers | Users (downloads), publish step | Per dataset retention |
-| `previews/<job>/` | Workers | UI | Hours |
+| `uploads/<upload>/` | Browser or client (presigned PUT) | Workers: the supervisor (staged) or the engine (streamed), both through presigned GETs | Admin-set retention (§5.7) |
+| `jobs/<job>/attempt-<n>/` | Workers | Users (downloads), publish step | Admin-set retention (§5.7) |
+| `previews/<job>/` | Workers | UI | Admin-set retention; short by nature |
 | Destination prefixes (per connection) | Publish step | Downstream consumers | Owned by the destination |
 
 The gateway's storage credential is split by purpose where the store supports policies: an upload
@@ -351,9 +385,9 @@ the lease over TLS, held in memory only, and the engine connects read-only (its 
 |---|---|---|
 | Accounts, tokens | Credential theft, brute force | Hashed tokens with prefixes and expiry, rate limiting, password policy, audit log; OIDC later |
 | Gateway | Exploit through a malicious file or schema | The gateway never parses data or runs schema logic; uploads go straight to the store |
-| Workers | Exploit through a malicious file, schema expression or regular expression | Engine hardening already in place (whitelist expression interpreter, ReDoS guard, Excel size and zip-bomb limits, validated SQL identifiers, output path checks); per-job process with rlimits; isolation profiles; no credentials in the engine process |
+| Workers | Exploit through a malicious file, schema expression or regular expression | Engine hardening already in place (whitelist expression interpreter, ReDoS guard, Excel size and zip-bomb limits, validated SQL identifiers, output path checks); per-job process with rlimits; isolation profiles; no credentials in the engine process; engine network limited to the object store (none for staged inputs) |
 | Other jobs' data | A compromised worker reaching beyond its job | Presigned URLs per job and object; worker tokens can only lease, heartbeat and complete; no database access |
-| Data at rest | Disclosure of PII in outputs and `bad_rows` | Store-side encryption (SSE where available), classification-driven retention, view-raw-rows permission, audited downloads |
+| Data at rest | Disclosure of PII in outputs and `bad_rows` | Store-side encryption (SSE where available), admin-set retention per classification and dataset, view-raw-rows permission, audited downloads |
 | Data in logs and results | PII in messages | The engine's rule: counts, codes and column names, never cell values; enforced by tests |
 | Internal API | Abuse from inside the network | Separate port, not routed by the ingress; NetworkPolicy; worker tokens; signed specs |
 | Supply chain | Vulnerable dependencies or images | Pinned lock files, Dependabot (already configured), image scanning in CI, minimal base images, SBOMs |
@@ -361,7 +395,9 @@ the lease over TLS, held in memory only, and the engine connects read-only (its 
 **Residual risks** we accept for a single organisation: the gateway's signing credentials could
 read stored data if the gateway were fully compromised; SQL credentials reach the `sql` lane workers
 for the duration of a job; the `standard` profile relies on container isolation rather than a
-sandboxed runtime.
+sandboxed runtime; an engine streaming a large input can open connections to the object store
+(though only its own presigned URLs grant access to anything); a new installation deletes nothing
+until an admin sets retention.
 
 **Data classification** keeps "sometimes public, sometimes PII" manageable: a dataset's
 classification sets defaults (retention, who may preview, whether downloads are audited) instead of
@@ -397,7 +433,9 @@ can instead call `forklift.run_job` in a task; the result has the same shape.
 `deploy/compose/docker-compose.yml` brings up `gateway`, `worker` (batch and interactive lanes in one
 process for small installations), `postgres` and `minio`, with an optional `caddy` profile for TLS and
 an optional `mcp` profile. One `.env` file holds the secrets. Data and database live in named volumes.
-It is the development environment and a supported way to run a small installation.
+Workers sit on an `internal` Docker network that reaches only the gateway's internal port and
+MinIO; with an external store, an optional allow-listing proxy service limits their egress to that
+store's host. It is the development environment and a supported way to run a small installation.
 
 ### 10.2 Helm
 
@@ -419,17 +457,26 @@ workers:
     replicas: 1
     autoscaling: {keda: {enabled: false, maxReplicas: 10}}   # scales on queue depth
     resources: {limits: {cpu: "4", memory: 16Gi}}
-    scratch: {sizeLimit: 200Gi}
+    scratch: {sizeLimit: 200Gi}             # outputs (and staged inputs up to stageMaxBytes)
     isolation: standard                     # standard | no-network | sandboxed
     runtimeClassName: ""                    # e.g. gvisor for the sandboxed profile
+inputs:
+  stageMaxBytes: 2Gi                        # larger inputs are streamed through presigned URLs
 postgres: {external: true, existingSecret: forklift-db}
 objectStore: {endpoint: https://s3.example.org, bucket: forklift, existingSecret: forklift-s3}
-networkPolicies: {enabled: true}
+networkPolicies:
+  enabled: true
+  storeEgress:                              # how workers may reach the object store
+    mode: cidr                              # podSelector (in-cluster MinIO) | cidr | proxy
+    cidrs: [203.0.113.0/24]
+    proxy: {enabled: false, allowHosts: [s3.example.org]}
+image: {registry: ghcr.io/cornyhorse}       # forklift-web, forklift-worker, forklift-mcp
 mcp: {enabled: false}
 ```
 
-The chart ships NetworkPolicies (deny all worker ingress; worker egress to the gateway's internal
-port and the store only), Pod Security "restricted" settings, a migration Job run before the gateway
+The chart is published as an OCI artifact (`oci://ghcr.io/cornyhorse/charts/forklift`). It ships
+NetworkPolicies (deny all worker ingress; worker egress to the gateway's internal port and the store
+only, by pod selector, CIDR or an allow-listing egress proxy), Pod Security "restricted" settings, a migration Job run before the gateway
 rolls, and optional ServiceMonitors. It creates no cloud-specific resources: Postgres and the store are
 external by default, and secrets can come from existing Secrets or an External Secrets operator.
 
@@ -448,7 +495,7 @@ external by default, and secrets can come from existing Secrets or an External S
 
 ```
 pyproject.toml, src/forklift/, tests/   engine + CLI          → PyPI forklift-etl (unchanged), tags v*
-services/web/                           Django gateway         → PyPI forklift-web,    image, tags web-v*
+services/web/                           Django gateway (Ninja) → PyPI forklift-web,    image, tags web-v*
 services/worker/                        supervisor             → PyPI forklift-worker, image, tags worker-v*
 services/mcp/                           remote MCP proxy       → image,                      tags mcp-v*
 clients/python/                         forklift-client        → PyPI forklift-client,       tags client-v*
@@ -466,6 +513,8 @@ docs/                                   one documentation tree for everything
   tested in their own CI jobs, selected by path filters.
 - A uv workspace (or an equivalent) installs everything for development; each package still builds
   and publishes on its own.
+- Images are published to GHCR (`ghcr.io/cornyhorse/forklift-web`, `-worker`, `-mcp`), tagged with
+  the package version and the commit; the chart goes to the same registry as an OCI artifact.
 
 ## 12. Engine changes needed first
 
@@ -480,18 +529,22 @@ These are small, useful on their own to library users, and the foundation for ev
 | Schema accepted as a dict as well as a file | Specs carry the schema inline |
 | `import_csv(..., s3_client=)` / S3 endpoint option | Library users on S3-compatible stores (`import_sql` already takes `s3_client`; `import_csv` builds a default client) |
 | `preview(source, schema=None, rows=n)` | The preview job |
+| Arrow's streaming CSV reader for remote inputs: a `presigned_url` location read as a forward-only HTTP stream that resumes with range requests, small range reads for header detection, and a callback to refresh an expiring URL | Streamed inputs (§6.1). The same reader would speed up `s3://` inputs, which today go through Python's `csv` module row by row; only local files use Arrow's reader |
+| `presigned_url` locations accepted only through `run_job`, and only for hosts the caller allows (the worker passes the store's endpoint) | Keeps the SSRF guard: schema generation and the public API still reject URLs from users |
+| Footer detection without copying the input | It currently writes a filtered temporary copy, which for a streamed input would be a full local copy |
+| Uniqueness checks with bounded memory | The constraint validator keeps one in-memory entry per distinct key, which for hundreds of millions of keys means many gigabytes; spill key sets to scratch (for example in hashed partitions) above a threshold |
 
 ## 13. Milestones
 
 | # | Milestone | Done when |
 |---|---|---|
 | M0 | This design is reviewed and merged | — |
-| M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI |
+| M1 | Engine seams (§12) | `forklift run-job spec.json` produces a `JobResult` that validates against the published schema; contract tests in CI; a streamed CSV (presigned URL against MinIO) gives the same output as the local file |
 | M2 | `forklift-mcp` (stdio) | An agent can generate, validate and apply a schema to a local file and explain a failed run |
-| M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; an end-to-end Compose test runs in CI |
+| M3 | Service MVP | `docker compose up`; in the browser or through the API, a user uploads a CSV, picks or generates a schema, runs it and downloads Parquet and `bad_rows`; staged and streamed inputs both work; an end-to-end Compose test runs in CI and a run on an input larger than 10 GB runs on demand |
 | M4 | Helm, hardening, authoring | Chart with NetworkPolicies and isolation profiles; schema editor; connections admin (S3-compatible, localfs); datasets, schedules, retention, audit |
 | M5 | Integrations | Remote MCP, `forklift-client`, Airflow operator and sensor, webhooks, OIDC, SQL lane |
-| M6 | Database tables as destinations | Only after Parquet to S3-compatible and local storage is solid: tested against MinIO and a local volume, safe on retries and crashes, manifest-last publishing, large-file runs, kept `bad_rows` on failure |
+| M6 | Database tables as destinations | Only after Parquet to S3-compatible and local storage is solid: tested against MinIO and a local volume, safe on retries and crashes, manifest-last publishing, runs on inputs larger than 10 GB (including uniqueness checks), kept `bad_rows` on failure |
 
 ## 14. Alternatives considered
 
@@ -501,17 +554,18 @@ These are small, useful on their own to library users, and the foundation for ev
 | Celery or RQ with Redis as the queue | A broker is one more stateful service to run and secure; Postgres row locking is enough for one organisation's volume, and the lease API hides the choice from workers |
 | Gateway pushes jobs to workers | Workers would need inbound ports; pulling keeps them unreachable and lets them run in other networks |
 | Workers read the store with their own credentials | Long-lived credentials in the process that parses untrusted data; not every S3-compatible store has short-lived, prefix-scoped credentials |
+| Supervisor streams large inputs to the engine through a pipe | Would keep the engine network-less at any size, but the engine reads parts of a file more than once (header detection, the fallback reader for ragged rows, footer handling) and would first have to become single-pass ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
+| Stage every input, with large scratch volumes | Disk larger than the biggest input plus its outputs, and a full copy before work starts; kept for inputs up to `stageMaxBytes` |
 | Single-page app front end | More build tooling and state for a small team; the API-first design keeps the option open |
 | One Kubernetes Job per run by default | Strongest isolation, but slow start-up for interactive work and no Compose equivalent; offered as the `sandboxed` profile |
 
-## 15. Open questions
+## 15. Questions resolved
 
-1. **Names.** `forklift-web`, `forklift-worker`, `forklift-client`, `forklift-mcp`: fine, or a common
-   prefix such as `forklift-platform-*`?
-2. **API framework.** Django REST Framework (mature, rich permission ecosystem) or Django Ninja
-   (typed, pydantic, OpenAPI out of the box, models reusable for MCP tool schemas)? Leaning Ninja;
-   to settle at the start of M3.
-3. **Target sizes.** Largest file and row count to plan for; this sets scratch volume defaults and
-   whether direct streaming is needed early.
-4. **Retention defaults** per classification (proposal: public 90 days, internal 30, sensitive 7).
-5. **Images.** Publish to GHCR, and the chart as an OCI artifact there too?
+| Question | Answer |
+|---|---|
+| Package and image names | `forklift-web`, `forklift-worker`, `forklift-client`, `forklift-mcp` |
+| API framework | Django Ninja |
+| Largest input to plan for | More than 10 GB: inputs above `stageMaxBytes` are streamed through presigned URLs, with the engine's network limited to the object store ([ADR 0006](adr/0006-streaming-large-inputs.md)) |
+| Retention defaults | None built in: admins set retention per installation, classification and dataset (§5.7) |
+| Registry | GHCR for the images; the Helm chart as an OCI artifact on GHCR |
+| Staging threshold | `stageMaxBytes` defaults to 2 GiB (admins can change it): smaller inputs are copied to scratch and can use the `no-network` profile, larger ones are streamed |

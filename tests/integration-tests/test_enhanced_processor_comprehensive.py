@@ -19,6 +19,18 @@ from forklift.processors.enhanced_processor import (
 )
 
 
+def set_violations(validator: Mock, violations: List[ConstraintViolation]) -> None:
+    """Give a mocked ConstraintValidator the violation attributes the real class has.
+
+    ``EnhancedDataProcessor`` reads the violations of the batch it just processed
+    (``batch_violations``), the exact total (``violation_count``) and everything the validator
+    retained (``get_all_violations()``); a bare ``Mock`` answers all three with more mocks.
+    """
+    validator.get_all_violations.return_value = list(violations)
+    validator.batch_violations = list(violations)
+    validator.violation_count = len(violations)
+
+
 class TestEnhancedDataProcessor:
     """Test EnhancedDataProcessor class functionality."""
 
@@ -171,7 +183,7 @@ class TestEnhancedDataProcessor:
             constraint_valid_batch,
             constraint_validation_results,
         )
-        mock_constraint_validator_instance.get_all_violations.return_value = []
+        set_violations(mock_constraint_validator_instance, [])
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
         processor = EnhancedDataProcessor(self.test_schema)
@@ -229,7 +241,7 @@ class TestEnhancedDataProcessor:
                 row_index=1,
             )
         ]
-        mock_constraint_validator_instance.get_all_violations.return_value = constraint_violations
+        set_violations(mock_constraint_validator_instance, constraint_violations)
         constraint_validation_results = [
             ValidationResult(False, "CONSTRAINT_ERROR", "Constraint violation", "age", 1)
         ]
@@ -310,7 +322,7 @@ class TestEnhancedDataProcessor:
         mock_schema_validator.return_value = Mock()
 
         mock_constraint_validator_instance = Mock()
-        mock_constraint_validator_instance.get_all_violations.return_value = []
+        set_violations(mock_constraint_validator_instance, [])
         mock_constraint_validator_instance.finalize.return_value = None  # No exception
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
@@ -337,7 +349,7 @@ class TestEnhancedDataProcessor:
         mock_schema_validator.return_value = Mock()
 
         mock_constraint_validator_instance = Mock()
-        mock_constraint_validator_instance.get_all_violations.return_value = []
+        set_violations(mock_constraint_validator_instance, [])
         mock_constraint_validator_instance.finalize.side_effect = Exception("Constraint error")
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
@@ -364,7 +376,7 @@ class TestEnhancedDataProcessor:
         mock_schema_validator.return_value = Mock()
 
         mock_constraint_validator_instance = Mock()
-        mock_constraint_validator_instance.get_all_violations.return_value = []
+        set_violations(mock_constraint_validator_instance, [])
         mock_constraint_validator_instance.finalize.side_effect = Exception("Constraint error")
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
@@ -387,7 +399,7 @@ class TestEnhancedDataProcessor:
         mock_schema_validator.return_value = Mock()
 
         mock_constraint_validator_instance = Mock()
-        mock_constraint_validator_instance.get_all_violations.return_value = []
+        set_violations(mock_constraint_validator_instance, [])
         mock_constraint_validator_instance.finalize.return_value = None
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
@@ -428,7 +440,7 @@ class TestEnhancedDataProcessor:
         ]
 
         mock_constraint_validator_instance = Mock()
-        mock_constraint_validator_instance.get_all_violations.return_value = violations
+        set_violations(mock_constraint_validator_instance, violations)
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
         processor = EnhancedDataProcessor(self.test_schema)
@@ -569,7 +581,7 @@ class TestEnhancedDataProcessor:
         mock_create_config.return_value = Mock()
         mock_schema_validator.return_value = Mock()
         mock_constraint_validator_instance = Mock()
-        mock_constraint_validator_instance.get_all_violations.return_value = []
+        set_violations(mock_constraint_validator_instance, [])
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
         processor = EnhancedDataProcessor(self.test_schema)
@@ -629,7 +641,7 @@ class TestEnhancedDataProcessor:
 
         mock_constraint_validator_instance = Mock()
         mock_constraint_validator_instance.process_batch.return_value = (empty_batch, [])
-        mock_constraint_validator_instance.get_all_violations.return_value = []
+        set_violations(mock_constraint_validator_instance, [])
         mock_constraint_validator.return_value = mock_constraint_validator_instance
 
         processor = EnhancedDataProcessor(self.test_schema)

@@ -1,0 +1,12 @@
+# Build context: the repository root (BuildKit reads this file for services/worker/Dockerfile).
+# Only what the image needs; everything else (venvs, caches, tests, .git) stays out.
+**
+!pyproject.toml
+!README.md
+!LICENSE
+!src/**
+!services/worker/pyproject.toml
+!services/worker/README.md
+!services/worker/src/**
+**/__pycache__
+**/*.pyc

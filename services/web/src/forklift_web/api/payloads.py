@@ -30,7 +30,10 @@ class UserOut(Schema):
     first_name: str
     last_name: str
     role: Role
-    can_view_raw_rows: bool
+    can_view_raw_rows: bool = Field(description="Granted 'view raw rows' (matters below Admin)")
+    may_view_raw_rows: bool = Field(
+        description="Whether the user sees rows of sensitive data: admins always, else if granted"
+    )
     is_service_account: bool
     is_active: bool
     date_joined: datetime

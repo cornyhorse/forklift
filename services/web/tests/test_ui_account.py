@@ -56,6 +56,10 @@ def test_the_home_page_lists_the_users_recent_jobs_and_files(world, client):
 def test_the_raw_rows_permission_is_explained_on_the_home_page(client, make_user):
     user = make_user(Role.VIEWER, raw_rows=True)
     assert b"view raw rows of sensitive data" in signed_in(client, user).get("/").content
+    admin = make_user(Role.ADMIN)  # admins always may, without the grant
+    assert b"view raw rows of sensitive data" in signed_in(client, admin).get("/").content
+    plain = make_user(Role.AUTHOR)
+    assert b"view raw rows of sensitive data" not in signed_in(client, plain).get("/").content
 
 
 # --------------------------------------------------------------------------- password

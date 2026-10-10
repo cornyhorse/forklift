@@ -1,5 +1,6 @@
-"""Sensitive data: previewing it and downloading its rows need "view raw rows", for every role;
-downloads are presigned, short-lived and audited."""
+"""Sensitive data: previewing it and downloading its rows need "view raw rows", which admins
+always have and the other roles only when granted; downloads are presigned, short-lived and
+audited."""
 
 from __future__ import annotations
 
@@ -46,7 +47,7 @@ def sensitive_job():
     return world, upload, job, files
 
 
-@pytest.mark.parametrize("role", [Role.VIEWER, Role.OPERATOR, Role.AUTHOR, Role.ADMIN])
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.OPERATOR, Role.AUTHOR])
 def test_rows_of_sensitive_jobs_need_raw_rows(sensitive_job, as_user, role):
     _, _, _, files = sensitive_job
     without = as_user(make_user(role))
@@ -62,6 +63,20 @@ def test_rows_of_sensitive_jobs_need_raw_rows(sensitive_job, as_user, role):
     # Seeing that the files exist (names, sizes, counts) needs no raw rows
     listed = without.get(f"/api/v1/jobs/{artifact.job_id}/artifacts").json()
     assert len(listed) == len(files)
+
+
+def test_admins_download_rows_of_sensitive_jobs_without_the_grant(sensitive_job, as_user):
+    _, _, _, files = sensitive_job
+    admin = make_user(Role.ADMIN)
+    caller = as_user(admin)
+    for artifact in files.values():
+        assert caller.get(f"/api/v1/artifacts/{artifact.pk}/download").status_code == 200
+    assert AuditLog.objects.filter(actor=admin, action="artifact.download").count() == (len(files))
+    # Demoted, the admin is back to what the grant says
+    admin.role = Role.AUTHOR
+    admin.save()
+    path = f"/api/v1/artifacts/{files['data'].pk}/download"
+    assert as_user(admin).get(path).status_code == 403
 
 
 def test_a_token_carries_its_owner_s_raw_rows_permission(sensitive_job, as_token):

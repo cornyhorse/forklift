@@ -2816,6 +2816,7 @@
       "UserOut": {
         "properties": {
           "can_view_raw_rows": {
+            "description": "Granted 'view raw rows' (matters below Admin)",
             "title": "Can View Raw Rows",
             "type": "boolean"
           },
@@ -2860,6 +2861,11 @@
             "title": "Last Name",
             "type": "string"
           },
+          "may_view_raw_rows": {
+            "description": "Whether the user sees rows of sensitive data: admins always, else if granted",
+            "title": "May View Raw Rows",
+            "type": "boolean"
+          },
           "role": {
             "enum": [
               "viewer",
@@ -2883,6 +2889,7 @@
           "last_name",
           "role",
           "can_view_raw_rows",
+          "may_view_raw_rows",
           "is_service_account",
           "is_active",
           "date_joined",

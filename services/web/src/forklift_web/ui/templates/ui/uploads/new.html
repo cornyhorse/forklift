@@ -20,7 +20,7 @@
     </div>
     <div class="field">
       <label for="upload-classification">Classification</label>
-      <p class="help" id="upload-classification-help">How restricted the data is. Rows of sensitive data can only be previewed and downloaded by people with the “view raw rows” permission.</p>
+      <p class="help" id="upload-classification-help">How restricted the data is. Rows of sensitive data can only be previewed and downloaded by admins and by people an admin gave the “view raw rows” permission.</p>
       <select id="upload-classification" name="classification" aria-describedby="upload-classification-help">
         {% for value, label in classifications %}<option value="{{ value }}"{% if value == default_classification %} selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>

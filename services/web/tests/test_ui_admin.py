@@ -109,6 +109,14 @@ def test_finding_users(world, admin):
     assert b"No users match." in admin.get(reverse("ui:admin-users"), {"q": "nobody"}).content
 
 
+def test_the_users_table_shows_who_views_raw_rows(world, admin):
+    User.objects.filter(pk=world.viewer.pk).update(can_view_raw_rows=True)
+    admins = admin.get(reverse("ui:admin-users"), {"role": "admin"}).content.decode()
+    assert "<td>yes (admin)</td>" in admins  # admins always may
+    viewers = admin.get(reverse("ui:admin-users"), {"role": "viewer"}).content.decode()
+    assert "<td>yes</td>" in viewers and "yes (admin)" not in viewers
+
+
 @pytest.mark.parametrize(
     "fields,status,message",
     [

@@ -106,9 +106,16 @@ def test_admin_api_for_users(as_user, admin, make_user):
         "/api/v1/admin/users", {"username": "bo", "role": "author", "password": PASSWORD}
     )
     assert created.status_code == 201 and "password" not in created.json()
+    assert created.json()["may_view_raw_rows"] is False
     user_id = created.json()["id"]
     patched = caller.patch(f"/api/v1/admin/users/{user_id}", {"can_view_raw_rows": True})
     assert patched.json()["can_view_raw_rows"] is True
+    assert patched.json()["may_view_raw_rows"] is True
+    promoted = caller.patch(
+        f"/api/v1/admin/users/{user_id}", {"role": "admin", "can_view_raw_rows": False}
+    )
+    assert promoted.json()["can_view_raw_rows"] is False
+    assert promoted.json()["may_view_raw_rows"] is True  # admins always may
     listed = caller.get("/api/v1/admin/users").json()
     assert {u["username"] for u in listed["items"]} >= {"bo", admin.username}
     bad = caller.post("/api/v1/admin/users", {"username": "x", "role": "root"})

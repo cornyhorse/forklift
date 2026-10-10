@@ -169,8 +169,8 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     `Idempotency-Key`, events and cancellation; audited, short-lived presigned downloads; API
     tokens; admin endpoints for users and roles, tokens, worker tokens, workers, connections,
     retention, the audit log and installation settings. Roles Viewer, Operator, Author and Admin,
-    a "view raw rows" permission for `sensitive` data, and token scopes that only narrow their
-    owner's role, all decided by one policy and covered by a role matrix over every endpoint.
+    a "view raw rows" permission for `sensitive` data (admins always have it; admins grant it
+    to the other roles), and token scopes that only narrow their owner's role, all decided by one policy and covered by a role matrix over every endpoint.
     `/internal/v1` for workers on its own port only: a PostgreSQL `FOR UPDATE SKIP LOCKED` lease
     queue with heartbeats, cancellation, lease expiry and requeue, presigned outputs and
     completion checks. Connections (`s3`, `localfs`, `sql`) keep write-only secrets encrypted at

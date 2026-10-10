@@ -1,6 +1,6 @@
 """Every HTML page and every form action x anonymous / Viewer / Operator / Author / Admin.
 
-Each case runs against a fresh ``World`` (none of its users has "view raw rows"), signed in
+Each case runs against a fresh ``World`` (nobody granted "view raw rows"), signed in
 with a session, and posts a valid form, so that the status shows the permission decision:
 anonymous callers go to the sign-in page (302), refusals are 403 pages that show the service
 layer's message, successful form posts redirect (302) or show what they created (200). A test

@@ -2,7 +2,7 @@
 {% block title %}Home{% endblock %}
 {% block content %}
   <h1>Hello, {{ user.first_name|default:user.username }}</h1>
-  <p class="lead">You are signed in as <strong>{{ user.username }}</strong> with the {{ user.get_role_display }} role{% if user.can_view_raw_rows %}, and you may view raw rows of sensitive data{% endif %}.</p>
+  <p class="lead">You are signed in as <strong>{{ user.username }}</strong> with the {{ user.get_role_display }} role{% if user.may_view_raw_rows %}, and you may view raw rows of sensitive data{% endif %}.</p>
 
   <h2>What you can do next</h2>
   <div class="grid">

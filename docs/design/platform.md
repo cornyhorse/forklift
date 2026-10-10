@@ -239,8 +239,8 @@ and it is the exact code path the worker uses.
 | Admin | Everything, including connections, users, tokens, retention and audit |
 
 Sensitive datasets add one permission, **view raw rows**, required to preview data or download
-`bad_rows` / outputs. It applies to every role, admins included: an admin can grant it to
-themselves, and that is audited. Tokens carry scopes that can only narrow their owner's role
+`bad_rows` / outputs. Admins always have it; an admin grants it to users of the other roles.
+Every download is audited, admins' included. Tokens carry scopes that can only narrow their owner's role
 (a token's effective scopes are its own scopes intersected with the role's):
 
 | Role | Scopes (each role includes the one above) |

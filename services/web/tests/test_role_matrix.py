@@ -1,11 +1,11 @@
 """Every public endpoint x every kind of caller -> the expected status.
 
-Callers: anonymous; a session of each role (Viewer, Operator, Author, Admin, none of them with
-"view raw rows"); an Admin's API token narrowed to ``jobs:read``; and a Viewer's token whose
-stored scopes claim ``admin:read`` / ``admin:write`` (a token cannot widen its owner's role, so
-it can do nothing but ask who it is). Each case runs against a fresh ``World``. A test checks
-that the table names every operation of the OpenAPI document, so a new endpoint cannot be added
-without its row.
+Callers: anonymous; a session of each role (Viewer, Operator, Author, Admin, none of them
+granted "view raw rows"); an Admin's API token narrowed to ``jobs:read``; and a Viewer's token
+whose stored scopes claim ``admin:read`` / ``admin:write`` (a token cannot widen its owner's
+role, so it can do nothing but ask who it is). Each case runs against a fresh ``World``. A test
+checks that the table names every operation of the OpenAPI document, so a new endpoint cannot be
+added without its row.
 """
 
 from __future__ import annotations

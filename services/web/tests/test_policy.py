@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from forklift_web.core.choices import Classification, Role
+from forklift_web.core.models import User
 from forklift_web.errors import NotAuthenticated, PermissionDenied
 from forklift_web.policy import (
     ACTION_SCOPES,
@@ -21,7 +22,7 @@ from forklift_web.policy import (
 
 
 def user(role, *, raw_rows=False, pk=1):
-    return SimpleNamespace(pk=pk, role=role, can_view_raw_rows=raw_rows, username=f"{role}-{pk}")
+    return User(pk=pk, role=role, can_view_raw_rows=raw_rows, username=f"{role}-{pk}")
 
 
 def token(scopes, prefix="fkl_abcdefgh"):
@@ -130,13 +131,26 @@ def test_connections_are_limited_to_their_allowed_roles():
         check(Actor.for_user(user(Role.AUTHOR)), Action.CONNECTION_USE, admins_only)
 
 
-@pytest.mark.parametrize("role", [Role.OPERATOR, Role.AUTHOR, Role.ADMIN])
-def test_previewing_sensitive_data_needs_raw_rows_for_every_role(role):
+@pytest.mark.parametrize("role", [Role.OPERATOR, Role.AUTHOR])
+def test_previewing_sensitive_data_needs_raw_rows_below_admin(role):
     without = Actor.for_user(user(role))
     with_raw = Actor.for_user(user(role, raw_rows=True))
     assert allowed(without, Action.JOB_PREVIEW, Classification.INTERNAL)
     assert not allowed(without, Action.JOB_PREVIEW, Classification.SENSITIVE)
     assert allowed(with_raw, Action.JOB_PREVIEW, Classification.SENSITIVE)
+
+
+def test_admins_view_raw_rows_without_the_grant():
+    admin = Actor.for_user(user(Role.ADMIN))
+    assert admin.can_view_raw_rows
+    assert allowed(admin, Action.JOB_PREVIEW, Classification.SENSITIVE)
+    sensitive_rows = SimpleNamespace(
+        kind="data", name="data.parquet", job=SimpleNamespace(classification="sensitive")
+    )
+    assert allowed(admin, Action.ARTIFACT_DOWNLOAD, sensitive_rows)
+    # An admin's token carries it too, within the token's scopes
+    narrowed = Actor.for_user(user(Role.ADMIN), token=token(["artifacts:read"]))
+    assert allowed(narrowed, Action.ARTIFACT_DOWNLOAD, sensitive_rows)
 
 
 @pytest.mark.parametrize(

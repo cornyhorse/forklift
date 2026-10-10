@@ -14,10 +14,10 @@ from forklift_web.core.choices import Role
 class User(AbstractUser):
     """A local account (OIDC later, through the same model).
 
-    ``role`` is one of the four roles of design section 5.2. ``can_view_raw_rows`` is the extra
-    permission that ``sensitive`` data needs to be previewed or to have its outputs and bad rows
-    downloaded; it applies to every role, admins included (an admin can grant it, audited).
-    A service account has no password and signs in only with API tokens.
+    ``role`` is one of the four roles of design section 5.2. ``sensitive`` data can be previewed,
+    and its outputs and bad rows downloaded, only by those who :attr:`may_view_raw_rows`: admins,
+    and users of the other roles an admin granted ``can_view_raw_rows`` (audited, like every
+    download). A service account has no password and signs in only with API tokens.
     """
 
     role = models.CharField(max_length=16, choices=Role.choices, default=Role.VIEWER)
@@ -29,6 +29,11 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.username
+
+    @property
+    def may_view_raw_rows(self) -> bool:
+        """Whether this user sees rows of ``sensitive`` data: admins always, others if granted."""
+        return self.role == Role.ADMIN or self.can_view_raw_rows
 
 
 class TokenBase(models.Model):

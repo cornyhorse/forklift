@@ -9,8 +9,8 @@ or :func:`allowed` (bool). Three rules combine:
    scopes and its owner's role, so a token can only narrow its owner's role, never widen it,
    and a demotion narrows the owner's tokens at once.
 2. **Raw rows.** Previewing ``sensitive`` data and downloading the rows of a ``sensitive`` job
-   (``data``, ``bad_rows``, ``preview`` artifacts) also need the user's "view raw rows"
-   permission, whatever the role (admins included: they can grant it to themselves, audited).
+   (``data``, ``bad_rows``, ``preview`` artifacts) also need "view raw rows": admins always
+   have it, the other roles only when an admin grants it (every download is audited).
 3. **Objects.** Uploads are used and seen by their uploader (and admins); a job is cancelled by
    whoever requested it (or an admin); a connection is seen and used by the roles it allows
    (admins always); an API token is managed by its owner (and admins, through admin actions).
@@ -194,7 +194,7 @@ class Actor:
 
     @property
     def can_view_raw_rows(self) -> bool:
-        return self.is_system or bool(self.user is not None and self.user.can_view_raw_rows)
+        return self.is_system or bool(self.user is not None and self.user.may_view_raw_rows)
 
     @property
     def label(self) -> str:

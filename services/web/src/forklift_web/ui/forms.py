@@ -161,7 +161,10 @@ class UserCreateForm(forms.Form):
     can_view_raw_rows = forms.BooleanField(
         required=False,
         label="May view raw rows of sensitive data",
-        help_text="Previews and downloads of data, bad rows and previews of sensitive jobs.",
+        help_text=(
+            "Previews and downloads of data, bad rows and previews of sensitive jobs. "
+            "Admins always may; this grants it to the other roles."
+        ),
     )
     is_service_account = forms.BooleanField(
         required=False,

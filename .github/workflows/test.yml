@@ -130,14 +130,21 @@ jobs:
       working-directory: ${{ runner.temp }}
       run: |
         python -c "import forklift; print(f'Forklift version: {forklift.__version__}')"
-        python -c "from forklift import generate_schema_from_csv, import_csv, read_csv"
+        python -c "from forklift import generate_schema_from_csv, import_csv, read_csv, run_job"
+        python -c "import forklift.jobs, forklift.outputs.sql"
 
-  # Integration tests against real services: RustFS (S3-compatible object store), PostgreSQL and
-  # MySQL, started from the compose file developers use (scripts/test-services.sh). The tests run
-  # as logins and with credentials that have only the privileges each test grants them.
+  # Integration tests against real services: RustFS (S3-compatible object store), PostgreSQL,
+  # MySQL, SQL Server and Oracle Database Free, started from the compose file developers use
+  # (scripts/test-services.sh). The tests run as logins and with credentials that have only the
+  # privileges each test grants them. The SQL Server and Oracle images are large: the repository
+  # variables FORKLIFT_TEST_MSSQL_IMAGE / FORKLIFT_TEST_ORACLE_IMAGE can point at copies in another
+  # registry (FORKLIFT_TEST_IMAGE_REGISTRY with its user and token secrets logs in to it).
   services:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
+    env:
+      FORKLIFT_TEST_MSSQL_IMAGE: ${{ vars.FORKLIFT_TEST_MSSQL_IMAGE }}
+      FORKLIFT_TEST_ORACLE_IMAGE: ${{ vars.FORKLIFT_TEST_ORACLE_IMAGE }}
 
     steps:
     - uses: actions/checkout@v4
@@ -149,17 +156,42 @@ jobs:
       with:
         python-version: '3.13'
 
-    - name: Install ODBC drivers (unixODBC, PostgreSQL, MariaDB for MySQL)
+    - name: Install ODBC drivers (PostgreSQL, MariaDB for MySQL, SQL Server, Oracle)
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends unixodbc odbc-postgresql odbc-mariadb
+        sudo apt-get install -y --no-install-recommends unixodbc odbc-postgresql odbc-mariadb curl gnupg unzip libaio1t64
+        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/microsoft-prod.gpg
+        curl -fsSL "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/microsoft-prod.list > /dev/null
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18
+        for part in basiclite odbc; do
+          curl -fsSL -o "/tmp/instantclient-$part.zip" "https://download.oracle.com/otn_software/linux/instantclient/instantclient-$part-linuxx64.zip"
+          sudo unzip -q -o "/tmp/instantclient-$part.zip" -d /opt/oracle
+        done
+        IC=$(ls -d /opt/oracle/instantclient_* | sort -V | tail -1)
+        # Ubuntu 24.04 renamed libaio.so.1; Instant Client links the old name
+        sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1
+        echo "$IC" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf > /dev/null
+        sudo ldconfig
+        printf '[Oracle %s ODBC driver]\nDescription = Oracle Instant Client ODBC driver\nDriver = %s\n' \
+          "$(basename "$IC" | cut -d_ -f2)" "$(ls "$IC"/libsqora.so.* | head -1)" > /tmp/oracle-odbc.ini
+        sudo odbcinst -i -d -f /tmp/oracle-odbc.ini
+        odbcinst -q -d
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -e ".[all,dev]"
 
-    - name: Start RustFS, PostgreSQL and MySQL
+    - name: Log in to the image cache
+      if: vars.FORKLIFT_TEST_IMAGE_REGISTRY != ''
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ vars.FORKLIFT_TEST_IMAGE_REGISTRY }}
+        username: ${{ secrets.FORKLIFT_TEST_IMAGE_REGISTRY_USER }}
+        password: ${{ secrets.FORKLIFT_TEST_IMAGE_REGISTRY_TOKEN }}
+
+    - name: Start RustFS, PostgreSQL, MySQL, SQL Server and Oracle
       run: docker compose -f tests/integration-tests/services/compose.yaml up -d --wait
 
     # FORKLIFT_TEST_SERVICES=1 makes an unreachable service fail the tests instead of skipping them
@@ -171,3 +203,62 @@ jobs:
     - name: Show service logs
       if: failure()
       run: docker compose -f tests/integration-tests/services/compose.yaml logs
+
+  # forklift-web, the gateway: its own package, Python and coverage gate. Role matrix over every
+  # endpoint, queue concurrency, trust boundary (no engine, no pyarrow), the real two-port
+  # gunicorn, and the check that contracts/openapi.json is current.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    defaults:
+      run:
+        working-directory: services/web
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install forklift-web and its test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]" "black>=23.12" "isort>=5.13" "flake8>=6.0"
+
+    - name: Check formatting and lint
+      run: |
+        black --check --diff --line-length 99 src tests
+        isort --check-only --diff --profile black --line-length 99 src tests
+        flake8 src tests
+
+    - name: Start RustFS and PostgreSQL
+      working-directory: .
+      run: docker compose -f tests/integration-tests/services/compose.yaml up -d --wait rustfs postgres
+
+    - name: Create the tests' database login
+      working-directory: .
+      run: >-
+        docker compose -f tests/integration-tests/services/compose.yaml exec -T postgres
+        psql -U forklift_admin -d forklift_test
+        -c "CREATE ROLE forklift_web_test LOGIN PASSWORD 'forklift-web-test-secret' CREATEDB"
+
+    - name: Run the tests
+      run: python -m pytest -v --cov=forklift_web --cov-branch --cov-report=term-missing --cov-fail-under=100
+
+    - name: Build the image
+      if: matrix.python-version == '3.13'
+      working-directory: .
+      run: docker build -f services/web/Dockerfile -t forklift-web:ci .
+
+    - name: Show service logs
+      if: failure()
+      working-directory: .
+      run: docker compose -f tests/integration-tests/services/compose.yaml logs rustfs postgres

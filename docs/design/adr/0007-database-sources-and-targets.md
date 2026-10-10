@@ -47,4 +47,5 @@ an afterthought.
 - Four database servers in CI make the services job slower (SQL Server and Oracle images are
   large); they run in their own job, in parallel with the unit tests.
 - What "atomic" means differs per database (MySQL and Oracle commit DDL implicitly); the
-  guarantees are documented per database next to `write_table`.
+  guarantees are documented per database next to `write_table`, in "All or nothing" in
+  [forklift.outputs.sql.readme.md](../../../src/forklift/outputs/sql/forklift.outputs.sql.readme.md).

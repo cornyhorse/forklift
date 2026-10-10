@@ -47,9 +47,10 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   that the release tag equals the package version and runs the unit tests first.
 - **`read_only` SQL sessions are enforced by the database.** pyodbc's `readonly` flag is ignored
   by psqlODBC and MariaDB Connector/ODBC, so a login allowed to write could write through
-  forklift. PostgreSQL, MySQL, MariaDB and SQLite sessions are now made read-only with a session
-  statement, and the connection fails if that statement fails; for other databases a warning
-  says to connect as a login that may only `SELECT`.
+  forklift. PostgreSQL, MySQL, MariaDB and SQLite sessions and Oracle transactions are now made
+  read-only by the database (a session statement, or `SET TRANSACTION READ ONLY` when Oracle
+  connects and before each table), and the connection fails if that fails; for other databases
+  (SQL Server) a warning says to connect as a login that may only `SELECT`.
 
 ### Changed
 
@@ -157,6 +158,59 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Added
 
+- **The forklift platform, first release (service MVP).** Alongside the engine, the repository now
+  holds the services that offer it as a web application, a REST API and to agents and pipelines
+  (design: `docs/design/platform.md`):
+  - **`forklift-web`, the gateway** (`services/web`, its own package and image; Django 5.2 LTS,
+    Django Ninja, PostgreSQL). It signs URLs so data moves straight between browsers, clients,
+    workers and the object store; it never imports the engine or pyarrow and never reads object
+    contents (tests enforce both). `/api/v1` (OpenAPI in `contracts/openapi.json`): presigned
+    multipart uploads; schemas with immutable versions; datasets and runs; jobs with
+    `Idempotency-Key`, events and cancellation; audited, short-lived presigned downloads; API
+    tokens; admin endpoints for users and roles, tokens, worker tokens, workers, connections,
+    retention, the audit log and installation settings. Roles Viewer, Operator, Author and Admin,
+    a "view raw rows" permission for `sensitive` data, and token scopes that only narrow their
+    owner's role, all decided by one policy and covered by a role matrix over every endpoint.
+    `/internal/v1` for workers on its own port only: a PostgreSQL `FOR UPDATE SKIP LOCKED` lease
+    queue with heartbeats, cancellation, lease expiry and requeue, presigned outputs and
+    completion checks. Connections (`s3`, `localfs`, `sql`) keep write-only secrets encrypted at
+    rest; retention per installation, classification and dataset with an audited sweeper.
+- **Declarative jobs (`forklift.jobs`)**: `JobSpec`, `JobResult` and `run_job()` (also
+  `forklift.run_job`) run the engine from a versioned job spec (contract v1): kinds `run`,
+  `preview`, `validate_schema` and `generate_schema`; locations `file`, `s3`, `presigned_url`, `sql`
+  and `sql_table`. Results carry a stable error code, counts, warnings and every file written with
+  its rows, bytes and SHA-256, never cell values or secrets. JSON Schemas in `contracts/`
+  (`python -m forklift.jobs.contract [--check]`).
+- **`forklift run-job SPEC.json --base-dir DIR --result RESULT.json [--allow-url-host HOST]...
+  [--progress-jsonl]`**: exit 0 succeeded, 1 failed or cancelled, 2 invalid spec; SIGTERM cancels.
+- **Streamed inputs**: a CSV behind a presigned URL is read as a forward-only HTTP stream that
+  resumes with Range requests after a dropped connection; header detection reads small ranges;
+  only allowed hosts are contacted; footer detection needs no copy.
+- **Progress and cancellation**: `progress=` / `cancel=` for `import_csv` and `import_sql` (per
+  batch) and `import_excel` (per sheet). A cancelled import raises `forklift.ImportCancelled` and
+  keeps none of its outputs. Also `import_csv(..., s3_client=)` (`ImportConfig.s3_client`),
+  `ProcessingResults.to_dict()`, and an `error_code` on the engine's exceptions
+  (`forklift.engine.exceptions.ERROR_CODES`).
+- **Database tables as targets** (`forklift.outputs.sql.write_table`): load validated Parquet (or
+  a `pyarrow.Table` / `RecordBatchReader`) into PostgreSQL, MySQL/MariaDB, SQL Server or Oracle
+  over ODBC, in mode `create`, `append`, `replace` or `upsert` (on key columns), all or nothing:
+  rows go to a staging table named after the job and are published in one transaction (or one
+  atomic rename where DDL is not transactional); a failure or cancellation leaves the table
+  unchanged and a retry with the same `job_id` drops what an interrupted attempt left.
+  `staging="none"` writes inside one transaction for logins that may not create tables. Tables
+  are created from the Arrow schema with a per-database type mapping; appends check the existing
+  columns first. Errors (`TableWriteError`) name the table, mode, step, SQLSTATE and the
+  privilege the login lacks, never cell values or passwords.
+- **`x-sql` tables can declare the columns to read** (`"select": {..., "columns": ["id",
+  "amount"]}`), in order, so a login with column-level grants can import what it may read. Names
+  are validated when the schema loads, matched to the catalog (exact, then ignoring case) and
+  quoted; an unknown column fails the table with `ColumnLookupError`. Without a declaration every
+  column is read; if that is refused for a missing privilege, the table fails with
+  `ColumnPrivilegeError`, whose reason names the readable columns and the declaration to add.
+- **SQL Server 2022 and Oracle Database Free 23 are tested sources and targets** next to
+  PostgreSQL and MySQL: compose services `mssql` (port 11433) and `oracle` (port 11521);
+  `FORKLIFT_TEST_MSSQL_IMAGE` and `FORKLIFT_TEST_ORACLE_IMAGE` pull the images from another
+  registry. Privilege, type-mapping and target tests run on all four.
 - `ImportConfig.apply_schema_extensions` (default on) and CLI flag `--no-schema-extensions`;
   `ProcessingResults.warnings`, `validation_summary` (counts per `CODE` / `CODE:column`) and
   `schema_extensions`; the CLI prints them. Run metadata (S3) records them as well.
@@ -195,6 +249,16 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Fixed
 
+- **Oracle sources**: the catalog is read from the data dictionary (the driver's `SQLColumns`
+  failed on NVARCHAR2/CLOB/BLOB/RAW/BOOLEAN) and names are found case-insensitively.
+  `NUMBER(p,s)` is read as decimal(p,s) and `INTEGER` as decimal(38,0) (both were strings), plain
+  `NUMBER` as float64, `DATE` as a timestamp (the time was dropped), `TIMESTAMP(n)` as a timestamp
+  (was a string), the time-zone kinds as UTC timestamps, `RAW` as binary, and `BOOLEAN` correctly
+  (every value was read as False). `query_timeout` is applied by cancelling the statement (the
+  driver ignored it).
+- **SQL Server sources**: `datetimeoffset` is read as UTC timestamps (pyodbc could not read it, so
+  the table failed); `timestamp`/rowversion and `image` are binary (rowversion failed the table).
+- Schema and table names are matched independently, so `sales.orders` finds `SALES.orders`.
 - **SQL imports from PostgreSQL failed to connect** through psqlODBC ("Couldn't set unsupported
   connect attribute 113"): `query_timeout` was set with pyodbc's `Connection.timeout`, which
   psqlODBC rejects. Query timeouts are now session settings on PostgreSQL (`statement_timeout`),
@@ -261,9 +325,16 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Known limitations
 
-- SQL imports read every column of a table (`SELECT *`), so a login with column-level grants
-  cannot import it (the table fails with SQLSTATE 42501 / 42000); selecting only the columns a
-  schema lists is not implemented.
+- Oracle grants `SELECT` on whole tables only (use a view of the allowed columns); its read-only
+  transaction does not cover functions that run in an autonomous transaction; plain `NUMBER` is
+  read as float64. SQL Server sessions cannot be made read-only. Oracle `INTERVAL` and SQL Server
+  `sql_variant`/`hierarchyid`/`geometry`/`geography` columns cannot be read through pyodbc; leave
+  them out with `select.columns`.
+- Jobs: `validate_schema` checks CSV inputs only, and `preview` / `generate_schema` do not read
+  SQL sources. A streamed input's presigned URL is not refreshed during a job, so it must stay
+  valid for the job's `max_seconds` plus a margin. Uniqueness checks keep every key in memory.
+- The service has no schedules or webhooks yet, and an `s3` destination must be on the
+  installation's own store (it is published by server-side copies).
 - Schema extensions are applied by the CSV engine only; the Excel, SQL and fixed-width importers
   ignore them. `x-pii` is documentation (no masking). Not implemented, and reported as warnings:
   cross-field and global validations, `x-dataQuality` completeness/uniqueness/consistency/accuracy

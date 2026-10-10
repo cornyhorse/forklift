@@ -192,8 +192,13 @@ Rules:
   separate, permission-checked artifact.
 - **Stable error codes.** Every failure maps to a code (`SCHEMA_INVALID`, `INPUT_UNREADABLE`,
   `ENCODING_ERROR`, `COLUMN_MISSING`, `BAD_ROWS_THRESHOLD_EXCEEDED`, `CONSTRAINT_VIOLATION`,
-  `LIMIT_EXCEEDED`, `CANCELLED`, `INTERNAL`) plus the engine's verbose message. A threshold failure
-  still lists the kept `bad_rows` artifact.
+  `LIMIT_EXCEEDED`, `PERMISSION_DENIED`, `TARGET_WRITE_FAILED`, `SPEC_INVALID`, `CANCELLED`,
+  `INTERNAL`) plus the engine's verbose message. A threshold failure still lists the kept
+  `bad_rows` artifact.
+- **As built (v1):** `limits` also has `max_rows` (previews); a `sql_table` output has `mode`,
+  `key_columns` and `staging` (`table` or `none`), and `output.artifacts` names the `file`
+  directory that keeps the validated Parquet and `bad_rows` of a table load. The JSON Schemas in
+  `contracts/` are normative.
 - **Versioning.** `spec_version` is an integer. Workers advertise the versions they accept when they
   lease; the gateway only hands out jobs a worker understands. Additive changes keep the version;
   anything else bumps it, and the gateway supports N and N-1.
@@ -217,10 +222,12 @@ and it is the exact code path the worker uses.
 | `Job` | kind, lane, status, spec (JSON), result (JSON), dataset?, requested_by, attempt, lease (worker, expires_at), timestamps | State machine in §5.3 |
 | `JobEvent` | job, time, type (`progress`, `log`, `state`), payload | Progress and logs without cell values |
 | `Artifact` | job, kind (`data`, `bad_rows`, `manifest`, `metadata`, `preview`), object key, rows, bytes, sha256, expires_at | Downloads go through permission checks and presigned GETs |
-| `RetentionPolicy` | scope (installation, classification), per artifact kind: keep for *n* days or keep until deleted | Set by admins (§5.7) |
-| `Schedule` | dataset, cron expression, timezone, enabled, next_run_at | A small scheduler loop in the gateway enqueues jobs |
+| `RetentionPolicy` | scope (installation, classification, dataset), days per kind (uploads, data, bad_rows, previews, metadata, job_records; null = keep until deleted) | Set by admins (§5.7) |
+| `Schedule` | dataset, cron expression, timezone, enabled, next_run_at | A small scheduler loop in the gateway enqueues jobs (not built yet) |
 | `AuditLog` | actor, action, object, time, request id, ip | Downloads of sensitive artifacts, connection changes, token use |
 | `Worker` | id, lanes, versions, last_seen | For the admin view and lease bookkeeping |
+| `WorkerToken` | name, prefix, hash, expires_at, revoked_at | Created by admins; accepted only by `/internal/v1` |
+| `InstallationSetting` | key, value | Admin-set values with defaults in code (stage_max_bytes, lease_seconds, max_attempts, lane limits, URL lifetimes) |
 
 ### 5.2 Roles
 
@@ -232,8 +239,19 @@ and it is the exact code path the worker uses.
 | Admin | Everything, including connections, users, tokens, retention and audit |
 
 Sensitive datasets add one permission, **view raw rows**, required to preview data or download
-`bad_rows` / outputs. Tokens carry scopes (`jobs:run`, `jobs:read`, `schemas:write`, ...) that can
-only narrow their owner's role.
+`bad_rows` / outputs. It applies to every role, admins included: an admin can grant it to
+themselves, and that is audited. Tokens carry scopes that can only narrow their owner's role
+(a token's effective scopes are its own scopes intersected with the role's):
+
+| Role | Scopes (each role includes the one above) |
+|---|---|
+| Viewer | `schemas:read`, `datasets:read`, `connections:read`, `jobs:read`, `artifacts:read`, `tokens:read`, `tokens:write` |
+| Operator | + `uploads:read`, `uploads:write`, `jobs:run` |
+| Author | + `schemas:write`, `datasets:write` |
+| Admin | + `admin:read`, `admin:write` |
+
+Uploads are used by their uploader and jobs are cancelled by their requester (admins may do both);
+connections are used by the roles they allow.
 
 ### 5.3 Job lifecycle
 
@@ -252,6 +270,9 @@ only narrow their owner's role.
   progress (rows read, rows rejected, bytes). Cancellation is answered on the next heartbeat.
 - Jobs are idempotent per attempt: outputs go to `jobs/<job>/attempt-<n>/`, and only a successful
   attempt is published (§6.3). Retrying never mixes two attempts' files.
+- A lease is (worker token, attempt); calls about a job the worker no longer holds answer `409`.
+  Lease calls requeue expired leases; on the last attempt the job fails with `LEASE_EXPIRED`, or
+  is cancelled if cancellation was requested.
 
 ### 5.4 APIs
 
@@ -271,7 +292,11 @@ only narrow their owner's role.
 
 **Internal** (`/internal/v1`, separate port, not routed by the ingress, worker tokens only):
 `POST /leases` (lanes, accepted spec versions → a job or 204), `POST /jobs/{id}/heartbeat`,
-`POST /jobs/{id}/complete`, `POST /jobs/{id}/presign` (more upload URLs for outputs).
+`POST /jobs/{id}/complete`, `POST /jobs/{id}/presign` (more upload URLs for outputs),
+`POST /jobs/{id}/input-url` (a fresh presigned URL for a streamed input). One gateway process
+serves both ports and routes each request by the local port its connection arrived on, never by
+a header. The admin endpoints (`/api/v1/admin/...`: users and roles, tokens, worker tokens,
+workers, retention, audit log, settings) are part of the public API and need the Admin role.
 
 ### 5.5 UI
 
@@ -352,6 +377,11 @@ so a reader that trusts only complete manifests never sees half a load. A thresh
 publishes nothing to the destination but keeps `bad_rows.parquet` as a job artifact, matching the
 engine's behaviour.
 
+As built: for an `s3` destination the gateway publishes when the run completes, with server-side
+copies (data first, `manifest.json` last), so the destination must be on the installation's own
+store; a failed copy fails the job with `TARGET_WRITE_FAILED` and keeps the artifacts. Table
+destinations are written by the engine itself (`sql_table`, ADR 0007).
+
 ## 7. Storage and sources
 
 ### 7.1 Object store layout (one bucket, prefixes per purpose)
@@ -375,6 +405,10 @@ Kubernetes PVC). Inputs are bind-mounted read-only into the engine's sandbox; ou
 under the connection's root only. Paths are resolved and checked against the root before any job
 is queued and again in the supervisor (the engine already rejects output names that escape their
 directory).
+
+As built: `localfs` connections can be created and tested, but are not dataset sources or
+destinations yet, because job contract v1 has no location for a directory mounted into the
+worker.
 
 ### 7.3 SQL sources and targets
 

@@ -13,6 +13,16 @@ Forklift is a comprehensive data processing tool that provides:
 - **Robust validation** with configurable error handling and constraint validation
 - **S3 streaming support** for both input and output operations
 - **Parquet output** with metadata and manifest files; `pandas`/`polars` DataFrames on request through the readers
+- **Database tables as sources and targets**: PostgreSQL, MySQL/MariaDB, SQL Server and Oracle over ODBC, loaded all-or-nothing from validated Parquet
+- **Declarative jobs** (`forklift run-job spec.json`, `forklift.run_job`) from a versioned job contract
+
+### The platform
+
+Forklift also runs as a service: a web UI and REST API for uploading data, building schemas,
+running and downloading jobs, with roles, API tokens and admin screens, and workers that run the
+engine in a sandbox away from the login-facing gateway. Start it on one machine with Docker
+Compose (`deploy/compose/README.md`); the packages are `services/web` (gateway) and
+`services/worker` (worker), and the design is `docs/design/platform.md`.
 
 ## Key Features
 

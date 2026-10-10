@@ -175,6 +175,26 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
     queue with heartbeats, cancellation, lease expiry and requeue, presigned outputs and
     completion checks. Connections (`s3`, `localfs`, `sql`) keep write-only secrets encrypted at
     rest; retention per installation, classification and dataset with an audited sweeper.
+  - **`forklift-worker`, the supervisor** (`services/worker`, its own package and image; standard
+    library only). It leases jobs from the gateway's internal API, stages inputs up to
+    `stage_max_bytes` through presigned GETs (checking size, ETag and MD5) and passes larger ones
+    to the engine as presigned URLs for that host only. It runs `forklift run-job` in a child
+    process with an allow-listed environment (no credentials), resource limits, a wall-clock
+    limit and, where the kernel has it, a Landlock sandbox (reads only system paths and its
+    scratch directory, writes only scratch, no TCP for staged inputs and only the store's port for
+    streamed ones). It sends progress with heartbeats, acts on cancellation and lost leases,
+    uploads artifacts with sha256 through presigned PUTs, treats the engine's output as untrusted,
+    and reports a contract-valid result; crashes and timeouts become failed results with a clear
+    error. Isolation profiles `standard` and `no-network` (the engine in its own network
+    namespace, staged inputs only). The image runs as uid 10001 with a read-only root file system.
+  - **Docker Compose stack** (`deploy/compose`): gateway, worker, retention sweeper, PostgreSQL and
+    RustFS from this checkout, with an idempotent init step (migrations, first admin, bucket and
+    CORS, worker token), networks that keep the worker away from everything but the gateway's
+    internal port and the store, and `generate_env.py` for fresh secrets. End-to-end tests
+    (`deploy/compose/e2e`) use the running stack from outside: sign in, upload through a presigned
+    URL, run on the worker, download Parquet, generate a schema, keep `bad_rows` on a threshold
+    failure, stream a large input, and check a viewer's limits. CI runs them, and builds and tests
+    each package in its own job.
 - **Declarative jobs (`forklift.jobs`)**: `JobSpec`, `JobResult` and `run_job()` (also
   `forklift.run_job`) run the engine from a versioned job spec (contract v1): kinds `run`,
   `preview`, `validate_schema` and `generate_schema`; locations `file`, `s3`, `presigned_url`, `sql`

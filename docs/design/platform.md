@@ -364,6 +364,17 @@ exactly one object, for a limited time, and the engine's network is limited to t
 | **no-network** | Where user namespaces are available | As standard, plus its own empty network namespace; only staged inputs (a larger input is refused, or routed to a `standard` lane if the admin allows it) | Untrusted files from outside the organisation |
 | **sandboxed** | Helm | As standard (or no-network), plus a sandboxed runtime (`runtimeClassName`, for example gVisor or Kata) or one Kubernetes Job per run | Sensitive data from untrusted sources |
 
+As implemented in `services/worker`: both profiles add Landlock where the kernel has it
+(`--landlock required` in production). With it, the engine reads only system paths and the Python
+installation, writes only its own scratch directory, and cannot signal or ptrace outside its
+sandbox (signal scoping from Linux 6.12). From Linux 6.7 it also makes no TCP connections for
+staged inputs and reaches only the store's port for streamed ones. `no-network` puts the engine in
+an unprivileged user and network namespace; Docker's and Kubernetes' default seccomp profiles
+forbid creating one, so such workers need a seccomp profile that allows `unshare`, and the worker
+refuses to start without it. `sandboxed` is this image under a sandboxed runtime with
+`--max-jobs 1`. `services/worker/README.md` lists what each profile enforces and what it leaves to
+the deployment.
+
 Limiting egress to "the object store" depends on where the store is. NetworkPolicies match IP
 addresses, not host names: an in-cluster RustFS is selected by its pods, an external store by its
 CIDR ranges where they are stable, and otherwise through an egress proxy that allows only the
@@ -476,6 +487,13 @@ an optional `mcp` profile. One `.env` file holds the secrets. Data and database 
 Workers sit on an `internal` Docker network that reaches only the gateway's internal port and
 RustFS; with an external store, an optional allow-listing proxy service limits their egress to that
 store's host. It is the development environment and a supported way to run a small installation.
+
+As built: `deploy/compose/docker-compose.yml` has `gateway`, `worker`, `sweeper`, `postgres` and
+`rustfs`, plus a one-shot `init` (migrations, the first admin, the bucket and its CORS rule, and
+a worker token in a volume only the worker mounts). Three networks: `public` (the gateway's public
+port and the store, published), `internal` (no route out: gateway, worker, store) and `db`
+(PostgreSQL and the gateway processes). The `caddy`, `mcp` and egress-proxy profiles are not built
+yet. `deploy/compose/e2e` holds the end-to-end tests CI runs against it.
 
 ### 10.2 Helm
 

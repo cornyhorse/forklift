@@ -383,6 +383,7 @@ class S3ParquetWriter:
         self._closed = False
         self._writer = None
         self._temp_path = None
+        self.bytes_written: Optional[int] = None  # size of the uploaded file, set by close()
 
         if s3_client is None:
             from .s3_streaming import get_s3_client
@@ -437,8 +438,10 @@ class S3ParquetWriter:
             # Close parquet writer
             self._writer.close()
 
-            # Upload to S3
+            # Upload to S3, noting the size so callers need no read access to learn it
             with open(self._temp_path, "rb") as f:
+                self.bytes_written = f.seek(0, os.SEEK_END)
+                f.seek(0)
                 self.s3_client._s3_client.upload_fileobj(f, self.s3_path.bucket, self.s3_path.key)
         finally:
             # Clean up temp file, whether or not the upload succeeded

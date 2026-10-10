@@ -45,6 +45,11 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   formula prefixes; validation errors no longer contain cell values by default.
 - CI: least-privilege workflow permissions, fork PRs never get write access, publishing verifies
   that the release tag equals the package version and runs the unit tests first.
+- **`read_only` SQL sessions are enforced by the database.** pyodbc's `readonly` flag is ignored
+  by psqlODBC and MariaDB Connector/ODBC, so a login allowed to write could write through
+  forklift. PostgreSQL, MySQL, MariaDB and SQLite sessions are now made read-only with a session
+  statement, and the connection fails if that statement fails; for other databases a warning
+  says to connect as a login that may only `SELECT`.
 
 ### Changed
 
@@ -177,12 +182,41 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
   shared strict Parquet type grammar for all schema importers; `snake_case`/`camelCase` column
   name styles (accepted but ignored before).
 - `CHANGELOG.md`, `requirements-dev.txt`, `.github/dependabot.yml`.
+- Integration tests against real services in `tests/integration-tests/services`: RustFS
+  (S3-compatible, replacing MinIO for testing), PostgreSQL and MySQL from one compose file
+  (`scripts/test-services.sh`, which replaces the broken `manage-databases.sh`), run as logins and
+  credentials with only the privileges each test grants (restricted roles and grants, read-only
+  sessions, row-level security, STS session policies for read-only and prefix-limited S3
+  access). A CI job runs them; local file permission tests run in the normal suite.
+- 100% line and branch coverage of `src/forklift`, enforced in CI (it warned below 95%).
 - Python 3.14 support: classifier and CI/publish test matrix. All dependencies and extras have 3.14
   wheels (pyarrow 22 is the first release that does); the unit suite passes on 3.14.6 with pyarrow
   22.0 and 26.0, also with deprecation warnings treated as errors.
 
 ### Fixed
 
+- **SQL imports from PostgreSQL failed to connect** through psqlODBC ("Couldn't set unsupported
+  connect attribute 113"): `query_timeout` was set with pyodbc's `Connection.timeout`, which
+  psqlODBC rejects. Query timeouts are now session settings on PostgreSQL (`statement_timeout`),
+  MySQL (`max_execution_time`) and MariaDB (`max_statement_time`); elsewhere the driver attribute
+  is used, and a driver without it logs a warning instead of failing.
+- **A failed SQL table now says why.** `results.errors`, the `ProcessingError` and a new
+  `failed_tables[].reason` give the SQLSTATE, its meaning and the driver's numeric code
+  (`SQLSTATE 42501, insufficient privilege`), or "not found in the database catalog, or the
+  connecting user has no privileges on it". The driver's message text is still never included.
+- **`import_excel` reads workbooks and schema files from S3**, as documented (it reported the
+  `s3://` input as not found).
+- **CSV imports to S3 with write-only credentials** failed after `data.parquet` was uploaded: the
+  manifest asked the store for each file's size, which needs `s3:GetObject`. Sizes now come from
+  the writers.
+- Found while raising coverage: `read_excel("book.xlsx")` raised "No sheets selected"; a
+  `dictionary<..., indices=double>` mapping crashed the import; `data.parquet` stayed behind when
+  `bad_rows.parquet` failed to close; `x-calculatedColumns` given as a list crashed; a row
+  containing ": " escaped the corrupt-row check; ASCII/accent cleaning left stray spaces; output
+  metadata crashed on temporal values outside Python's datetime range; a header-only CSV gave
+  "file is empty" for invalid bytes and kept its BOM; an unknown `output_target` dropped the
+  schema; `SchemaValidator.process_batch(None)` crashed; a column Arrow cannot coerce to
+  `time32` passed silently; `a{99999999999}` was reported as "too deeply nested".
 - **Wrong data for sliced string columns on pyarrow 16 - 22.** `pc.if_else(mask, <null scalar>,
   array)` returns `'\x00'` strings for a sliced array on these versions, and the engine cuts
   Arrow's blocks into `batch_size` rows. With a schema or null markers, an input with more rows than
@@ -227,6 +261,9 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 
 ### Known limitations
 
+- SQL imports read every column of a table (`SELECT *`), so a login with column-level grants
+  cannot import it (the table fails with SQLSTATE 42501 / 42000); selecting only the columns a
+  schema lists is not implemented.
 - Schema extensions are applied by the CSV engine only; the Excel, SQL and fixed-width importers
   ignore them. `x-pii` is documentation (no masking). Not implemented, and reported as warnings:
   cross-field and global validations, `x-dataQuality` completeness/uniqueness/consistency/accuracy

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,46 @@ from ..config import ProcessingResults
 from ..exceptions import ProcessingError
 from .output_location import OutputLocation, discard_partial_output, validate_output_stem
 from .redaction import redact_connection_string, scrub_secrets
+
+# What common SQLSTATEs mean, for the reason recorded with a failed table
+_SQLSTATE_MEANINGS = {
+    "25006": "read-only transaction: the statement would have written",
+    "28000": "invalid authorization",
+    "42000": "syntax error or access rule violation",
+    "42501": "insufficient privilege",
+    "42P01": "table not found",
+    "42S02": "table not found",
+    "57014": "statement cancelled (query timeout)",
+    "HY008": "operation cancelled",
+    "HYT00": "timeout expired",
+}
+_SQLSTATE = re.compile(r"[0-9A-Z]{5}")
+# pyodbc messages end with the driver's numeric code, e.g. "... (1142) (SQLExecDirectW)"
+_NATIVE_CODE = re.compile(r"\((-?\d+)\)\s*\(SQL\w+\)\s*$")
+
+
+def _failure_reason(error: BaseException) -> str:
+    """Why a table failed, without the driver's message text (which can quote data).
+
+    A failed catalog lookup explains itself (its message holds only names). A database error
+    is described by its SQLSTATE, what that state means, and the driver's numeric code: enough
+    to tell a missing privilege from a timeout, never the values involved.
+    """
+    from ...inputs.sql.schema import TableLookupError
+
+    if isinstance(error, TableLookupError):
+        return str(error)
+    args = getattr(error, "args", ())
+    if len(args) >= 2 and isinstance(args[0], str) and _SQLSTATE.fullmatch(args[0]):
+        state = args[0]
+        reason = f"SQLSTATE {state}"
+        if state in _SQLSTATE_MEANINGS:
+            reason += f", {_SQLSTATE_MEANINGS[state]}"
+        native = _NATIVE_CODE.search(str(args[1]))
+        if native:
+            reason += f", driver error {native.group(1)}"
+        return reason
+    return ""
 
 
 class SqlImporter:
@@ -40,8 +81,12 @@ class SqlImporter:
         ``ProcessingResults`` is available as ``error.results``) unless ``continue_on_error=True``
         was passed, in which case the results are returned with ``errors`` populated.
 
-        Error text for failed tables contains only the exception class, never its message
-        (database/Arrow messages can quote cell values).
+        Error text for failed tables never contains the driver's or Arrow's message (they can
+        quote cell values): it is the exception class plus a reason - forklift's own message
+        when the table is not in the catalog (or not visible to the user), or the SQLSTATE,
+        what it means and the driver's numeric code (``ProgrammingError (SQLSTATE 42501,
+        insufficient privilege, driver error 1)``). ``failed_tables`` entries carry it as
+        ``reason``.
 
         Args:
             connection_string: ODBC connection string
@@ -153,16 +198,23 @@ class SqlImporter:
                         if not isinstance(exc, Exception):
                             raise
                         error_type = type(exc).__name__
+                        reason = _failure_reason(exc)
+                        described = f"{error_type} ({reason})" if reason else error_type
                         logger.error(
                             "Failed to process table %s.%s: %s",
                             schema_name,
                             table_name,
-                            error_type,
+                            described,
                         )
                         failed_tables.append(
-                            {"schema": schema_name, "table": table_name, "error_type": error_type}
+                            {
+                                "schema": schema_name,
+                                "table": table_name,
+                                "error_type": error_type,
+                                "reason": reason or None,
+                            }
                         )
-                        results.errors.append(f"{schema_name}.{table_name}: {error_type}")
+                        results.errors.append(f"{schema_name}.{table_name}: {described}")
                         continue
 
                     total_rows += table_rows
@@ -220,7 +272,9 @@ class SqlImporter:
                 error = ProcessingError(
                     f"{len(failed_tables)} of {len(planned)} tables failed: "
                     + ", ".join(
-                        f"{f['schema']}.{f['table']} ({f['error_type']})" for f in failed_tables
+                        f"{f['schema']}.{f['table']} ({f['error_type']}"
+                        + (f": {f['reason']})" if f["reason"] else ")")
+                        for f in failed_tables
                     )
                 )
                 error.results = results  # partial results: tables that did succeed

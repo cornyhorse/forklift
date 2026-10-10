@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import shutil
+import tempfile
 import time
 from pathlib import Path
-from typing import Set, Union
+from typing import Any, Dict, Optional, Set, Union
 
 import pyarrow.parquet as pq
 
-from ...io import create_parquet_writer
+from ...io import S3Path, UnifiedIOHandler, create_parquet_writer, is_s3_path
 from ..config import ProcessingResults
 from ..exceptions import ProcessingError
 from .output_location import OutputLocation, discard_partial_output, unique_stem
@@ -33,6 +36,10 @@ class ExcelImporter:
         sheets collide (``Q1/Q2`` and ``Q1:Q2``) the later ones get a ``_2``, ``_3``... suffix in
         workbook order, so no sheet silently overwrites another.
 
+        ``input_path`` and ``schema_file`` may be ``s3://`` URIs, read with ``s3_client`` (or
+        boto3's default credentials). Excel readers need a seekable file, so an S3 workbook is
+        copied to a temporary directory first and removed afterwards.
+
         Raises:
             ValueError: If an output file name is invalid or would leave the output directory
         """
@@ -42,12 +49,16 @@ class ExcelImporter:
         logger = logging.getLogger(__name__)
         start_time = time.time()
 
+        scratch: Optional[tempfile.TemporaryDirectory] = None
         try:
-            # Convert input path to a Path object; the output location may be an S3 URI
-            input_path = Path(input_path) if isinstance(input_path, str) else input_path
             location = OutputLocation(output_path)
+            if is_s3_path(input_path):
+                scratch = tempfile.TemporaryDirectory(prefix="forklift-excel-")
+                input_path = ExcelImporter._download(
+                    input_path, Path(scratch.name), kwargs.get("s3_client")
+                )
+            input_path = Path(input_path) if isinstance(input_path, str) else input_path
 
-            # For now, support local files only - S3 support can be added later
             if not input_path.exists():
                 raise FileNotFoundError(f"Input file not found: {input_path}")
 
@@ -57,11 +68,12 @@ class ExcelImporter:
             # Load and validate schema if provided
             excel_config = None
             if schema_file:
-                schema_path = Path(schema_file) if isinstance(schema_file, str) else schema_file
-
                 # Parse schema
                 try:
-                    schema_importer = ExcelSchemaImporter(schema_path, validate=True)
+                    schema_importer = ExcelSchemaImporter(
+                        ExcelImporter._schema_source(schema_file, kwargs.get("s3_client")),
+                        validate=True,
+                    )
                     excel_config = ExcelImporter._create_excel_config_from_schema(schema_importer)
                     logger.info(f"Loaded Excel schema from {schema_file}")
                 except Exception as e:
@@ -138,6 +150,28 @@ class ExcelImporter:
             results.execution_time = processing_time
             results.errors.append(str(e))
             raise
+        finally:
+            if scratch is not None:
+                scratch.cleanup()
+
+    @staticmethod
+    def _download(uri: Union[str, Path], directory: Path, s3_client: Any = None) -> Path:
+        """Copy an S3 workbook into ``directory`` under its own file name."""
+        target = directory / S3Path(str(uri)).name
+        with UnifiedIOHandler(s3_client).open_for_read(str(uri), mode="rb") as source:
+            with open(target, "wb") as sink:
+                shutil.copyfileobj(source, sink)
+        return target
+
+    @staticmethod
+    def _schema_source(
+        schema_file: Union[str, Path], s3_client: Any = None
+    ) -> Union[Path, Dict[str, Any]]:
+        """A local schema path, or the parsed JSON of an S3 schema file."""
+        if is_s3_path(schema_file):
+            with UnifiedIOHandler(s3_client).open_for_read(str(schema_file)) as f:
+                return json.load(f)
+        return Path(schema_file)
 
     @staticmethod
     def _create_excel_config_from_schema(schema_importer):

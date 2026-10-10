@@ -256,7 +256,7 @@ class TestSqlImporterTableFailures:
 
         metadata = json.loads((out / "metadata.json").read_text())
         assert metadata["failed_tables"] == [
-            {"schema": "dbo", "table": "orders", "error_type": "RuntimeError"}
+            {"schema": "dbo", "table": "orders", "error_type": "RuntimeError", "reason": None}
         ]
         assert metadata["output_files"] == [str(out / "users.parquet")]
         assert metadata["processing_summary"]["total_tables_failed"] == 1

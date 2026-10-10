@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_SCHEMA = "default"
 
 
+class TableLookupError(ValueError):
+    """A requested table is not in the catalog, or the request matches several tables.
+
+    The message is built only from the requested names and the catalog's schema names, never
+    from table data, so it is safe to show and to record in ``metadata.json``.
+    """
+
+
 def _is_default_schema(schema_name: Optional[str]) -> bool:
     """True when ``schema_name`` means "no schema qualifier"."""
     return schema_name in (None, "", DEFAULT_SCHEMA)
@@ -199,7 +207,8 @@ class SqlSchemaManager:
             schema-less databases
 
         Raises:
-            ValueError: If the table is unknown or the request matches several schemas
+            TableLookupError: If the table is unknown (or invisible to the connecting user) or
+                the request matches several schemas
             ConnectionError: If not connected to database
         """
         _check_identifier(table_name, "table")
@@ -221,10 +230,14 @@ class SqlSchemaManager:
 
         label = table_name if default_schema else f"{schema_name}.{table_name}"
         if not matches:
-            raise ValueError(f"Table '{label}' was not found in the database catalog")
+            # MySQL, and the catalogs of other databases, list only tables the user may access
+            raise TableLookupError(
+                f"Table '{label}' was not found in the database catalog, or the connecting "
+                "user has no privileges on it"
+            )
         if len(matches) > 1:
             schemas = ", ".join(sorted(s for s, _ in matches))
-            raise ValueError(
+            raise TableLookupError(
                 f"Table '{label}' is ambiguous: found in schemas {schemas}; specify the schema"
             )
         resolved_schema, resolved_table = matches[0]

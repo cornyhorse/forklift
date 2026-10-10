@@ -65,6 +65,7 @@ class _ParquetOutputs:
         self.good_schema: Optional[pa.Schema] = None
         self.good_written = False
         self.bad_written = False
+        self.sizes: dict = {}  # bytes of each finished file, for the manifest
 
     def _create_writer(self, path: str, schema: pa.Schema):
         return create_parquet_writer(
@@ -128,6 +129,7 @@ class _ParquetOutputs:
                 self.abort()
                 raise
             self.good_written = True
+            self.sizes[self.good_file] = _written_size(writer, self.good_file)
 
         if self.bad_writer is not None:
             writer, self.bad_writer = self.bad_writer, None
@@ -140,6 +142,7 @@ class _ParquetOutputs:
                 _delete_output(self._io_handler, self.good_file, self._use_s3_output)
                 raise
             self.bad_written = True
+            self.sizes[self.bad_file] = _written_size(writer, self.bad_file)
 
     def keep_bad_rows(self) -> Optional[str]:
         """Finish the bad-rows file and discard the data file (for a run that stops on purpose).
@@ -195,6 +198,16 @@ class _ParquetOutputs:
                 Path(path).unlink()
             except OSError:
                 pass
+
+
+def _written_size(writer, path: str) -> int:
+    """Bytes in a closed output: S3 writers report what they uploaded, local files are stat'ed.
+
+    Asking the store instead would need read access to the output prefix, which a write-only
+    login does not have.
+    """
+    size = getattr(writer, "bytes_written", None)
+    return size if size is not None else os.path.getsize(path)
 
 
 def _delete_output(io_handler: UnifiedIOHandler, path: str, use_s3_output: bool) -> None:
@@ -627,7 +640,7 @@ class CSVProcessor(BaseProcessor):
         # Create manifest and metadata (support S3 outputs)
         if config.create_manifest:
             results.manifest_file = self._create_s3_manifest(
-                config.output_path, results.output_files
+                config.output_path, results.output_files, outputs.sizes
             )
 
         if config.create_metadata:
@@ -680,14 +693,18 @@ class CSVProcessor(BaseProcessor):
             f.write(text)
         return path
 
-    def _create_s3_manifest(self, output_path: Union[str, Path], files: list) -> str:
-        """Create manifest file supporting S3 output locations."""
+    def _create_s3_manifest(self, output_path: Union[str, Path], files: list, sizes: dict) -> str:
+        """Create manifest file supporting S3 output locations.
+
+        ``sizes`` holds the bytes of each file as its writer reported them, so writing the
+        manifest needs no read access to the output location.
+        """
         manifest = {
             "format_version": "1.0",
             "files": [
                 {
                     "file_path": S3Path(f).name if is_s3_path(f) else os.path.basename(str(f)),
-                    "file_size": self.io_handler.get_size(f) if self.io_handler.exists(f) else 0,
+                    "file_size": sizes[f],
                 }
                 for f in files
             ],

@@ -61,7 +61,8 @@ Manages database connections using pyodbc with proper error handling and timeout
 - Additional connection parameters (appended as `key=value`; values containing `;`, `=`, `{` or `}` are brace-escaped, and a parameter name that could inject another attribute is rejected with `ValueError`)
 - Connection timeout settings
 - Query timeout configuration
-- `read_only` (default `True`): the connection is opened with `readonly=True`, which pyodbc maps to the driver's read-only access mode. A driver that cannot honour or rejects that attribute makes `connect()` fail with `ConnectionError`; pass `read_only=False` for such drivers
+- `read_only` (default `True`): the database session itself is made read-only, because ODBC drivers commonly ignore pyodbc's `readonly` flag (psqlODBC and MariaDB Connector/ODBC both do). PostgreSQL gets `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY`, MySQL and MariaDB `SET SESSION TRANSACTION READ ONLY`, SQLite `PRAGMA query_only = ON`; if that statement fails, `connect()` raises `ConnectionError` (pass `read_only=False` to connect without it). For other databases forklift can only ask the driver, and logs a warning: connect as a login that may only `SELECT`.
+- `query_timeout`: applied as `statement_timeout` (PostgreSQL), `max_execution_time` (MySQL) or `max_statement_time` (MariaDB); elsewhere through pyodbc's `Connection.timeout`, with a warning when the driver does not support it
 
 ### SqlSchemaManager (schema.py)
 
@@ -150,7 +151,7 @@ credentials. The importers (`import_sql`) additionally redact the connection str
 - **`fetch_size`**: ODBC cursor fetch size for performance tuning
 - **`null_values`**: List of string values to treat as NULL
 - **`use_quoted_identifiers`**: Accepted for backward compatibility only. Identifiers are always quoted, because they are interpolated into SQL text
-- **`read_only`**: Request a read-only connection (default: `True`)
+- **`read_only`**: Make the session read-only (default: `True`; enforced by the database on PostgreSQL, MySQL, MariaDB and SQLite, see above)
 - **`schema_name`**, **`enable_streaming`**, **`date_formats`**, **`timestamp_formats`**: accepted by `SqlInputConfig` but not used by the reader at present (rows are always fetched in `batch_size` chunks and no date/time text formats are parsed)
 
 ## Database Support

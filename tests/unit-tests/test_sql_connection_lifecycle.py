@@ -15,6 +15,8 @@ from forklift.inputs.sql import SqlConnectionManager
 @pytest.fixture
 def fake_pyodbc():
     module = types.ModuleType("pyodbc")
+    module.Error = type("Error", (Exception,), {})
+    module.SQL_DBMS_NAME = 17
     module.connect = MagicMock(name="connect", return_value=MagicMock(name="connection"))
     with patch.dict(sys.modules, {"pyodbc": module}):
         yield module

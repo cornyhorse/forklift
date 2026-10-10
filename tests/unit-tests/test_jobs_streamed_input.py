@@ -509,6 +509,11 @@ class TestRunJob:
 
 
 def test_proxy_settings_of_the_environment_are_used(monkeypatch, store):
-    """The default opener has a ProxyHandler (an egress proxy can allow-list the store)."""
-    source = _source(store)
-    assert any(isinstance(h, urllib.request.ProxyHandler) for h in source._opener.handlers)
+    """The default opener honours HTTPS_PROXY (an egress proxy can allow-list the store)."""
+    for name in ("http_proxy", "https_proxy", "all_proxy", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.upper(), raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.example:3128")
+    handlers = _source(store)._opener.handlers
+    proxies = [h.proxies for h in handlers if isinstance(h, urllib.request.ProxyHandler)]
+    assert [p.get("https") for p in proxies] == ["http://proxy.example:3128"]

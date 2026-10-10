@@ -25,7 +25,7 @@ store), and a worker token, kept in a volume only the worker mounts.
 |---|---|---|---|
 | `gateway` | `forklift-web` (services/web) | public, internal, db | 8080 (UI and `/api/v1`); 8081, the workers' port, is not published |
 | `worker` | `forklift-worker` (services/worker) | internal | nothing |
-| `sweeper` | `forklift-web`: `sweep_retention --every 3600` | internal, db | nothing |
+| `sweeper` | `forklift-web`: `sweep_retention --every=3600` (healthy while its last sweep is under two hours old) | internal, db | nothing |
 | `postgres` | `postgres:16` | db | nothing |
 | `rustfs` | `rustfs/rustfs` | public, internal | 9000 (presigned URLs from browsers) |
 

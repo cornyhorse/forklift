@@ -89,6 +89,16 @@ def test_sweep_retention_once_and_in_a_loop(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_sweep_retention_touches_its_heartbeat_after_each_sweep(monkeypatch, tmp_path):
+    World.build()
+    heartbeat = tmp_path / "sweeper.alive"
+    touched = []
+    monkeypatch.setattr(sweep_retention, "_sleep", lambda s: touched.append(heartbeat.exists()))
+    run("sweep_retention", "--every", "60", "--iterations", "2", "--heartbeat", str(heartbeat))
+    assert touched == [True] and heartbeat.exists()  # touched before the first wait, then again
+
+
+@pytest.mark.django_db
 def test_sweep_retention_reports_errors(monkeypatch):
     from forklift_web.services import retention
 

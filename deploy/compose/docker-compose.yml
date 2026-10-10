@@ -117,12 +117,27 @@ services:
     depends_on:
       init: {condition: service_completed_successfully}
 
-  # Deletes what retention policies say has expired, every hour (audited)
+  # Deletes what retention policies say has expired, every hour (audited). Healthy while its
+  # last sweep finished less than two hours ago (it touches the heartbeat file after each one)
   sweeper:
     <<: *gateway
-    command: ["forklift-web", "sweep_retention", "--every", "3600"]
+    command:
+      - forklift-web
+      - sweep_retention
+      - --every=3600
+      - --heartbeat=/tmp/sweeper.alive
     networks: [internal, db]
-    healthcheck: {disable: true}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/sweeper.alive') > 7200)"
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+      start_interval: 2s
     depends_on:
       init: {condition: service_completed_successfully}
 

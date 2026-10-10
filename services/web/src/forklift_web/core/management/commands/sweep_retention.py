@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from django.core.management.base import BaseCommand
 
@@ -28,8 +29,13 @@ class Command(BaseCommand):
         parser.add_argument(
             "--iterations", type=int, default=None, help="With --every: stop after N sweeps"
         )
+        parser.add_argument(
+            "--heartbeat",
+            default=None,
+            help="Touch this file after each sweep (a health check can watch how old it is)",
+        )
 
-    def handle(self, *args, dry_run, every, iterations, **options):
+    def handle(self, *args, dry_run, every, iterations, heartbeat, **options):
         actor = Actor.for_system("sweep_retention")
         done = 0
         while True:
@@ -41,6 +47,8 @@ class Command(BaseCommand):
             )
             for error in report.errors:
                 self.stderr.write(error)
+            if heartbeat:
+                Path(heartbeat).touch()
             done += 1
             if every is None or (iterations is not None and done >= iterations):
                 return

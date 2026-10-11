@@ -2,24 +2,24 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
 
+from forklift_web.core.management.loop import Stop, stopped_by_sigterm
 from forklift_web.policy import Actor
 from forklift_web.services import retention
 
 
-def _sleep(seconds: float) -> None:
-    time.sleep(seconds)
+def _sleep(stop: Stop, seconds: float) -> None:
+    stop.wait(seconds)
 
 
 class Command(BaseCommand):
     help = (
         "Delete expired uploads, artifacts and job records from the store and the database, and "
         "abort stale multipart output uploads, recording each deletion in the audit log. With "
-        "--every, keep sweeping."
+        "--every, keep sweeping; SIGTERM stops the loop after the sweep in progress."
     )
 
     def add_arguments(self, parser):
@@ -39,21 +39,25 @@ class Command(BaseCommand):
     def handle(self, *args, dry_run, every, iterations, heartbeat, **options):
         actor = Actor.for_system("sweep_retention")
         done = 0
-        while True:
-            report = retention.sweep(actor, dry_run=dry_run)
-            verb = "Would delete" if dry_run else "Deleted"
-            abort = "would abort" if dry_run else "aborted"
-            self.stdout.write(
-                f"{verb} {report.expired_uploads} expired pending uploads, {report.uploads} "
-                f"uploads, {report.artifacts} artifacts and {report.jobs} job records; {abort} "
-                f"{report.output_uploads} stale multipart output uploads. {verb} "
-                f"{report.deliveries} webhook deliveries."
-            )
-            for error in report.errors:
-                self.stderr.write(error)
-            if heartbeat:
-                Path(heartbeat).touch()
-            done += 1
-            if every is None or (iterations is not None and done >= iterations):
-                return
-            _sleep(every)
+        with stopped_by_sigterm() as stop:
+            while True:
+                report = retention.sweep(actor, dry_run=dry_run)
+                verb = "Would delete" if dry_run else "Deleted"
+                abort = "would abort" if dry_run else "aborted"
+                self.stdout.write(
+                    f"{verb} {report.expired_uploads} expired pending uploads, "
+                    f"{report.uploads} uploads, {report.artifacts} artifacts and {report.jobs} "
+                    f"job records; {abort} {report.output_uploads} stale multipart output "
+                    f"uploads. {verb} {report.deliveries} webhook deliveries."
+                )
+                for error in report.errors:
+                    self.stderr.write(error)
+                if heartbeat:
+                    Path(heartbeat).touch()
+                done += 1
+                if every is None or (iterations is not None and done >= iterations):
+                    return
+                _sleep(stop, every)  # returns at once once SIGTERM has arrived
+                if stop.requested:
+                    self.stderr.write("Stopping: SIGTERM received.")
+                    return

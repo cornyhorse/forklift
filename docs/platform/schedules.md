@@ -129,4 +129,5 @@ Each pass runs its steps in turn (queueing scheduled runs, sending webhook deliv
 that fails is logged and runs again on the next pass; it stops neither the other steps nor the
 loop. `--heartbeat` touches the file after each pass in which every step succeeded, so a health
 check on its age (Compose: under a minute) also notices a step that keeps failing. A single pass
-(no `--every`) exits with an error when a step failed. More than one dispatcher may run.
+(no `--every`) exits with an error when a step failed. More than one dispatcher may run. SIGTERM
+stops the loop after the pass in progress (also as process 1 in a container).

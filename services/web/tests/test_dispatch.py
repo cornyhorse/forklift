@@ -48,7 +48,7 @@ def test_a_loop_and_its_heartbeat(monkeypatch, tmp_path):
     heartbeat = tmp_path / "dispatcher.alive"
     sleeps, touched = [], []
 
-    def sleep(seconds):
+    def sleep(stop, seconds):
         sleeps.append(seconds)
         touched.append(heartbeat.exists())
 
@@ -75,7 +75,7 @@ def test_a_failing_step_stops_neither_the_other_steps_nor_the_loop(monkeypatch, 
     monkeypatch.setattr(dispatch, "STEPS", [("flaky", flaky), ("other", lambda: "Other: fine.")])
     heartbeat = tmp_path / "dispatcher.alive"
     ages = []
-    monkeypatch.setattr(dispatch, "_sleep", lambda seconds: ages.append(heartbeat.exists()))
+    monkeypatch.setattr(dispatch, "_sleep", lambda stop, s: ages.append(heartbeat.exists()))
     with caplog.at_level(logging.ERROR, logger="forklift_web.core.management.commands.dispatch"):
         with pytest.raises(CommandError, match="1 dispatch steps failed; the log has why."):
             run("--every", "5", "--iterations", "3", "--heartbeat", str(heartbeat))

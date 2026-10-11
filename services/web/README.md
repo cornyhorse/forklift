@@ -30,7 +30,8 @@ forklift-web configure_cors --origin https://forklift.example.org   # the bucket
 Beside the gateway, run `forklift-web sweep_retention --every=3600` (retention),
 `forklift-web dispatch --every=10` ([schedules](../../docs/platform/schedules.md) and
 [webhooks](../../docs/platform/webhooks.md)) and `forklift-web publish --every=5`
-([publishing](../../docs/platform/publishing.md)), from the same image and settings.
+([publishing](../../docs/platform/publishing.md)), from the same image and settings. Each of
+them stops on SIGTERM after the pass in progress, also as process 1 in a container.
 [Docker Compose](../../deploy/compose/README.md) does all of this.
 
 Other commands: `rotate_secrets` (after adding a key to `FORKLIFT_SECRETS_KEYS`),

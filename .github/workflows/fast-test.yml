@@ -52,7 +52,7 @@ jobs:
         pip install "black>=23.12" "isort>=5.13" "flake8>=6.0"
 
     - name: Check formatting with Black
-      run: black --check --diff --line-length 99 src/ tests/ services/ deploy/
+      run: black --check --diff --line-length 99 src/ tests/ services/ deploy/ clients/
 
     # One call per tree: each service sorts with its own settings (its own first-party package)
     - name: Check import order with isort
@@ -60,6 +60,7 @@ jobs:
         isort --check-only --diff --profile black --line-length 99 src/ tests/ deploy/
         isort --check-only --diff --profile black --line-length 99 services/web
         isort --check-only --diff --profile black --line-length 99 services/worker
+        isort --check-only --diff --profile black --line-length 99 clients/python
 
     - name: Lint with flake8 (src only, excluding tests)
       run: flake8 src/ --max-line-length=99 --extend-ignore=E203,W503
@@ -95,19 +96,20 @@ jobs:
         pip install "black>=23.12" "isort>=5.13"
 
     - name: Auto-format code with Black
-      run: black --line-length 99 src/ tests/ services/ deploy/
+      run: black --line-length 99 src/ tests/ services/ deploy/ clients/
 
     - name: Auto-sort imports with isort
       run: |
         isort --profile black --line-length 99 src/ tests/ deploy/
         isort --profile black --line-length 99 services/web
         isort --profile black --line-length 99 services/worker
+        isort --profile black --line-length 99 clients/python
 
     - name: Commit formatting changes
       uses: stefanzweifel/git-auto-commit-action@v5
       with:
         commit_message: '🤖 Auto-format code with Black and isort'
-        file_pattern: 'src/ tests/ services/ deploy/'
+        file_pattern: 'src/ tests/ services/ deploy/ clients/'
         commit_user_name: 'github-actions[bot]'
         commit_user_email: 'github-actions[bot]@users.noreply.github.com'
         commit_author: 'github-actions[bot] <github-actions[bot]@users.noreply.github.com>'

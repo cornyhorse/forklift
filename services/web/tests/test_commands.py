@@ -84,7 +84,7 @@ def test_sweep_retention_once_and_in_a_loop(monkeypatch):
     assert out.startswith("Would delete 0 expired pending uploads")
     assert "; would abort 0 stale multipart output uploads." in out
     sleeps = []
-    monkeypatch.setattr(sweep_retention, "_sleep", sleeps.append)
+    monkeypatch.setattr(sweep_retention, "_sleep", lambda stop, s: sleeps.append(s))
     out, _ = run("sweep_retention", "--every", "60", "--iterations", "3")
     assert out.count("Deleted 0 expired") == 3 and sleeps == [60.0, 60.0]
 
@@ -94,7 +94,9 @@ def test_sweep_retention_touches_its_heartbeat_after_each_sweep(monkeypatch, tmp
     World.build()
     heartbeat = tmp_path / "sweeper.alive"
     touched = []
-    monkeypatch.setattr(sweep_retention, "_sleep", lambda s: touched.append(heartbeat.exists()))
+    monkeypatch.setattr(
+        sweep_retention, "_sleep", lambda stop, s: touched.append(heartbeat.exists())
+    )
     run("sweep_retention", "--every", "60", "--iterations", "2", "--heartbeat", str(heartbeat))
     assert touched == [True] and heartbeat.exists()  # touched before the first wait, then again
 

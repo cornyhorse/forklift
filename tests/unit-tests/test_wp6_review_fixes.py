@@ -1347,6 +1347,7 @@ class TestWorkflows:
         assert grants == {
             ("fast-test.yml", "autoformat"): {"contents": "write"},
             ("publish.yaml", "publish-pypi"): {"id-token": "write"},
+            ("publish-client.yml", "publish-pypi"): {"id-token": "write"},
             # the chart is pushed to GHCR as an OCI artifact on chart-v* tags
             ("helm.yml", "publish"): {"contents": "read", "packages": "write"},
         }

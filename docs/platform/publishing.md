@@ -63,7 +63,10 @@ the lease, and another publisher took the run over) stops without changing the r
 `--heartbeat` touches the file after each pass that did not fail and every few seconds while a
 copy runs, so a health check on its age (Compose: under a minute) stays green during a long copy
 and notices a publisher that keeps failing. A pass that fails is logged; the loop goes on, and a
-single pass (no `--every`) exits with an error.
+single pass (no `--every`) exits with an error. SIGTERM stops the loop once the run being copied
+is done: no further run is claimed, and the command exits (a stop that has to wait for a long
+copy is cut short by the container's grace period, and the next publisher resumes that run once
+its lease expires).
 
 ## Settings
 

@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import logging
-import time
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
+from forklift_web.core.management.loop import Stop, stopped_by_sigterm
 from forklift_web.services import schedules, webhooks
 
 logger = logging.getLogger(__name__)
 
 
-def _sleep(seconds: float) -> None:
-    time.sleep(seconds)
+def _sleep(stop: Stop, seconds: float) -> None:
+    stop.wait(seconds)
 
 
 def _schedules() -> str:
@@ -43,7 +43,7 @@ class Command(BaseCommand):
     help = (
         "Enqueue the runs of schedules that are due and send the webhook deliveries that are "
         "due. With --every, keep dispatching; a step that fails is logged and runs again on "
-        "the next pass."
+        "the next pass. SIGTERM stops the loop after the pass in progress."
     )
 
     def add_arguments(self, parser):
@@ -62,17 +62,21 @@ class Command(BaseCommand):
 
     def handle(self, *args, every, iterations, heartbeat, **options):
         done = failures = 0
-        while True:
-            failed = self._pass()
-            failures += failed
-            if heartbeat and not failed:
-                Path(heartbeat).touch()
-            done += 1
-            if every is None or (iterations is not None and done >= iterations):
-                if failures:
-                    raise CommandError(f"{failures} dispatch steps failed; the log has why.")
-                return
-            _sleep(every)
+        with stopped_by_sigterm() as stop:
+            while True:
+                failed = self._pass()
+                failures += failed
+                if heartbeat and not failed:
+                    Path(heartbeat).touch()
+                done += 1
+                if every is None or (iterations is not None and done >= iterations):
+                    if failures:
+                        raise CommandError(f"{failures} dispatch steps failed; the log has why.")
+                    return
+                _sleep(stop, every)  # returns at once once SIGTERM has arrived
+                if stop.requested:
+                    self.stderr.write("Stopping: SIGTERM received.")
+                    return
 
     def _pass(self) -> int:
         """Run every step; returns how many failed."""

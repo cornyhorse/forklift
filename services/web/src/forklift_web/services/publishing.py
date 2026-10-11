@@ -127,15 +127,21 @@ def _copy(target: storage.Bucket, key: str, destination_key: str, lease: _Lease)
 # --------------------------------------------------------------------------- one pass
 
 
-def publish_due(*, now=None, heartbeat: Callable[[], None] = lambda: None) -> dict:
+def publish_due(
+    *,
+    now=None,
+    heartbeat: Callable[[], None] = lambda: None,
+    stop: Callable[[], bool] = lambda: False,
+) -> dict:
     """Publish every job whose publishing is due, one after the other, each at most once;
     returns how many were published, will be tried again, failed and were lost to another
-    publisher. ``heartbeat`` is called between objects and every few seconds of a long copy."""
+    publisher. ``heartbeat`` is called between objects and every few seconds of a long copy;
+    once ``stop()`` is true no further job is claimed (the one being copied is finished)."""
     now = now or timezone.now()
     settings = installation.current()
     counts = {"published": 0, "retrying": 0, "failed": 0, "lost": 0}
     handled: list = []
-    while (claimed := _claim(now, settings, handled)) is not None:
+    while not stop() and (claimed := _claim(now, settings, handled)) is not None:
         job, token = claimed
         outcome = "failed" if token is None else _publish(job, token, settings, now, heartbeat)
         counts[outcome] += 1

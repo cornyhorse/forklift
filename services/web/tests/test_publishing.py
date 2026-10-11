@@ -555,6 +555,27 @@ def command(*args) -> tuple:
     return out.getvalue(), err.getvalue()
 
 
+def test_a_pass_told_to_stop_claims_no_further_run(principal, run, copies):
+    second = complete_run(principal, make_job(run.requested_by, run.upload, dataset=run.dataset))
+    checks = []
+
+    def stop():
+        checks.append(len(copies))
+        return len(checks) > 1  # stop is asked for once the first run is being published
+
+    counts = publishing.publish_due(stop=stop)
+
+    assert counts == {"published": 1, "retrying": 0, "failed": 0, "lost": 0}
+    statuses = {fresh(run).status, fresh(second).status}
+    assert statuses == {JobStatus.SUCCEEDED, JobStatus.PUBLISHING}  # the other one waits
+    assert publishing.publish_due(stop=lambda: True) == {
+        "published": 0,
+        "retrying": 0,
+        "failed": 0,
+        "lost": 0,
+    }
+
+
 def test_one_pass_of_the_command(run):
     out, err = command()
     assert out == "Published 1, retrying 0, failed 0, lost to another publisher 0.\n"
@@ -565,7 +586,7 @@ def test_the_command_loops_and_touches_its_heartbeat(monkeypatch, tmp_path):
     heartbeat = tmp_path / "publisher.alive"
     sleeps, touched = [], []
 
-    def sleep(seconds):
+    def sleep(stop, seconds):
         sleeps.append(seconds)
         touched.append(heartbeat.exists())
 
@@ -603,7 +624,7 @@ def test_a_failing_pass_does_not_stop_the_loop(monkeypatch, tmp_path, caplog):
         return {"published": 0, "retrying": 0, "failed": 0, "lost": 0}
 
     monkeypatch.setattr(publishing, "publish_due", flaky)
-    monkeypatch.setattr(publish_command, "_sleep", lambda seconds: None)
+    monkeypatch.setattr(publish_command, "_sleep", lambda stop, seconds: None)
     heartbeat = tmp_path / "publisher.alive"
     with caplog.at_level(logging.ERROR, logger="forklift_web.core.management.commands.publish"):
         with pytest.raises(CommandError, match="1 publishing passes failed; the log has why."):

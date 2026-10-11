@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forklift-client"
+version = "0.1.0"
+description = "Typed Python client for the forklift API (/api/v1), with an Airflow operator, deferrable sensor and trigger"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Matt", email = "matt@mattkingsbury.com"}]
+requires-python = ">=3.9"
+keywords = ["forklift", "etl", "data-quality", "airflow", "api-client"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: Apache Airflow",
+    "Framework :: Apache Airflow :: Provider",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Typing :: Typed",
+]
+# The client uses the standard library only (urllib, ssl, hashlib, json).
+dependencies = []
+
+[project.optional-dependencies]
+# Airflow 3.2 is the first release with every public interface the operator, sensor and
+# trigger use (airflow.sdk.BaseHook, airflow.sdk.conf, airflow.sdk.exceptions, declarative
+# connection fields); it needs Python 3.10 or newer.
+airflow = ["apache-airflow>=3.2"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.12.0",
+    "isort>=5.13.0",
+    "flake8>=6.0.0",
+]
+
+# Airflow finds the provider (the "forklift" connection type, the hook, operator, sensor and
+# trigger) through this entry point.
+[project.entry-points.apache_airflow_provider]
+provider_info = "forklift_client.airflow.provider:get_provider_info"
+
+[project.urls]
+Repository = "https://github.com/cornyhorse/forklift"
+Documentation = "https://github.com/cornyhorse/forklift/blob/main/docs/platform/client.md"
+Changelog = "https://github.com/cornyhorse/forklift/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/forklift_client"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/forklift_client", "tests", "tools", "README.md", "pyproject.toml"]
+
+[tool.black]
+line-length = 99
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 99
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --strict-config"
+# A deprecated interface used by forklift_client (Airflow's moved imports are FutureWarnings)
+# fails the tests.
+filterwarnings = [
+    "error::DeprecationWarning:forklift_client.*",
+    "error::FutureWarning:forklift_client.*",
+]
+
+# The core tests (tests/unit) cover forklift_client without the airflow package, which they
+# cannot import; tests/with_airflow covers that (with tests/with_airflow/coverage.ini).
+[tool.coverage.run]
+source = ["forklift_client"]
+omit = ["*/forklift_client/airflow/*"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

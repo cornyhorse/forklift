@@ -1,0 +1,218 @@
+# The Compose profiles of deploy/compose: generate_env.py (every line and branch), the Caddyfile
+# and the egress proxy's Squid configuration; then the whole stack built from this commit, once
+# behind Caddy (TLS with Caddy's own CA, names in /etc/hosts: every end-to-end test over https)
+# and once with an external store that the workers reach through the egress proxy only.
+name: Compose profiles
+
+on:
+  push:
+    branches: [ main, develop, "feature/*", "feat/*", "bugfix/*", "hotfix/*" ]
+    paths:
+      - deploy/compose/**
+      - services/web/**
+      - services/worker/**
+      - src/**
+      - pyproject.toml
+      - contracts/**
+      - .github/workflows/compose-profiles.yml
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - deploy/compose/**
+      - services/web/**
+      - services/worker/**
+      - src/**
+      - pyproject.toml
+      - contracts/**
+      - .github/workflows/compose-profiles.yml
+
+# Least privilege: the tests never need to write to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: compose-profiles-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CADDY_IMAGE: caddy:2.11.7
+  SQUID_IMAGE: ubuntu/squid:6.6-24.04_edge
+
+jobs:
+  compose-files:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install the test tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov black isort flake8
+
+    - name: Check formatting and lint
+      run: |
+        black --check --line-length 99 deploy/compose
+        isort --check-only --profile black --line-length 99 deploy/compose
+        flake8 --max-line-length=99 --extend-ignore=E203,W503 deploy/compose
+
+    - name: generate_env.py (every line and branch)
+      run: >-
+        python -m pytest deploy/compose/tests -v -p no:cacheprovider -o addopts=
+        --cov=generate_env --cov-branch --cov-report=term-missing --cov-fail-under=100
+
+    - name: The Caddyfile is formatted and valid, with and without the store's site
+      working-directory: deploy/compose/caddy
+      run: |
+        docker run --rm -v "$PWD:/etc/caddy:ro" "$CADDY_IMAGE" caddy fmt --diff /etc/caddy/Caddyfile \
+          > /dev/null  # it fails, with the line, when the file is not formatted
+        for site in store-site no-store-site; do
+          docker run --rm -v "$PWD:/etc/caddy:ro" -e FORKLIFT_DOMAIN=forklift.test \
+            -e FORKLIFT_STORE_DOMAIN=store.forklift.test -e FORKLIFT_TLS=internal \
+            -e FORKLIFT_CADDY_STORE_SITE=$site "$CADDY_IMAGE" \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+        done
+        # start.sh refuses settings it cannot use, before Caddy starts
+        if docker run --rm -v "$PWD:/etc/caddy:ro" -e FORKLIFT_DOMAIN=forklift.test \
+            -e FORKLIFT_TLS=acme "$CADDY_IMAGE" sh /etc/caddy/start.sh 2> refused.txt; then
+          echo "start.sh accepted FORKLIFT_TLS=acme without FORKLIFT_ACME_EMAIL"; exit 1
+        fi
+        grep -q "needs FORKLIFT_ACME_EMAIL" refused.txt
+
+    - name: The Squid configuration parses, for every kind of allowed destination
+      working-directory: deploy/compose/egress-proxy
+      run: |
+        check() {
+          docker run --rm --user 13:13 --read-only --tmpfs /run/forklift-egress:uid=13,gid=13 \
+            -e "FORKLIFT_EGRESS_PROXY_ALLOW=$1" -v "$PWD/squid.conf:/etc/squid/squid.conf:ro" \
+            -v "$PWD/start.sh:/etc/squid/forklift/start.sh:ro" --entrypoint bash "$SQUID_IMAGE" \
+            /etc/squid/forklift/start.sh --check
+        }
+        check "https://s3.eu-west-1.amazonaws.com, http://store.internal:9000 http://10.0.0.5 https://[fd00::5]:8443" | tee rules.txt
+        grep -q "^acl forklift_store_1 dstdomain -n s3.eu-west-1.amazonaws.com$" rules.txt
+        grep -q "^http_access allow CONNECT forklift_store_1 forklift_store_1_port$" rules.txt
+        grep -q "^acl forklift_store_2_port port 9000$" rules.txt
+        grep -q "^acl forklift_store_3 dst 10.0.0.5$" rules.txt
+        for bad in "" "ftp://store" "https://store/bucket" "http://store:0"; do
+          if check "$bad" 2> refused.txt; then echo "start.sh accepted '$bad'"; exit 1; fi
+          grep -q "^egress-proxy: " refused.txt
+        done
+
+  # Every end-to-end test over https, behind Caddy with its own CA
+  caddy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE: >-
+        docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/e2e/caddy.yml
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install the test client's dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pyarrow
+
+    - name: Generate the stack's settings (TLS with Caddy's own CA)
+      run: >-
+        python deploy/compose/generate_env.py --domain forklift-edge.test --internal-ca
+        --https-port 48443 --http-port 48480 > deploy/compose/.env
+
+    - name: Resolve the two names to this host
+      run: echo "127.0.0.1 forklift-edge.test store.forklift-edge.test" | sudo tee -a /etc/hosts
+
+    - name: Build and start the stack
+      run: $COMPOSE up -d --build --wait
+
+    - name: Trust Caddy's CA
+      run: $COMPOSE exec -T caddy cat /data/caddy/pki/authorities/local/root.crt > caddy-root.crt
+
+    - name: Run the end-to-end tests over https
+      env:
+        FORKLIFT_E2E_ENV_FILE: deploy/compose/.env
+        SSL_CERT_FILE: caddy-root.crt
+      run: >-
+        python -m pytest -v -p no:cacheprovider -o addopts=
+        deploy/compose/e2e/test_caddy.py deploy/compose/e2e/test_stack.py
+        deploy/compose/e2e/test_sign_in.py deploy/compose/e2e/test_schedules.py
+        deploy/compose/e2e/test_publishing.py
+
+    - name: Show the stack's logs
+      if: failure()
+      run: $COMPOSE logs
+
+    - name: Stop the stack and forget the names
+      if: always()
+      run: |
+        $COMPOSE down -v
+        sudo sed -i '/forklift-edge\.test/d' /etc/hosts
+
+  # An external store (a second RustFS on the public network only) that the workers reach through
+  # the egress proxy, and nothing else
+  egress-proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE: >-
+        docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/external-store.yml
+        -f deploy/compose/e2e/egress-proxy.yml
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install the test client's dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pyarrow
+
+    - name: Generate the stack's settings (an external store)
+      run: |
+        python deploy/compose/generate_env.py --store-url http://store-external:9000 \
+          --public-store-url http://localhost:48290 > deploy/compose/.env
+        # The external RustFS's root credentials, which the gateway uses too
+        echo "FORKLIFT_STORE_ACCESS_KEY=e2e-$(openssl rand -hex 6)" >> deploy/compose/.env
+        echo "FORKLIFT_STORE_SECRET_KEY=$(openssl rand -hex 24)" >> deploy/compose/.env
+
+    - name: Build and start the stack
+      run: $COMPOSE up -d --build --wait
+
+    - name: Run the end-to-end tests through the egress proxy
+      env:
+        FORKLIFT_E2E_ENV_FILE: deploy/compose/.env
+        FORKLIFT_E2E_COMPOSE_PROJECT: forklift
+      run: >-
+        python -m pytest -v -p no:cacheprovider -o addopts=
+        deploy/compose/e2e/test_egress_proxy.py deploy/compose/e2e/test_stack.py
+        deploy/compose/e2e/test_sign_in.py deploy/compose/e2e/test_schedules.py
+        deploy/compose/e2e/test_publishing.py
+
+    - name: Show the stack's logs
+      if: failure()
+      run: $COMPOSE logs
+
+    - name: Stop the stack
+      if: always()
+      run: $COMPOSE down -v

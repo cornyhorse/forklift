@@ -8,7 +8,8 @@ It follows the run-job contract (progress as JSON lines on stdout, logs on stder
 says:
 
 - ``{"mode": "succeed"}`` (default): reads the input (a staged file, or a presigned URL whose host
-  was allowed), writes ``out/data.parquet`` (the input upper-cased), ``out/bad_rows.parquet`` and
+  was allowed, through the proxy its environment names, as the real engine does), writes
+  ``out/data.parquet`` (the input upper-cased), ``out/bad_rows.parquet`` and
   ``out/manifest.json``, reports progress and succeeds.
 - ``{"mode": "fail"}``: a threshold failure that keeps ``out/bad_rows.parquet``.
 - ``{"mode": "exit", "code": N, "stderr": [...]}``: writes the lines to stderr, exits N, no result.
@@ -74,8 +75,8 @@ def read_input(spec, base_dir, allowed_hosts):
         host = urlsplit(location["url"]).netloc
         if host not in allowed_hosts:
             raise PermissionError(f"host {host} is not allowed")
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(location["url"], timeout=30) as response:
+        # As the real engine does: proxies from the environment the worker gave it
+        with urllib.request.build_opener().open(location["url"], timeout=30) as response:
             return response.read()
     return b""
 

@@ -3,9 +3,10 @@
 ``standard``: a scrubbed environment, resource limits, its own scratch directory as working
 directory and TMPDIR, no core dumps, no new privileges, killed with the supervisor; with Landlock,
 also no file-system access outside the Python installation, system directories and its scratch
-directory, and no TCP connections except to the object store (streamed inputs) or none at all
-(staged inputs). It expects the worker to run as a non-root user in a container with a read-only
-root file system and egress limited to the gateway and the store.
+directory, and no TCP connections except to the object store (streamed inputs; the store proxy's
+port instead when ``--store-proxy`` is set) or none at all (staged inputs). It expects the worker
+to run as a non-root user in a container with a read-only root file system and egress limited to
+the gateway and the store.
 
 ``no-network``: as standard, plus the engine runs in its own empty network namespace, so it has
 no network at all; streamed inputs and SQL locations are refused. It needs unprivileged user
@@ -25,11 +26,11 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
-from urllib.parse import urlsplit
 
 from . import linux, logs
 from .settings import AUTO, Settings
 from .spec import JobPlan
+from .transport import port_of
 
 log = logs.logger("isolation")
 
@@ -48,9 +49,10 @@ SYSTEM_READ_PATHS = (
 DEVICES = ("/dev/null", "/dev/zero", "/dev/random", "/dev/urandom")
 # Passed to the engine when set: locale, time zone and CA bundle locations (paths, not secrets).
 PASSED_THROUGH = ("LANG", "LC_ALL", "LC_CTYPE", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR")
-# Passed only to engines that stream an input, and only without user info in the proxy URL.
-PROXY_URL_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy")
-PROXY_VARIABLES = (*PROXY_URL_VARIABLES, "NO_PROXY", "no_proxy")
+# Set to --store-proxy for engines that stream an input (urllib reads the lower-case names first;
+# other HTTP clients read either). No proxy variable of the worker's own environment is passed:
+# NO_PROXY would let the engine bypass the proxy, and its port would be closed under Landlock.
+PROXY_VARIABLES = ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")
 
 
 class IsolationError(Exception):
@@ -89,14 +91,6 @@ def probe_network_namespace() -> tuple[bool, str]:
         return bool(answer["network_namespace"]), str(answer["problem"])
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError) as error:
         return False, f"the probe failed ({type(error).__name__}: {error})"
-
-
-def _proxy_port(value: str) -> int | None:
-    parts = urlsplit(value if "://" in value else f"http://{value}")
-    try:
-        return parts.port or (443 if parts.scheme == "https" else 80)
-    except ValueError:
-        return None
 
 
 def _within(path: Path, parent: Path) -> bool:
@@ -212,24 +206,17 @@ class Isolation:
         for name in (*PASSED_THROUGH, *self.settings.engine_env):
             if name in source:
                 env[name] = source[name]
-        if plan.stream_hosts:
-            for name in PROXY_VARIABLES:
-                value = source.get(name)
-                if value and "@" not in urlsplit(value if "://" in value else f"//{value}").netloc:
-                    env[name] = value
+        if plan.stream_hosts and self.settings.store_proxy:
+            env.update(dict.fromkeys(PROXY_VARIABLES, self.settings.store_proxy))
         return env
 
-    def _tcp_ports(self, plan: JobPlan, env: Mapping[str, str]) -> list[int] | None:
+    def _tcp_ports(self, plan: JobPlan) -> list[int] | None:
         """TCP ports the engine may connect to; None leaves TCP alone (no ABI 4, or SQL)."""
         if self.landlock_abi < 4 or plan.uses_sql:
             return None
-        ports = set(plan.stream_ports)
-        if plan.stream_hosts:
-            for name in PROXY_URL_VARIABLES:
-                port = _proxy_port(env[name]) if name in env else None
-                if port:
-                    ports.add(port)
-        return sorted(ports)
+        if plan.stream_hosts and self.settings.store_proxy:
+            return [port_of(self.settings.store_proxy)]
+        return sorted(set(plan.stream_ports))
 
     def rlimits(self, timeout: float) -> dict[str, list[int]]:
         """Resource limits for one engine run whose wall-clock limit is ``timeout`` seconds."""
@@ -257,9 +244,7 @@ class Isolation:
         limits["nofile"] = [-1, -1] if open_files is None else [int(open_files)] * 2
         return limits
 
-    def sandbox_config(
-        self, workdir: Path, plan: JobPlan, env: Mapping[str, str], timeout: float
-    ) -> dict[str, Any]:
+    def sandbox_config(self, workdir: Path, plan: JobPlan, timeout: float) -> dict[str, Any]:
         config: dict[str, Any] = {
             "parent_pid": os.getpid(),
             "rlimits": self.rlimits(timeout),
@@ -272,7 +257,7 @@ class Isolation:
                 "read": self.read_paths,
                 "devices": list(DEVICES),
                 "write": [str(workdir)],
-                "tcp_ports": self._tcp_ports(plan, env),
+                "tcp_ports": self._tcp_ports(plan),
                 "scope": self.landlock_abi >= 6,
             }
         return config

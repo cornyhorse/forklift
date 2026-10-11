@@ -52,13 +52,22 @@ class Supervisor:
         *,
         isolation: Isolation | None = None,
         http: HttpClient | None = None,
+        store_http: HttpClient | None = None,
         engine_version: str | None = None,
         runner_factory: Callable[["Supervisor", GatewayClient], JobRunner] | None = None,
         clock: Callable[[], float] = time.monotonic,
     ):
         self.settings = settings
+        # Two clients: the gateway's never goes through a proxy; the store's goes through
+        # --store-proxy when it is set. Neither takes proxies from the environment.
         self.http = http or HttpClient(
             timeout=settings.http_timeout, user_agent=settings.user_agent, ca_file=settings.ca_file
+        )
+        self.store_http = store_http or HttpClient(
+            timeout=settings.http_timeout,
+            user_agent=settings.user_agent,
+            ca_file=settings.ca_file,
+            proxy=settings.store_proxy,
         )
         self.isolation = isolation or Isolation(settings, Platform.probe(settings.isolation))
         self.engine_version = engine_version or installed_engine_version()
@@ -66,7 +75,7 @@ class Supervisor:
             lambda supervisor, gateway: JobRunner(
                 supervisor.settings,
                 gateway,
-                supervisor.http,
+                supervisor.store_http,
                 supervisor.isolation,
                 on_fatal=supervisor.fatal,
             )
@@ -187,6 +196,7 @@ class Supervisor:
                     "worker_ids": self.worker_ids(),
                     "lanes": self.settings.lanes,
                     "gateway": self.settings.gateway,
+                    "store_proxy": self.settings.store_proxy,
                     "isolation": self.isolation.describe(),
                 },
             )

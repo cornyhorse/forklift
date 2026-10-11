@@ -20,6 +20,7 @@ from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlsplit
 
 from . import __version__
+from .transport import host_of
 
 AUTO = "auto"
 UNLIMITED = "unlimited"
@@ -32,6 +33,9 @@ LOG_FORMATS = ("json", "text")
 # Environment variables that are never passed to the engine, even when --engine-env names them:
 # the engine process holds no credentials of any kind.
 _NEVER_PASSED = re.compile(r"^(AWS_|FORKLIFT_)|TOKEN|SECRET|PASSW|CREDENTIAL|KEY", re.IGNORECASE)
+# Proxy variables (HTTP_PROXY, https_proxy, NO_PROXY, ALL_PROXY, ...): the worker sets the engine's
+# own from --store-proxy and passes none from its environment.
+_PROXY_VARIABLE = re.compile(r"_PROXY$", re.IGNORECASE)
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _LANE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 # The gateway's rule (at most 200 characters), with room for the slot suffix of --concurrency.
@@ -180,7 +184,39 @@ def _env_name(text: str) -> str:
             "and AWS_*, FORKLIFT_* and names containing TOKEN, SECRET, PASSW, CREDENTIAL or KEY "
             "are always removed from its environment"
         )
+    if _PROXY_VARIABLE.search(name):
+        raise ValueError(
+            f"{name} is never passed to the engine: the worker sets the engine's proxy variables "
+            "itself (use --store-proxy / FORKLIFT_STORE_PROXY) and passes none from its own "
+            "environment"
+        )
     return name
+
+
+def _proxy_url(text: str) -> str:
+    """``http://host:port`` of an HTTP proxy (no credentials, path, query or fragment)."""
+    url = text.strip().rstrip("/")
+    parts = urlsplit(url)
+    example = "for example http://egress-proxy:3128"
+    if parts.scheme != "http" or not parts.hostname:
+        raise ValueError(
+            f"{text!r} is not an http:// proxy URL with a host ({example}; the connection to the "
+            "store stays end-to-end TLS through the proxy for https:// stores)"
+        )
+    if parts.username is not None or parts.password is not None:
+        raise ValueError(
+            f"{text!r} carries credentials: the engine is given the proxy's address and holds "
+            "no credentials, so the proxy must not need any (limit who may use it by network)"
+        )
+    if parts.path or parts.query or parts.fragment:
+        raise ValueError(f"{text!r} must not have a path, a query or a fragment ({example})")
+    try:
+        port = parts.port
+    except ValueError:
+        raise ValueError(f"{text!r} has an invalid port ({example})") from None
+    if port is None:
+        raise ValueError(f"{text!r} has no port ({example})")
+    return f"http://{host_of(url)}"
 
 
 def _worker_id(text: str) -> str:
@@ -355,6 +391,17 @@ OPTIONS: tuple[Option, ...] = (
         variable="FORKLIFT_WORKER_STORE_HOSTS",
     ),
     Option(
+        "store_proxy",
+        "--store-proxy",
+        "HTTP proxy (http://host:port) for every request to the object store: the supervisor's "
+        "downloads and uploads and the engine's streamed reads (CONNECT for https:// stores). "
+        "Gateway requests never use it; under Landlock a streaming engine may connect to its "
+        "port only. HTTP_PROXY, HTTPS_PROXY and NO_PROXY in the environment are ignored either "
+        "way.",
+        _proxy_url,
+        variable="FORKLIFT_STORE_PROXY",
+    ),
+    Option(
         "ca_file",
         "--ca-file",
         "CA bundle for HTTPS to the gateway and the object store (default: the system's).",
@@ -486,6 +533,7 @@ class Settings:
     engine_env: list[str] = field(default_factory=list)
     engine_read_path: list[Path] = field(default_factory=list)
     store_host: list[str] = field(default_factory=list)
+    store_proxy: str | None = None
     ca_file: Path | None = None
     stage_max_bytes: int | None = None
     max_job_seconds: float = 86400.0

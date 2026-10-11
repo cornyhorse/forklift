@@ -195,7 +195,7 @@ class JobRunner:
         self,
         settings: Settings,
         gateway: GatewayClient,
-        http: HttpClient,
+        http: HttpClient,  # for the object store (presigned URLs); the gateway has its own
         isolation: Isolation,
         *,
         engine: EngineRunner | None = None,

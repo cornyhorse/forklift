@@ -1,0 +1,85 @@
+# TLS in front of the forklift Compose stack: the "caddy" profile (deploy/compose/README.md).
+#
+# Two sites on Caddy's port 443 (port 80 redirects to https and answers ACME challenges):
+#
+#   {$FORKLIFT_DOMAIN}         the UI and /api/v1 (the gateway's public port, 8080), and /mcp, the
+#                              remote MCP server of the "mcp" profile
+#   {$FORKLIFT_STORE_DOMAIN}   the object store (RustFS): browsers and API clients upload and
+#                              download through presigned URLs straight to the store, and an
+#                              https page cannot use an http store (mixed content). Left out when
+#                              FORKLIFT_STORE_DOMAIN is empty: an external store with an https://
+#                              URL of its own (external-store.yml)
+#
+# start.sh checks the settings and chooses the store's site before Caddy starts.
+#
+# Certificates: FORKLIFT_TLS=acme (the default) from Let's Encrypt, with ZeroSSL as a fallback,
+# for the account FORKLIFT_ACME_EMAIL; both names must resolve to this host and ports 80 and 443
+# must be reachable from the internet. FORKLIFT_TLS=internal uses Caddy's own CA instead, for
+# local and test installations: clients trust /data/caddy/pki/authorities/local/root.crt (in the
+# caddy-data volume). Certificates, keys and the CA live in that volume; keep it.
+#
+# Nothing here limits or buffers request bodies (Caddy's defaults): uploads of many GiB and
+# multipart parts stream through, and there are no read or write timeouts.
+{
+	# Clients trust the internal CA's root themselves; Caddy does not try to add it to the
+	# container's (read-only) trust store
+	skip_install_trust
+
+	# The container's health check asks the admin API (localhost:2019, inside the container
+	# only) every 10 seconds: those requests are not logged
+	log default {
+		exclude admin.api
+	}
+}
+
+(tls-acme) {
+	tls {$FORKLIFT_ACME_EMAIL}
+}
+
+(tls-internal) {
+	tls internal
+}
+
+(hsts) {
+	header Strict-Transport-Security "max-age={$FORKLIFT_HSTS_SECONDS:31536000}"
+}
+
+{$FORKLIFT_DOMAIN} {
+	import tls-{$FORKLIFT_TLS:acme}
+	import hsts
+
+	# MCP's Streamable HTTP: responses can be server-sent events, passed on as they come
+	@mcp path /mcp /mcp/*
+	handle @mcp {
+		reverse_proxy mcp:8000 {
+			flush_interval -1
+		}
+	}
+
+	# Everything else is the gateway's public port; its workers' port (8081) is never routed.
+	# The gateway trusts X-Forwarded-Proto (FORKLIFT_BEHIND_TLS_PROXY) and the last
+	# X-Forwarded-For entry (FORKLIFT_TRUSTED_PROXIES=1), which Caddy sets to the client's
+	# address, ignoring what the client sent.
+	handle {
+		reverse_proxy gateway:8080
+	}
+}
+
+(store-site) {
+	{$FORKLIFT_STORE_DOMAIN} {
+		import tls-{$FORKLIFT_TLS:acme}
+		import hsts
+
+		# SigV4 presigned URLs sign the Host header: Caddy passes the client's Host on unchanged
+		# (there is deliberately no header_up Host here), and the store checks the signature
+		# with it.
+		reverse_proxy rustfs:9000 {
+			flush_interval -1
+		}
+	}
+}
+
+(no-store-site) {
+}
+
+import {$FORKLIFT_CADDY_STORE_SITE:store-site}

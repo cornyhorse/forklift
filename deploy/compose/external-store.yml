@@ -1,0 +1,43 @@
+# An object store outside this stack (AWS S3, MinIO, Ceph RGW, another RustFS, ...) instead of the
+# bundled RustFS, with the workers' egress limited to it by the egress-proxy profile's Squid:
+#
+#   python deploy/compose/generate_env.py --store-url https://s3.eu-west-1.amazonaws.com \
+#       --store-bucket my-forklift --store-region eu-west-1 > deploy/compose/.env
+#   # fill in FORKLIFT_STORE_ACCESS_KEY and FORKLIFT_STORE_SECRET_KEY (an access key for the bucket)
+#   docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/external-store.yml \
+#     up -d --build --wait
+#
+# The store's settings come from .env: FORKLIFT_STORE_URL (the gateway's calls and the URLs it
+# signs for workers), FORKLIFT_STORE_HOST (the host:port presigned URLs must name),
+# FORKLIFT_PUBLIC_STORE_URL (the URLs it signs for browsers and API clients), FORKLIFT_STORE_BUCKET
+# and FORKLIFT_STORE_REGION. init sets the bucket's CORS rule for the UI's origin, as for RustFS,
+# and creates the bucket if it does not exist: the credential needs s3:PutBucketCORS (and
+# s3:CreateBucket for a bucket that is not there yet; on AWS outside us-east-1, create it first).
+#
+# Paths are relative to deploy/compose (the directory of the first file).
+services:
+  # Not started: the store is elsewhere
+  rustfs:
+    profiles: [bundled-store]
+
+  # The gateway processes that call the store need a route to it; the gateway, the dispatcher and
+  # the publisher are on the public network already
+  init:
+    networks: [public, internal, db]
+    depends_on: !override
+      postgres: {condition: service_healthy}
+
+  sweeper:
+    networks: [public, internal, db]
+
+  # The worker stays on the internal network, which has no route out: every store request (and a
+  # streaming engine's reads) goes through the proxy, which allows FORKLIFT_STORE_URL only
+  worker:
+    environment:
+      FORKLIFT_STORE_PROXY: http://egress-proxy:3128
+    depends_on:
+      egress-proxy: {condition: service_healthy}
+
+  # Always started with an external store (it is a profile of docker-compose.yml otherwise)
+  egress-proxy:
+    profiles: !reset []

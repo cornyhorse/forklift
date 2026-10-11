@@ -247,7 +247,7 @@ class EngineRunner:
         With ``input_urls`` (a streamed input) the engine's requests for a fresh input URL are
         answered on its stdin."""
         env = self.isolation.environment(workdir, plan)
-        config = self.isolation.sandbox_config(workdir, plan, env, timeout)
+        config = self.isolation.sandbox_config(workdir, plan, timeout)
         (workdir / "tmp").mkdir(mode=0o700, exist_ok=True)
         started = self.clock()
         with _engines_lock:

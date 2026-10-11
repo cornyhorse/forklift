@@ -1,4 +1,5 @@
-"""HTTP on the standard library: no redirects, http(s) only, errors that name the host only."""
+"""HTTP on the standard library: no redirects, http(s) only, errors that name the host only,
+no proxy from the environment and, when asked, every request through one proxy."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import socket
 import threading
 
 import pytest
+from forward_proxy import ForwardProxy
 
 from forklift_worker.transport import (
     HttpClient,
@@ -188,3 +190,108 @@ def test_read_errors_become_transport_errors(monkeypatch):
     with http.download("http://store/key") as response:
         with pytest.raises(TransportError, match="Connection reset"):
             list(response.chunks(10))
+
+
+# --------------------------------------------------------------------------- proxies
+
+
+@pytest.fixture
+def forward_proxy():
+    proxies = []
+
+    def start(allow=None) -> ForwardProxy:
+        proxy = ForwardProxy(allow).__enter__()
+        proxies.append(proxy)
+        return proxy
+
+    yield start
+    for proxy in proxies:
+        proxy.__exit__(None, None, None)
+
+
+def test_proxies_in_the_environment_are_ignored(raw, forward_proxy, monkeypatch):
+    # urllib's default would send this request, the worker token with it, to that proxy.
+    ambient = forward_proxy()
+    for name in ("HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY"):
+        monkeypatch.setenv(name, ambient.url)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    monkeypatch.delenv("no_proxy", raising=False)
+    server = raw(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+
+    assert client().request("GET", server.url).status == 200
+    assert server.received and ambient.requests == []
+
+
+def test_a_store_proxy_carries_every_request_whatever_no_proxy_says(
+    raw, forward_proxy, monkeypatch
+):
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost,*")
+    monkeypatch.setenv("no_proxy", "*")
+    proxy = forward_proxy()
+    server = raw(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+    http = HttpClient(timeout=5, user_agent="test", proxy=proxy.url)
+
+    response = http.request("PUT", server.url, headers={"Content-MD5": "x"}, body=b"data")
+
+    assert response.status == 200 and response.body == b"ok"
+    assert http.proxy == f"127.0.0.1:{proxy.port}"
+    (sent,) = proxy.requests
+    assert sent["method"] == "PUT"
+    assert sent["target"] == server.url, "an absolute URL, its signature for the store only"
+    assert sent["headers"]["host"] == f"127.0.0.1:{server.port}", "the Host that was signed"
+    assert sent["headers"]["content-md5"] == "x"
+    assert server.received[0].startswith(b"PUT /object?X-Amz-Signature=secret-signature HTTP/1.1")
+
+
+def test_https_goes_through_a_tunnel_and_errors_name_the_proxy(raw, forward_proxy):
+    proxy = forward_proxy()
+    server = raw(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")  # not TLS
+    http = HttpClient(timeout=5, user_agent="test", proxy=proxy.url)
+
+    with pytest.raises(TransportError) as caught:
+        http.request("GET", f"https://127.0.0.1:{server.port}/key?X-Amz-Signature=secret")
+
+    assert proxy.targets("CONNECT") == [f"127.0.0.1:{server.port}"]
+    assert "TLS error" in caught.value.reason
+    assert caught.value.reason.endswith(f", through the store proxy 127.0.0.1:{proxy.port}")
+    assert caught.value.host == f"127.0.0.1:{server.port}"
+
+
+def test_a_refusal_of_the_proxy_is_told_from_one_of_the_store(raw, forward_proxy):
+    refusing = forward_proxy(allow=[])
+    http = HttpClient(timeout=5, user_agent="test", proxy=refusing.url)
+    with pytest.raises(HttpStatusError) as caught:
+        http.request("GET", "http://store.example.org:9000/key?X-Amz-Signature=secret")
+    assert caught.value.status == 403
+    assert caught.value.detail == (
+        f"refused by the store proxy 127.0.0.1:{refusing.port} (ERR_ACCESS_DENIED)"
+    )
+    assert "secret" not in str(caught.value)
+
+    proxy = forward_proxy()
+    store = raw(b"HTTP/1.1 503 Busy\r\nContent-Length: 30\r\n\r\n<Error><Code>SlowDown</Code>  ")
+    http = HttpClient(timeout=5, user_agent="test", proxy=proxy.url)
+    with pytest.raises(HttpStatusError) as caught:
+        http.request("GET", store.url)
+    assert caught.value.status == 503 and caught.value.detail == "SlowDown"
+
+    squid_header_from_a_store = raw(
+        b"HTTP/1.1 404 Not Found\r\nX-Squid-Error: ERR_ACCESS_DENIED 0\r\n"
+        b"Content-Length: 0\r\n\r\n"
+    )
+    with pytest.raises(HttpStatusError) as caught:
+        client().request("GET", squid_header_from_a_store.url)
+    assert caught.value.detail == "", "without a proxy, no proxy refused anything"
+
+
+def test_an_unreachable_proxy_is_named():
+    unused = socket.create_server(("127.0.0.1", 0))
+    port = unused.getsockname()[1]
+    unused.close()
+    http = HttpClient(timeout=5, user_agent="test", proxy=f"http://127.0.0.1:{port}")
+    with pytest.raises(TransportError) as caught:
+        http.request("GET", "http://store.example.org/key")
+    assert caught.value.reason == (
+        f"ConnectionRefusedError: Connection refused, through the store proxy 127.0.0.1:{port}"
+    )
+    assert caught.value.host == "store.example.org"

@@ -13,7 +13,9 @@ A worker is two processes with different trust:
   not outlive its job.
 
 Workers only make outbound calls: to the gateway's internal port and to the object store, through
-presigned URLs. They have no inbound ports and no database access.
+presigned URLs (optionally through an allow-listing proxy, see
+[Reaching the store through a proxy](#reaching-the-store-through-a-proxy)). They have no inbound
+ports and no database access.
 
 ## How a job runs
 
@@ -120,6 +122,7 @@ Every flag has an environment variable; a flag wins over its variable. Sizes tak
 | `--engine-env` | `FORKLIFT_WORKER_ENGINE_ENV` | (none) | Extra environment variables passed to the engine, by name (for example ODBCSYSINI). Credentials never are: AWS_*, FORKLIFT_* and names with TOKEN, SECRET, PASSW, CREDENTIAL or KEY are refused. |
 | `--engine-read-path` | `FORKLIFT_WORKER_ENGINE_READ_PATHS` | (none) | Extra paths the engine may read under Landlock (the Python installation, /usr, /lib*, /etc, /opt, /proc and /sys are always readable). |
 | `--store-host` | `FORKLIFT_WORKER_STORE_HOSTS` | (none) | Object store host (or host:port) that presigned URLs must point at; repeat for several. Without it, each URL's own host is the only one its engine may reach. |
+| `--store-proxy` | `FORKLIFT_STORE_PROXY` | (none) | HTTP proxy (http://host:port) for every request to the object store: the supervisor's downloads and uploads and the engine's streamed reads (CONNECT for https:// stores). Gateway requests never use it; under Landlock a streaming engine may connect to its port only. HTTP_PROXY, HTTPS_PROXY and NO_PROXY in the environment are ignored either way. |
 | `--ca-file` | `FORKLIFT_WORKER_CA_FILE` | (none) | CA bundle for HTTPS to the gateway and the object store (default: the system's). |
 | `--stage-max-bytes` | `FORKLIFT_WORKER_STAGE_MAX_BYTES` | (none) | Ceiling on the gateway's stage_max_bytes: larger inputs are streamed (standard profile) or refused (no-network). |
 | `--max-job-seconds` | `FORKLIFT_WORKER_MAX_JOB_SECONDS` | `24h` | Wall-clock ceiling for one engine run (a job's limits.max_seconds applies when lower). |
@@ -157,7 +160,7 @@ profile asks for something the platform cannot do.
 | Writes only to its scratch directory | with Landlock | with Landlock | Landlock ABI 1+ (Linux 5.13) |
 | Reads only system paths, the Python installation and its scratch | with Landlock | with Landlock | Landlock ABI 1+; `--engine-read-path` adds paths |
 | Cannot ptrace or read the memory of other processes | with Landlock | with Landlock | Landlock domains (and the non-dumpable supervisor) |
-| No TCP for staged inputs; the store's port only for streamed ones | with Landlock ABI 4 (Linux 6.7) | always (no network) | Landlock TCP connect/bind rules; SQL jobs are not TCP-restricted |
+| No TCP for staged inputs; the store's port (or the store proxy's) only for streamed ones | with Landlock ABI 4 (Linux 6.7) | always (no network) | Landlock TCP connect/bind rules; SQL jobs are not TCP-restricted |
 | No signals or abstract unix sockets outside its sandbox | with Landlock ABI 6 (Linux 6.12) | with Landlock ABI 6 | Landlock scopes |
 | No network at all (TCP, UDP, DNS, abstract sockets) | no | yes | a new user and network namespace with only a loopback interface, which is down |
 | Streamed inputs | yes | refused (`LIMIT_EXCEEDED`) | |
@@ -170,10 +173,11 @@ Docker 29: a read-only container as uid 10001 gets Landlock ABI 7 on Linux 6.18)
 
 **The engine's environment** is built from an allow-list: `PATH`, `HOME` and `TMPDIR` (both in
 its scratch directory), `LANG` (default `C.UTF-8`), `LC_ALL`, `LC_CTYPE`, `TZ`, `SSL_CERT_FILE`,
-`SSL_CERT_DIR`, the names in `--engine-env`, and, for streamed inputs only, `HTTPS_PROXY`,
-`HTTP_PROXY` and `NO_PROXY` when their URLs carry no user name or password. `AWS_*`,
-`FORKLIFT_*` and names containing `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `KEY` never reach
-it; neither does the gateway's address.
+`SSL_CERT_DIR`, the names in `--engine-env`, and, for streamed inputs with `--store-proxy` set,
+`http_proxy`, `https_proxy`, `HTTP_PROXY` and `HTTPS_PROXY` set to that proxy. `AWS_*`,
+`FORKLIFT_*`, names containing `TOKEN`, `SECRET`, `PASSW`, `CREDENTIAL` or `KEY`, and proxy
+variables of the worker's own environment (`*_PROXY`, `NO_PROXY` included) never reach it;
+neither does the gateway's address.
 
 **SQL jobs** carry their connection string in the leased spec. It exists in the supervisor's
 memory and in the job's `spec.json` (mode 0600, inside the 0700 scratch directory, deleted with
@@ -203,10 +207,12 @@ the worker checks at start and exits with code 2 when it cannot:
   including the token file and, with `--concurrency` above 1, other jobs' scratch directories.
   Mount the token outside the engine's readable paths (the worker warns when it is inside one)
   and use `--landlock required`.
-- **Container egress.** Landlock restricts TCP only: in the standard profile UDP (DNS lookups
-  included) is not restricted, so limit the container's egress to the gateway's internal port
-  and the store (Compose network, Kubernetes NetworkPolicy, or an allow-listing proxy; design
-  §6.2 and §10). SQL jobs reach their database with TCP unrestricted.
+- **Container egress.** Landlock restricts TCP only, and by port, not by address: in the
+  standard profile UDP (DNS lookups included) is not restricted, and a streaming engine may
+  connect to any address on the store's (or the store proxy's) port. Limit the container's
+  egress to the gateway's internal port and the store (Compose network, Kubernetes
+  NetworkPolicy, or an allow-listing proxy; design §6.2 and §10). SQL jobs reach their database
+  with TCP unrestricted.
 - **Memory, disk and processes.** RLIMIT_AS bounds virtual memory, not resident memory;
   RLIMIT_FSIZE bounds one file, not the scratch directory; there is no RLIMIT_NPROC (it would
   count the supervisor's processes too). Set the container's memory and pids limits and size the
@@ -215,6 +221,36 @@ the worker checks at start and exits with code 2 when it cannot:
   runtime's to apply (`--read-only`, Pod Security "restricted"); the image works with both.
 - **sandboxed** (design §6.2) is a deployment choice: run this image under a sandboxed runtime
   (`runtimeClassName: gvisor` or Kata), and with `--max-jobs 1` for one job per pod.
+
+## Reaching the store through a proxy
+
+Network policies match addresses, and an object store outside the cluster or the Compose stack
+often has no stable ones (AWS S3, for one). Workers can then sit on a network with no route out
+and reach the store through an HTTP proxy that allows only the store's host name: the Compose
+`egress-proxy` profile ([deploy/compose/README.md](../../deploy/compose/README.md)) and the
+chart's `networkPolicies.storeEgress.mode: proxy` run Squid for that.
+
+`--store-proxy http://egress-proxy:3128` (`FORKLIFT_STORE_PROXY`) sends every store request
+through it:
+
+| Request | Through the proxy |
+|---|---|
+| Staging downloads, artifact uploads and multipart parts (the supervisor) | yes: an `https://` store through a `CONNECT` tunnel (TLS stays end to end, the proxy sees the host name only); an `http://` store as plain requests (the proxy sees the URL; Squid's `strip_query_terms` keeps signatures out of its log) |
+| The engine's reads of a streamed input | yes: the engine gets `http_proxy`/`https_proxy` (and the upper-case names) set to the proxy, no `NO_PROXY`, and under Landlock may connect to the proxy's port only, not the store's |
+| Gateway calls (`--gateway`) | never |
+
+The proxy URL must be `http://host:port` without credentials (the engine is given it, and holds
+none): restrict who may use the proxy by network instead. A store request the proxy refuses fails
+the job with the proxy named (`... refused by the store proxy egress-proxy:3128
+(ERR_ACCESS_DENIED)`), and a proxy that cannot be reached is named in the error too.
+
+**Proxy variables in the environment are ignored.** urllib, which the worker uses, would
+otherwise send requests through `HTTP_PROXY`/`HTTPS_PROXY` unless `NO_PROXY` names the host:
+before this setting existed an ambient `HTTP_PROXY` received the worker's gateway requests, the
+worker token in their `Authorization` header included, and streaming engines were given the
+worker's proxy variables. Now the gateway is always reached directly, the store directly or
+through `--store-proxy` only (even for hosts `NO_PROXY` names), and the engine gets no proxy
+variable from the worker's environment (`--engine-env` refuses `*_PROXY` names).
 
 ## Exit codes, signals, logs
 
@@ -291,5 +327,6 @@ The unit tests run the worker against `tests/fake_gateway.py`, an in-process fak
 API with a small object store, and `tests/fake_engine.py`, a stand-in for `forklift run-job` that
 the spec drives (succeed, fail, crash, hang, ignore SIGTERM, write odd results, report what it can
 reach). The Landlock and no-network tests skip on kernels that lack them. The integration tests run
-the real engine, and with `FORKLIFT_TEST_SERVICES=1` presigned URLs signed by RustFS and an
-sql-lane job against PostgreSQL with a restricted login.
+the real engine, and with `FORKLIFT_TEST_SERVICES=1` presigned URLs signed by RustFS (also through
+a forward proxy, `tests/forward_proxy.py`, with `--store-proxy`) and an sql-lane job against
+PostgreSQL with a restricted login.

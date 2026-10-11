@@ -40,6 +40,7 @@ def test_the_required_settings_and_the_defaults():
     assert settings.concurrency == 1
     assert settings.engine_command == [sys.executable, "-I", "-m", "forklift"]
     assert settings.engine_env == [] and settings.store_host == []
+    assert settings.store_proxy is None
     assert settings.max_job_seconds == 86400
     assert settings.limit_address_space == "auto"
     assert settings.limit_open_files == 1024
@@ -121,6 +122,15 @@ def test_a_missing_required_setting_names_the_flag_and_the_variable():
         (["--engine-env", "MY_API_KEY"], "never passed to the engine"),
         (["--engine-env", "1BAD"], "not an environment variable name"),
         (["--store-host", "bad host"], "not a host name"),
+        (["--store-proxy", "https://proxy:3128"], "is not an http:// proxy URL"),
+        (["--store-proxy", "proxy:3128"], "is not an http:// proxy URL"),
+        (["--store-proxy", "http://user:pw@proxy:3128"], "carries credentials"),
+        (["--store-proxy", "http://proxy:3128/path"], "must not have a path"),
+        (["--store-proxy", "http://proxy:3128?x=1"], "must not have a path"),
+        (["--store-proxy", "http://proxy:99999"], "has an invalid port"),
+        (["--store-proxy", "http://proxy"], "has no port"),
+        (["--engine-env", "HTTPS_PROXY"], "use --store-proxy"),
+        (["--engine-env", "no_proxy"], "use --store-proxy"),
         (["--worker-id=-starts-with-a-dash"], "is not a worker id"),
         (["--worker-id", "has space"], "is not a worker id"),
         (["--stage-max-bytes", "auto"], "is not a size"),
@@ -136,6 +146,15 @@ def test_invalid_values_are_explained(flags, message):
     # The last occurrence of a flag wins, so these override REQUIRED's values.
     with pytest.raises(SettingsError, match=re.escape(message)):
         load_settings(REQUIRED + flags, {})
+
+
+def test_the_store_proxy_from_its_flag_or_its_variable():
+    proxy = load_settings(REQUIRED + ["--store-proxy", " http://Egress-Proxy:3128/ "], {})
+    assert proxy.store_proxy == "http://egress-proxy:3128"
+    variable = load_settings(REQUIRED, {"FORKLIFT_STORE_PROXY": "http://[fd00::5]:3128"})
+    assert variable.store_proxy == "http://[fd00::5]:3128"
+    with pytest.raises(SettingsError, match="FORKLIFT_STORE_PROXY: 'socks5://p:1080' is not"):
+        load_settings(REQUIRED, {"FORKLIFT_STORE_PROXY": "socks5://p:1080"})
 
 
 def test_an_invalid_variable_names_the_variable():

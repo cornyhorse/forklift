@@ -71,6 +71,9 @@ class Client:
             request.add_header("Authorization", f"Bearer {self.token}")
         elif self._csrf():
             request.add_header("X-CSRFToken", self._csrf())
+            # As browsers do: over https Django also checks that the request comes from the
+            # site itself (Origin, or a Referer), not only the CSRF token
+            request.add_header("Origin", self.base_url)
         try:
             with self.opener.open(request, timeout=30) as response:
                 status, text = response.status, response.read().decode()
@@ -126,6 +129,15 @@ def admin(settings) -> Client:
         {"name": f"e2e-{uuid.uuid4().hex[:8]}", "scopes": me["role_scopes"]},
     )
     return Client(settings["FORKLIFT_PUBLIC_URL"], token=created["token"])
+
+
+def store_config(settings: Dict[str, str]) -> Dict[str, str]:
+    """An s3 connection's config for the stack's own bucket, as the gateway and the worker see it
+    (RustFS on the internal network, or the external store of external-store.yml)."""
+    return {
+        "bucket": settings.get("FORKLIFT_STORE_BUCKET") or "forklift",
+        "endpoint_url": settings.get("FORKLIFT_STORE_URL") or "http://rustfs:9000",
+    }
 
 
 def upload(client: Client, name: str, body: bytes, classification: str = "internal") -> str:

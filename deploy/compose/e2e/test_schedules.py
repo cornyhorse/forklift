@@ -16,6 +16,7 @@ from test_stack import (  # noqa: F401  (admin and settings are the session fixt
     SCHEMA,
     admin,
     settings,
+    store_config,
     upload,
 )
 
@@ -43,8 +44,7 @@ def scheduled_dataset(admin, settings) -> str:  # noqa: F811
         {
             "name": name,
             "kind": "s3",
-            # The bucket of the stack as the gateway and the worker see it (the internal network)
-            "config": {"bucket": "forklift", "endpoint_url": "http://rustfs:9000"},
+            "config": store_config(settings),
             "secrets": {
                 "access_key_id": settings["FORKLIFT_STORE_ACCESS_KEY"],
                 "secret_access_key": settings["FORKLIFT_STORE_SECRET_KEY"],

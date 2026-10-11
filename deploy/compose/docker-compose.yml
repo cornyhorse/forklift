@@ -10,6 +10,12 @@
 #   internal  gateway, worker, RustFS; no route outside it. The worker reaches only the gateway's
 #             internal port (8081, never published) and the store
 #   db        PostgreSQL and the gateway processes; the worker is not on it
+#
+# Profiles (COMPOSE_PROFILES in .env, or --profile):
+#   caddy         TLS in front of the gateway and the store (caddy/Caddyfile; generate_env.py
+#                 --domain writes the settings it needs)
+#   egress-proxy  an allow-listing proxy for workers whose store is outside the stack
+#                 (egress-proxy/squid.conf); external-store.yml uses it
 name: forklift
 
 x-gateway: &gateway
@@ -27,12 +33,13 @@ x-gateway: &gateway
     FORKLIFT_DB_USER: forklift
     FORKLIFT_DB_PASSWORD: ${FORKLIFT_DB_PASSWORD:?set it in .env (generate_env.py)}
     # The gateway's own calls (HEAD, multipart bookkeeping, copies, deletes) and the URLs it signs
-    # for workers go to RustFS on the internal network; browser URLs to the published port.
-    FORKLIFT_S3_ENDPOINT_URL: http://rustfs:9000
-    FORKLIFT_S3_WORKER_ENDPOINT_URL: http://rustfs:9000
+    # for workers go to RustFS on the internal network (or to an external store,
+    # external-store.yml); browser URLs to the published port (or Caddy's store domain).
+    FORKLIFT_S3_ENDPOINT_URL: ${FORKLIFT_STORE_URL:-http://rustfs:9000}
+    FORKLIFT_S3_WORKER_ENDPOINT_URL: ${FORKLIFT_STORE_URL:-http://rustfs:9000}
     FORKLIFT_S3_PUBLIC_ENDPOINT_URL: ${FORKLIFT_PUBLIC_STORE_URL:-http://localhost:9000}
-    FORKLIFT_S3_BUCKET: forklift
-    FORKLIFT_S3_REGION: us-east-1
+    FORKLIFT_S3_BUCKET: ${FORKLIFT_STORE_BUCKET:-forklift}
+    FORKLIFT_S3_REGION: ${FORKLIFT_STORE_REGION:-us-east-1}
     FORKLIFT_S3_ACCESS_KEY_ID: ${FORKLIFT_STORE_ACCESS_KEY:?set it in .env (generate_env.py)}
     FORKLIFT_S3_SECRET_ACCESS_KEY: ${FORKLIFT_STORE_SECRET_KEY:?set it in .env (generate_env.py)}
     FORKLIFT_ALLOWED_HOSTS: ${FORKLIFT_ALLOWED_HOSTS:-localhost,127.0.0.1,gateway}
@@ -42,7 +49,8 @@ x-gateway: &gateway
     FORKLIFT_PUBLIC_URL: ${FORKLIFT_PUBLIC_URL:-http://localhost:8080}
     FORKLIFT_WEBHOOK_ALLOWED_HOSTS: ${FORKLIFT_WEBHOOK_ALLOWED_HOSTS:-}
     FORKLIFT_WEBHOOK_ALLOW_HTTP: ${FORKLIFT_WEBHOOK_ALLOW_HTTP:-false}
-    # Plain HTTP on localhost; put a TLS proxy in front (and set these to true) anywhere else
+    # Plain HTTP on localhost; put a TLS proxy in front (the caddy profile, and set these to true)
+    # anywhere else
     FORKLIFT_SECURE_COOKIES: ${FORKLIFT_SECURE_COOKIES:-false}
     FORKLIFT_BEHIND_TLS_PROXY: ${FORKLIFT_BEHIND_TLS_PROXY:-false}
     # Proxies whose X-Forwarded-For is trusted for the client address (audit log, sign-in limits)
@@ -75,7 +83,8 @@ services:
       RUSTFS_ACCESS_KEY: ${FORKLIFT_STORE_ACCESS_KEY:?set it in .env (generate_env.py)}
       RUSTFS_SECRET_KEY: ${FORKLIFT_STORE_SECRET_KEY:?set it in .env (generate_env.py)}
     volumes: [store:/data]
-    ports: ["${FORKLIFT_STORE_HOST_PORT:-9000}:9000"]
+    # On every host address by default; FORKLIFT_BIND_ADDRESS=127.0.0.1 behind Caddy
+    ports: ["${FORKLIFT_BIND_ADDRESS:+${FORKLIFT_BIND_ADDRESS}:}${FORKLIFT_STORE_HOST_PORT:-9000}:9000"]
     networks: [public, internal]
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
@@ -99,9 +108,9 @@ services:
       FORKLIFT_DB_NAME: forklift
       FORKLIFT_DB_USER: forklift
       FORKLIFT_DB_PASSWORD: ${FORKLIFT_DB_PASSWORD}
-      FORKLIFT_S3_ENDPOINT_URL: http://rustfs:9000
-      FORKLIFT_S3_BUCKET: forklift
-      FORKLIFT_S3_REGION: us-east-1
+      FORKLIFT_S3_ENDPOINT_URL: ${FORKLIFT_STORE_URL:-http://rustfs:9000}
+      FORKLIFT_S3_BUCKET: ${FORKLIFT_STORE_BUCKET:-forklift}
+      FORKLIFT_S3_REGION: ${FORKLIFT_STORE_REGION:-us-east-1}
       FORKLIFT_S3_ACCESS_KEY_ID: ${FORKLIFT_STORE_ACCESS_KEY}
       FORKLIFT_S3_SECRET_ACCESS_KEY: ${FORKLIFT_STORE_SECRET_KEY}
       FORKLIFT_ADMIN_USERNAME: ${FORKLIFT_ADMIN_USERNAME:-admin}
@@ -119,7 +128,9 @@ services:
 
   gateway:
     <<: *gateway
-    ports: ["${FORKLIFT_PUBLIC_HOST_PORT:-8080}:8080"]     # 8081 (workers) is not published
+    # 8081 (workers) is not published. On every host address by default;
+    # FORKLIFT_BIND_ADDRESS=127.0.0.1 behind Caddy
+    ports: ["${FORKLIFT_BIND_ADDRESS:+${FORKLIFT_BIND_ADDRESS}:}${FORKLIFT_PUBLIC_HOST_PORT:-8080}:8080"]
     networks: [public, internal, db]
     depends_on:
       init: {condition: service_completed_successfully}
@@ -209,10 +220,12 @@ services:
       - --gateway=http://gateway:8081
       - --lanes=${FORKLIFT_WORKER_LANES:-batch,interactive}
       - --concurrency=${FORKLIFT_WORKER_CONCURRENCY:-2}
-      - --store-host=rustfs:9000
+      - --store-host=${FORKLIFT_STORE_HOST:-rustfs:9000}
       - --landlock=${FORKLIFT_WORKER_LANDLOCK:-auto}
     environment:
       FORKLIFT_WORKER_LOG_LEVEL: ${FORKLIFT_WORKER_LOG_LEVEL:-info}
+      # Store requests (and streamed inputs) through the egress-proxy profile's proxy, when set
+      FORKLIFT_STORE_PROXY: ${FORKLIFT_STORE_PROXY:-}
     volumes:
       - worker-token:/run/secrets:ro
       - scratch:/scratch
@@ -227,6 +240,88 @@ services:
       init: {condition: service_completed_successfully}
       gateway: {condition: service_healthy}
 
+  # Profile "caddy": TLS for the UI and API on FORKLIFT_DOMAIN and for the store on
+  # FORKLIFT_STORE_DOMAIN (browsers PUT and GET presigned URLs there), with certificates from
+  # ACME or Caddy's own CA (FORKLIFT_TLS); see caddy/Caddyfile. Its certificates and CA are in
+  # the caddy-data volume. The gateway behind it needs the settings generate_env.py --domain
+  # writes (https public URLs, FORKLIFT_BEHIND_TLS_PROXY, FORKLIFT_TRUSTED_PROXIES=1, and
+  # FORKLIFT_BIND_ADDRESS=127.0.0.1 so that only Caddy is reachable from other hosts).
+  caddy:
+    image: ${FORKLIFT_CADDY_IMAGE:-caddy:2.11.7}
+    profiles: [caddy]
+    environment:
+      FORKLIFT_DOMAIN: ${FORKLIFT_DOMAIN:-}
+      FORKLIFT_STORE_DOMAIN: ${FORKLIFT_STORE_DOMAIN:-}
+      FORKLIFT_TLS: ${FORKLIFT_TLS:-acme}
+      FORKLIFT_ACME_EMAIL: ${FORKLIFT_ACME_EMAIL:-}
+      FORKLIFT_HSTS_SECONDS: ${FORKLIFT_HSTS_SECONDS:-31536000}
+    command: [sh, /etc/caddy/start.sh]    # checks the settings, then runs Caddy
+    ports:
+      - "${FORKLIFT_HTTPS_HOST_PORT:-443}:443"
+      - "${FORKLIFT_HTTPS_HOST_PORT:-443}:443/udp"    # HTTP/3
+      - "${FORKLIFT_HTTP_HOST_PORT:-80}:80"            # redirects to https; ACME challenges
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/start.sh:/etc/caddy/start.sh:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs: [/tmp]
+    networks: [public]
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      # Caddy's admin API (localhost inside the container only) answers once its config is loaded
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+    restart: unless-stopped
+    depends_on:
+      gateway: {condition: service_healthy}
+
+  # Profile "egress-proxy": Squid allowing only the store's URL(s) (FORKLIFT_EGRESS_PROXY_ALLOW,
+  # by default FORKLIFT_STORE_URL; see egress-proxy/squid.conf and start.sh), for workers whose
+  # store is outside the stack: they stay on internal and set FORKLIFT_STORE_PROXY to
+  # http://egress-proxy:3128 (external-store.yml does both). Not published to the host.
+  egress-proxy:
+    image: ${FORKLIFT_SQUID_IMAGE:-ubuntu/squid:6.6-24.04_edge}
+    profiles: [egress-proxy]
+    user: "13:13"    # the image's proxy user
+    entrypoint: [bash, /etc/squid/forklift/start.sh]
+    command: []
+    environment:
+      FORKLIFT_EGRESS_PROXY_ALLOW: ${FORKLIFT_EGRESS_PROXY_ALLOW:-${FORKLIFT_STORE_URL:-}}
+    volumes:
+      - ./egress-proxy/squid.conf:/etc/squid/squid.conf:ro
+      - ./egress-proxy/start.sh:/etc/squid/forklift/start.sh:ro
+    tmpfs:
+      - /run/forklift-egress:uid=13,gid=13,mode=0700
+      - /var/spool/squid:uid=13,gid=13,mode=0700
+      - /var/log/squid:uid=13,gid=13,mode=0700
+    networks: [internal, public]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      # Squid answers a request (with 403: nothing but the store is allowed); not logged
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/3128 && printf 'GET http://127.0.0.1/ HTTP/1.0\r\n\r\n' >&3
+          && read -r -t 4 status <&3 && [[ $$status == HTTP/* ]]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+      start_interval: 1s
+    restart: unless-stopped
+
 networks:
   public: {}
   internal: {internal: true}
@@ -237,3 +332,5 @@ volumes:
   store: {}
   worker-token: {}
   scratch: {}
+  caddy-data: {}
+  caddy-config: {}

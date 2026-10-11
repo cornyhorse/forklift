@@ -3,7 +3,10 @@
 - Redirects are not followed: a 3xx is an error, so a request never lands on a host nobody
   checked.
 - Only http:// and https:// URLs are opened (urllib would also open file:// and ftp://).
-- Proxies come from the environment (HTTPS_PROXY, NO_PROXY), as urllib does by default.
+- Proxies are never taken from the environment: urllib's default would send requests through
+  HTTP_PROXY / HTTPS_PROXY (the worker token included) unless NO_PROXY says otherwise. A client
+  made with ``proxy=`` sends every request through that HTTP proxy (a CONNECT tunnel for https://
+  URLs, so TLS stays end to end), whatever NO_PROXY says; one made without sends none.
 - Errors name the host only: presigned URLs carry signatures and must never reach a log.
 """
 
@@ -90,6 +93,19 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # urllib then raises HTTPError with the 3xx status
 
 
+class _Proxy(urllib.request.ProxyHandler):
+    """Every http(s) request through one HTTP proxy. urllib's own handler would still skip the
+    proxy for hosts NO_PROXY names (it reads the environment even for explicit proxies)."""
+
+    def __init__(self, proxy: str):
+        super().__init__({"http": proxy, "https": proxy})
+        self.address = urlsplit(proxy).netloc
+
+    def proxy_open(self, req, proxy, type):
+        req.set_proxy(self.address, "http")
+        return None  # the HTTP(S) handlers open the connection, to the proxy
+
+
 @dataclass
 class Response:
     status: int
@@ -145,11 +161,22 @@ def _reason(error: BaseException) -> str:
 
 
 class HttpClient:
-    def __init__(self, *, timeout: float, user_agent: str, ca_file: Path | None = None):
+    """``proxy`` (``http://host:port``): send every request through it; None: never a proxy."""
+
+    def __init__(
+        self,
+        *,
+        timeout: float,
+        user_agent: str,
+        ca_file: Path | None = None,
+        proxy: str | None = None,
+    ):
         context = ssl.create_default_context(cafile=str(ca_file) if ca_file else None)
+        proxies = _Proxy(proxy) if proxy else urllib.request.ProxyHandler({})
         self._opener = urllib.request.build_opener(
-            _NoRedirect(), urllib.request.HTTPSHandler(context=context)
+            _NoRedirect(), proxies, urllib.request.HTTPSHandler(context=context)
         )
+        self.proxy = proxies.address if proxy else None
         self.timeout = timeout
         self.user_agent = user_agent
 
@@ -164,9 +191,17 @@ class HttpClient:
         except urllib.error.HTTPError as error:
             with error:
                 body = error.read(_DETAIL_BYTES)
-            raise HttpStatusError(host, error.code, error_detail(body)) from None
+            refused = (error.headers.get("X-Squid-Error") or "").strip() if self.proxy else ""
+            if refused:  # the answer came from the proxy itself, not from the server behind it
+                detail = f"refused by the store proxy {self.proxy} ({refused.split()[0]})"
+            else:
+                detail = error_detail(body)
+            raise HttpStatusError(host, error.code, detail) from None
         except (OSError, http.client.HTTPException) as error:
-            raise TransportError(host, _reason(error)) from None
+            reason = _reason(error)
+            if self.proxy:
+                reason += f", through the store proxy {self.proxy}"
+            raise TransportError(host, reason) from None
 
     def request(
         self,

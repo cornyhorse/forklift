@@ -1,0 +1,35 @@
+# For the caddy profile's end-to-end test (test_caddy.py): a stand-in for the remote MCP server,
+# which Caddy routes /mcp and /mcp/* to as mcp:8000. It is the webhook receiver (every POST
+# answers 200 with {}), on the public network under the alias "mcp"; do not start it together
+# with the mcp profile. Paths are relative to deploy/compose (the directory of the first file).
+#
+#   python deploy/compose/generate_env.py --domain forklift-edge.test --internal-ca \
+#     --https-port 48443 --http-port 48480 > deploy/compose/.env
+#   docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/e2e/caddy.yml \
+#     up -d --build --wait
+#
+# test_caddy.py says how to run the tests.
+services:
+  mcp-stand-in:
+    image: ${FORKLIFT_PYTHON_IMAGE:-python:3.13-slim}
+    profiles: [caddy]
+    command: ["python", "/receiver/receiver.py"]
+    volumes: ["./e2e/receiver.py:/receiver/receiver.py:ro"]
+    networks:
+      public:
+        aliases: [mcp]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  caddy:
+    depends_on:
+      mcp-stand-in: {condition: service_healthy}

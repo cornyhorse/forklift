@@ -215,33 +215,49 @@ def test_the_engine_command_directory_is_readable(make_settings, tmp_path):
 # --------------------------------------------------------------------------- per job
 
 
-def test_proxies_reach_only_streaming_engines_and_never_with_credentials(make_settings, tmp_path):
+def test_the_engine_gets_no_proxy_variables_from_the_worker_environment(make_settings, tmp_path):
     isolation = Isolation(make_settings(), platform())
     environ = {
         "PATH": "/usr/bin",
         "HTTPS_PROXY": "http://proxy.internal:3128",
-        "http_proxy": "http://user:password@proxy.internal:3128",
+        "http_proxy": "http://proxy.internal:3128",
+        "ALL_PROXY": "socks5://proxy.internal:1080",
         "NO_PROXY": "localhost",
         "AWS_SECRET_ACCESS_KEY": "secret",
     }
-    staged = isolation.environment(tmp_path, JobPlan(spec={}), environ)
-    assert "HTTPS_PROXY" not in staged and "AWS_SECRET_ACCESS_KEY" not in staged
+    streamed_plan = JobPlan(spec={}, stream_hosts=["store:9000"], stream_ports=[9000])
+    for plan in (JobPlan(spec={}), streamed_plan):
+        env = isolation.environment(tmp_path, plan, environ)
+        assert not [name for name in env if name.lower().endswith("_proxy")]
+        assert "AWS_SECRET_ACCESS_KEY" not in env
+    assert isolation._tcp_ports(streamed_plan) == [9000]
+    assert isolation.environment(tmp_path, JobPlan(spec={}), {})["PATH"] == os.defpath
+
+
+def test_a_streaming_engine_gets_the_store_proxy_and_only_its_port(make_settings, tmp_path):
+    isolation = Isolation(make_settings(store_proxy="http://egress-proxy:3128"), platform())
+    environ = {"PATH": "/usr/bin", "NO_PROXY": "*", "HTTPS_PROXY": "http://elsewhere:8080"}
     streamed_plan = JobPlan(spec={}, stream_hosts=["store:9000"], stream_ports=[9000])
     streamed = isolation.environment(tmp_path, streamed_plan, environ)
-    assert streamed["HTTPS_PROXY"] == "http://proxy.internal:3128"
-    assert streamed["NO_PROXY"] == "localhost"
-    assert "http_proxy" not in streamed
-    assert isolation._tcp_ports(streamed_plan, streamed) == [3128, 9000]
-    assert isolation.environment(tmp_path, JobPlan(spec={}), {})["PATH"] == os.defpath
+    proxies = {name: value for name, value in streamed.items() if name.lower().endswith("_proxy")}
+    assert proxies == {
+        "http_proxy": "http://egress-proxy:3128",
+        "https_proxy": "http://egress-proxy:3128",
+        "HTTP_PROXY": "http://egress-proxy:3128",
+        "HTTPS_PROXY": "http://egress-proxy:3128",
+    }
+    assert isolation._tcp_ports(streamed_plan) == [3128], "the proxy's port, not the store's"
+    staged = isolation.environment(tmp_path, JobPlan(spec={}), environ)
+    assert "http_proxy" not in staged and "HTTPS_PROXY" not in staged
+    assert isolation._tcp_ports(JobPlan(spec={})) == [], "a staged input needs no TCP at all"
 
 
 def test_tcp_rules_need_abi_4_and_leave_sql_jobs_alone(make_settings):
     plan = JobPlan(spec={}, stream_hosts=["store"], stream_ports=[443])
-    assert Isolation(make_settings(), platform(landlock_abi=3))._tcp_ports(plan, {}) is None
+    assert Isolation(make_settings(), platform(landlock_abi=3))._tcp_ports(plan) is None
     sql = JobPlan(spec={}, uses_sql=True)
-    assert Isolation(make_settings(), platform())._tcp_ports(sql, {}) is None
-    proxied = {"HTTPS_PROXY": "proxy.internal", "HTTP_PROXY": "http://proxy:bad"}
-    assert Isolation(make_settings(), platform())._tcp_ports(plan, proxied) == [80, 443]
+    assert Isolation(make_settings(), platform())._tcp_ports(sql) is None
+    assert Isolation(make_settings(), platform())._tcp_ports(plan) == [443]
 
 
 def test_resource_limits(make_settings):
@@ -289,13 +305,13 @@ def test_resource_limits(make_settings):
 def test_the_sandbox_configuration(make_settings, tmp_path):
     plan = JobPlan(spec={})
     make_settings().scratch.mkdir()
-    with_landlock = Isolation(make_settings(), platform()).sandbox_config(tmp_path, plan, {}, 5)
+    with_landlock = Isolation(make_settings(), platform()).sandbox_config(tmp_path, plan, 5)
     assert with_landlock["landlock"]["write"] == [str(tmp_path)]
     assert with_landlock["landlock"]["tcp_ports"] == []
     assert with_landlock["landlock"]["scope"] is True
     assert with_landlock["parent_pid"] == os.getpid()
     without = Isolation(make_settings(), platform(landlock_abi=0)).sandbox_config(
-        tmp_path, plan, {}, 5
+        tmp_path, plan, 5
     )
     assert without["landlock"] is None
     assert Path(sys.prefix).as_posix() in Isolation(make_settings(), platform()).read_paths

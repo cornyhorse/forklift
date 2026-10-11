@@ -1,0 +1,44 @@
+{{- $fullname := include "forklift.fullname" . -}}
+forklift {{ .Chart.AppVersion }} is installed as {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+The bootstrap Job ran the database migrations{{ if not .Values.admin.existingSecret }}, created the admin "{{ .Values.admin.username }}"{{ end }}{{ if not .Values.workerToken.existingSecret }} and registered the workers' token{{ end }}.
+
+1. Open the UI: {{ include "forklift.publicUrl" . }}
+{{- if not .Values.gateway.ingress.enabled }}
+   Without an ingress:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "forklift.gatewayService" . }} 8080:{{ .Values.gateway.service.port }}
+{{- if .Values.rustfs.enabled }}
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "forklift.rustfsService" . }} 9000:{{ .Values.rustfs.service.port }}   # browsers upload to the store
+{{- end }}
+{{- end }}
+
+2. Sign in as "{{ .Values.admin.username }}".{{ if not .Values.admin.existingSecret }} The password:
+     kubectl -n {{ .Release.Namespace }} get secret {{ include "forklift.adminSecretName" . }} -o jsonpath='{.data.{{ .Values.admin.passwordKey }}}' | base64 -d; echo
+   Change it after the first sign-in; the Secret is only read when the account is created.
+{{- end }}
+
+3. Workers: {{ range $i, $w := (include "forklift.workers" . | fromYaml).workers }}{{ if $i }}, {{ end }}{{ $w.name }} ({{ join "," $w.lanes }}, {{ $w.isolation }}){{ end }}.
+   kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/component=worker
+{{- if .Values.networkPolicies.enabled }}
+
+NetworkPolicies are on (store egress: {{ include "forklift.storeMode" . }}). Workers have no ingress and reach only
+DNS, the gateway's internal port and the store{{ if include "forklift.useEgressProxy" . }} (through the egress proxy){{ end }}. They need a CNI that
+enforces NetworkPolicies.
+{{- else }}
+
+WARNING: networkPolicies.enabled is false. Nothing limits what the workers (which run the engine
+on untrusted files) can reach, and the gateway's internal port is open to every pod.
+{{- end }}
+{{- if and .Values.rustfs.enabled (not .Values.rustfs.ingress.enabled) (not .Values.objectStore.publicEndpoint) }}
+
+The bundled RustFS has no ingress: browsers reach it at {{ include "forklift.s3.publicEndpoint" . }} only through the
+port-forward above. Set rustfs.ingress (or objectStore.publicEndpoint) anywhere else.
+{{- end }}
+{{- if not .Values.secrets.existingSecret }}
+
+The chart generated {{ include "forklift.secretsSecretName" . }} (FORKLIFT_SECRET_KEY, FORKLIFT_SECRETS_KEYS). Back it up:
+without it, stored connection secrets cannot be decrypted. helm uninstall leaves it (and the other
+generated Secrets) in place; delete them by hand when you remove the installation for good.
+{{- end }}
+
+Documentation: https://github.com/cornyhorse/forklift/blob/main/docs/platform/helm.md

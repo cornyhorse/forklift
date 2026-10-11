@@ -1,0 +1,17 @@
+# A small installation: the bundled RustFS (the workers reach it by pod selector), its own
+# ingress for browsers, chart-made secrets.
+postgres:
+  host: forklift-postgres
+  existingSecret: forklift-db
+  sslmode: disable
+rustfs:
+  enabled: true
+  persistence: {size: 5Gi, storageClassName: local-path}
+  ingress: {enabled: true, className: nginx, host: store.forklift.example.org}
+gateway:
+  replicas: 1
+  ingress: {enabled: true, className: nginx, host: forklift.example.org}
+networkPolicies:
+  postgres:
+    to:
+      - podSelector: {matchLabels: {app: forklift-postgres}}

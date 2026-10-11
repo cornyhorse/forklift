@@ -1,0 +1,6 @@
+# Imported into k3s's containerd configuration by k3s_smoke.sh. Docker hosts that do not let a
+# privileged container lower oom_score_adj (rootless or sandboxed Docker) would fail every pod
+# with "failed to update /proc/self/oom_score_adj"; this keeps the scores at or above
+# containerd's own. Harmless elsewhere: it only affects which pod the kernel kills first.
+[plugins.'io.containerd.cri.v1.runtime']
+  restrict_oom_score_adj = true

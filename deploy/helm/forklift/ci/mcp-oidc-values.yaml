@@ -1,0 +1,41 @@
+# The remote MCP proxy under /mcp on the gateway's ingress host, and single sign-on with an
+# OIDC provider in the cluster.
+postgres:
+  host: postgres.databases.svc.cluster.local
+  existingSecret: forklift-db
+objectStore:
+  endpoint: https://s3.example.org
+  existingSecret: forklift-s3
+gateway:
+  ingress:
+    enabled: true
+    className: nginx
+    host: forklift.example.org
+    annotations: {cert-manager.io/cluster-issuer: letsencrypt}
+  oidc:
+    enabled: true
+    issuer: https://login.example.org/realms/forklift
+    clientId: forklift
+    clientSecret: {existingSecret: forklift-oidc}
+    caBundle: {configMap: keycloak-ca}
+    passwordSignIn: false
+    settings:
+      FORKLIFT_OIDC_ROLE_CLAIM: groups
+      FORKLIFT_OIDC_ADMIN_GROUPS: forklift-admins
+mcp:
+  enabled: true
+  allowedHosts: [mcp.internal.example.org]
+networkPolicies:
+  postgres:
+    to: [{ipBlock: {cidr: 10.0.12.0/24}}]
+  storeEgress:
+    mode: cidr
+    cidrs: [203.0.113.0/24]
+  oidc:
+    to:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: keycloak}}
+        podSelector: {matchLabels: {app: keycloak}}
+    ports: [8443]
+  ingressController:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+      podSelector: {matchLabels: {app.kubernetes.io/name: ingress-nginx, app.kubernetes.io/component: controller}}

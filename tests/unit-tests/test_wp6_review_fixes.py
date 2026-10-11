@@ -1217,16 +1217,28 @@ class TestPackagingMetadata:
 
     def test_extras(self, pyproject):
         extras = pyproject["project"]["optional-dependencies"]
-        assert set(extras) == {"excel", "sql", "pandas", "polars", "clipboard", "all", "dev"}
+        assert set(extras) == {
+            "excel",
+            "sql",
+            "pandas",
+            "polars",
+            "clipboard",
+            "mcp",
+            "all",
+            "dev",
+        }
         assert _requirement_names(extras["excel"]) == {"openpyxl", "xlrd"}
         assert _requirement_names(extras["sql"]) == {"pyodbc"}
         assert _requirement_names(extras["clipboard"]) == {"pyperclip"}
+        # forklift-mcp: the MCP Python SDK 2.x, only where it installs (Python 3.10+)
+        assert extras["mcp"] == ["mcp>=2.3,<3; python_version >= '3.10'"]
         assert _requirement_names(extras["all"]) == (
             _requirement_names(extras["excel"])
             | _requirement_names(extras["sql"])
             | _requirement_names(extras["pandas"])
             | _requirement_names(extras["polars"])
             | _requirement_names(extras["clipboard"])
+            | _requirement_names(extras["mcp"])
         )
         assert "pyspark" not in " ".join(sum(extras.values(), []))  # nothing imports it
         assert {"pytest", "pytest-cov", "black", "isort", "flake8", "mypy", "pre-commit"} <= (
@@ -1335,6 +1347,8 @@ class TestWorkflows:
         assert grants == {
             ("fast-test.yml", "autoformat"): {"contents": "write"},
             ("publish.yaml", "publish-pypi"): {"id-token": "write"},
+            # the chart is pushed to GHCR as an OCI artifact on chart-v* tags
+            ("helm.yml", "publish"): {"contents": "read", "packages": "write"},
         }
 
     def test_autoformat_only_on_pushes_to_non_default_branches(self, workflows):

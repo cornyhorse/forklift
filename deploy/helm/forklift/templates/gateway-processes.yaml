@@ -1,0 +1,107 @@
+{{- /*
+The gateway's background processes, as in Docker Compose: the same image and settings as the
+gateway, one command each, healthy while the heartbeat file the command touches after every good
+pass is younger than its limit.
+*/ -}}
+{{- $fullname := include "forklift.fullname" . -}}
+{{- $processes := list
+  (dict "component" "dispatcher" "values" .Values.dispatcher "replicas" 1
+        "command" (list "forklift-web" "dispatch" (printf "--every=%v" .Values.dispatcher.everySeconds) "--heartbeat=/tmp/dispatcher.alive")
+        "maxAge" 60 "period" 15 "start" 60)
+  (dict "component" "publisher" "values" .Values.publisher "replicas" .Values.publisher.replicas
+        "command" (list "forklift-web" "publish" (printf "--every=%v" .Values.publisher.everySeconds) "--heartbeat=/tmp/publisher.alive")
+        "maxAge" 60 "period" 15 "start" 60)
+  (dict "component" "sweeper" "values" .Values.sweeper "replicas" 1
+        "command" (list "forklift-web" "sweep_retention" (printf "--every=%v" .Values.sweeper.everySeconds) "--heartbeat=/tmp/sweeper.alive")
+        "maxAge" (mul 2 .Values.sweeper.everySeconds) "period" 60 "start" 120)
+-}}
+{{- range $p := $processes }}
+{{- $labels := dict "root" $ "component" $p.component }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-{{ $p.component }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  replicas: {{ $p.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "forklift.labels" $labels | nindent 8 }}
+      annotations:
+        checksum/settings: {{ include "forklift.gatewaySettings" $ | sha256sum }}
+        {{- with $p.values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "forklift.serviceAccountName" $ }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # The command installs no SIGTERM handler, and PID 1 ignores signals it does not handle:
+      # with the pod's pause process as PID 1, SIGTERM stops it at once instead of after the
+      # grace period (what it was doing is safe to stop: the next pass takes it up again)
+      shareProcessNamespace: true
+      {{- include "forklift.imagePullSecrets" $ | nindent 6 }}
+      {{- include "forklift.podSecurityContext" (dict) | nindent 6 }}
+      containers:
+        - name: {{ $p.component }}
+          image: {{ include "forklift.image" (dict "root" $ "image" $.Values.image.web) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: {{ toJson $p.command }}
+          envFrom:
+            - configMapRef: {name: {{ $fullname }}-gateway}
+          env:
+            {{- include "forklift.gatewaySecretEnv" $ | nindent 12 }}
+          # Its heartbeat: missing until the first pass, so the startup probe allows for it
+          startupProbe:
+            exec:
+              command: ["python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/{{ $p.component }}.alive') > {{ $p.maxAge }})"]
+            periodSeconds: 2
+            timeoutSeconds: 5
+            failureThreshold: {{ div $p.start 2 }}
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/{{ $p.component }}.alive') > {{ $p.maxAge }})"]
+            periodSeconds: {{ $p.period }}
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $p.values.resources | nindent 12 }}
+          {{- include "forklift.containerSecurityContext" $ | nindent 10 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        {{- include "forklift.tmpVolume" $ | nindent 8 }}
+      {{- with $p.values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $p.values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $p.values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if gt (int $p.replicas) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-{{ $p.component }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  maxUnavailable: {{ $p.values.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" $labels | nindent 6 }}
+{{- end }}
+{{- end }}

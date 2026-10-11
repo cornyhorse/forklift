@@ -1,0 +1,12 @@
+# Not part of the packaged chart
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+__pycache__/
+.idea/
+.vscode/

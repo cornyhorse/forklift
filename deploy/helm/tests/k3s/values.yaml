@@ -1,0 +1,55 @@
+# Values for the k3s smoke test (k3s_smoke.sh): images imported into the node, the test-only
+# PostgreSQL, the bundled RustFS (the workers reach it by pod selector), a standard batch group
+# and a no-network interactive group (the chart's Localhost seccomp profile is put on the node),
+# all of it small. The gateway and the store are reached through kubectl port-forward on
+# 127.0.0.1:18400 and 18401.
+image:
+  registry: ""
+  pullPolicy: Never
+publicUrl: http://127.0.0.1:18400
+postgres:
+  host: postgres.forklift-test-db.svc.cluster.local
+  existingSecret: forklift-db
+  sslmode: disable
+objectStore:
+  publicEndpoint: http://127.0.0.1:18401
+rustfs:
+  enabled: true
+  persistence: {size: 2Gi}
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: "1", memory: 1Gi}
+gateway:
+  replicas: 2
+  server: {workers: 1, threads: 4}
+  # No controller runs in the test cluster: the ingress only makes the policy admit the
+  # "ingress controller" (namespace ingress-nginx), which the test impersonates
+  ingress: {enabled: true, host: forklift.test, tls: false}
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {cpu: "1", memory: 768Mi}
+dispatcher:
+  resources: {requests: {cpu: 20m, memory: 128Mi}, limits: {cpu: 500m, memory: 384Mi}}
+publisher:
+  resources: {requests: {cpu: 20m, memory: 128Mi}, limits: {cpu: 500m, memory: 384Mi}}
+sweeper:
+  resources: {requests: {cpu: 20m, memory: 128Mi}, limits: {cpu: 500m, memory: 384Mi}}
+bootstrap:
+  keepSucceededJobs: true
+workerDefaults:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1536Mi}
+  scratch: {sizeLimit: 1Gi}
+workers:
+  - name: batch
+    lanes: [batch]
+    concurrency: 2
+  - name: interactive
+    lanes: [interactive]
+    isolation: no-network
+networkPolicies:
+  postgres:
+    to:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: forklift-test-db}}
+        podSelector: {matchLabels: {app: postgres}}

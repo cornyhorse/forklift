@@ -1,0 +1,137 @@
+{{- if .Values.rustfs.enabled }}
+{{- /*
+The bundled RustFS (small and development installations): one pod, data on a
+PersistentVolumeClaim, logs to stdout, the console off. Browsers reach it for presigned URLs
+through rustfs.ingress (or objectStore.publicEndpoint); the chart's pods through its Service.
+*/ -}}
+{{- $fullname := include "forklift.fullname" . -}}
+{{- $r := .Values.rustfs -}}
+{{- $labels := dict "root" . "component" "rustfs" -}}
+{{- $secret := include "forklift.storeSecretName" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-rustfs
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  serviceName: {{ include "forklift.rustfsService" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "forklift.labels" $labels | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "forklift.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- include "forklift.imagePullSecrets" . | nindent 6 }}
+      {{- include "forklift.podSecurityContext" (dict) | nindent 6 }}
+      containers:
+        - name: rustfs
+          image: {{ include "forklift.externalImage" $r.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {name: s3, containerPort: 9000, protocol: TCP}
+          env:
+            - {name: RUSTFS_VOLUMES, value: /data}
+            - {name: RUSTFS_ADDRESS, value: ":9000"}
+            - {name: RUSTFS_CONSOLE_ENABLE, value: "false"}
+            - {name: RUSTFS_OBS_LOG_DIRECTORY, value: ""}
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom: {secretKeyRef: {name: {{ $secret }}, key: {{ .Values.objectStore.accessKeyIdKey }}}}
+            - name: RUSTFS_SECRET_KEY
+              valueFrom: {secretKeyRef: {name: {{ $secret }}, key: {{ .Values.objectStore.secretAccessKeyKey }}}}
+          readinessProbe:
+            httpGet: {path: /health, port: s3}
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /health, port: s3}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          {{- include "forklift.containerSecurityContext" . | nindent 10 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        {{- include "forklift.tmpVolume" . | nindent 8 }}
+      {{- with $r.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $r.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "forklift.selectorLabels" $labels | nindent 10 }}
+      spec:
+        accessModes: {{ toJson $r.persistence.accessModes }}
+        {{- with $r.persistence.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $r.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "forklift.rustfsService" . }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "forklift.selectorLabels" $labels | nindent 4 }}
+  ports:
+    - {name: s3, port: {{ $r.service.port }}, targetPort: s3, protocol: TCP}
+{{- if $r.ingress.enabled }}
+---
+# Browsers PUT uploads and GET downloads here through presigned URLs, so the ingress must not
+# limit request bodies (for ingress-nginx: nginx.ingress.kubernetes.io/proxy-body-size: "0").
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}-rustfs
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+  {{- with $r.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $r.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $r.ingress.tls }}
+  tls:
+    - hosts: [{{ $r.ingress.host | quote }}]
+      secretName: {{ default (printf "%s-rustfs-tls" $fullname) $r.ingress.tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $r.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "forklift.rustfsService" . }}
+                port: {name: s3}
+{{- end }}
+{{- end }}

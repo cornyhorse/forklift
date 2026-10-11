@@ -70,13 +70,17 @@ pandas = ["pandas>=1.5.0"]
 polars = ["polars>=0.18.0"]
 # Schema generation: copy the generated schema to the clipboard
 clipboard = ["pyperclip>=1.8.0"]
+# forklift-mcp, the local MCP server (stdio). The MCP Python SDK needs Python 3.10+; on older
+# Pythons the extra installs nothing and forklift-mcp says so.
+mcp = ["mcp>=2.3,<3; python_version >= '3.10'"]
 all = [
     "openpyxl>=3.0.0",
     "xlrd>=2.0.1",
     "pyodbc>=4.0.0",
     "pandas>=1.5.0",
     "polars>=0.18.0",
-    "pyperclip>=1.8.0"
+    "pyperclip>=1.8.0",
+    "mcp>=2.3,<3; python_version >= '3.10'"
 ]
 dev = [
     "pytest>=7.0.0",
@@ -104,9 +108,15 @@ Changelog = "https://github.com/cornyhorse/forklift/blob/main/CHANGELOG.md"
 
 [project.scripts]
 forklift = "forklift.cli:main"
+forklift-mcp = "forklift.mcp:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/forklift"]
+
+# The schema documentation pages, served by forklift-mcp as forklift://docs/schemas/<file>.md
+# (an editable install reads them from docs/schemas in the checkout instead)
+[tool.hatch.build.targets.wheel.force-include]
+"docs/schemas" = "forklift/mcp/docs/schemas"
 
 [tool.hatch.build.targets.sdist]
 include = [

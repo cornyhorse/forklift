@@ -1,0 +1,98 @@
+{{- /*
+Bootstrap, as the Compose stack's one-shot `init` does it, as Helm hooks; every step is safe to
+repeat. Before every install and upgrade, before the gateway rolls: database migrations, the
+first admin, the workers' token, and (external store) the bucket's CORS rule. With the bundled
+RustFS the store does not exist before the install, so its bucket and CORS rule are set by a
+second Job after it (post-install, post-upgrade). Each step is a container of its own (logs:
+kubectl logs job/<name> -c <step>); they run in order.
+*/ -}}
+{{- $fullname := include "forklift.fullname" . -}}
+{{- $sa := ternary (printf "%s-bootstrap" (include "forklift.serviceAccountName" .)) (include "forklift.serviceAccountName" .) .Values.serviceAccount.create -}}
+{{- $register := ternary .Values.workerToken.register (not .Values.workerToken.existingSecret) (kindIs "bool" .Values.workerToken.register) -}}
+{{- $origins := uniq (prepend .Values.gateway.corsOrigins (include "forklift.origin" (include "forklift.publicUrl" .))) -}}
+{{- $cors := list "forklift-web" "configure_cors" -}}
+{{- range $origins }}{{- $cors = concat $cors (list "--origin" (include "forklift.origin" .)) -}}{{- end }}
+{{- $admin := list "forklift-web" "bootstrap_admin" "--username" .Values.admin.username -}}
+{{- with .Values.admin.email }}{{- $admin = concat $admin (list "--email" .) -}}{{- end }}
+{{- $steps := list
+  (dict "name" "migrate" "command" (list "forklift-web" "migrate" "--no-input"))
+  (dict "name" "admin" "command" $admin "admin" true) -}}
+{{- if $register }}
+{{- $steps = append $steps (dict "name" "worker-token" "command" (list "forklift-web" "create_worker_token" "--name" .Values.workerToken.name "--from-file" "/run/secrets/worker-token") "token" true) }}
+{{- end }}
+{{- if not .Values.rustfs.enabled }}
+{{- $steps = append $steps (dict "name" "cors" "command" $cors) }}
+{{- end }}
+{{- $jobs := list (dict "component" "bootstrap" "name" (printf "%s-bootstrap" $fullname) "hooks" "pre-install,pre-upgrade" "steps" $steps) -}}
+{{- if .Values.rustfs.enabled }}
+{{- $bucket := list "python" "-c" (.Files.Get "files/create_bucket.py") -}}
+{{- $jobs = append $jobs (dict "component" "store-setup" "name" (printf "%s-store-setup" $fullname) "hooks" "post-install,post-upgrade" "steps" (list (dict "name" "bucket" "command" $bucket) (dict "name" "cors" "command" $cors))) }}
+{{- end }}
+{{- range $job := $jobs }}
+{{- $labels := dict "root" $ "component" $job.component }}
+{{- $last := sub (len $job.steps) 1 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $job.name }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+  annotations:
+    {{- include "forklift.hookAnnotations" (dict "hooks" $job.hooks "weight" 0 "delete" (ternary "before-hook-creation" "before-hook-creation,hook-succeeded" $.Values.bootstrap.keepSucceededJobs)) | nindent 4 }}
+spec:
+  backoffLimit: {{ $.Values.bootstrap.backoffLimit }}
+  activeDeadlineSeconds: {{ $.Values.bootstrap.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "forklift.labels" $labels | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $sa }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- include "forklift.imagePullSecrets" $ | nindent 6 }}
+      {{- include "forklift.podSecurityContext" (dict) | nindent 6 }}
+      {{- range $index, $step := $job.steps }}
+      {{- if and (eq $index 0) (gt $last 0) }}
+      initContainers:
+      {{- end }}
+      {{- if eq $index $last }}
+      containers:
+      {{- end }}
+        - name: {{ $step.name }}
+          image: {{ include "forklift.image" (dict "root" $ "image" $.Values.image.web) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: {{ toJson $step.command }}
+          # The gateway's settings inline: the ConfigMap is not there yet before an install
+          env:
+            {{- range $name, $value := (include "forklift.gatewaySettings" $ | fromYaml) }}
+            - {name: {{ $name }}, value: {{ $value | quote }}}
+            {{- end }}
+            {{- include "forklift.gatewaySecretEnv" $ | nindent 12 }}
+            {{- if $step.admin }}
+            - name: FORKLIFT_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: {{ include "forklift.adminSecretName" $ }}, key: {{ $.Values.admin.passwordKey }}}}
+            {{- end }}
+          resources:
+            {{- toYaml $.Values.bootstrap.resources | nindent 12 }}
+          {{- include "forklift.containerSecurityContext" $ | nindent 10 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if $step.token }}
+            - {name: token, mountPath: /run/secrets, readOnly: true}
+            {{- end }}
+      {{- end }}
+      volumes:
+        {{- include "forklift.tmpVolume" $ | nindent 8 }}
+        {{- if eq $job.component "bootstrap" }}
+        {{- if $register }}
+        - name: token
+          secret:
+            secretName: {{ include "forklift.workerTokenSecretName" $ }}
+            items: [{key: {{ $.Values.workerToken.key }}, path: worker-token}]
+            defaultMode: 0440
+        {{- end }}
+        {{- end }}
+{{- end }}

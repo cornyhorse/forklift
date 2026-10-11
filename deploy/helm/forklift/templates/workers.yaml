@@ -1,0 +1,204 @@
+{{- /*
+One Deployment per worker group (values `workers`, with `workerDefaults`). Workers only call out:
+the gateway's internal port and the object store. Every setting is a FORKLIFT_WORKER_* variable
+(services/worker/README.md); the token is a file in /run/secrets, outside the engine's readable
+paths.
+*/ -}}
+{{- $fullname := include "forklift.fullname" . -}}
+{{- $proxy := include "forklift.useEgressProxy" . -}}
+{{- range $w := (include "forklift.workers" . | fromYaml).workers }}
+{{- $labels := dict "root" $ "component" "worker" "group" $w.name }}
+{{- $keda := $w.autoscaling.keda }}
+{{- $sandboxed := eq $w.isolation "sandboxed" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-worker-{{ $w.name }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  {{- if not $keda.enabled }}
+  replicas: {{ $w.replicas }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "forklift.labels" $labels | nindent 8 }}
+        forklift.cornyhorse.dev/isolation: {{ $w.isolation }}
+        {{- with $w.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $w.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "forklift.serviceAccountName" $ }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- include "forklift.imagePullSecrets" $ | nindent 6 }}
+      {{- if eq $w.engineIsolation "no-network" }}
+      # no-network: the engine gets its own user and network namespace, which RuntimeDefault
+      # forbids (unshare); this Localhost profile is RuntimeDefault plus unshare.
+      {{- include "forklift.podSecurityContext" (dict "seccomp" (dict "type" "Localhost" "localhostProfile" $w.seccompProfile.localhostProfile)) | nindent 6 }}
+      {{- else }}
+      {{- include "forklift.podSecurityContext" (dict) | nindent 6 }}
+      {{- end }}
+      {{- with $w.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
+      {{- with $w.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      # Running jobs may finish for drainSeconds after SIGTERM; then the engines are stopped
+      # (killGraceSeconds) and the jobs handed back.
+      terminationGracePeriodSeconds: {{ add (int $w.drainSeconds) (int $w.killGraceSeconds) 15 }}
+      containers:
+        - name: worker
+          image: {{ include "forklift.image" (dict "root" $ "image" $.Values.image.worker) }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          env:
+            - {name: FORKLIFT_WORKER_GATEWAY, value: "http://{{ include "forklift.gatewayInternalService" $ }}:{{ $.Values.gateway.internalService.port }}"}
+            - {name: FORKLIFT_WORKER_TOKEN_FILE, value: /run/secrets/worker-token}
+            - {name: FORKLIFT_WORKER_SCRATCH, value: /scratch}
+            - {name: FORKLIFT_WORKER_LANES, value: {{ join "," $w.lanes | quote }}}
+            - {name: FORKLIFT_WORKER_CONCURRENCY, value: {{ ternary 1 $w.concurrency $sandboxed | int | quote }}}
+            - {name: FORKLIFT_WORKER_ISOLATION, value: {{ $w.engineIsolation | quote }}}
+            - {name: FORKLIFT_WORKER_LANDLOCK, value: {{ $w.landlock | quote }}}
+            {{- if $sandboxed }}
+            # sandboxed: one job per process; the container restarts for the next one
+            - {name: FORKLIFT_WORKER_MAX_JOBS, value: "1"}
+            {{- end }}
+            - {name: FORKLIFT_WORKER_STORE_HOSTS, value: {{ include "forklift.hostPort" (include "forklift.s3.workerEndpoint" $) | quote }}}
+            {{- if $proxy }}
+            # Store requests (and the engine's streamed inputs) go through the allow-listing proxy
+            - {name: FORKLIFT_STORE_PROXY, value: "http://{{ include "forklift.egressProxyService" $ }}:3128"}
+            {{- end }}
+            {{- with $w.stageMaxBytes }}
+            - {name: FORKLIFT_WORKER_STAGE_MAX_BYTES, value: {{ . | quote }}}
+            {{- end }}
+            - {name: FORKLIFT_WORKER_MAX_JOB_SECONDS, value: {{ $w.maxJobSeconds | toString | quote }}}
+            - {name: FORKLIFT_WORKER_DRAIN_SECONDS, value: {{ $w.drainSeconds | toString | quote }}}
+            - {name: FORKLIFT_WORKER_KILL_GRACE_SECONDS, value: {{ $w.killGraceSeconds | toString | quote }}}
+            - {name: FORKLIFT_WORKER_LOG_LEVEL, value: {{ $w.logLevel | quote }}}
+            {{- with $.Values.objectStore.workerCaBundle.configMap }}
+            - {name: FORKLIFT_WORKER_CA_FILE, value: /etc/forklift/ca/ca.crt}
+            {{- end }}
+            {{- range $name, $value := $w.settings }}
+            - {name: {{ $name }}, value: {{ $value | toString | quote }}}
+            {{- end }}
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+          {{- include "forklift.containerSecurityContext" $ | nindent 10 }}
+          volumeMounts:
+            - {name: scratch, mountPath: /scratch}
+            - {name: tmp, mountPath: /tmp}
+            - {name: token, mountPath: /run/secrets, readOnly: true}
+            {{- if $.Values.objectStore.workerCaBundle.configMap }}
+            - {name: ca, mountPath: /etc/forklift/ca, readOnly: true}
+            {{- end }}
+      volumes:
+        - name: scratch
+          emptyDir:
+            sizeLimit: {{ $w.scratch.sizeLimit }}
+            {{- with $w.scratch.medium }}
+            medium: {{ . }}
+            {{- end }}
+        {{- include "forklift.tmpVolume" $ | nindent 8 }}
+        - name: token
+          secret:
+            secretName: {{ include "forklift.workerTokenSecretName" $ }}
+            items: [{key: {{ $.Values.workerToken.key }}, path: worker-token}]
+            defaultMode: 0440
+        {{- with $.Values.objectStore.workerCaBundle.configMap }}
+        - name: ca
+          configMap:
+            name: {{ . }}
+            items: [{key: {{ $.Values.objectStore.workerCaBundle.key }}, path: ca.crt}]
+        {{- end }}
+      {{- with $w.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $w.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $w.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $w.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if gt (int (ternary $keda.minReplicas $w.replicas $keda.enabled)) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-worker-{{ $w.name }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  maxUnavailable: {{ $w.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" $labels | nindent 6 }}
+{{- end }}
+{{- if $keda.enabled }}
+---
+# Scales the group on its share of the queue: jobs of its lanes that are queued or running,
+# divided by the jobs one pod runs at once. Running jobs count too, so that a pod is not taken
+# away while it still works on a job the queue no longer shows.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $fullname }}-worker-{{ $w.name }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ $fullname }}-worker-{{ $w.name }}
+  minReplicaCount: {{ $keda.minReplicas }}
+  maxReplicaCount: {{ $keda.maxReplicas }}
+  pollingInterval: {{ $keda.pollingInterval }}
+  cooldownPeriod: {{ $keda.cooldownPeriod }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: {{ $keda.cooldownPeriod }}
+          policies: [{type: Pods, value: 1, periodSeconds: 60}]
+  triggers:
+    - type: postgresql
+      metadata:
+        host: {{ $.Values.postgres.host | quote }}
+        port: {{ $.Values.postgres.port | toString | quote }}
+        dbName: {{ $.Values.postgres.database | quote }}
+        userName: {{ default $.Values.postgres.user $.Values.keda.postgres.user | quote }}
+        sslmode: {{ $.Values.postgres.sslmode | quote }}
+        query: {{ printf "SELECT COUNT(*) FROM core_job WHERE status IN ('queued', 'running') AND lane IN (%s)" (include "forklift.sqlList" $w.lanes) | quote }}
+        targetQueryValue: {{ default (ternary 1 $w.concurrency $sandboxed) $keda.jobsPerReplica | toString | quote }}
+        activationTargetQueryValue: "0"
+      authenticationRef:
+        name: {{ $fullname }}-worker-{{ $w.name }}
+---
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: {{ $fullname }}-worker-{{ $w.name }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: {{ default $.Values.postgres.existingSecret $.Values.keda.postgres.existingSecret }}
+      key: {{ ternary $.Values.keda.postgres.passwordKey $.Values.postgres.passwordKey (ne $.Values.keda.postgres.existingSecret "") }}
+{{- end }}
+{{- end }}

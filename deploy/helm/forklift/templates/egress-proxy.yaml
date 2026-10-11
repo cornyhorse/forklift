@@ -1,0 +1,177 @@
+{{- if include "forklift.useEgressProxy" . }}
+{{- /*
+The workers' egress proxy (networkPolicies.storeEgress.mode: proxy): Squid allowing only the
+store, CONNECT to the TLS port of an https store and plain requests to the port of an http one,
+and nothing else. NetworkPolicies match addresses, not names; this is how a store without stable
+address ranges is reached by name only. squid.conf is the Compose profile's
+(deploy/compose/egress-proxy/squid.conf); allow.conf is what its start.sh writes from
+FORKLIFT_EGRESS_PROXY_ALLOW, rendered here from egressProxy.allow.
+*/ -}}
+{{- $fullname := include "forklift.fullname" . -}}
+{{- $e := .Values.egressProxy -}}
+{{- $labels := dict "root" . "component" "egress-proxy" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-egress-proxy
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+data:
+  squid.conf: |
+    # An allow-listing HTTP proxy for forklift workers whose object store is outside their
+    # network (the same configuration as the Compose "egress-proxy" profile).
+    #
+    # Workers send every object-store request here (FORKLIFT_STORE_PROXY): a CONNECT tunnel for
+    # an https:// store (TLS stays end to end; the proxy sees the host name only), plain
+    # requests for an http:// one. Only the destinations in allow.conf are allowed. Everything
+    # else gets 403. Nothing is cached, and the log has no query strings: presigned URLs carry
+    # their signatures there.
+    http_port 3128
+
+    acl CONNECT method CONNECT
+    acl plain_http proto HTTP
+
+    include /etc/forklift-squid/allow.conf
+
+    http_access deny all
+
+    cache deny all
+    cache_mem 0 MB
+
+    # No limit on request or response bodies: inputs and multipart parts can be many GiB
+    request_body_max_size 0
+    reply_body_max_size none
+
+    forwarded_for delete
+    httpd_suppress_version_string on
+
+    acl health_check src 127.0.0.1/32
+    strip_query_terms on
+    logformat forklift %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %<a "%{User-Agent}>h"
+    access_log stdio:/dev/stdout forklift !health_check
+    cache_log stdio:/dev/stderr
+    logfile_rotate 0
+
+    pid_filename none
+    coredump_dir none
+    pinger_enable off
+    shutdown_lifetime 3 seconds
+  allow.conf: |
+    # The allowed destinations (egressProxy.allow): per store URL, an acl for its host (-n: an
+    # IP address in a URL is never looked up in reverse DNS, whose answer an attacker could
+    # choose), one for its port and an http_access rule.
+    {{- range $index, $entry := (include "forklift.egressProxyAllow" . | fromYamlArray) }}
+    {{- $acl := printf "forklift_store_%d" (add $index 1) }}
+    {{- if regexMatch "^[0-9.]+$" $entry.host }}
+    acl {{ $acl }} dst {{ $entry.host }}
+    {{- else }}
+    acl {{ $acl }} dstdomain -n {{ lower $entry.host }}
+    {{- end }}
+    acl {{ $acl }}_port port {{ $entry.port }}
+    {{- if eq $entry.scheme "https" }}
+    http_access allow CONNECT {{ $acl }} {{ $acl }}_port
+    {{- else }}
+    http_access allow !CONNECT plain_http {{ $acl }} {{ $acl }}_port
+    {{- end }}
+    {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-egress-proxy
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  replicas: {{ $e.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "forklift.labels" $labels | nindent 8 }}
+      annotations:
+        checksum/config: {{ include "forklift.egressProxyAllow" . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "forklift.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- include "forklift.imagePullSecrets" . | nindent 6 }}
+      # The image's own user (proxy, uid 13); squid runs without the image's entrypoint
+      {{- include "forklift.podSecurityContext" (dict "uid" 13) | nindent 6 }}
+      containers:
+        - name: squid
+          image: {{ include "forklift.externalImage" $e.image }}
+          imagePullPolicy: IfNotPresent
+          command: [/usr/sbin/squid, -f, /etc/forklift-squid/squid.conf, -NYC]
+          ports:
+            - {name: proxy, containerPort: 3128, protocol: TCP}
+          # A request from 127.0.0.1 (answered 403, not logged): Squid itself, not just its port
+          readinessProbe:
+            exec:
+              command: {{ include "forklift.egressProxyProbe" . }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: {{ include "forklift.egressProxyProbe" . }}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $e.resources | nindent 12 }}
+          {{- include "forklift.containerSecurityContext" . | nindent 10 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/forklift-squid, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+            - {name: spool, mountPath: /var/spool/squid}
+            - {name: logs, mountPath: /var/log/squid}
+      volumes:
+        - name: config
+          configMap: {name: {{ $fullname }}-egress-proxy}
+        {{- include "forklift.tmpVolume" . | nindent 8 }}
+        - name: spool
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+        - name: logs
+          emptyDir: {medium: Memory, sizeLimit: 16Mi}
+      {{- with $e.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $e.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $e.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "forklift.egressProxyService" . }}
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "forklift.selectorLabels" $labels | nindent 4 }}
+  ports:
+    - {name: proxy, port: 3128, targetPort: proxy, protocol: TCP}
+{{- if gt (int $e.replicas) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-egress-proxy
+  labels:
+    {{- include "forklift.labels" $labels | nindent 4 }}
+spec:
+  maxUnavailable: {{ $e.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" $labels | nindent 6 }}
+{{- end }}
+{{- end }}

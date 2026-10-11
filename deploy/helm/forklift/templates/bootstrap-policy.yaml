@@ -1,0 +1,25 @@
+{{- if .Values.networkPolicies.enabled }}
+# The bootstrap Job's NetworkPolicy: a hook made just before the Job, so that the Job of an
+# upgrade already runs under this release's rules (a changed PostgreSQL address, say). Out to
+# DNS, PostgreSQL and (external store) the store, for the bucket's CORS rule; no ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "forklift.fullname" . }}-bootstrap
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "bootstrap") | nindent 4 }}
+  annotations:
+    {{- include "forklift.hookAnnotations" (dict "hooks" "pre-install,pre-upgrade" "weight" -10) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "bootstrap") | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+  ingress: []
+  egress:
+    {{- include "forklift.np.dns" . | nindent 4 }}
+    {{- include "forklift.np.postgres" . | nindent 4 }}
+    {{- if not .Values.rustfs.enabled }}
+    {{- include "forklift.np.gatewayStore" . | nindent 4 }}
+    {{- end }}
+{{- end }}

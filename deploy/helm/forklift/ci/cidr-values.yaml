@@ -1,0 +1,57 @@
+# An external store with stable address ranges (mode cidr), split store credentials, an sql-lane
+# worker group with egress to its databases, and existing Secrets for everything.
+publicUrl: https://forklift.example.org
+secrets: {existingSecret: forklift-secrets}
+admin: {existingSecret: forklift-admin, username: root, email: root@example.org}
+workerToken: {existingSecret: forklift-worker-token, key: worker-token}
+postgres:
+  host: 10.20.0.5
+  port: 5433
+  existingSecret: forklift-db
+  userKey: username
+  sslmode: verify-full
+objectStore:
+  endpoint: https://s3.eu-west-1.example.org
+  publicEndpoint: https://downloads.example.org
+  bucket: forklift-prod
+  region: eu-west-1
+  existingSecret: forklift-s3
+  purposeCredentials:
+    upload: {existingSecret: forklift-s3-upload}
+    delete: {existingSecret: forklift-s3-delete, accessKeyIdKey: id, secretAccessKeyKey: secret}
+  workerCaBundle: {configMap: corporate-ca, key: bundle.pem}
+gateway:
+  ingress: {enabled: true, className: nginx, host: forklift.example.org, tlsSecretName: forklift-tls}
+  trustedProxies: 2
+  webhooks: {allowedHosts: [hooks.internal.example.org]}
+  apiDocs: false
+  extraEnv: {FORKLIFT_SECRET_BACKEND: env}
+workers:
+  - name: interactive
+    lanes: [interactive]
+    replicas: 3
+    concurrency: 2
+  - name: batch
+    lanes: [batch]
+    stageMaxBytes: 2GiB
+    scratch: {sizeLimit: 100Gi}
+    resources:
+      requests: {cpu: "2", memory: 4Gi}
+      limits: {cpu: "8", memory: 32Gi}
+  - name: sql
+    lanes: [sql]
+    settings: {FORKLIFT_WORKER_ENGINE_ENV: ODBCSYSINI}
+    egress:
+      - to: [{ipBlock: {cidr: 10.30.0.0/16}}]
+        ports: [{protocol: TCP, port: 5432}, {protocol: TCP, port: 1433}]
+networkPolicies:
+  postgres:
+    to: [{ipBlock: {cidr: 10.20.0.5/32}}]
+  storeEgress:
+    mode: cidr
+    cidrs: [198.51.100.0/24, 203.0.113.16/28]
+    ports: [443]
+  dispatcher:
+    extraEgress:
+      - to: [{ipBlock: {cidr: 10.40.1.10/32}}]
+        ports: [{protocol: TCP, port: 443}]

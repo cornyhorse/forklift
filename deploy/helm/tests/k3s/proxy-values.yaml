@@ -1,0 +1,10 @@
+# The k3s smoke test's upgrade: the same release in proxy mode. The workers may reach only the
+# egress proxy (Squid), which allows only the store (here the bundled RustFS, by its Service's
+# name and port).
+networkPolicies:
+  storeEgress: {mode: proxy}
+egressProxy:
+  replicas: 1
+  resources:
+    requests: {cpu: 20m, memory: 32Mi}
+    limits: {cpu: 500m, memory: 128Mi}

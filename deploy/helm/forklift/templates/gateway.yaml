@@ -1,0 +1,209 @@
+{{- $fullname := include "forklift.fullname" . -}}
+{{- $g := .Values.gateway -}}
+# The gateway's settings (nothing secret: passwords and keys come from Secrets, see
+# forklift.gatewaySecretEnv). Every gateway process reads the same names Docker Compose uses.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-gateway
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 4 }}
+data:
+  {{- include "forklift.gatewaySettings" . | nindent 2 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-gateway
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 4 }}
+spec:
+  replicas: {{ $g.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "gateway") | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  template:
+    metadata:
+      labels:
+        {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 8 }}
+        {{- with $g.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/settings: {{ include "forklift.gatewaySettings" . | sha256sum }}
+        {{- with $g.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "forklift.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- include "forklift.imagePullSecrets" . | nindent 6 }}
+      {{- include "forklift.podSecurityContext" (dict) | nindent 6 }}
+      {{- with $g.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: gateway
+          image: {{ include "forklift.image" (dict "root" . "image" .Values.image.web) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image's command: one gunicorn on both ports; requests are routed by the port
+          # their connection arrived on (8081 serves /internal/v1 only).
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+            - {name: internal, containerPort: 8081, protocol: TCP}
+          envFrom:
+            - configMapRef: {name: {{ $fullname }}-gateway}
+          env:
+            {{- include "forklift.gatewaySecretEnv" . | nindent 12 }}
+            {{- include "forklift.gatewayOidcEnv" . | nindent 12 }}
+          # The Host header must be one the gateway answers to (FORKLIFT_ALLOWED_HOSTS)
+          startupProbe:
+            httpGet: {path: /healthz, port: http, httpHeaders: [{name: Host, value: localhost}]}
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: {path: /readyz, port: http, httpHeaders: [{name: Host, value: localhost}]}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: http, httpHeaders: [{name: Host, value: localhost}]}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $g.resources | nindent 12 }}
+          {{- include "forklift.containerSecurityContext" . | nindent 10 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            {{- if $g.oidc.enabled }}
+            - {name: oidc, mountPath: /etc/forklift/oidc, readOnly: true}
+            {{- if $g.oidc.caBundle.configMap }}
+            - {name: oidc-ca, mountPath: /etc/forklift/oidc-ca, readOnly: true}
+            {{- end }}
+            {{- end }}
+      volumes:
+        {{- include "forklift.tmpVolume" . | nindent 8 }}
+        {{- if $g.oidc.enabled }}
+        - name: oidc
+          secret:
+            secretName: {{ required "gateway.oidc.clientSecret.existingSecret is required with gateway.oidc.enabled: a Secret with the client secret the provider issued" $g.oidc.clientSecret.existingSecret }}
+            items: [{key: {{ $g.oidc.clientSecret.key }}, path: client-secret}]
+            defaultMode: 0440
+        {{- with $g.oidc.caBundle.configMap }}
+        - name: oidc-ca
+          configMap:
+            name: {{ . }}
+            items: [{key: {{ $g.oidc.caBundle.key }}, path: ca.crt}]
+        {{- end }}
+        {{- end }}
+      {{- with $g.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $g.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $g.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $g.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# The public port: the UI, /api/v1 and the health checks.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "forklift.gatewayService" . }}
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 4 }}
+  {{- with $g.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $g.service.type }}
+  selector:
+    {{- include "forklift.selectorLabels" (dict "root" . "component" "gateway") | nindent 4 }}
+  ports:
+    - {name: http, port: {{ $g.service.port }}, targetPort: http, protocol: TCP}
+---
+# The internal port (/internal/v1): for the workers only. Never route it from an ingress; the
+# gateway's NetworkPolicy admits only the workers to it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "forklift.gatewayInternalService" . }}
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "forklift.selectorLabels" (dict "root" . "component" "gateway") | nindent 4 }}
+  ports:
+    - {name: internal, port: {{ $g.internalService.port }}, targetPort: internal, protocol: TCP}
+{{- if gt (int $g.replicas) 1 }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $fullname }}-gateway
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 4 }}
+spec:
+  maxUnavailable: {{ $g.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "gateway") | nindent 6 }}
+{{- end }}
+{{- if $g.ingress.enabled }}
+---
+# The gateway's public port, and the MCP proxy under /mcp when it is enabled. The internal port
+# is never routed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 4 }}
+  {{- with $g.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $g.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if $g.ingress.tls }}
+  tls:
+    - hosts: [{{ $g.ingress.host | quote }}]
+      secretName: {{ default (printf "%s-tls" $fullname) $g.ingress.tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $g.ingress.host | quote }}
+      http:
+        paths:
+          {{- if .Values.mcp.enabled }}
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullname }}-mcp
+                port: {name: http}
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "forklift.gatewayService" . }}
+                port: {name: http}
+{{- end }}

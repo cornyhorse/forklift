@@ -1,0 +1,144 @@
+# The Helm chart (deploy/helm/forklift): lint, render and validate it for every values file in
+# ci/, check its invariants (Pod Security, NetworkPolicies, secrets, hooks), install it on a real
+# k3s cluster and use it; on a chart-v* tag, publish it to GHCR as an OCI artifact.
+name: Helm chart
+
+on:
+  push:
+    branches: [ main, develop, "feature/*", "feat/*", "bugfix/*", "hotfix/*" ]
+    tags: [ "chart-v*" ]
+    paths:
+      - deploy/helm/**
+      - services/web/**
+      - services/worker/**
+      - src/**
+      - pyproject.toml
+      - contracts/**
+      - deploy/compose/docker-compose.yml
+      - .github/workflows/helm.yml
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - deploy/helm/**
+      - services/web/**
+      - services/worker/**
+      - src/**
+      - pyproject.toml
+      - contracts/**
+      - deploy/compose/docker-compose.yml
+      - .github/workflows/helm.yml
+
+# Least privilege: only the publish job writes (packages), and only on a chart-v* tag.
+permissions:
+  contents: read
+
+concurrency:
+  group: helm-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # helm lint --strict, helm template and kubeconform -strict (Kubernetes 1.30 and 1.36, KEDA's
+  # CRDs included) for every ci/*-values.yaml, then the render tests. helm and kubeconform run
+  # from their images, pinned by digest.
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install the test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest pyyaml jsonschema black isort flake8
+
+    - name: Check formatting and lint (the chart's Python)
+      run: |
+        black --check --line-length 99 deploy/helm
+        isort --check-only --profile black --line-length 99 deploy/helm
+        flake8 --max-line-length=99 --extend-ignore=E203,W503 deploy/helm
+
+    - name: Lint, render and validate
+      run: deploy/helm/tests/lint.sh
+
+    - name: Render tests (Pod Security, NetworkPolicies, secrets, hooks, settings)
+      run: python -m pytest deploy/helm/tests -v
+
+  # A real install on k3s (in Docker; its network-policy controller enforces the policies) with
+  # images built from this checkout: the hooks, every rollout, a CSV job end to end through the
+  # public API (and a schema on a no-network worker group), the NetworkPolicies biting, and an
+  # upgrade to the proxy mode (the workers' store requests through Squid).
+  k3s:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    # The no-network worker group runs the engine in an unprivileged user and network namespace
+    - name: Allow unprivileged user namespaces
+      run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+    - name: Build the images
+      run: |
+        docker build -f services/web/Dockerfile -t forklift-web:local .
+        docker build -f services/worker/Dockerfile -t forklift-worker:local .
+
+    - name: Pull the third-party images
+      run: |
+        docker pull docker.io/library/postgres:16
+        docker pull docker.io/rustfs/rustfs:1.0.1
+        docker pull docker.io/ubuntu/squid:6.6-24.04_edge
+
+    - name: Install the chart on k3s and use it
+      run: deploy/helm/tests/k3s_smoke.sh
+
+  # On a chart-v<version> tag: package the chart and push it to oci://ghcr.io/cornyhorse/charts
+  # (helm install forklift oci://ghcr.io/cornyhorse/charts/forklift --version <version>).
+  publish:
+    if: startsWith(github.ref, 'refs/tags/chart-v')
+    needs: [ lint, k3s ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      HELM_IMAGE: alpine/helm:4.3.0@sha256:a6cf54599ccb99d90cf0712b30f03fdb3cab062e6b94e0418cc4db7e8a1464b2
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
+
+    - name: Check the tag against Chart.yaml
+      run: |
+        version=$(sed -n 's/^version: *//p' deploy/helm/forklift/Chart.yaml)
+        if [ "chart-v$version" != "$GITHUB_REF_NAME" ]; then
+          echo "The tag $GITHUB_REF_NAME does not match the chart's version $version" >&2
+          exit 1
+        fi
+        echo "CHART_VERSION=$version" >> "$GITHUB_ENV"
+
+    - name: Package
+      run: >-
+        docker run --rm -u "$(id -u):$(id -g)" -e HOME=/work/.helm -v "$PWD:/work" -w /work
+        "$HELM_IMAGE" package deploy/helm/forklift --destination dist
+
+    - name: Push to GHCR
+      env:
+        REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        run_helm() {
+          docker run --rm -i -u "$(id -u):$(id -g)" -e HOME=/work/.helm -v "$PWD:/work" -w /work "$HELM_IMAGE" "$@"
+        }
+        echo "$REGISTRY_TOKEN" | run_helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
+        run_helm push "dist/forklift-$CHART_VERSION.tgz" oci://ghcr.io/cornyhorse/charts
+        rm -rf .helm

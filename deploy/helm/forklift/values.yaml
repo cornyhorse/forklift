@@ -1,0 +1,431 @@
+# The forklift platform: the gateway (UI, /api/v1, and the workers' internal API on a port of
+# its own), its background processes (dispatcher, publisher, sweeper), one worker Deployment per
+# entry of `workers`, and optionally a bundled RustFS, the remote MCP proxy and an egress proxy
+# for the workers. docs/platform/helm.md explains every block.
+#
+# The defaults are the safe ones: NetworkPolicies on (default deny, then only what each process
+# needs), Pod Security "restricted" for every pod, Landlock required in the workers, secrets only
+# from Secrets. You must set at least `postgres.host` and `postgres.existingSecret`, and either
+# `objectStore` (endpoint, bucket, existingSecret) or `rustfs.enabled: true`.
+
+nameOverride: ""
+fullnameOverride: ""
+# The cluster's DNS domain: the gateway answers to its Services' names under it.
+clusterDomain: cluster.local
+# Labels added to every resource the chart makes.
+commonLabels: {}
+
+# Images: <registry>/<name>:<tag> (or @<digest> when a digest is given). An empty registry uses
+# the name as it is (for example forklift-web with tag local for images imported into the nodes).
+image:
+  registry: ghcr.io/cornyhorse
+  tag: ""                          # default: the chart's appVersion
+  pullPolicy: IfNotPresent
+  pullSecrets: []                  # names of image pull Secrets in the release's namespace
+  web: {name: forklift-web, tag: "", digest: ""}           # gateway and its processes
+  worker: {name: forklift-worker, tag: "", digest: ""}
+  mcp: {name: forklift-mcp, tag: "", digest: ""}
+
+# One ServiceAccount for every pod. Its token is never mounted: no forklift process talks to the
+# Kubernetes API.
+serviceAccount:
+  create: true
+  name: ""                         # default: the release's full name
+  annotations: {}
+
+# Where people reach the UI and the API, e.g. https://forklift.example.org: the CSRF origin, the
+# bucket's CORS origin and the base of links in webhook payloads (FORKLIFT_PUBLIC_URL).
+# Default: https://<gateway.ingress.host> (http:// without TLS); without an ingress
+# http://localhost:8080, which suits `kubectl port-forward` only.
+publicUrl: ""
+
+# ----------------------------------------------------------------------------- secrets
+# The gateway's own secrets: FORKLIFT_SECRET_KEY (Django's signing key) and FORKLIFT_SECRETS_KEYS
+# (comma-separated Fernet keys that encrypt connection secrets; the first encrypts, all decrypt).
+# Without an existing Secret the chart generates both once and keeps them across upgrades.
+# Losing FORKLIFT_SECRETS_KEYS loses every stored connection secret: back the Secret up.
+secrets:
+  existingSecret: ""
+  secretKeyKey: secret-key
+  secretsKeysKey: secrets-keys
+
+# The first admin, created by the bootstrap Job when it does not exist (never changed later).
+admin:
+  username: admin
+  email: ""
+  existingSecret: ""               # empty: the chart generates a password (see NOTES)
+  passwordKey: password
+
+# The workers' token. By default the chart generates one into a Secret on the first install,
+# keeps it across upgrades and registers it with the gateway (create_worker_token --from-file).
+# With existingSecret, the workers use a token an admin created (Admin -> Workers, or
+# `forklift-web create_worker_token`): the chart neither generates nor registers it.
+workerToken:
+  existingSecret: ""
+  key: token
+  name: helm                       # the name the token is registered under
+  # Register the token with the gateway (create_worker_token --from-file, idempotent). Default:
+  # true for a generated token, false for an existing Secret (an admin-made token is registered
+  # already; set true for a token you generated yourself, e.g. a sealed Secret).
+  register: null
+
+# ----------------------------------------------------------------------------- PostgreSQL
+# External: the chart does not run PostgreSQL. The Secret holds the password (and, with userKey,
+# the user name).
+postgres:
+  host: ""                         # required
+  port: 5432
+  database: forklift
+  user: forklift
+  existingSecret: ""               # required
+  passwordKey: password
+  userKey: ""                      # read the user name from the Secret instead of `user`
+  sslmode: prefer                  # FORKLIFT_DB_SSLMODE: disable, prefer, require, verify-full ...
+  connMaxAge: 60
+
+# ----------------------------------------------------------------------------- object store
+# One S3-compatible bucket (uploads/, jobs/, previews/). External by default; with
+# rustfs.enabled the bundled RustFS is used and endpoint and credentials default to it.
+objectStore:
+  endpoint: ""                     # FORKLIFT_S3_ENDPOINT_URL: the gateway's own calls
+  publicEndpoint: ""               # FORKLIFT_S3_PUBLIC_ENDPOINT_URL: URLs for browsers (default: endpoint)
+  workerEndpoint: ""               # FORKLIFT_S3_WORKER_ENDPOINT_URL: URLs for workers (default: endpoint)
+  bucket: forklift
+  region: us-east-1
+  addressingStyle: path            # path or virtual
+  connectTimeout: 5
+  readTimeout: 30
+  existingSecret: ""               # required unless rustfs.enabled
+  accessKeyIdKey: access-key-id
+  secretAccessKeyKey: secret-access-key
+  # Credentials split by purpose (design 7.1), each optional: {existingSecret, accessKeyIdKey,
+  # secretAccessKeyKey}; a purpose without one uses the credential above.
+  purposeCredentials: {}
+  # A CA bundle (ConfigMap key) the workers trust for an https store and gateway (--ca-file).
+  workerCaBundle: {configMap: "", key: ca.crt}
+
+# ----------------------------------------------------------------------------- gateway
+gateway:
+  replicas: 2
+  # Host names it answers to besides the ingress host, its Services' names and localhost
+  # (FORKLIFT_ALLOWED_HOSTS).
+  allowedHosts: []
+  csrfTrustedOrigins: []           # besides the public URL's origin
+  corsOrigins: []                  # more UI origins for the bucket's CORS rule
+  behindTlsProxy: null             # FORKLIFT_BEHIND_TLS_PROXY; default: gateway.ingress.tls
+  secureCookies: null              # FORKLIFT_SECURE_COOKIES; default: behindTlsProxy
+  trustedProxies: null             # FORKLIFT_TRUSTED_PROXIES; default: 1 with the ingress, else 0
+  sessionSeconds: 28800
+  passwordMinLength: 12
+  loginRedirectUrl: /
+  apiDocs: true                    # /api/v1/docs
+  logLevel: INFO
+  webhooks:
+    allowedHosts: []               # FORKLIFT_WEBHOOK_ALLOWED_HOSTS (add their CIDRs to networkPolicies.dispatcher.extraEgress)
+    allowHttp: false               # FORKLIFT_WEBHOOK_ALLOW_HTTP (development only)
+  server:                          # gunicorn
+    workers: 2
+    threads: 8
+    timeoutSeconds: 120
+  # Other non-secret gateway settings by name, for every gateway process: {FORKLIFT_API_DOCS: "false"}
+  extraEnv: {}
+  # Settings that are secrets, from Secrets: [{name: FORKLIFT_..., secretName: ..., key: ...}]
+  extraSecretEnv: []
+  # Single sign-on (OpenID Connect, docs/platform/oidc.md), for the gateway's web pods only.
+  # FORKLIFT_OIDC_ISSUER turns it on; the client secret is a file mounted from a Secret
+  # (FORKLIFT_OIDC_CLIENT_SECRET_FILE).
+  oidc:
+    enabled: false
+    issuer: ""                     # FORKLIFT_OIDC_ISSUER, e.g. https://login.example.org/realms/forklift
+    clientId: ""                   # FORKLIFT_OIDC_CLIENT_ID
+    clientSecret:
+      existingSecret: ""
+      key: client-secret
+    scopes: [openid, email, profile]   # FORKLIFT_OIDC_SCOPES
+    caBundle: {configMap: "", key: ca.crt}   # FORKLIFT_OIDC_CA_FILE: a private CA for the provider
+    passwordSignIn: true           # FORKLIFT_PASSWORD_SIGN_IN: false hides the password form
+    # Other FORKLIFT_OIDC_* settings by name, e.g. FORKLIFT_OIDC_ROLE_CLAIM: groups,
+    # FORKLIFT_OIDC_ADMIN_GROUPS: forklift-admins, FORKLIFT_OIDC_DEFAULT_ROLE: viewer
+    settings: {}
+  ingress:
+    enabled: false
+    className: ""
+    host: forklift.example.org
+    tls: true
+    tlsSecretName: ""              # default: <full name>-tls
+    annotations: {}
+  service:
+    type: ClusterIP
+    port: 8080
+    annotations: {}
+  internalService:                 # workers only: never routed by the ingress
+    port: 8081
+  resources:
+    requests: {cpu: 250m, memory: 384Mi}
+    limits: {cpu: "2", memory: 1Gi}
+  pdb: {maxUnavailable: 1}         # made when replicas > 1
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+
+# Enqueues the runs of due schedules and sends webhook deliveries (forklift-web dispatch).
+dispatcher:
+  everySeconds: 10
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Copies successful runs to their s3 destinations (forklift-web publish). Several may run.
+publisher:
+  replicas: 1
+  everySeconds: 5
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  pdb: {maxUnavailable: 1}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Deletes what retention policies say has expired (forklift-web sweep_retention).
+sweeper:
+  everySeconds: 3600
+  resources:
+    requests: {cpu: 50m, memory: 192Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# The hook Jobs: database migrations, the first admin, the worker token and (external store)
+# the bucket's CORS rule run before every install and upgrade, before the gateway rolls. With the
+# bundled RustFS, the bucket and its CORS rule are set after it, once RustFS is up.
+bootstrap:
+  backoffLimit: 6
+  activeDeadlineSeconds: 900
+  keepSucceededJobs: false
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 512Mi}
+
+# ----------------------------------------------------------------------------- workers
+# One Deployment per entry. Every key but `name` and `lanes` is optional (defaults below).
+#   isolation: standard | no-network | sandboxed (services/worker/README.md, docs/platform/helm.md)
+#     no-network needs a Localhost seccomp profile on the nodes (seccompProfile) that allows unshare;
+#     sandboxed needs runtimeClassName and runs one job per process (--max-jobs 1).
+#   sandboxedEngine: standard | no-network   what the engine gets inside the sandboxed runtime
+#   concurrency: jobs at once in one pod;  landlock: required | auto | off
+#   scratch.sizeLimit: outputs plus staged inputs up to stageMaxBytes
+#   drainSeconds: how long a stopping pod lets running jobs finish (terminationGracePeriodSeconds
+#     follows it)
+#   autoscaling.keda: a ScaledObject on the number of queued and running jobs of the group's lanes
+#   settings: other FORKLIFT_WORKER_* settings by name; egress: extra NetworkPolicy egress rules
+#     (the sql lane's databases)
+workers:
+  - name: interactive
+    lanes: [interactive]
+    replicas: 2
+    concurrency: 2
+    resources:
+      requests: {cpu: 250m, memory: 512Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    scratch: {sizeLimit: 2Gi}
+  - name: batch
+    lanes: [batch]
+    replicas: 1
+    resources:
+      requests: {cpu: "1", memory: 2Gi}
+      limits: {cpu: "4", memory: 16Gi}
+    scratch: {sizeLimit: 200Gi}
+    drainSeconds: 600
+    autoscaling:
+      keda: {enabled: false, minReplicas: 1, maxReplicas: 10}
+
+# Defaults for every entry of `workers`.
+workerDefaults:
+  replicas: 1
+  concurrency: 1
+  isolation: standard
+  sandboxedEngine: standard
+  runtimeClassName: ""
+  # The Localhost profile for no-network (relative to the kubelet's seccomp directory); the chart
+  # ships one in files/seccomp/ (docs/platform/helm.md: installing it on the nodes).
+  seccompProfile: {localhostProfile: forklift/worker-no-network.json}
+  landlock: required
+  stageMaxBytes: ""                # --stage-max-bytes ceiling, e.g. 2GiB (keep it below scratch)
+  maxJobSeconds: 24h
+  drainSeconds: 20
+  killGraceSeconds: 10
+  logLevel: info
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "2", memory: 4Gi}
+  scratch: {sizeLimit: 10Gi, medium: ""}   # medium Memory: a tmpfs counted against the memory limit
+  autoscaling:
+    keda:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 10
+      pollingInterval: 15
+      cooldownPeriod: 300
+      jobsPerReplica: null         # default: concurrency
+  pdb: {maxUnavailable: 1}         # made when replicas (or KEDA's minimum) > 1
+  settings: {}
+  egress: []
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+
+# KEDA reads the queue from PostgreSQL. Point it at a login that can only read core_job
+# (GRANT SELECT ON core_job TO ...); by default it uses the gateway's credentials.
+keda:
+  postgres:
+    existingSecret: ""             # default: postgres.existingSecret
+    passwordKey: password
+    user: ""                       # default: postgres.user
+
+# ----------------------------------------------------------------------------- bundled RustFS
+# For small and development installations: one RustFS pod with a PersistentVolumeClaim.
+rustfs:
+  enabled: false
+  image: {repository: docker.io/rustfs/rustfs, tag: 1.0.1, digest: ""}
+  existingSecret: ""               # root credentials (objectStore's key names); default: generated
+  persistence:
+    size: 20Gi
+    storageClassName: ""
+    accessModes: [ReadWriteOnce]
+  service: {port: 9000}
+  # Browsers upload to and download from the store directly: give it a host of its own.
+  ingress:
+    enabled: false
+    className: ""
+    host: store.example.org
+    tls: true
+    tlsSecretName: ""
+    annotations: {}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "2", memory: 2Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ----------------------------------------------------------------------------- MCP proxy
+# The remote MCP endpoint (Streamable HTTP at /mcp on the gateway's ingress host): a client of
+# /api/v1 with each caller's own API token; no database and no storage credentials.
+mcp:
+  enabled: false
+  replicas: 2
+  allowedHosts: []                 # FORKLIFT_MCP_ALLOWED_HOSTS besides the ingress host and its Service
+  caBundle: {configMap: "", key: ca.crt}   # FORKLIFT_MCP_CA_FILE, for an https gateway
+  logLevel: info
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: "1", memory: 512Mi}
+  pdb: {maxUnavailable: 1}
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ----------------------------------------------------------------------------- egress proxy
+# Squid, allowing only the store's host names; used by the workers when
+# networkPolicies.storeEgress.mode is proxy (FORKLIFT_STORE_PROXY).
+egressProxy:
+  image: {repository: docker.io/ubuntu/squid, tag: 6.6-24.04_edge, digest: ""}
+  replicas: 2
+  # The destinations it allows, as URLs: https://host[:port] (CONNECT tunnels to host:port, 443
+  # by default) and http://host[:port] (plain requests; 80 by default), as Compose's
+  # FORKLIFT_EGRESS_PROXY_ALLOW. Default: the workers' store endpoint.
+  allow: []
+  resources:
+    requests: {cpu: 50m, memory: 64Mi}
+    limits: {cpu: "1", memory: 256Mi}
+  pdb: {maxUnavailable: 1}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ----------------------------------------------------------------------------- NetworkPolicies
+# Default deny for every pod of the chart, then only what each one needs (docs/platform/helm.md).
+networkPolicies:
+  enabled: true
+  # Cluster DNS: every pod that makes connections may query it (UDP and TCP).
+  dns:
+    to:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+        podSelector: {matchLabels: {k8s-app: kube-dns}}
+    ports: [53]
+  # The ingress controller's pods: they may reach the gateway's public port, the MCP proxy and the
+  # bundled RustFS (when those have an ingress).
+  ingressController:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+      podSelector: {matchLabels: {app.kubernetes.io/name: ingress-nginx}}
+  # "The internet": every address but private, shared, loopback, link-local (cloud metadata),
+  # multicast and reserved ranges. Used for webhooks, the OIDC provider and, in proxy mode, the
+  # store. Add your cluster's pod and Service ranges to `except` if they are public addresses; add
+  # an IPv6 block ({cidr: "::/0", except: [fc00::/7, fe80::/10, ...]}) on dual-stack clusters.
+  internet:
+    - cidr: 0.0.0.0/0
+      except:
+        - 0.0.0.0/8
+        - 10.0.0.0/8
+        - 100.64.0.0/10
+        - 127.0.0.0/8
+        - 169.254.0.0/16
+        - 172.16.0.0/12
+        - 192.0.0.0/24
+        - 192.168.0.0/16
+        - 198.18.0.0/15
+        - 224.0.0.0/4
+        - 240.0.0.0/4
+  # How the gateway processes reach PostgreSQL: NetworkPolicy peers (ipBlock, podSelector,
+  # namespaceSelector). Required while NetworkPolicies are on.
+  postgres:
+    to: []
+  # How the workers reach the object store:
+  #   podSelector  the store's pods (default with rustfs.enabled: the bundled RustFS)
+  #   cidr         the store's address ranges (`cidrs`), on `ports`
+  #   proxy        only the egress proxy, which allows only the store's host names
+  # Empty: podSelector with rustfs.enabled, else you must choose.
+  storeEgress:
+    mode: ""
+    podSelector: {}                # an in-cluster store other than the bundled one
+    namespaceSelector: {}
+    cidrs: []
+    ports: []                      # default: the endpoints' ports (443 for https, 80 for http)
+    # The gateway processes call the store directly (they hold its credentials). In proxy mode
+    # they may reach these peers on the store's ports (default: the internet).
+    gatewayTo: []
+  gateway:
+    extraIngress: []               # NetworkPolicy ingress rules, e.g. in-cluster API clients on 8080
+    extraEgress: []                # e.g. the endpoints of s3 connections in other stores
+  dispatcher:
+    extraEgress: []                # e.g. internal webhook receivers allowed by gateway.webhooks.allowedHosts
+  publisher:
+    extraEgress: []
+  # Where the OIDC provider is: peers and ports (default: the internet on 443).
+  oidc:
+    to: []
+    ports: [443]
+  mcp:
+    extraIngress: []
+  rustfs:
+    extraIngress: []               # e.g. a LoadBalancer's source ranges
+  # Where the egress proxy may connect (default: the internet, or the bundled RustFS).
+  egressProxy:
+    to: []

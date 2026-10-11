@@ -1,0 +1,15 @@
+# An external https store without stable addresses: the workers reach it only through the
+# allow-listing egress proxy (Squid), which may reach only the store's host name.
+postgres:
+  host: postgres.databases.svc.cluster.local
+  existingSecret: forklift-db
+objectStore:
+  endpoint: https://storage.example.net
+  addressingStyle: virtual
+  existingSecret: forklift-s3
+networkPolicies:
+  postgres:
+    to:
+      - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: databases}}
+  storeEgress:
+    mode: proxy

@@ -1,0 +1,292 @@
+{{- if .Values.networkPolicies.enabled }}
+{{- /*
+Default deny for every pod of the release, then one policy per component allowing only what it
+needs (docs/platform/helm.md lists them). NetworkPolicies add up: a connection is allowed when
+any policy that selects the pod allows it. The bootstrap Job's policy is in bootstrap-policy.yaml
+(a hook, so that it is in place before the Job runs).
+*/ -}}
+{{- $fullname := include "forklift.fullname" . -}}
+{{- $np := .Values.networkPolicies -}}
+{{- $mode := include "forklift.storeMode" . -}}
+{{- $peer := dict "root" . -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-default-deny
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "network") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.instanceLabels" . | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+---
+# The gateway: the public port from the ingress controller (and the MCP proxy), the internal port
+# from the workers only; out to PostgreSQL, the store, DNS and the OIDC provider.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-gateway
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "gateway") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "gateway") | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+  ingress:
+    {{- if or .Values.gateway.ingress.enabled .Values.mcp.enabled }}
+    - from:
+        {{- if .Values.gateway.ingress.enabled }}
+        {{- include "forklift.np.ingressController" . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.mcp.enabled }}
+        {{- include "forklift.np.peer" (dict "root" . "component" "mcp") | nindent 8 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 8080}
+    {{- end }}
+    - from:
+        {{- include "forklift.np.peer" (dict "root" . "component" "worker") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 8081}
+    {{- with $np.gateway.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    {{- include "forklift.np.dns" . | nindent 4 }}
+    {{- include "forklift.np.postgres" . | nindent 4 }}
+    {{- include "forklift.np.gatewayStore" . | nindent 4 }}
+    {{- if .Values.gateway.oidc.enabled }}
+    - to:
+        {{- if $np.oidc.to }}
+        {{- toYaml $np.oidc.to | nindent 8 }}
+        {{- else }}
+        {{- include "forklift.np.internet" . | nindent 8 }}
+        {{- end }}
+      ports:
+        {{- range $np.oidc.ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+    {{- end }}
+    {{- with $np.gateway.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+# The dispatcher: webhooks go to public addresses on 443 (and 80 with
+# gateway.webhooks.allowHttp), never to private or cluster ranges: the network enforces what the
+# gateway's own SSRF check already refuses. Receivers on an internal network need both
+# gateway.webhooks.allowedHosts and a rule in networkPolicies.dispatcher.extraEgress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-dispatcher
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "dispatcher") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "dispatcher") | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+  egress:
+    {{- include "forklift.np.dns" . | nindent 4 }}
+    {{- include "forklift.np.postgres" . | nindent 4 }}
+    {{- include "forklift.np.gatewayStore" . | nindent 4 }}
+    - to:
+        {{- include "forklift.np.internet" . | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 443}
+        {{- if .Values.gateway.webhooks.allowHttp }}
+        - {protocol: TCP, port: 80}
+        {{- end }}
+    {{- with $np.dispatcher.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- range $component := list "publisher" "sweeper" }}
+---
+# The {{ $component }}: PostgreSQL and the store only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-{{ $component }}
+  labels:
+    {{- include "forklift.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
+  {{- include "forklift.np.types" $ | nindent 2 }}
+  egress:
+    {{- include "forklift.np.dns" $ | nindent 4 }}
+    {{- include "forklift.np.postgres" $ | nindent 4 }}
+    {{- include "forklift.np.gatewayStore" $ | nindent 4 }}
+    {{- if eq $component "publisher" }}
+    {{- with $np.publisher.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- range $w := (include "forklift.workers" . | fromYaml).workers }}
+---
+# Workers ({{ $w.name }}): no ingress at all; out to DNS, the gateway's internal port and the
+# store ({{ $mode }}){{ if $w.egress }}, and the group's own rules{{ end }}.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-worker-{{ $w.name }}
+  labels:
+    {{- include "forklift.labels" (dict "root" $ "component" "worker" "group" $w.name) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" $ "component" "worker" "group" $w.name) | nindent 6 }}
+  {{- include "forklift.np.types" $ | nindent 2 }}
+  ingress: []
+  egress:
+    {{- include "forklift.np.dns" $ | nindent 4 }}
+    - to:
+        {{- include "forklift.np.peer" (dict "root" $ "component" "gateway") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 8081}
+    {{- if eq $mode "proxy" }}
+    - to:
+        {{- include "forklift.np.peer" (dict "root" $ "component" "egress-proxy") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 3128}
+    {{- else }}
+    - to:
+        {{- include "forklift.np.storePeers" $ | nindent 8 }}
+      ports:
+        {{- include "forklift.np.storePorts" $ | nindent 8 }}
+    {{- end }}
+    {{- with $w.egress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
+{{- if include "forklift.useEgressProxy" . }}
+---
+# The egress proxy: from the workers only; out to the store's port (Squid allows only the store's
+# host names there).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-egress-proxy
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "egress-proxy") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "egress-proxy") | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+  ingress:
+    - from:
+        {{- include "forklift.np.peer" (dict "root" . "component" "worker") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 3128}
+  egress:
+    {{- include "forklift.np.dns" . | nindent 4 }}
+    - to:
+        {{- if $np.egressProxy.to }}
+        {{- toYaml $np.egressProxy.to | nindent 8 }}
+        {{- else if .Values.rustfs.enabled }}
+        {{- include "forklift.np.peer" (dict "root" . "component" "rustfs") | nindent 8 }}
+        {{- else }}
+        {{- include "forklift.np.internet" . | nindent 8 }}
+        {{- end }}
+      ports:
+        {{- $ports := list }}
+        {{- range (include "forklift.egressProxyAllow" . | fromYamlArray) }}
+        {{- $ports = append $ports (int .port) }}
+        {{- end }}
+        {{- range uniq $ports }}
+        - {protocol: TCP, port: {{ . }}}
+        {{- end }}
+{{- end }}
+{{- if .Values.rustfs.enabled }}
+---
+# The bundled RustFS: from the gateway processes, the store-setup Job, the workers (podSelector
+# mode) or the egress proxy (proxy mode), and the ingress controller for browsers; no egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-rustfs
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "rustfs") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "rustfs") | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+  ingress:
+    - from:
+        {{- range $component := list "gateway" "dispatcher" "publisher" "sweeper" "store-setup" }}
+        {{- include "forklift.np.peer" (dict "root" $ "component" $component) | nindent 8 }}
+        {{- end }}
+        {{- if and (eq $mode "podSelector") (not $np.storeEgress.podSelector) }}
+        {{- include "forklift.np.peer" (dict "root" . "component" "worker") | nindent 8 }}
+        {{- end }}
+        {{- if eq $mode "proxy" }}
+        {{- include "forklift.np.peer" (dict "root" . "component" "egress-proxy") | nindent 8 }}
+        {{- end }}
+        {{- if .Values.rustfs.ingress.enabled }}
+        {{- include "forklift.np.ingressController" . | nindent 8 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 9000}
+    {{- with $np.rustfs.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress: []
+---
+# The store-setup Job (bucket and CORS rule of the bundled RustFS): DNS and RustFS only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-store-setup
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "store-setup") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "store-setup") | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+  ingress: []
+  egress:
+    {{- include "forklift.np.dns" . | nindent 4 }}
+    - to:
+        {{- include "forklift.np.peer" (dict "root" . "component" "rustfs") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 9000}
+{{- end }}
+{{- if .Values.mcp.enabled }}
+---
+# The MCP proxy: from the ingress controller; out to the gateway's public port only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-mcp
+  labels:
+    {{- include "forklift.labels" (dict "root" . "component" "mcp") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "forklift.selectorLabels" (dict "root" . "component" "mcp") | nindent 6 }}
+  {{- include "forklift.np.types" . | nindent 2 }}
+  ingress:
+    {{- if .Values.gateway.ingress.enabled }}
+    - from:
+        {{- include "forklift.np.ingressController" . | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 8000}
+    {{- end }}
+    {{- with $np.mcp.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  egress:
+    {{- include "forklift.np.dns" . | nindent 4 }}
+    - to:
+        {{- include "forklift.np.peer" (dict "root" . "component" "gateway") | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 8080}
+{{- end }}
+{{- end }}

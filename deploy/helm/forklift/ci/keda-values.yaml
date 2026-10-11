@@ -1,0 +1,30 @@
+# The batch group scales on its share of the queue (KEDA, PostgreSQL trigger) with a read-only
+# login of its own; the interactive group stays warm.
+postgres:
+  host: postgres.databases.svc.cluster.local
+  existingSecret: forklift-db
+objectStore:
+  endpoint: https://s3.example.org
+  existingSecret: forklift-s3
+keda:
+  postgres: {existingSecret: forklift-keda-db, user: forklift_keda}
+workers:
+  - name: interactive
+    lanes: [interactive]
+    replicas: 2
+  - name: batch
+    lanes: [batch, sql]
+    concurrency: 2
+    drainSeconds: 3600
+    autoscaling:
+      keda: {enabled: true, minReplicas: 0, maxReplicas: 20, pollingInterval: 10}
+  - name: big
+    lanes: [batch]
+    autoscaling:
+      keda: {enabled: true, minReplicas: 2, maxReplicas: 4, jobsPerReplica: 1}
+networkPolicies:
+  postgres:
+    to: [{ipBlock: {cidr: 10.0.12.0/24}}]
+  storeEgress:
+    mode: cidr
+    cidrs: [203.0.113.0/24]

@@ -1,0 +1,25 @@
+apiVersion: v2
+name: forklift
+description: >-
+  The forklift platform on Kubernetes: the gateway (UI, /api/v1, the workers' internal API), its
+  dispatcher, publisher and sweeper, workers per lane group with isolation profiles, and optional
+  RustFS, remote MCP proxy and worker egress proxy; NetworkPolicies and Pod Security "restricted"
+  throughout.
+type: application
+version: 0.1.0
+# The forklift-web and forklift-worker images this chart version is tested with (both 0.1.0)
+appVersion: "0.1.0"
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/cornyhorse/forklift
+sources:
+  - https://github.com/cornyhorse/forklift/tree/main/deploy/helm/forklift
+keywords:
+  - etl
+  - csv
+  - parquet
+  - data-validation
+maintainers:
+  - name: Matt
+    email: matt@mattkingsbury.com
+annotations:
+  artifacthub.io/license: MIT

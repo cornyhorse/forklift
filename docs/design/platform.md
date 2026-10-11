@@ -393,8 +393,8 @@ As built: an output up to `multipart_threshold_bytes` (256 MiB) goes up with one
 multipart output by its part count and a sha256 of its parts' ETags; the gateway checks that
 against the parts the store holds (and every other check that can refuse the completion) before
 completing anything, aborts what an attempt leaves pending when the attempt ends, and the sweeper
-aborts stale uploads. A failed publish fails the job and is announced; a publish the gateway
-stopped in the middle of is not resumed.
+aborts stale uploads. Publishing to an `s3` destination happens afterwards, under a lease of its
+own, and resumes after a stopped publisher (§6.3).
 
 When the engine exits, the supervisor uploads the artifacts, reports the `JobResult`, deletes the
 scratch directory and takes the next lease. One job per engine process: a crash, a leak or an

@@ -696,6 +696,39 @@ class TestValidateSchema:
         result = _run(spec, base)
         assert result.counts["total_rows"] == 5
 
+    def test_a_threshold_failure_keeps_the_samples_bad_rows_next_to_the_report(self, base):
+        # The engine writes the sample's rejected rows into the job's private directory, which
+        # is removed when the job ends: a worker refuses a result that lists a file it cannot
+        # find, so they are moved to the output directory and the message points there
+        schema = dict(
+            SCHEMA,
+            **{
+                "x-validation": {
+                    "fieldValidations": {"age": {"range": {"min": 0, "max": 40}}},
+                    "badRowsHandling": {"maxBadRowsPercent": 10},
+                }
+            },
+        )
+        rows = "".join(f"{i},n,{90 if i % 2 else 30}\n" for i in range(20))
+        (base / "in" / "ages.csv").write_text("id,name,age\n" + rows)
+        spec = self._spec(schema, location={"type": "file", "path": "in/ages.csv"})
+
+        result = _run(spec, base)
+
+        assert result.status == "failed" and result.error.code == "BAD_ROWS_THRESHOLD_EXCEEDED"
+        assert [(a.kind, a.path) for a in result.artifacts] == [
+            ("report", "out/report.json"),
+            ("bad_rows", "out/bad_rows.parquet"),
+        ]
+        assert result.artifacts[1].rows == 10
+        assert pq.read_table(base / "out" / "bad_rows.parquet").num_rows == 10
+        assert "are in out/bad_rows.parquet" in result.error.message
+        assert ".forklift-job-" not in result.error.message
+        assert [p.name for p in base.iterdir() if p.name.startswith(".forklift-job-")] == []
+        report = json.loads((base / "out" / "report.json").read_text())
+        assert report["error"]["code"] == "BAD_ROWS_THRESHOLD_EXCEEDED"
+        assert "are in out/bad_rows.parquet" in report["error"]["message"]
+
     def test_unreadable_input_still_gives_a_report(self, base):
         spec = self._spec(SCHEMA, location={"type": "file", "path": "in/none.csv"})
         result = _run(spec, base)
@@ -736,6 +769,63 @@ class TestValidateSchema:
         result = _run(_spec(kind="validate_schema", fmt="excel", schema={}, output=None), base)
         assert result.error.code == "SPEC_INVALID"
         assert "checks a schema against a CSV input" in result.error.message
+
+
+class TestSchemaShape:
+    """A schema whose basic shape is wrong is a SCHEMA_INVALID job, never an INTERNAL one."""
+
+    @pytest.mark.parametrize("kind", ["run", "validate_schema"])
+    @pytest.mark.parametrize(
+        "schema, message",
+        [
+            (
+                {"properties": "id"},
+                "The schema's 'properties' must be an object that maps each column name to its "
+                "definition, not a string",
+            ),
+            (
+                {"properties": {"id": ["integer"]}},
+                "The definition of column 'id' in the schema's 'properties' must be an object "
+                "(use {} for a column without rules), not a list",
+            ),
+            (
+                {"properties": {"id": {}}, "required": "id"},
+                "The schema's 'required' must be a list of column names, for example "
+                '["id", "email"]',
+            ),
+            (
+                {"required": [1]},
+                "The schema's 'required' must be a list of column names, for example "
+                '["id", "email"]',
+            ),
+        ],
+    )
+    def test_the_wrong_shape_is_named(self, base, kind, schema, message):
+        extra = {"output": None} if kind == "validate_schema" else {}
+        result = _run(_spec(kind=kind, schema=schema, **extra), base)
+        assert (result.status, result.error.code) == ("failed", "SCHEMA_INVALID")
+        assert result.error.message == message
+
+    @pytest.mark.parametrize(
+        "document, kind",
+        [
+            ([], "a list"),
+            ("{}", "a string"),
+            (3, "a number"),
+            (True, "true/false"),
+            (None, "null"),
+            ({"properties": {"id": 1.5}}, "a number"),
+            ({"properties": {"id": {"type": "integer"}}, "required": ["id"]}, None),
+        ],
+    )
+    def test_check_schema_shape(self, document, kind):
+        from forklift.engine.processors.schema_processor import check_schema_shape
+
+        if kind is None:
+            check_schema_shape(document)
+            return
+        with pytest.raises(ValueError, match=f"not {kind}$"):
+            check_schema_shape(document)
 
 
 class TestGenerateSchema:

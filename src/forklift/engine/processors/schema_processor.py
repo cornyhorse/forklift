@@ -12,6 +12,49 @@ from ..config import ImportConfig
 from .type_conversion import ColumnConverter, NullPolicy, csv_target_type, parse_arrow_type
 
 
+def _json_kind(value: Any) -> str:
+    """What a JSON value is, for a message (never the value itself)."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true/false"
+    if isinstance(value, (int, float)):
+        return "a number"
+    if isinstance(value, str):
+        return "a string"
+    return "a list" if isinstance(value, list) else "an object"
+
+
+def check_schema_shape(document: Any) -> None:
+    """The shape every reader of a schema relies on, checked once with clear messages: a JSON
+    object whose ``properties`` maps column names to objects and whose ``required`` lists
+    column names. Everything else is left to the schema tooling.
+
+    Raises:
+        ValueError: naming the key that has the wrong shape and what it should be
+    """
+    if not isinstance(document, dict):
+        raise ValueError(f"A schema must be a JSON object, not {_json_kind(document)}")
+    properties = document.get("properties", {})
+    if not isinstance(properties, dict):
+        raise ValueError(
+            "The schema's 'properties' must be an object that maps each column name to its "
+            f"definition, not {_json_kind(properties)}"
+        )
+    for name, definition in properties.items():
+        if not isinstance(definition, dict):
+            raise ValueError(
+                f"The definition of column {name!r} in the schema's 'properties' must be an "
+                f"object (use {{}} for a column without rules), not {_json_kind(definition)}"
+            )
+    required = document.get("required", [])
+    if not isinstance(required, list) or not all(isinstance(name, str) for name in required):
+        raise ValueError(
+            "The schema's 'required' must be a list of column names, for example "
+            '["id", "email"]'
+        )
+
+
 class SchemaProcessor:
     """Handles schema loading, conversion, and validation operations."""
 
@@ -46,6 +89,7 @@ class SchemaProcessor:
 
         with self.io_handler.open_for_read(self.config.schema_file, encoding="utf-8") as f:
             self.schema_dict = json.load(f)
+        check_schema_shape(self.schema_dict)
 
         # Convert JSON schema to PyArrow schema
         self.schema = self._json_schema_to_pyarrow(self.schema_dict)

@@ -773,7 +773,7 @@ class _Job:
             self._record_counts(results)
             report["valid"] = True
         except Exception as caught:
-            error = caught
+            error = self._keep_sample_bad_rows(caught)
         report.update(self._schema_comparison(report.get("columns")))
         report.update(
             sample_rows=self.counts.get("total_rows", self.last_event["rows_read"]),
@@ -789,6 +789,21 @@ class _Job:
         self._write_artifact("report", "report.json", report)
         if error is not None:
             raise error
+
+    def _keep_sample_bad_rows(self, error: BaseException) -> BaseException:
+        """A sample that fails its bad-rows threshold keeps its rejected rows in the job's
+        private directory, which is removed when the job ends: move them next to the report and
+        point the message there, so the result never names a file that is gone."""
+        kept = getattr(error, "bad_rows_file", None)
+        if not kept:
+            return error
+        target = str(self._artifact_dir() / "bad_rows.parquet")
+        shutil.move(kept, target)
+        error.args = tuple(
+            arg.replace(kept, target) if isinstance(arg, str) else arg for arg in error.args
+        )
+        error.bad_rows_file = target
+        return error
 
     def _record_counts(self, results: ProcessingResults) -> None:
         self.counts.update(

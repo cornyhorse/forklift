@@ -11,6 +11,7 @@ import csv
 import json
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib import messages
 from django.db.models import Count, Min, Q
 from django.http import StreamingHttpResponse
@@ -176,6 +177,8 @@ def _user_page(request, actor, user, *, edit_form=None, password_form=None, stat
             "tokens": accounts.list_all_tokens(actor, owner_id=user.pk),
             "last_admin": user.role == Role.ADMIN and user.is_active and not others.exists(),
             "sign_in_lock": sign_in.user_lock(actor, user),
+            "identities": accounts.list_identities(actor, user.pk),
+            "sso_configured": settings.FORKLIFT_OIDC is not None,
         },
         status=status,
     )
@@ -227,6 +230,18 @@ def user_unlock(request, actor, user_id):
     else:
         messages.success(request, f"{user.username} can sign in again.")
     return redirect("ui:admin-user", user_id=user.pk)
+
+
+@require_POST
+@page
+def user_identity_unlink(request, actor, user_id, identity_id):
+    identity = accounts.unlink_identity(actor, user_id, identity_id)
+    messages.success(
+        request,
+        f"The sign-in {identity.subject} at {identity.issuer} is no longer linked to "
+        f"{identity.user.username}.",
+    )
+    return redirect("ui:admin-user", user_id=user_id)
 
 
 # --------------------------------------------------------------------------- API tokens

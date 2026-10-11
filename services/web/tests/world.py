@@ -22,6 +22,7 @@ from forklift_web.core.choices import (
     JobKind,
     JobStatus,
     Lane,
+    OidcLink,
     RetentionScope,
     Role,
     UploadStatus,
@@ -32,6 +33,7 @@ from forklift_web.core.models import (
     Connection,
     Dataset,
     Job,
+    OidcIdentity,
     RetentionPolicy,
     Schedule,
     Schema,
@@ -288,6 +290,17 @@ class World:
         if "schedule" not in self.extra:
             self.extra["schedule"] = make_schedule(self.author, self.version, self.connection)
         return self.extra["schedule"]
+
+    def identity(self) -> OidcIdentity:
+        """The viewer's sign-in at an OpenID Provider (made the first time it is asked for)."""
+        if "identity" not in self.extra:
+            self.extra["identity"] = OidcIdentity.objects.create(
+                user=self.viewer,
+                issuer="https://idp.example.org/realms/forklift",
+                subject=f"sub-{self.viewer.pk}",
+                linked_by=OidcLink.CREATED,
+            )
+        return self.extra["identity"]
 
     def webhook(self) -> Webhook:
         """The operator's webhook, with one failed delivery of ``finished_job`` (made the first

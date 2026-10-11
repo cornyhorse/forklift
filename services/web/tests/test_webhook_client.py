@@ -13,7 +13,7 @@ import types
 import pytest
 from webhook_support import Receiver, StubResolver, certificates, server_context
 
-from forklift_web import webhook_client
+from forklift_web import deadline, webhook_client
 from forklift_web.webhook_client import Client, Outcome, UrlRefused, check_url, is_public
 
 BODY = b'{"event":"webhook.test"}'
@@ -359,11 +359,9 @@ def test_a_receiver_that_never_answers():
 
 def test_no_time_left_after_the_lookup(monkeypatch):
     clock = {"offset": 0.0}
-    monkeypatch.setattr(
-        webhook_client,
-        "time",
-        types.SimpleNamespace(monotonic=lambda: time.monotonic() + clock["offset"]),
-    )
+    late = types.SimpleNamespace(monotonic=lambda: time.monotonic() + clock["offset"])
+    monkeypatch.setattr(webhook_client, "time", late)
+    monkeypatch.setattr(deadline, "time", late)  # the deadline's own clock
 
     def slow(host, port):  # answers just as the delivery's time runs out
         clock["offset"] += 5

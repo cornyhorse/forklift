@@ -12,6 +12,7 @@
   <script src="{% asset 'ui/vendor/htmx-2.0.11.min.js' %}" defer></script>
   <script src="{% asset 'ui/forklift.js' %}" defer></script>
   {% block scripts %}{% endblock %}
+  {% block head %}{% endblock %}
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
   <a class="skip-link" href="#main">Skip to the content</a>
@@ -35,7 +36,7 @@
           <span>{{ user.username }} <span class="badge">{{ user.get_role_display }}</span></span>
           {% if can.tokens %}<a href="{% url 'ui:tokens' %}"{% if nav.main == "account" %} aria-current="page"{% endif %}>API tokens</a>{% endif %}
           {% if can.webhooks %}<a href="{% url 'ui:webhooks' %}"{% if nav.main == "webhooks" %} aria-current="page"{% endif %}>Webhooks</a>{% endif %}
-          {% if not user.is_service_account %}<a href="{% url 'ui:password' %}">Password</a>{% endif %}
+          {% if not user.is_service_account and user.has_usable_password %}<a href="{% url 'ui:password' %}">Password</a>{% endif %}
           <form method="post" action="{% url 'forklift-logout' %}">
             {% csrf_token %}
             <button type="submit" class="secondary small">Sign out</button>

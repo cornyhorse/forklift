@@ -365,6 +365,12 @@ ROWS = [
         data=lambda w, u: {"password1": NEW_PASSWORD, "password2": NEW_PASSWORD},
     ),
     Row("POST", "admin-user-unlock", admin_only(302), kwargs=lambda w: {"user_id": w.viewer.pk}),
+    Row(
+        "POST",
+        "admin-user-identity-unlink",
+        admin_only(302),
+        kwargs=lambda w: {"user_id": w.viewer.pk, "identity_id": w.identity().pk},
+    ),
     Row("GET", "admin-tokens", admin_only()),
     Row(
         "POST",

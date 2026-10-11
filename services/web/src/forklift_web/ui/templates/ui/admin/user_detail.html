@@ -7,6 +7,7 @@
   <dl class="facts">
     <dt>Joined</dt><dd>{{ person.date_joined|date:"Y-m-d H:i e" }}</dd>
     <dt>Last sign-in</dt><dd>{{ person.last_login|date:"Y-m-d H:i e"|default:"never" }}</dd>
+    <dt>Password</dt><dd>{% if person.has_usable_password %}set{% else %}none{% endif %}</dd>
   </dl>
   {% if last_admin %}
     <div class="alert warn"><p>{{ person.username }} is the only active admin: they cannot be demoted or deactivated until another user is an active admin.</p></div>
@@ -42,6 +43,37 @@
             {% for field in password_form %}{% include "ui/_field.html" %}{% endfor %}
             <div class="actions"><button type="submit">Set the password</button></div>
           </form>
+        </section>
+      {% endif %}
+      {% if identities or sso_configured %}
+        <section aria-labelledby="sso-heading">
+          <h2 id="sso-heading">Single sign-on</h2>
+          {% if identities %}
+            <div class="table-wrap" tabindex="0" role="region" aria-label="Linked sign-ins">
+              <table>
+                <thead><tr><th scope="col">Subject</th><th scope="col">Issuer</th><th scope="col">Linked</th><th scope="col">Last used</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+                <tbody>
+                  {% for identity in identities %}
+                    <tr>
+                      <td><code>{{ identity.subject }}</code></td>
+                      <td>{{ identity.issuer }}</td>
+                      <td>{{ identity.created_at|date:"Y-m-d H:i" }} ({{ identity.get_linked_by_display|lower }})</td>
+                      <td>{{ identity.last_used_at|date:"Y-m-d H:i"|default:"never" }}</td>
+                      <td>
+                        <form method="post" action="{% url 'ui:admin-user-identity-unlink' user_id=person.pk identity_id=identity.pk %}" data-confirm="Unlink the sign-in {{ identity.subject }} from {{ person.username }}?">
+                          {% csrf_token %}
+                          <button type="submit" class="danger small">Unlink<span class="visually-hidden"> {{ identity.subject }}</span></button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <p class="muted">After unlinking, that person's next sign-in starts over: it creates a new account, links one by a verified email address, or is refused, as the installation is configured.</p>
+          {% else %}
+            <p class="muted">No sign-in at the provider is linked to {{ person.username }}.</p>
+          {% endif %}
         </section>
       {% endif %}
       <section aria-labelledby="tokens-heading">

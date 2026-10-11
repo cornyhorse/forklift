@@ -360,6 +360,18 @@ ROWS = [
         body=lambda w: {"password": "another correct horse"},
         ids=lambda w: {"user_id": w.viewer.id},
     ),
+    Row(
+        "GET",
+        "/admin/users/{user_id}/identities",
+        admin(200),
+        ids=lambda w: {"user_id": w.viewer.id},
+    ),
+    Row(
+        "DELETE",
+        "/admin/users/{user_id}/identities/{identity_id}",
+        admin(204),
+        ids=lambda w: {"user_id": w.viewer.id, "identity_id": w.identity().id},
+    ),
     Row("GET", "/admin/sign-in-locks", admin(200)),
     Row("DELETE", "/admin/sign-in-locks/{lock_id}", admin(204), ids=sign_in_lock),
     Row("GET", "/admin/tokens", admin(200)),
@@ -485,6 +497,9 @@ VIEWS = [
     ("GET", "/", "302 200 200 200 200"),  # the home page needs a session
     ("GET", "/accounts/login/", "200 302 302 302 302"),  # signed in: straight on
     ("POST", "/accounts/logout/", "302 302 302 302 302"),
+    # single sign-on, not configured here (tests/test_oidc_flow.py has it configured)
+    ("GET", "/accounts/oidc/login/", "404 404 404 404 404"),
+    ("GET", "/accounts/oidc/callback/", "404 404 404 404 404"),
     ("GET", "/healthz", "200 200 200 200 200"),
     ("GET", "/readyz", "200 200 200 200 200"),
     ("GET", "/api/v1/openapi.json", "200 200 200 200 200"),  # the published contract

@@ -2,7 +2,11 @@
 {% block title %}Sign in{% endblock %}
 {% block content %}
   <h1>Sign in to Forklift</h1>
-  {% if form.refused %}
+  {% if sso_error %}
+    <div class="alert error" role="alert">
+      <p>{{ sso_error }}</p>
+    </div>
+  {% elif form.refused %}
     <div class="alert error" role="alert">
       <p>{{ form.refused.message }}</p>
     </div>
@@ -11,18 +15,27 @@
       <p>Your username and password did not match, or the account is not active. Please try again.</p>
     </div>
   {% endif %}
-  <form method="post" action="{% url 'forklift-login' %}" class="stack">
-    {% csrf_token %}
-    <div class="field">
-      <label for="{{ form.username.id_for_label }}">Username</label>
-      {{ form.username }}
-    </div>
-    <div class="field">
-      <label for="{{ form.password.id_for_label }}">Password</label>
-      {{ form.password }}
-    </div>
-    <input type="hidden" name="next" value="{{ next }}">
-    <div class="actions"><button type="submit">Sign in</button></div>
-  </form>
-  <p class="muted">Service accounts sign in with API tokens only. Ask an admin for an account or a new password.</p>
+  {% if sso %}
+    {# A link, not a form: the Content-Security-Policy (form-action 'self') would stop a form that redirects to the provider. #}
+    <p><a class="button" href="{{ sso.url }}">Sign in with {{ sso.name }}</a></p>
+  {% endif %}
+  {% if password_sign_in %}
+    {% if sso %}<h2>Or with a Forklift password</h2>{% endif %}
+    <form method="post" action="{% url 'forklift-login' %}" class="stack">
+      {% csrf_token %}
+      <div class="field">
+        <label for="{{ form.username.id_for_label }}">Username</label>
+        {{ form.username }}
+      </div>
+      <div class="field">
+        <label for="{{ form.password.id_for_label }}">Password</label>
+        {{ form.password }}
+      </div>
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="actions"><button type="submit">Sign in</button></div>
+    </form>
+    <p class="muted">Service accounts sign in with API tokens only. Ask an admin for an account or a new password.</p>
+  {% else %}
+    <p class="muted">Service accounts sign in with API tokens only. Ask an admin if you cannot sign in with {{ sso.name }}.</p>
+  {% endif %}
 {% endblock %}

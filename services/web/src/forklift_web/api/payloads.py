@@ -74,6 +74,18 @@ class PasswordIn(Schema):
     password: str
 
 
+class OidcIdentityOut(Schema):
+    id: int
+    issuer: str = Field(description="The OpenID Provider's issuer")
+    subject: str = Field(description="The provider's identifier of the person (sub)")
+    linked_by: Literal["created", "email"] = Field(
+        description="created: the account was made at its first sign-in; email: linked to an "
+        "existing account by a verified email address"
+    )
+    created_at: datetime = Field(description="When it was linked")
+    last_used_at: Optional[datetime] = Field(description="Its latest sign-in")
+
+
 class SignInLockOut(Schema):
     id: int
     kind: Literal["user", "ip"] = Field(
@@ -717,6 +729,9 @@ class SweepOut(Schema):
     )
     deliveries: int = Field(
         description="Webhook deliveries older than their job records' lifetime"
+    )
+    sessions: int = Field(
+        description="Expired sessions (timed out, or single sign-ons that were not finished)"
     )
     errors: list[str]
 

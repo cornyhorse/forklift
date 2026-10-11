@@ -24,7 +24,6 @@ with the system's CA certificates (``SSL_CERT_FILE`` / ``SSL_CERT_DIR`` point Op
 from __future__ import annotations
 
 import http.client
-import io
 import ipaddress
 import re
 import socket
@@ -36,6 +35,8 @@ from typing import Callable, Iterable, Optional
 from urllib.parse import urlsplit
 
 from django.conf import settings
+
+from forklift_web.deadline import DeadlineSocket, remaining
 
 CONNECT_SECONDS = 5.0
 TOTAL_SECONDS = 10.0
@@ -152,47 +153,6 @@ def resolve(host: str, port: int) -> list:
     return list(dict.fromkeys(info[4][0] for info in infos))
 
 
-def _remaining(deadline: float) -> float:
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise TimeoutError("The delivery's time is up.")
-    return remaining
-
-
-class _DeadlineSocket:
-    """A connected socket whose every send and receive must finish before ``deadline``, so a
-    receiver that answers a byte at a time cannot hold a delivery longer than that."""
-
-    def __init__(self, sock, deadline: float):
-        self._sock = sock
-        self._deadline = deadline
-
-    def sendall(self, data) -> None:
-        self._sock.settimeout(_remaining(self._deadline))
-        self._sock.sendall(data)
-
-    def recv_into(self, buffer) -> int:
-        self._sock.settimeout(_remaining(self._deadline))
-        return self._sock.recv_into(buffer)
-
-    def makefile(self, mode):
-        return io.BufferedReader(_Reader(self))
-
-    def close(self) -> None:
-        self._sock.close()
-
-
-class _Reader(io.RawIOBase):
-    def __init__(self, sock: _DeadlineSocket):
-        self._sock = sock
-
-    def readable(self) -> bool:
-        return True
-
-    def readinto(self, buffer) -> int:
-        return self._sock.recv_into(buffer)
-
-
 class Client:
     """POSTs webhook deliveries through the guard above. ``resolver`` and ``tls_context`` are
     there for tests; the other arguments default to the deployment settings."""
@@ -278,7 +238,7 @@ class Client:
         """A socket connected to the first checked address that answers (TLS for https)."""
         failure: OSError = ConnectionError()
         for address in addresses:
-            timeout = min(self.connect_seconds, _remaining(deadline))
+            timeout = min(self.connect_seconds, remaining(deadline))
             try:
                 sock = socket.create_connection((address, target.port), timeout)
             except OSError as error:
@@ -286,7 +246,7 @@ class Client:
                 continue
             if target.scheme == "http":
                 return sock
-            sock.settimeout(_remaining(deadline))
+            sock.settimeout(remaining(deadline))
             try:
                 return self.tls_context.wrap_socket(sock, server_hostname=target.host)
             except BaseException:
@@ -303,7 +263,7 @@ class Client:
             )
         else:
             connection = http.client.HTTPConnection(target.host, target.port)
-        connection.sock = _DeadlineSocket(sock, deadline)  # used as is: no second connect
+        connection.sock = DeadlineSocket(sock, deadline)  # used as is: no second connect
         try:
             connection.request("POST", target.path, body=body, headers=headers)
             return connection.getresponse().status

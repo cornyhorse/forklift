@@ -18,7 +18,10 @@ def _context(request) -> dict:
 
 @receiver(user_logged_in)
 def _logged_in(sender, request, user, **kwargs):
-    audit.record(Actor.for_user(user, **_context(request)), "user.login", user)
+    # A single sign-on says how it went (method, issuer, subject); a password sign-in says
+    # nothing more.
+    details = getattr(request, "forklift_sign_in", None)
+    audit.record(Actor.for_user(user, **_context(request)), "user.login", user, details)
 
 
 @receiver(user_logged_out)

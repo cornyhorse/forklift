@@ -100,6 +100,16 @@ def test_json_log_lines():
     assert "ValueError: boom" in json.loads(formatter.format(record))["exception"]
 
 
+def test_requests_in_log_lines_have_no_query(rf):
+    # Django logs 4xx and 5xx answers with the request: the query is left out
+    request = rf.get("/accounts/oidc/callback/", {"code": "the-code", "state": "the-state"})
+    record = logging.makeLogRecord(
+        {"name": "django.request", "msg": "Bad Request", "request": request, "status_code": 400}
+    )
+    line = json.loads(JsonFormatter().format(record))
+    assert line["request"] == "GET /accounts/oidc/callback/" and line["status_code"] == 400
+
+
 # --------------------------------------------------------------------------- the store
 
 

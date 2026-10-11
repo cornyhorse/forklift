@@ -16,7 +16,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from forklift_web.core.choices import ROLE_ORDER, Role
-from forklift_web.core.models import ApiToken, User
+from forklift_web.core.models import ApiToken, OidcIdentity, User
 from forklift_web.errors import Conflict, InvalidRequest, NotFound
 from forklift_web.policy import ALL_SCOPES, ROLE_SCOPES, Action, Actor, check
 from forklift_web.services import audit, installation, tokens
@@ -184,6 +184,33 @@ def set_password(actor: Actor, user_id: int, password: str) -> User:
     user.save(update_fields=["password"])
     audit.record(actor, "user.set_password", user)
     return user
+
+
+# --------------------------------------------------------------------------- sign-in identities
+
+
+def list_identities(actor: Actor, user_id: int):
+    """The sign-ins at the OpenID Provider linked to a user (forklift_web.services.oidc)."""
+    return OidcIdentity.objects.filter(user=get_user(actor, user_id))
+
+
+def unlink_identity(actor: Actor, user_id: int, identity_id: int) -> OidcIdentity:
+    """Unlink a sign-in from its user: its next sign-in is treated as a new person (a new
+    account, a link by verified email, or a refusal, as configured)."""
+    check(actor, Action.USER_MANAGE)
+    user = get_user(actor, user_id)
+    identity = OidcIdentity.objects.filter(pk=identity_id, user=user).first()
+    if identity is None:
+        raise NotFound(f"{user.username} has no linked sign-in with id {identity_id}.")
+    with transaction.atomic():
+        audit.record(
+            actor,
+            "user.oidc_unlink",
+            user,
+            {"issuer": identity.issuer, "subject": identity.subject},
+        )
+        identity.delete()
+    return identity
 
 
 # --------------------------------------------------------------------------- API tokens

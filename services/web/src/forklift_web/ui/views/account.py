@@ -3,22 +3,24 @@
 from __future__ import annotations
 
 import math
+from urllib.parse import urlencode
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import views as auth_views
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from forklift_web.api.auth import actor_for_request
 from forklift_web.core.choices import TERMINAL_STATUSES, UploadStatus
-from forklift_web.errors import ServiceError
+from forklift_web.errors import PermissionDenied, ServiceError
 from forklift_web.policy import Action, allowed, check
 from forklift_web.services import accounts, audit, installation, jobs, uploads
 from forklift_web.ui.forms import PasswordChangeForm, SignInForm, TokenForm
-from forklift_web.ui.views.base import form_failed, page, token_created
+from forklift_web.ui.views.base import error_response, form_failed, page, token_created
 
 RECENT = 10
 
@@ -53,12 +55,46 @@ def throttled(response, form):
     return response
 
 
+def sign_in_options(next_url: str = "") -> dict:
+    """What the sign-in page offers: the password form (unless FORKLIFT_PASSWORD_SIGN_IN is
+    false) and, with single sign-on, the link that starts it (keeping ``next``)."""
+    conf = settings.FORKLIFT_OIDC
+    sso = None
+    if conf is not None:
+        url = reverse("forklift-oidc-login")
+        if next_url:
+            url += "?" + urlencode({"next": next_url})
+        sso = {"name": conf.provider_name, "url": url}
+    return {"password_sign_in": settings.FORKLIFT_PASSWORD_SIGN_IN, "sso": sso}
+
+
+def sign_in_page(request, *, error: str, status: int):
+    """The sign-in page with ``error`` above it (a single sign-on that did not go through)."""
+    context = {"form": SignInForm(request), "next": "", "sso_error": error, **sign_in_options()}
+    return render(request, "registration/login.html", context, status=status)
+
+
 class SignInView(auth_views.LoginView):
     """Django's sign-in view, throttled per username and client address
-    (forklift_web.services.sign_in): a locked one gets the page back with 429."""
+    (forklift_web.services.sign_in): a locked one gets the page back with 429. With
+    FORKLIFT_PASSWORD_SIGN_IN=false it checks no password (403) and offers single sign-on."""
 
     form_class = SignInForm
     redirect_authenticated_user = True
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        return {**context, **sign_in_options(context.get("next", ""))}
+
+    def post(self, request, *args, **kwargs):
+        if not settings.FORKLIFT_PASSWORD_SIGN_IN:
+            name = settings.FORKLIFT_OIDC.provider_name
+            return sign_in_page(
+                request,
+                error=f"Signing in with a password is turned off here; sign in with {name}.",
+                status=403,
+            )
+        return super().post(request, *args, **kwargs)
 
     def form_invalid(self, form):
         return throttled(super().form_invalid(form), form)
@@ -71,6 +107,18 @@ class PasswordChangeView(auth_views.PasswordChangeView):
     template_name = "ui/account/password.html"
     success_url = reverse_lazy("ui:home")
     form_class = PasswordChangeForm
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not request.user.has_usable_password():
+            return error_response(
+                request,
+                PermissionDenied(
+                    "Your account has no password here: it signs in through single sign-on, or "
+                    "with API tokens only. An admin can set a password if one is needed.",
+                    code="no_password",
+                ),
+            )
+        return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         return {**super().get_form_kwargs(), "actor": actor_for_request(self.request)}

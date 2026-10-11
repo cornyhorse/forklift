@@ -8,11 +8,12 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 
-from forklift_web.core.choices import Role
+from forklift_web.core.choices import OidcLink, Role
 
 
 class User(AbstractUser):
-    """A local account (OIDC later, through the same model).
+    """A person's account, signed in with a password or through the OpenID Provider (each
+    :class:`OidcIdentity` links a sign-in there to the account).
 
     ``role`` is one of the four roles of design section 5.2. ``sensitive`` data can be previewed,
     and its outputs and bad rows downloaded, only by those who :attr:`may_view_raw_rows`: admins,
@@ -34,6 +35,32 @@ class User(AbstractUser):
     def may_view_raw_rows(self) -> bool:
         """Whether this user sees rows of ``sensitive`` data: admins always, others if granted."""
         return self.role == Role.ADMIN or self.can_view_raw_rows
+
+
+class OidcIdentity(models.Model):
+    """A person as the OpenID Provider knows them, ``subject`` (the ID token's ``sub``) at
+    ``issuer``, linked to one Forklift account (forklift_web.services.oidc).
+
+    The pair is how a sign-in finds its account: never the username, and an email address only
+    once, when FORKLIFT_OIDC_LINK_VERIFIED_EMAIL links a new identity to an existing account
+    (``linked_by``). An admin can unlink an identity; its next sign-in starts over.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="oidc_identities")
+    issuer = models.CharField(max_length=255)
+    subject = models.CharField(max_length=255)
+    linked_by = models.CharField(max_length=16, choices=OidcLink.choices)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["issuer", "subject"]
+        constraints = [
+            models.UniqueConstraint(fields=["issuer", "subject"], name="oidc_identity_one_per_sub")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.subject} at {self.issuer}"
 
 
 class TokenBase(models.Model):

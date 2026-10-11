@@ -33,4 +33,6 @@ USER 10001
 EXPOSE 8080 8081
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 \
     CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['FORKLIFT_PUBLIC_PORT'] + '/readyz', timeout=4)"]
-CMD ["sh", "-c", "exec gunicorn forklift_web.wsgi:application --bind 0.0.0.0:${FORKLIFT_PUBLIC_PORT} --bind 0.0.0.0:${FORKLIFT_INTERNAL_PORT} --workers ${FORKLIFT_WEB_WORKERS:-2} --threads ${FORKLIFT_WEB_THREADS:-8} --timeout ${FORKLIFT_WEB_TIMEOUT:-120} --access-logfile -"]
+# The access log goes through forklift_web.access_log, which keeps the single sign-on callback's
+# code and state out of it.
+CMD ["sh", "-c", "exec gunicorn forklift_web.wsgi:application --bind 0.0.0.0:${FORKLIFT_PUBLIC_PORT} --bind 0.0.0.0:${FORKLIFT_INTERNAL_PORT} --workers ${FORKLIFT_WEB_WORKERS:-2} --threads ${FORKLIFT_WEB_THREADS:-8} --timeout ${FORKLIFT_WEB_TIMEOUT:-120} --access-logfile - --logger-class forklift_web.access_log.AccessLog"]

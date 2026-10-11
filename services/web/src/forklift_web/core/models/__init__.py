@@ -1,6 +1,6 @@
 """The gateway's data model (design section 5.1)."""
 
-from forklift_web.core.models.accounts import ApiToken, User, WorkerToken
+from forklift_web.core.models.accounts import ApiToken, OidcIdentity, User, WorkerToken
 from forklift_web.core.models.catalog import (
     Connection,
     Dataset,
@@ -24,6 +24,7 @@ __all__ = [
     "InstallationSetting",
     "Job",
     "JobEvent",
+    "OidcIdentity",
     "RetentionPolicy",
     "Schedule",
     "Schema",

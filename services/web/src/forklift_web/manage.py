@@ -7,6 +7,7 @@ forklift-web sweep_retention [--dry-run] [--every SECONDS]
 forklift-web requeue_expired_leases
 forklift-web rotate_secrets
 forklift-web export_openapi contracts/openapi.json [--internal] [--check]
+forklift-web check_oidc
 """
 
 from __future__ import annotations

@@ -33,6 +33,8 @@ dependencies = [
     # Schedules read cron expressions in IANA time zones (zoneinfo); slim images have no
     # system time zone data.
     "tzdata>=2024.1",
+    # Single sign-on: ID tokens are checked with PyJWT (signatures through cryptography).
+    "PyJWT>=2.15.1,<3",
 ]
 
 [project.optional-dependencies]

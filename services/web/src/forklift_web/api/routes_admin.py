@@ -14,6 +14,7 @@ from forklift_web.api.payloads import (
     AdminTokenIn,
     AdminWebhookOut,
     AuditOut,
+    OidcIdentityOut,
     PasswordIn,
     RetentionIn,
     RetentionOut,
@@ -88,6 +89,26 @@ def update_user(request, user_id: int, payload: UserPatch):
 )
 def set_password(request, user_id: int, payload: PasswordIn):
     return accounts.set_password(request.auth, user_id, payload.password)
+
+
+@router.get(
+    "/users/{user_id}/identities",
+    response=responses({200: list[OidcIdentityOut]}),
+    summary="A user's sign-ins at the OpenID Provider (single sign-on)",
+)
+@paginate
+def list_identities(request, user_id: int):
+    return accounts.list_identities(request.auth, user_id)
+
+
+@router.delete(
+    "/users/{user_id}/identities/{identity_id}",
+    response=responses({204: None}),
+    summary="Unlink a sign-in at the OpenID Provider from a user",
+)
+def unlink_identity(request, user_id: int, identity_id: int):
+    accounts.unlink_identity(request.auth, user_id, identity_id)
+    return Status(204, None)
 
 
 @router.get(

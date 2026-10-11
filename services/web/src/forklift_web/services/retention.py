@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
 
+from django.contrib.sessions.models import Session
 from django.db import transaction
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
@@ -251,6 +252,7 @@ class SweepReport:
     output_uploads: int = 0
     sign_in_throttles: int = 0
     deliveries: int = 0
+    sessions: int = 0
     errors: list = field(default_factory=list)
 
 
@@ -435,6 +437,14 @@ def _sweep_deliveries(actor: Actor, policies: Policies, now, report: SweepReport
         )
 
 
+def _sweep_sessions(now, dry_run: bool) -> int:
+    """Delete expired sessions: signed-in ones that timed out, and the ten-minute ones of
+    single sign-ons that were started but not finished (Django keeps them until something
+    deletes them). Housekeeping, not audited."""
+    expired = Session.objects.filter(expire_date__lte=now)
+    return expired.count() if dry_run else expired.delete()[0]
+
+
 def sweep(actor: Actor, *, dry_run: bool = False, now=None) -> SweepReport:
     """Delete what retention says has expired (``dry_run``: only count it)."""
     check(actor, Action.RETENTION_MANAGE)
@@ -447,4 +457,5 @@ def sweep(actor: Actor, *, dry_run: bool = False, now=None) -> SweepReport:
     _sweep_deliveries(actor, policies, now, report)
     _sweep_output_uploads(actor, now, report)
     report.sign_in_throttles = sign_in.sweep(dry_run=dry_run, now=now)
+    report.sessions = _sweep_sessions(now, dry_run)
     return report

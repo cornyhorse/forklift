@@ -94,6 +94,11 @@ urlpatterns = [
     path("admin/users/<int:user_id>/", admin.user_detail, name="admin-user"),
     path("admin/users/<int:user_id>/password/", admin.user_password, name="admin-user-password"),
     path("admin/users/<int:user_id>/unlock/", admin.user_unlock, name="admin-user-unlock"),
+    path(
+        "admin/users/<int:user_id>/identities/<int:identity_id>/unlink/",
+        admin.user_identity_unlink,
+        name="admin-user-identity-unlink",
+    ),
     path("admin/tokens/", admin.tokens, name="admin-tokens"),
     path("admin/tokens/<uuid:token_id>/revoke/", admin.token_revoke, name="admin-token-revoke"),
     path("admin/workers/", admin.workers_page, name="admin-workers"),

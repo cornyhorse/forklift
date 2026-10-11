@@ -11,6 +11,7 @@ password) and ``FORKLIFT_S3_*`` (bucket and credentials). Everything else has a 
 from __future__ import annotations
 
 from forklift_web.conf import env_bool, env_int, env_list, env_optional, env_str
+from forklift_web.oidc import config as oidc_config
 
 SECRET_KEY = env_str("FORKLIFT_SECRET_KEY")
 DEBUG = env_bool("FORKLIFT_DEBUG", False)
@@ -94,6 +95,13 @@ AUTH_PASSWORD_VALIDATORS = [
 LOGIN_URL = "forklift-login"
 LOGIN_REDIRECT_URL = env_str("FORKLIFT_LOGIN_REDIRECT_URL", "/")
 LOGOUT_REDIRECT_URL = "forklift-login"
+
+# Single sign-on through an OpenID Provider: FORKLIFT_OIDC_ISSUER turns it on, the other
+# FORKLIFT_OIDC_* variables configure it (forklift_web.oidc.config checks them now, so that a
+# setting that cannot work stops the gateway here). FORKLIFT_PASSWORD_SIGN_IN=false removes the
+# password form while single sign-on is on (API tokens keep working).
+FORKLIFT_OIDC = oidc_config.load()
+FORKLIFT_PASSWORD_SIGN_IN = oidc_config.password_sign_in(FORKLIFT_OIDC)
 
 # Behind a TLS-terminating ingress: trust its X-Forwarded-Proto and mark cookies secure.
 FORKLIFT_BEHIND_TLS_PROXY = env_bool("FORKLIFT_BEHIND_TLS_PROXY", False)

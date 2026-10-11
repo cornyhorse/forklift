@@ -1,0 +1,86 @@
+# For the single sign-on end-to-end test (test_oidc.py): Dex as the OpenID Provider, with two
+# users in its own password database, and the gateway signing people in through it.
+#
+#   docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/e2e/oidc.yml \
+#     up -d --build --wait
+#   FORKLIFT_E2E_ENV_FILE=deploy/compose/.env FORKLIFT_E2E_DEX_URL=http://localhost:15556 \
+#     python -m pytest deploy/compose/e2e/test_oidc.py --no-cov
+#
+# The issuer is http://dex:5556/dex: the gateway reaches Dex by that name on the public network,
+# and the test, on the host, sends the browser's requests for that name to the published port
+# (FORKLIFT_E2E_DEX_URL). Plain http needs FORKLIFT_OIDC_ALLOW_HTTP, which is for development
+# and tests only; a real installation uses an https issuer. The client secret and the two
+# passwords below are this test's own and protect nothing.
+#
+# Users (Dex's password database): ada@example.org / forklift-e2e-author (group
+# forklift-authors: the Author role) and nobody@example.org / forklift-e2e-nobody (no mapped
+# group: refused). Password sign-in stays on, for the other end-to-end tests.
+
+configs:
+  dex:
+    content: |
+      issuer: http://dex:5556/dex
+      storage:
+        type: memory
+      web:
+        http: 0.0.0.0:5556
+      oauth2:
+        responseTypes: [code]
+        skipApprovalScreen: true
+      enablePasswordDB: true
+      staticClients:
+        - id: forklift
+          name: Forklift
+          secret: forklift-e2e-client-secret
+          redirectURIs:
+            - ${FORKLIFT_PUBLIC_URL:-http://localhost:8080}/accounts/oidc/callback/
+      staticPasswords:
+        - email: ada@example.org
+          username: ada
+          preferredUsername: ada
+          userID: 08a8684b-db88-4b73-90a9-3cd1661f5466
+          groups: [forklift-authors]
+          hash: "$$2b$$10$$.fKPBAfLCVoHNge39t4Vreu2ekwksD9jdxa3ri4Iy7CbuCMhWUT7."
+        - email: nobody@example.org
+          username: nobody
+          preferredUsername: nobody
+          userID: 5c6b1f9e-1f1d-4a44-9d1e-7f7d3e9a0c11
+          groups: [accounting]
+          hash: "$$2b$$10$$QtlPwpsMViJgF5aqeceu3u20T.7ItJakjwC0DDD6sWMHbhmexaG0C"
+
+services:
+  dex:
+    image: ${FORKLIFT_DEX_IMAGE:-dexidp/dex:v2.45.1}
+    command: ["dex", "serve", "/etc/dex/forklift.yaml"]
+    configs:
+      - source: dex
+        target: /etc/dex/forklift.yaml
+    ports: ["${FORKLIFT_E2E_DEX_PORT:-15556}:5556"]
+    networks: [public]
+    # Not read_only: Compose writes an inline config (content:) into the container
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -O
+        - /dev/null
+        - http://127.0.0.1:5556/dex/.well-known/openid-configuration
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  gateway:
+    environment:
+      FORKLIFT_OIDC_ISSUER: http://dex:5556/dex
+      FORKLIFT_OIDC_ALLOW_HTTP: "true"
+      FORKLIFT_OIDC_CLIENT_ID: forklift
+      FORKLIFT_OIDC_CLIENT_SECRET: forklift-e2e-client-secret
+      FORKLIFT_OIDC_SCOPES: openid email profile groups
+      FORKLIFT_OIDC_PROVIDER_NAME: Dex
+      FORKLIFT_OIDC_ADMIN_GROUPS: forklift-admins
+      FORKLIFT_OIDC_AUTHOR_GROUPS: forklift-authors
+      FORKLIFT_OIDC_VIEWER_GROUPS: forklift-viewers
+    depends_on:
+      dex: {condition: service_healthy}

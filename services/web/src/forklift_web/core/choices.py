@@ -108,6 +108,13 @@ class UploadStatus(models.TextChoices):
     DELETED = "deleted", "Deleted"
 
 
+class OidcLink(models.TextChoices):
+    """How a sign-in through the OpenID Provider came to be linked to its Forklift account."""
+
+    CREATED = "created", "Account created at the first sign-in"
+    EMAIL = "email", "Linked by a verified email address"
+
+
 class SignInThrottleKind(models.TextChoices):
     """What failed sign-ins are counted by: the normalised username, or the client address."""
 

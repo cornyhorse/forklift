@@ -1,0 +1,11 @@
+{% extends "ui/base.html" %}
+{% block title %}Signed out{% endblock %}
+{% block head %}
+  {# Continue to the provider's sign-out at once; a redirect from the sign-out form would be stopped by the Content-Security-Policy (form-action 'self'). #}
+  <meta http-equiv="refresh" content="0; url={{ target }}">
+{% endblock %}
+{% block content %}
+  <h1>You are signed out of Forklift</h1>
+  <p>Signing you out of {{ provider_name }} as well…</p>
+  <p><a class="button" href="{{ target }}">Continue to sign out of {{ provider_name }}</a></p>
+{% endblock %}

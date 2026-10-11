@@ -104,10 +104,9 @@ class TestParquet:
         assert parquet_row_count(path) == 2
 
     @pytest.mark.parametrize("offset", [0, 1, 5, 7, 9, 10, 2500])
-    def test_rows_from_an_offset_across_row_groups(self, tmp_path, offset, monkeypatch):
-        monkeypatch.setattr(values, "_BATCH_ROWS", 2)
+    def test_rows_from_an_offset_across_row_groups(self, tmp_path, offset):
         path = _write(tmp_path / "t.parquet", {"a": list(range(10)), "b": list("abcdefghij")}, 3)
-        rows = list(iter_parquet_rows(path, ["b", "a"], offset))
+        rows = list(iter_parquet_rows(path, ["b", "a"], offset, batch_rows=2))
         assert rows == [[chr(97 + i), i] for i in range(offset, 10)]
 
     def test_rows_of_an_empty_file(self, tmp_path):

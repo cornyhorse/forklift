@@ -69,7 +69,8 @@ TOOLS: Dict[str, Any] = {
         "and get_bad_rows. The input and output_dir must be inside the same root. An existing, "
         "non-empty output_dir is refused unless overwrite=true. dry_run=true checks everything "
         "and returns the job it would run without writing anything. A failed run is a result "
-        "(status failed, error code), not a tool error.",
+        "(status failed, error code), not a tool error. The run cannot be cancelled: bound it "
+        "with limits.max_seconds (checked between batches of rows).",
         _WRITE,
     ),
     "get_job": (
@@ -105,7 +106,7 @@ _INPUT_OPTIONS = (
 _SCHEMA = "The forklift JSON schema as an object (or give schema_path instead)"
 _SCHEMA_PATH = f"Path of a schema JSON file ({_ROOT_NOTE}); instead of schema"
 _FORMAT = {
-    "description": "Input format; default: from the extension (.csv/.tsv/.txt csv, "
+    "description": "Input format; default: from the extension (.csv/.tsv/.tab/.txt csv, "
     ".xlsx/.xlsm/.xls excel)",
     "enum": [*caps.FORMATS, None],
 }
@@ -200,8 +201,11 @@ PARAMETERS: Dict[str, Dict[str, Dict[str, Any]]] = {
             "description": "Id of the run (letters, digits, '.', '_', '-'); default: generated"
         },
         "overwrite": {
-            "description": "Write into a non-empty output_dir; the files an earlier run_job "
-            f"listed in its {JOB_FILE} there are deleted first, other files are kept"
+            "description": "Write into a non-empty output_dir. The files an earlier run_job "
+            f"listed in its {JOB_FILE} there, and that are still those files, are replaced once "
+            "the engine accepted the job; the run's own files replace files of the same name; "
+            "nothing else is deleted (previous_run in the result says what was replaced and "
+            "what was left alone)"
         },
         "dry_run": _DRY_RUN,
     },
@@ -239,8 +243,9 @@ def instructions(workspace: Workspace) -> str:
         "The server is read-only: run_job and writing a generated schema are refused (dry_run "
         "still works)."
         if workspace.read_only
-        else "It writes only where a tool is asked to (run_job's output_dir, generate_schema's "
-        "output_path) and never replaces files unless overwrite=true."
+        else "It writes inside the roots only where a tool is asked to (run_job's output_dir, "
+        "plus a temporary .forklift-job-* directory next to it while the import runs; "
+        "generate_schema's output_path) and never replaces files unless overwrite=true."
     )
     return (
         "Forklift cleans tabular files (CSV, Excel) into validated Parquet, driven by a JSON "
@@ -255,6 +260,31 @@ def instructions(workspace: Workspace) -> str:
     )
 
 
+class StrictTool(Tool):
+    """A tool that refuses arguments its input schema does not have (the SDK drops them), and
+    true or false given for an integer (the SDK would take them as 1 or 0)."""
+
+    async def run(
+        self, arguments: Dict[str, Any], context: Any, convert_result: bool = False
+    ) -> Any:
+        properties = self.parameters["properties"]
+        unknown = sorted(set(arguments) - set(properties))
+        if unknown:
+            names = ", ".join(repr(key[:64]) for key in unknown[:10])
+            raise ToolError(
+                f"Error executing tool {self.name}: unknown argument"
+                f"{'s' if len(unknown) > 1 else ''} {names}; {self.name} takes "
+                f"{', '.join(properties)}"
+            )
+        for key, value in arguments.items():
+            if isinstance(value, bool) and properties[key].get("type") == "integer":
+                raise ToolError(
+                    f"Error executing tool {self.name}: {key} must be an integer, not "
+                    f"{str(value).lower()}"
+                )
+        return await super().run(arguments, context, convert_result=convert_result)
+
+
 def _tool(toolbox: Toolbox, name: str) -> Tool:
     method: Callable[..., Dict[str, Any]] = getattr(toolbox, name)
 
@@ -266,9 +296,10 @@ def _tool(toolbox: Toolbox, name: str) -> Tool:
             raise ToolError(str(error)) from None
 
     title, description, annotations = TOOLS[name]
-    tool = Tool.from_function(
+    tool = StrictTool.from_function(
         call, name=name, title=title, description=description, annotations=annotations
     )
+    tool.parameters["additionalProperties"] = False
     properties = tool.parameters["properties"]
     for parameter, extra in PARAMETERS[name].items():
         properties[parameter].update(extra)

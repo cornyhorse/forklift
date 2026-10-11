@@ -5,10 +5,12 @@ workers use, so a result means the same here as from the remote server:
 
 - ``preview``, ``validate_schema`` and ``generate_schema`` copy the beginning of the input (a CSV
   file's first records, an Excel workbook whole) into a private temporary directory and run the
-  job there. Nothing is written inside the roots, so they also work with ``--read-only``.
+  job there (:mod:`.staging`). Nothing is written inside the roots, so they also work with
+  ``--read-only``.
 - ``run_job`` runs the import in place (input and output inside one root) and writes the result,
   ``forklift-job.json``, next to the outputs, where ``get_job``, ``explain_failure`` and
-  ``get_bad_rows`` read it later.
+  ``get_bad_rows`` read it later. With ``overwrite`` it replaces only an earlier run's own
+  files, and only once the engine accepted the new job (:mod:`.previous`).
 
 Results are JSON objects with bounded sizes; the bounds that applied are in their ``caps``. A
 refused call raises :class:`~forklift.mcp.workspace.ToolInputError`. A job that ran and failed
@@ -17,29 +19,31 @@ is not an error of the tool: its result says ``status: failed`` with the engine'
 
 from __future__ import annotations
 
+import codecs
 import contextlib
-import csv
 import datetime
 import json
 import os
-import re
 import secrets
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from ..engine.processors.extensions import REASON_COLUMN
-from ..engine.processors.text_utils import read_encoding, sanitize_arrow_error
+from ..engine.processors.text_utils import sanitize_arrow_error
 from ..jobs import ContractError, JobResult, JobSpec, run_job
 from ..jobs.spec import InputOptions
-from . import explain
+from . import explain, previous
 from .docs import URI_PREFIX, schema_pages
+from .staging import Staged, scratch_directory, stage
 from .values import (
     MAX_CELL_CHARS,
+    MAX_NAME_CHARS,
+    ByteBudget,
     RowCollector,
+    bounded_names,
     compact_size,
     iter_parquet_rows,
+    name,
     parquet_columns,
     parquet_row_count,
     rejection_reasons,
@@ -76,12 +80,16 @@ DEFAULT_BAD_ROWS = 20
 MAX_BAD_ROWS = 200
 DEFAULT_EXPLAIN_ROWS = 10
 MAX_EXPLAIN_ROWS = 50
-#: Columns of one row view (bad rows, typed previews)
+#: Columns of one row view (previews, bad rows)
 MAX_COLUMNS = 100
 #: Entries of a column list (schema summaries, headers)
 MAX_LISTED_COLUMNS = 500
-#: Warnings and artifacts in a result
+#: Bytes all the column lists of a validate_schema result share
+LISTS_MAX_BYTES = 65536
+#: Warnings, artifacts, extensions and other short lists in a result
 MAX_LIST_ITEMS = 50
+#: Longest warning in a result
+MAX_MESSAGE_CHARS = 2000
 #: Entries of validation_summary in a result (the most frequent)
 MAX_FINDINGS = 100
 #: Rejection reasons in a result (the most frequent), and bad rows read to count them
@@ -90,23 +98,32 @@ MAX_REASON_SCAN_ROWS = 5_000_000
 #: Largest schema or job file read
 MAX_SCHEMA_FILE_BYTES = 8 * 1024 * 1024
 MAX_JOB_FILE_BYTES = 16 * 1024 * 1024
-#: The beginning of a CSV input copied for the interactive tools (characters)
-MAX_SAMPLE_COPY_CHARS = 256 * 1024 * 1024
-#: Largest Excel workbook the interactive tools copy
-MAX_EXCEL_COPY_BYTES = 256 * 1024 * 1024
+#: preview.json the engine may write for a raw preview (the result is cut to max_bytes after the
+#: columns are cut to MAX_COLUMNS, so a wide file still shows rows)
+ENGINE_PREVIEW_BYTES = 16 * 1024 * 1024
+#: Rejected rows of a validate_schema sample shown in its result
+VALIDATE_REJECTED_ROWS = 10
 #: Rows of the header search the engine does by default (input_options.header_search_rows)
 _HEADER_SEARCH_ROWS = 10
-#: The engine's private directory inside a job's base directory, named in some messages
-_JOB_SCRATCH = re.compile(r"\.forklift-job-[A-Za-z0-9_]+/")
 _VALIDATE_NOTE = (
     "validate_schema checks a temporary copy of the input's first rows and keeps no files: the "
     "first rows the sample rejected are in rejected_rows (run_job keeps a bad_rows.parquet); "
     "preview with the schema shows the typed rows and why rows are rejected"
 )
-#: What a validate_schema message says instead of the path of the sample's bad_rows.parquet
+#: What messages say instead of the paths of the files of a temporary copy
 _SAMPLE_BAD_ROWS = "rejected_rows of this result (the first of them; run_job keeps the file)"
-#: Rejected rows of a validate_schema sample shown in its result
-VALIDATE_REJECTED_ROWS = 10
+_PREVIEW_BAD_ROWS = (
+    "sample.rejection_reasons of this result (the rows a preview rejects are not kept)"
+)
+_PREVIEW_DATA = "the rows of this result (a preview's data file is not kept)"
+_THRESHOLD_NOTE = (
+    "x-validation's bad-rows threshold is not applied to a preview (a share of rejected rows is "
+    "judged on a whole input): rejected rows are counted in sample.rejected_rows instead"
+)
+_WORKBOOK_NOTE = (
+    "A typed preview of a workbook imports the private copy of every sheet the schema selects; "
+    "this schema's x-excel does not say which rows, so all of them are read"
+)
 
 
 class Toolbox:
@@ -127,9 +144,9 @@ class Toolbox:
         return {
             "path": self.workspace.display(real),
             "bytes": real.stat().st_size,
-            "summary": summarize_schema(document),
+            "summary": summarize_schema(document, max_bytes),
             **bounded_document(document, max_bytes),
-            "caps": {"max_bytes": max_bytes, "listed_columns": MAX_LISTED_COLUMNS},
+            "caps": _schema_caps(max_bytes),
         }
 
     def generate_schema(
@@ -154,7 +171,7 @@ class Toolbox:
             if not dry_run:
                 self.workspace.require_writable("generate_schema with output_path")
         job_options = {"sample_rows": sample_rows, "infer_primary_key": infer_primary_key}
-        with _scratch() as scratch:
+        with scratch_directory() as scratch:
             # The generator reads the first row as the header, then sample_rows rows
             staged = self._stage(source, fmt, scratch, options, sample_rows + 2)
             result = self._run_interactive(
@@ -169,22 +186,28 @@ class Toolbox:
             **_bounded_warnings(staged.clean_list(result.warnings)),
         }
         if schema is not None:
-            view.update(summary=summarize_schema(schema), **bounded_document(schema, max_bytes))
+            view.update(
+                summary=summarize_schema(schema, max_bytes), **bounded_document(schema, max_bytes)
+            )
         written = False
         if target is not None and schema is not None and not dry_run:
-            _write_text_atomically(target, json.dumps(schema, indent=2, ensure_ascii=False))
+            try:
+                _write_text_atomically(target, json.dumps(schema, indent=2, ensure_ascii=False))
+            except OSError as error:
+                raise ToolInputError(
+                    f"output_path {output_path!r} cannot be written: {error.strerror or error}"
+                ) from None
             written = True
         view.update(
             output_path=self.workspace.display(target) if target is not None else None,
             written=written,
             dry_run=dry_run,
-            caps={
-                "max_bytes": max_bytes,
-                "sample_rows": sample_rows,
-                "max_sample_rows": MAX_SAMPLE_ROWS,
-                "listed_columns": MAX_LISTED_COLUMNS,
-                "warnings": MAX_LIST_ITEMS,
-            },
+            caps=dict(
+                _schema_caps(max_bytes),
+                sample_rows=sample_rows,
+                max_sample_rows=MAX_SAMPLE_ROWS,
+                warnings=MAX_LIST_ITEMS,
+            ),
         )
         return view
 
@@ -212,23 +235,33 @@ class Toolbox:
             "apply_schema_extensions": apply_schema_extensions,
         }
         records = (options.header_search_rows or _HEADER_SEARCH_ROWS) + sample_rows + 1
-        with _scratch() as scratch:
+        with scratch_directory() as scratch:
             staged = self._stage(source, fmt, scratch, options, records)
+            if staged.records == 0:
+                raise ToolInputError(
+                    f"input_path {staged.view['path']!r} has no records (it is empty or only "
+                    "blank lines): there is no header row to check the schema against"
+                )
             result = self._run_interactive(
                 "validate_schema", staged, scratch, options, schema=document, options_=job_options
             )
             report = _read_artifact(scratch, result, "report") or {}
             rejected = self._sample_rejections(scratch, result, staged)
-        lists = {
-            name: _bounded_list(report.get(name), MAX_LISTED_COLUMNS)
-            for name in (
-                "columns",
-                "schema_columns",
-                "required_columns",
-                "columns_not_in_schema",
-                "schema_columns_not_in_input",
-            )
-        }
+        lists: Dict[str, Any] = {}
+        budget = ByteBudget(LISTS_MAX_BYTES)
+        for key in (
+            "columns",
+            "schema_columns",
+            "required_columns",
+            "columns_not_in_schema",
+            "schema_columns_not_in_input",
+        ):
+            values = report.get(key)
+            if isinstance(values, list):
+                shown, total, _ = bounded_names(values, MAX_LISTED_COLUMNS, budget)
+                lists.update({key: shown, f"{key}_total": total})
+            else:
+                lists.update({key: None, f"{key}_total": None})
         return {
             "valid": bool(report.get("valid")) and result.succeeded,
             "status": result.status,
@@ -247,6 +280,8 @@ class Toolbox:
                 "sample_rows": sample_rows,
                 "max_sample_rows": MAX_SAMPLE_ROWS,
                 "listed_columns": MAX_LISTED_COLUMNS,
+                "lists_max_bytes": LISTS_MAX_BYTES,
+                "max_name_chars": MAX_NAME_CHARS,
                 "findings": MAX_FINDINGS,
                 "warnings": MAX_LIST_ITEMS,
                 "rejected_rows": VALIDATE_REJECTED_ROWS,
@@ -258,19 +293,17 @@ class Toolbox:
         }
 
     def _sample_rejections(
-        self, scratch: Path, result: JobResult, staged: "_Staged"
+        self, scratch: Path, result: JobResult, staged: Staged
     ) -> Optional[Dict[str, Any]]:
         """The first rows a validate_schema sample rejected, read before the copy is removed.
 
         The engine keeps them (in the job's directory, here the private copy) when the sample
         fails its bad-rows threshold; messages then point at this result instead of that file.
         """
+        staged.name_artifacts(result, bad_rows=_SAMPLE_BAD_ROWS)
         bad = _artifact_path(scratch, result, "bad_rows")
         if bad is None:
             return None
-        for artifact in result.artifacts:
-            if artifact.kind == "bad_rows":
-                staged.replacements[artifact.path] = _SAMPLE_BAD_ROWS
         view = self._rows_view(bad, None, 0, VALIDATE_REJECTED_ROWS, DEFAULT_ROWS_BYTES)
         view.pop("next_offset")
         reasons = rejection_reasons(bad, MAX_REASON_SCAN_ROWS, MAX_REASONS)
@@ -299,9 +332,11 @@ class Toolbox:
             "max_rows": MAX_PREVIEW_ROWS,
             "max_bytes": max_bytes,
             "max_cell_chars": MAX_CELL_CHARS,
+            "columns": MAX_COLUMNS,
+            "max_name_chars": MAX_NAME_CHARS,
             "warnings": MAX_LIST_ITEMS,
         }
-        with _scratch() as scratch:
+        with scratch_directory() as scratch:
             staged = self._stage(source, fmt, scratch, options, records)
             if document is None:
                 return self._raw_preview(staged, scratch, options, rows, max_bytes, caps)
@@ -309,57 +344,90 @@ class Toolbox:
                 staged, scratch, options, document, schema_source, rows, max_bytes, caps
             )
 
-    def _raw_preview(self, staged, scratch, options, rows, max_bytes, caps) -> Dict[str, Any]:
-        job_options = {"preview_rows": rows, "preview_max_bytes": max_bytes}
+    def _raw_preview(
+        self,
+        staged: Staged,
+        scratch: Path,
+        options: InputOptions,
+        rows: int,
+        max_bytes: int,
+        caps: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        job_options = {"preview_rows": rows, "preview_max_bytes": ENGINE_PREVIEW_BYTES}
         result = self._run_interactive("preview", staged, scratch, options, options_=job_options)
+        staged.name_artifacts(result)
         preview = _read_artifact(scratch, result, "preview") or {}
-        view = {
+        columns, columns_total, names_cut = bounded_names(
+            preview.get("columns", []), MAX_COLUMNS, None
+        )
+        collector = RowCollector(rows, max_bytes)
+        for row in preview.get("rows", []):
+            if not collector.add(row[: len(columns)]):
+                break
+        view = collector.view()
+        limit = collector.limit or preview.get("limit")
+        view.update(
+            truncated=limit is not None,
+            limit=limit,
+            truncated_cells=view["truncated_cells"] + preview.get("truncated_cells", 0),
+        )
+        result_view = {
             "mode": "raw",
             "status": result.status,
             "error": staged.error(result),
             "input": staged.view,
-            "columns": preview.get("columns", []),
-            "rows": preview.get("rows", []),
-            "row_count": preview.get("row_count", 0),
-            "truncated": preview.get("truncated", False),
-            "limit": preview.get("limit"),
-            "truncated_cells": preview.get("truncated_cells", 0),
+            "columns": columns,
+            "columns_total": columns_total,
+            "columns_truncated": len(columns) < columns_total,
+            "truncated_names": names_cut,
+            **view,
             **_bounded_warnings(staged.clean_list(result.warnings)),
             "caps": caps,
         }
         if "sheet" in preview:
-            view["sheet"] = preview["sheet"]
-        return view
+            result_view["sheet"] = name(preview["sheet"])[0]
+        return result_view
 
     def _typed_preview(
-        self, staged, scratch, options, document, schema_source, rows, max_bytes, caps
+        self,
+        staged: Staged,
+        scratch: Path,
+        options: InputOptions,
+        document: Dict[str, Any],
+        schema_source: Optional[str],
+        rows: int,
+        max_bytes: int,
+        caps: Dict[str, Any],
     ) -> Dict[str, Any]:
         notes = []
-        validation = document.get("x-validation")
-        if isinstance(validation, dict) and isinstance(validation.get("badRowsHandling"), dict):
-            # A share of rejected rows is judged on a whole input, not on a few first rows
-            document = dict(document)
-            handling = dict(validation["badRowsHandling"], failOnExceedThreshold=False)
-            document["x-validation"] = dict(validation, badRowsHandling=handling)
-            notes.append(
-                "x-validation's bad-rows threshold is not applied to a preview: rejected rows "
-                "are counted in sample.rejected_rows instead"
-            )
+        document, relaxed = _without_threshold(document)
+        if relaxed:
+            notes.append(_THRESHOLD_NOTE)
+        if staged.fmt == "excel":
+            document, bounded = _first_rows_of_sheets(document, rows)
+            if not bounded:
+                notes.append(_WORKBOOK_NOTE)
         result = self._run_interactive("run", staged, scratch, options, schema=document)
+        staged.name_artifacts(result, bad_rows=_PREVIEW_BAD_ROWS, data=_PREVIEW_DATA)
         data = _artifact_path(scratch, result, "data")
         collector = RowCollector(rows, max_bytes)
         columns: List[Dict[str, str]] = []
-        columns_total = 0
+        columns_total = names_cut = 0
         if data is not None:
             available = parquet_columns(data)
-            columns, columns_total = available[:MAX_COLUMNS], len(available)
-            names = [column["name"] for column in columns]
-            for row in iter_parquet_rows(data, names):
+            columns_total = len(available)
+            for column in available[:MAX_COLUMNS]:
+                column_name, cut_name = name(column["name"])
+                column_type, cut_type = name(column["type"])
+                columns.append({"name": column_name, "type": column_type})
+                names_cut += cut_name + cut_type
+            selected = [column["name"] for column in available[:MAX_COLUMNS]]
+            for row in iter_parquet_rows(data, selected, 0, rows + 1):
                 if not collector.add(row):
                     break
         bad = _artifact_path(scratch, result, "bad_rows")
         reasons = rejection_reasons(bad, MAX_REASON_SCAN_ROWS, MAX_REASONS) if bad else None
-        caps.update(columns=MAX_COLUMNS, reasons=MAX_REASONS)
+        caps.update(reasons=MAX_REASONS)
         return {
             "mode": "typed",
             "status": result.status,
@@ -368,6 +436,8 @@ class Toolbox:
             "schema": schema_source,
             "columns": columns,
             "columns_total": columns_total,
+            "columns_truncated": len(columns) < columns_total,
+            "truncated_names": names_cut,
             **collector.view(),
             "sample": {
                 "rows_read": result.counts.get("total_rows", 0),
@@ -401,7 +471,7 @@ class Toolbox:
         document, schema_source = self._schema(schema, schema_path, required=False)
         source, fmt, input_opts = self._input(input_path, format, input_options)
         target = self.workspace.output_dir(output_dir, "output_dir", overwrite)
-        base = _common_root(self.workspace, source, target)
+        base = _job_base(self.workspace, source, target)
         spec = _build_spec(
             kind="run",
             job_id=job_id or _new_job_id("run"),
@@ -413,6 +483,8 @@ class Toolbox:
             options=options,
             limits=limits,
         )
+        _check_encoding(input_opts)
+        earlier = self._previous_run(target, source) if overwrite else None
         plan = {
             "job_id": spec.job_id,
             "input": {"path": self.workspace.display(source), "format": fmt},
@@ -420,6 +492,7 @@ class Toolbox:
             "result_file": self.workspace.display(target / JOB_FILE),
             "schema": schema_source,
             "overwrite": overwrite,
+            "previous_run": self._previous_view(earlier),
         }
         if dry_run:
             return {
@@ -432,18 +505,25 @@ class Toolbox:
         with self.workspace.claim(target, "output_dir"):
             # Checked again now that this call holds the directory
             self.workspace.output_dir(output_dir, "output_dir", overwrite)
-            if overwrite:
-                _remove_previous_run(target)
-            size = source.stat().st_size
-            result = run_job(spec, base_dir=base)
-            if result.error is not None and result.error.code == "SPEC_INVALID":
-                raise ToolInputError(f"The job was refused: {result.error.message}")
+            earlier = self._previous_run(target, source) if overwrite else None
+            size = self.workspace.check_regular_file(source, "input_path", input_path)
+            held = previous.Holding(earlier) if earlier is not None else None
+            try:
+                result = run_job(spec, base_dir=base)
+                if result.error is not None and result.error.code == "SPEC_INVALID":
+                    raise ToolInputError(f"The job was refused: {result.error.message}")
+            except BaseException:
+                if held is not None:
+                    held.restore()
+                raise
+            if held is not None:
+                held.discard()
             job = {
                 "format": JOB_FILE_FORMAT,
                 "created_at": _now(),
                 "input": {"path": str(source), "format": fmt, "bytes": size},
                 "schema": schema_source,
-                "result": _rebased_result(result, base, target),
+                "result": self._stored_result(result, base, target, source),
             }
             stored_error = None
             try:
@@ -460,12 +540,44 @@ class Toolbox:
                 f"The result could not be written to {self.workspace.display(target / JOB_FILE)}"
                 f" ({stored_error}); get_job and explain_failure cannot read this run"
             )
-        view["next"] = (
-            "get_bad_rows shows the rejected rows"
-            if result.succeeded
-            else "explain_failure explains the error and shows the first rejected rows"
-        )
+        if earlier is not None:
+            view["previous_run"] = self._previous_view(earlier)
+        view["next"] = _next_step(result)
         return view
+
+    def _previous_run(self, target: Path, source: Path) -> previous.PreviousRun:
+        def read_job(path: Path) -> Any:
+            shown = self.workspace.display(path)
+            return self._read_json(path, "the earlier job file", shown, MAX_JOB_FILE_BYTES)
+
+        return previous.plan(target, JOB_FILE, source, read_job)
+
+    def _previous_view(self, earlier: Optional[previous.PreviousRun]) -> Optional[Dict[str, Any]]:
+        if earlier is None:
+            return None
+        return earlier.view(self.workspace.display, MAX_LIST_ITEMS)
+
+    def _stored_result(
+        self, result: JobResult, base: Path, target: Path, source: Path
+    ) -> Dict[str, Any]:
+        """The result as forklift-job.json keeps it: artifact paths relative to the output
+        directory, and the paths in messages as results show them (relative to the first root)."""
+        document = result.to_dict()
+        named = [(source.relative_to(base).as_posix(), source)]
+        for artifact in document["artifacts"]:
+            real = Path(os.path.realpath(base / artifact["path"]))
+            named.append((artifact["path"], real))
+            artifact["path"] = real.relative_to(target).as_posix()
+
+        def shown(text: str) -> str:
+            for relative, real in sorted(named, key=lambda item: -len(item[0])):
+                text = text.replace(relative, self.workspace.display(real))
+            return text
+
+        if document["error"] is not None:
+            document["error"]["message"] = shown(document["error"]["message"])
+        document["warnings"] = [shown(warning) for warning in document["warnings"]]
+        return document
 
     def get_job(self, output_dir: str) -> dict[str, Any]:
         """A past run's result, read from the forklift-job.json in its output directory."""
@@ -516,7 +628,9 @@ class Toolbox:
             }
         findings = [
             dict(split_finding(key), key=key, count=count)
-            for key, count in _top(result.validation_summary, MAX_FINDINGS)
+            for key, count in _bounded_findings(result.validation_summary)[
+                "validation_summary"
+            ].items()
         ]
         for finding in findings:
             docs.extend(explain.RULE_PAGES.get(finding["rule"], []))
@@ -536,12 +650,13 @@ class Toolbox:
             "findings_total": len(result.validation_summary),
             "rejected": rejected,
             **_bounded_warnings(result.warnings),
-            "docs": [URI_PREFIX + name for name in dict.fromkeys(docs) if name in pages],
+            "docs": [URI_PREFIX + page for page in dict.fromkeys(docs) if page in pages],
             "caps": {
                 "rows": rows,
                 "max_rows": MAX_EXPLAIN_ROWS,
                 "max_bytes": max_bytes,
                 "columns": MAX_COLUMNS,
+                "max_name_chars": MAX_NAME_CHARS,
                 "reasons": MAX_REASONS,
                 "reason_scan_rows": MAX_REASON_SCAN_ROWS,
                 "findings": MAX_FINDINGS,
@@ -568,6 +683,7 @@ class Toolbox:
             "max_limit": MAX_BAD_ROWS,
             "max_bytes": max_bytes,
             "columns": MAX_COLUMNS,
+            "max_name_chars": MAX_NAME_CHARS,
             "max_cell_chars": MAX_CELL_CHARS,
         }
         bad = _bad_rows_file(directory, result)
@@ -577,9 +693,20 @@ class Toolbox:
                 "status": result.status,
                 "path": None,
                 "total_rows": 0,
+                "offset": offset,
+                "columns": [],
+                "columns_total": 0,
+                "columns_truncated": False,
                 "rows": [],
                 "row_count": 0,
-                "message": "This run kept no bad_rows.parquet: it rejected no rows",
+                "truncated": False,
+                "limit": None,
+                "truncated_cells": 0,
+                "next_offset": None,
+                "message": (
+                    "This run kept no bad_rows.parquet: it rejected no rows, or it stopped "
+                    "before keeping them (see counts and error in get_job)"
+                ),
                 "caps": caps,
             }
         with _parquet_errors(self.workspace.display(bad)):
@@ -604,11 +731,13 @@ class Toolbox:
     ) -> Dict[str, Any]:
         available = [column["name"] for column in parquet_columns(path)]
         if columns is not None:
-            unknown = [name for name in columns if name not in available]
+            unknown = [column for column in columns if column not in available]
             if unknown:
+                shown = ", ".join(repr(name(column)[0][:64]) for column in unknown[:10])
+                listed = ", ".join(repr(name(column)[0][:64]) for column in available[:50])
+                more = f", ... ({len(available)} columns)" if len(available) > 50 else ""
                 raise ToolInputError(
-                    f"columns {', '.join(map(repr, unknown[:10]))} are not in the bad rows "
-                    f"(its columns: {', '.join(map(repr, available[:MAX_LISTED_COLUMNS]))})"
+                    f"columns {shown} are not in the bad rows (its columns: {listed}{more})"
                 )
             if len(columns) > MAX_COLUMNS:
                 raise ToolInputError(f"columns: at most {MAX_COLUMNS} columns can be selected")
@@ -619,17 +748,19 @@ class Toolbox:
                 selected[-1] = REASON_COLUMN
         total = parquet_row_count(path)
         collector = RowCollector(limit, max_bytes)
-        for row in iter_parquet_rows(path, selected, offset):
+        for row in iter_parquet_rows(path, selected, offset, limit + 1):
             if not collector.add(row):
                 break
         view = collector.view()
         shown_end = offset + view["row_count"]
+        shown_names, _, names_cut = bounded_names(selected, MAX_COLUMNS, None)
         return {
             "total_rows": total,
             "offset": offset,
-            "columns": selected,
+            "columns": shown_names,
             "columns_total": len(available),
             "columns_truncated": len(selected) < len(available),
+            "truncated_names": names_cut,
             **view,
             "next_offset": shown_end if shown_end < total else None,
         }
@@ -646,6 +777,10 @@ class Toolbox:
         except ValueError as error:
             # json's message gives the position only, never the text
             raise ToolInputError(f"{what} {shown!r} is not valid JSON: {error}") from None
+        except RecursionError:
+            raise ToolInputError(f"{what} {shown!r} is nested too deeply to read") from None
+        except OSError as error:
+            raise ToolInputError(f"{what} {shown!r} cannot be read: {error.strerror}") from None
 
     def _schema(
         self, schema: Optional[Dict[str, Any]], schema_path: Optional[str], required: bool
@@ -695,45 +830,21 @@ class Toolbox:
             options = InputOptions.from_dict(values)
         except ContractError as error:
             problems = "\n- ".join(
-                f"input_options.{path}: {message}" if path else f"input_options: {message}"
-                for path, message in error.problems
+                f"input_options.{path}: {message}" for path, message in error.problems
             )
             raise ToolInputError(f"input_options is invalid:\n- {problems}") from None
         return source, fmt, options
 
     def _stage(
         self, source: Path, fmt: str, scratch: Path, options: InputOptions, records: int
-    ) -> "_Staged":
+    ) -> Staged:
         """Copy the input (or its first ``records`` CSV records) into the scratch directory."""
-        name = source.name
-        if "\\" in name:
-            name = "input" + source.suffix.lower()
-        target = scratch / "in" / name
-        target.parent.mkdir()
-        size = source.stat().st_size
-        if fmt == "excel":
-            if size > MAX_EXCEL_COPY_BYTES:
-                raise ToolInputError(
-                    f"input_path is a {size}-byte workbook; preview, validate_schema and "
-                    f"generate_schema read workbooks up to {MAX_EXCEL_COPY_BYTES} bytes (they "
-                    "work on a private copy); run_job reads it in place"
-                )
-            shutil.copyfile(source, target)
-            whole = True
-        else:
-            whole = _copy_csv_head(source, target, records, options)
-        view = {
-            "path": self.workspace.display(source),
-            "format": fmt,
-            "bytes": size,
-            "sampled": not whole,
-        }
-        return _Staged(f"in/{name}", fmt, view)
+        return stage(source, self.workspace.display(source), fmt, scratch, options, records)
 
     def _run_interactive(
         self,
         kind: str,
-        staged: "_Staged",
+        staged: Staged,
         scratch: Path,
         input_options: InputOptions,
         schema: Optional[Dict[str, Any]] = None,
@@ -761,14 +872,20 @@ class Toolbox:
             directory, job_file = real, real / JOB_FILE
         else:
             directory, job_file = real.parent, real
-        shown = self.workspace.display(job_file)
         if not os.path.lexists(job_file) and job_file.name == JOB_FILE:
             raise ToolInputError(
                 f"{self.workspace.display(directory)!r} has no {JOB_FILE}: run_job writes one "
                 "next to the outputs of every run it starts (runs started another way are not "
                 "known to this server)"
             )
-        job = self._read_json(job_file, "output_dir", shown, MAX_JOB_FILE_BYTES)
+        shown = self.workspace.display(job_file)
+        # A job file that is a link must lead to a file inside the roots too
+        job = self._read_json(
+            self.workspace.resolve(str(job_file), "output_dir"),
+            "output_dir",
+            shown,
+            MAX_JOB_FILE_BYTES,
+        )
         if not isinstance(job, dict) or job.get("format") != JOB_FILE_FORMAT:
             raise ToolInputError(f"{shown!r} is not a job file written by forklift-mcp")
         try:
@@ -826,71 +943,90 @@ class Toolbox:
         }
 
 
-class _Staged:
-    """An input copied into a job's scratch directory: where it is and how results name it."""
-
-    def __init__(self, path: str, fmt: str, view: Dict[str, Any]):
-        self.path = path
-        self.fmt = fmt
-        self.view = view
-        #: Paths of other files in the copy's directory -> what messages say instead
-        self.replacements: Dict[str, str] = {}
-
-    def clean(self, text: str) -> str:
-        """Messages name the copy; results name the input the caller gave."""
-        text = text.replace(self.path, self.view["path"])
-        for path, replacement in self.replacements.items():
-            text = text.replace(path, replacement)
-        return _JOB_SCRATCH.sub("<temporary directory>/", text)
-
-    def clean_list(self, texts: List[str]) -> List[str]:
-        return [self.clean(text) for text in texts]
-
-    def error(self, result: JobResult) -> Optional[Dict[str, Any]]:
-        if result.error is None:
-            return None
-        return dict(result.error.to_dict(), message=self.clean(result.error.message))
-
-
 # ---------------------------------------------------------------------- module helpers
 
 
-def summarize_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
-    """Columns, types, required columns and extensions of a schema (names only, bounded)."""
+def summarize_schema(schema: Dict[str, Any], max_bytes: int) -> Dict[str, Any]:
+    """Columns, types, required columns and extensions of a schema: names only, cut to
+    :data:`MAX_NAME_CHARS`, and within ``max_bytes`` (compact JSON) for the lists."""
+    budget = ByteBudget(max_bytes)
     properties = schema.get("properties")
     properties = properties if isinstance(properties, dict) else {}
     required_list = schema.get("required")
-    required = [name for name in required_list or [] if isinstance(name, str)]
+    required_names = [n for n in required_list or [] if isinstance(n, str)]
+    required_set = set(required_names)
+    title, names_cut = (
+        name(schema["title"]) if isinstance(schema.get("title"), str) else (None, False)
+    )
+    extensions, extensions_total, cut = bounded_names(
+        sorted(key for key in schema if key.startswith("x-")), MAX_LIST_ITEMS, budget
+    )
+    names_cut += cut
+    required, required_total, cut = bounded_names(required_names, MAX_LISTED_COLUMNS, budget)
+    names_cut += cut
     columns = []
-    for name, spec in list(properties.items())[:MAX_LISTED_COLUMNS]:
-        spec = spec if isinstance(spec, dict) else {}
-        entry: Dict[str, Any] = {
-            "name": name,
-            "type": spec.get("type"),
-            "required": name in required,
-        }
-        if isinstance(spec.get("format"), str):
-            entry["format"] = spec["format"]
-        extensions = sorted(key for key in spec if key.startswith("x-"))
-        if extensions:
-            entry["extensions"] = extensions
-        constraints = sorted(key for key in spec if key in _CONSTRAINT_KEYWORDS)
-        if constraints:
-            entry["constraints"] = constraints
+    for column_name, spec in properties.items():
+        if len(columns) >= MAX_LISTED_COLUMNS:
+            break
+        entry, cut = _column_entry(column_name, spec, required_set)
+        if not budget.take(entry):
+            break
         columns.append(entry)
+        names_cut += cut
     return {
-        "title": schema.get("title") if isinstance(schema.get("title"), str) else None,
+        "title": title,
         "column_count": len(properties),
         "columns": columns,
-        "columns_truncated": len(properties) > MAX_LISTED_COLUMNS,
-        "required": required[:MAX_LISTED_COLUMNS],
-        "extensions": sorted(key for key in schema if key.startswith("x-")),
+        "columns_truncated": len(columns) < len(properties),
+        "required": required,
+        "required_total": required_total,
+        "extensions": extensions,
+        "extensions_total": extensions_total,
+        "truncated_names": names_cut,
     }
 
 
 _CONSTRAINT_KEYWORDS = frozenset(
     {"minimum", "maximum", "minLength", "maxLength", "pattern", "enum", "x-unique"}
 )
+
+
+def _column_entry(column_name: str, spec: Any, required: set) -> Tuple[Dict[str, Any], int]:
+    """The summary of one column, and how many of its names were cut."""
+    spec = spec if isinstance(spec, dict) else {}
+    shown, cut = name(column_name)
+    entry: Dict[str, Any] = {"name": shown, "required": column_name in required}
+    kind = spec.get("type")
+    if isinstance(kind, list):
+        types = [name(value) for value in kind[:10] if isinstance(value, str)]
+        entry["type"] = [value for value, _ in types]
+        cut += sum(was_cut for _, was_cut in types)
+    elif isinstance(kind, str):
+        entry["type"], type_cut = name(kind)
+        cut += type_cut
+    else:
+        entry["type"] = None
+    if isinstance(spec.get("format"), str):
+        entry["format"], format_cut = name(spec["format"])
+        cut += format_cut
+    extensions = [name(key) for key in sorted(key for key in spec if key.startswith("x-"))[:20]]
+    if extensions:
+        entry["extensions"] = [value for value, _ in extensions]
+        cut += sum(was_cut for _, was_cut in extensions)
+    constraints = sorted(key for key in spec if key in _CONSTRAINT_KEYWORDS)
+    if constraints:
+        entry["constraints"] = constraints
+    return entry, cut
+
+
+def _schema_caps(max_bytes: int) -> Dict[str, Any]:
+    return {
+        "max_bytes": max_bytes,
+        "max_bytes_applies_to": "the summary's lists and the document, each",
+        "listed_columns": MAX_LISTED_COLUMNS,
+        "extensions": MAX_LIST_ITEMS,
+        "max_name_chars": MAX_NAME_CHARS,
+    }
 
 
 def bounded_document(document: Dict[str, Any], max_bytes: int) -> Dict[str, Any]:
@@ -908,6 +1044,84 @@ def bounded_document(document: Dict[str, Any], max_bytes: int) -> Dict[str, Any]
     }
 
 
+def _without_threshold(document: Dict[str, Any]) -> Tuple[Dict[str, Any], bool]:
+    """The schema with x-validation's bad-rows threshold off (``badRowsHandling`` missing means
+    the engine's default, 10%); a ``badRowsHandling`` that is not an object stays, so the engine
+    still reports it."""
+    validation = document.get("x-validation")
+    if not isinstance(validation, dict):
+        return document, False
+    handling = validation.get("badRowsHandling")
+    if handling is not None and not isinstance(handling, dict):
+        return document, False
+    handling = dict(handling or {}, failOnExceedThreshold=False)
+    return dict(document, **{"x-validation": dict(validation, badRowsHandling=handling)}), True
+
+
+def _first_rows_of_sheets(document: Dict[str, Any], rows: int) -> Tuple[Dict[str, Any], bool]:
+    """The schema with every sheet of x-excel read up to the rows a typed preview shows (and
+    one more); False when its x-excel has no sheet settings to limit (the engine then reports
+    the schema, or reads every row)."""
+    excel = document.get("x-excel")
+    if not isinstance(excel, dict):
+        return document, False
+    if isinstance(excel.get("sheets"), list):
+        sheets = [_first_rows(sheet, rows) for sheet in excel["sheets"]]
+        excel = dict(excel, sheets=sheets)
+    elif "sheet" in excel:
+        select = _sheet_select(excel["sheet"])
+        if select is None:
+            return document, False
+        # The single-sheet form, written as a list of one sheet (as the engine reads it)
+        sheet = {"select": select}
+        sheet.update({k: excel[k] for k in ("header", "columns", "dataStartRow") if k in excel})
+        excel = {key: value for key, value in excel.items() if key != "sheet"}
+        excel["sheets"] = [_first_rows(sheet, rows)]
+    else:
+        return document, False
+    return dict(document, **{"x-excel": excel}), True
+
+
+def _sheet_select(value: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value:
+        return {"name": value}
+    if isinstance(value, int):
+        return {"index": value}
+    return value if isinstance(value, dict) else None
+
+
+def _first_rows(sheet: Any, rows: int) -> Any:
+    """A sheet definition with ``dataEndRow`` at the first data row + ``rows`` (sheet rows are
+    1-based); left as it is when its settings are not valid, for the engine to report."""
+    if not isinstance(sheet, dict):
+        return sheet
+    header = sheet.get("header")
+    if _is_int(header):
+        header = {"row": header}
+    header = {} if header is None else header
+    if not isinstance(header, dict):
+        return sheet
+    offset = header.get("row", 0) if header.get("row") is not None else 0
+    start = sheet.get("dataStartRow")
+    end = sheet.get("dataEndRow")
+    if not _is_int(offset) or offset < 0 or not (start is None or _is_int(start)):
+        return sheet
+    if end is not None and not _is_int(end):
+        return sheet
+    if header.get("mode") == "absent":
+        first = start or 1
+    else:
+        first = max(start or 0, offset + 2)
+    last = first + rows
+    return dict(sheet, dataEndRow=min(last, end) if end is not None else last)
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _check_range(name: str, value: int, low: int, high: Optional[int]) -> None:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ToolInputError(f"{name} must be an integer")
@@ -916,8 +1130,15 @@ def _check_range(name: str, value: int, low: int, high: Optional[int]) -> None:
         raise ToolInputError(f"{name} must be {bounds} (got {value})")
 
 
-def _bounded_list(values: Any, cap: int) -> Any:
-    return values[:cap] if isinstance(values, list) else values
+def _check_encoding(options: InputOptions) -> None:
+    """The engine refuses an unknown encoding only once the job runs: say so before."""
+    if options.encoding is not None:
+        try:
+            codecs.lookup(options.encoding)
+        except LookupError:
+            raise ToolInputError(
+                f"input_options.encoding: unknown encoding {options.encoding!r}"
+            ) from None
 
 
 def _top(summary: Dict[str, int], cap: int) -> List[Tuple[str, int]]:
@@ -925,14 +1146,18 @@ def _top(summary: Dict[str, int], cap: int) -> List[Tuple[str, int]]:
 
 
 def _bounded_findings(summary: Dict[str, int]) -> Dict[str, Any]:
-    return {
-        "validation_summary": dict(_top(summary, MAX_FINDINGS)),
-        "validation_summary_total": len(summary),
-    }
+    shown: Dict[str, int] = {}
+    for key, count in _top(summary, MAX_FINDINGS):
+        # A finding is "CODE:column"; the column part is a name like any other
+        rule, separator, column = key.partition(":")
+        shown_key = rule + separator + name(column)[0] if separator else name(key)[0]
+        shown[shown_key] = shown.get(shown_key, 0) + count
+    return {"validation_summary": shown, "validation_summary_total": len(summary)}
 
 
 def _bounded_warnings(warnings: List[str]) -> Dict[str, Any]:
-    return {"warnings": list(warnings[:MAX_LIST_ITEMS]), "warnings_total": len(warnings)}
+    shown = [warning[:MAX_MESSAGE_CHARS] for warning in warnings[:MAX_LIST_ITEMS]]
+    return {"warnings": shown, "warnings_total": len(warnings)}
 
 
 def _new_job_id(kind: str) -> str:
@@ -987,54 +1212,35 @@ def _spec_summary(spec: JobSpec) -> Dict[str, Any]:
     return document
 
 
-def _common_root(workspace: Workspace, source: Path, target: Path) -> Path:
-    """A root that holds both the input and the output directory."""
-    for root in sorted(workspace.roots, key=lambda r: -len(r.parts)):
-        inside = [path == root or root in path.parents for path in (source, target)]
-        if all(inside):
-            return root
+def _job_base(workspace: Workspace, source: Path, target: Path) -> Path:
+    """The job's base directory: the deepest directory that holds both the input and the output
+    directory (the engine puts its private ``.forklift-job-*`` directory there while it runs).
+
+    Both must be inside one root, so the base is inside that root too.
+    """
+    for root in workspace.roots:
+        if all(path == root or root in path.parents for path in (source, target)):
+            return Path(os.path.commonpath([str(source.parent), str(target)]))
     raise ToolInputError(
         "input_path and output_dir must be inside the same --root directory (the import "
         f"reads and writes relative to one); roots: {workspace.describe_roots()}"
     )
 
 
-def _rebased_result(result: JobResult, base: Path, directory: Path) -> Dict[str, Any]:
-    """The result with artifact paths relative to the output directory (where it is kept)."""
-    document = result.to_dict()
-    for artifact in document["artifacts"]:
-        real = Path(os.path.realpath(base / artifact["path"]))
-        artifact["path"] = real.relative_to(directory).as_posix()
-    return document
-
-
-def _remove_previous_run(directory: Path) -> None:
-    """Delete the files an earlier forklift-mcp run listed in its job file there (and that file).
-
-    Other files in the directory are left alone.
-    """
-    job_file = directory / JOB_FILE
-    if not job_file.is_file():
-        return
-    try:
-        with open(job_file, encoding="utf-8") as handle:
-            artifacts = JobResult.from_dict(json.load(handle)["result"]).artifacts
-    except (OSError, ValueError, KeyError, TypeError):
-        artifacts = []
-    for artifact in artifacts:
-        path = Path(os.path.realpath(directory / artifact.path))
-        if directory in path.parents and path.is_file():
-            path.unlink()
-    job_file.unlink()
-
-
 def _write_text_atomically(target: Path, text: str) -> None:
-    """Write ``text`` so that a reader never sees half a file."""
+    """Write ``text`` so that a reader never sees half a file.
+
+    A new file gets the permissions files get here (0666 less the umask); a replaced one keeps
+    its own.
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(dir=str(target.parent), prefix=f".{target.name}.")
+    temporary = target.parent / f".{target.name}.{secrets.token_hex(6)}"
+    handle = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as stream:
             stream.write(text + "\n")
+        with contextlib.suppress(FileNotFoundError):
+            os.chmod(temporary, os.stat(target).st_mode & 0o7777)
         os.replace(temporary, target)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -1052,62 +1258,6 @@ def _parquet_errors(shown: str) -> Iterator[None]:
     except (OSError, pa.ArrowException) as error:
         message = sanitize_arrow_error(str(error))
         raise ToolInputError(f"{shown} cannot be read as Parquet: {message}") from None
-
-
-@contextlib.contextmanager
-def _scratch() -> Iterator[Path]:
-    """A private directory in the system's temporary directory, removed afterwards."""
-    directory = Path(tempfile.mkdtemp(prefix="forklift-mcp-"))
-    try:
-        yield directory
-    finally:
-        shutil.rmtree(directory, ignore_errors=True)
-
-
-def _copy_csv_head(source: Path, target: Path, records: int, options: InputOptions) -> bool:
-    """Copy the lines of the first ``records`` non-empty CSV records; True if that was all.
-
-    The text is copied as the file has it (same lines, same line breaks), so the engine sees
-    exactly the beginning of the input. When the copy cannot be decoded or parsed here, the
-    bytes are copied as they are and the engine reports the problem itself.
-    """
-    encoding = options.encoding or "utf-8"
-    copied = 0
-    try:
-        with open(source, encoding=read_encoding(encoding), newline="") as text, open(
-            target, "w", encoding=encoding, newline=""
-        ) as sink:
-            pending: List[str] = []
-
-            def lines() -> Iterator[str]:
-                nonlocal copied
-                for line in text:
-                    copied += len(line)
-                    if copied > MAX_SAMPLE_COPY_CHARS:
-                        return
-                    pending.append(line)
-                    yield line
-
-            reader = csv.reader(
-                lines(),
-                delimiter=options.delimiter or ",",
-                quotechar=options.quote_char or '"',
-                escapechar=options.escape_char,
-            )
-            found = 0
-            for record in reader:
-                sink.write("".join(pending))
-                pending.clear()
-                if record:
-                    found += 1
-                    if found >= records:
-                        return False
-            sink.write("".join(pending))
-        return copied <= MAX_SAMPLE_COPY_CHARS
-    except (UnicodeError, LookupError, csv.Error):
-        with open(source, "rb") as raw, open(target, "wb") as sink:
-            sink.write(raw.read(MAX_SAMPLE_COPY_CHARS))
-        return source.stat().st_size <= MAX_SAMPLE_COPY_CHARS
 
 
 def _artifact_path(scratch: Path, result: JobResult, kind: str) -> Optional[Path]:
@@ -1135,12 +1285,22 @@ def _bad_rows_file(directory: Path, result: JobResult) -> Optional[Path]:
     return None
 
 
+def _next_step(result: JobResult) -> str:
+    if not result.succeeded:
+        return "explain_failure explains the error and shows the first rejected rows"
+    if result.counts.get("invalid_rows"):
+        return "get_bad_rows shows the rejected rows"
+    return "get_job shows this result again; the data is in the data artifacts"
+
+
 def _failure_summary(result: JobResult, rejected: Optional[Dict[str, Any]]) -> str:
     counts = result.counts
     read = counts.get("total_rows")
     rows = f" after reading {read} rows" if read is not None else ""
-    if result.error is not None:
-        text = f"The run {result.status} with {result.error.code}{rows}."
+    if result.status == "cancelled":
+        text = f"The run was cancelled{rows}."
+    elif result.error is not None:
+        text = f"The run failed with {result.error.code}{rows}."
     else:
         text = (
             f"The run succeeded: {counts.get('valid_rows', 0)} of {read or 0} rows were "

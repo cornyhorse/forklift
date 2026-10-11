@@ -7,6 +7,7 @@ The tools are plain methods; ``test_mcp_server.py`` calls them through the MCP p
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,8 +17,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from forklift.jobs import JobResult, contract
-from forklift.mcp import tools
+from forklift.jobs import JobError, JobResult, contract
+from forklift.mcp import staging, tools
 from forklift.mcp.tools import JOB_FILE, Toolbox, bounded_document, summarize_schema
 from forklift.mcp.workspace import ToolInputError, Workspace
 
@@ -91,6 +92,17 @@ def _crafted_job(directory, artifacts=(), **fields):
     return _write_json(directory / JOB_FILE, {"format": tools.JOB_FILE_FORMAT, "result": result})
 
 
+def _listed(path, kind, relative=None):
+    """An artifact record that matches ``path`` as it is now (size and SHA-256)."""
+    data = path.read_bytes()
+    return {
+        "kind": kind,
+        "path": relative or path.name,
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+
+
 def _many_rows(path, count):
     with open(path, "w", newline="") as handle:
         writer = csv.writer(handle)
@@ -150,12 +162,21 @@ class TestGetSchema:
             ],
             "columns_truncated": False,
             "required": ["id"],
+            "required_total": 1,
             "extensions": ["x-primaryKey", "x-validation"],
+            "extensions_total": 2,
+            "truncated_names": 0,
         }
         assert result["document"] == schema and result["truncated"] is False
         assert result["document_bytes"] == len(json.dumps(schema, separators=(",", ":")))
         assert result["bytes"] == (root / "schemas" / "people.json").stat().st_size
-        assert result["caps"] == {"max_bytes": 65536, "listed_columns": 500}
+        assert result["caps"] == {
+            "max_bytes": 65536,
+            "max_bytes_applies_to": "the summary's lists and the document, each",
+            "listed_columns": 500,
+            "extensions": 50,
+            "max_name_chars": 256,
+        }
 
     def test_a_large_document_is_cut_at_max_bytes(self, toolbox, root):
         schema = {"properties": {f"col_é{i}": {"type": "string"} for i in range(200)}}
@@ -169,12 +190,15 @@ class TestGetSchema:
     def test_summary_bounds_and_odd_shapes(self, monkeypatch):
         monkeypatch.setattr(tools, "MAX_LISTED_COLUMNS", 2)
         summary = summarize_schema(
-            {"title": 5, "properties": {"a": {}, "b": {}, "c": {}}, "required": ["a", "b", "c"]}
+            {"title": 5, "properties": {"a": {}, "b": {}, "c": {}}, "required": ["a", "b", "c"]},
+            65536,
         )
         assert summary["title"] is None and summary["columns_truncated"] is True
         assert [c["name"] for c in summary["columns"]] == ["a", "b"]
-        assert summary["required"] == ["a", "b"]
-        assert summarize_schema({"properties": [], "required": None})["column_count"] == 0
+        assert summary["required"] == ["a", "b"] and summary["required_total"] == 3
+        assert summarize_schema({"properties": [], "required": None}, 1024)["column_count"] == 0
+        types = summarize_schema({"properties": {"a": {"type": ["string", "null", 3]}}}, 1024)
+        assert types["columns"][0]["type"] == ["string", "null"]
 
     def test_bounded_document_fits_exactly(self):
         document = {"a": "b"}
@@ -333,6 +357,7 @@ class TestValidateSchema:
             "columns": ["id", "name", "age", "email", "_rejection_reason"],
             "columns_total": 5,
             "columns_truncated": False,
+            "truncated_names": 0,
             "rows": [
                 ["2", "Bob", "abc", "bob@example.org", "type_conversion_failed"],
                 ["3", "Cy", "200", "cy@example.org", "VALIDATION_ERROR:age"],
@@ -420,11 +445,14 @@ class TestPreview:
             ["2", "Bob", "abc", "bob@example.org"],
         ]
         assert result["truncated"] is True and result["limit"] == "rows"
+        assert result["columns_total"] == 4 and result["columns_truncated"] is False
         assert result["caps"] == {
             "rows": 2,
             "max_rows": 500,
             "max_bytes": 65536,
             "max_cell_chars": 2000,
+            "columns": 100,
+            "max_name_chars": 256,
             "warnings": 50,
         }
         assert "sheet" not in result
@@ -450,7 +478,7 @@ class TestPreview:
 
     def test_a_workbook_too_large_to_copy(self, toolbox, root, monkeypatch):
         _workbook(root / "in" / "people.xlsx", [["id"], [1]])
-        monkeypatch.setattr(tools, "MAX_EXCEL_COPY_BYTES", 100)
+        monkeypatch.setattr(staging, "MAX_EXCEL_COPY_BYTES", 100)
         with pytest.raises(ToolInputError, match="workbooks up to 100 bytes"):
             toolbox.preview("in/people.xlsx")
 
@@ -517,20 +545,18 @@ class TestPreview:
         result = toolbox.preview("in/latin.csv", input_options={"encoding": "latin-1"})
         assert result["rows"] == [["1", "René"]]
 
-    def test_rows_the_csv_module_refuses_are_copied_as_bytes(self, toolbox, monkeypatch):
-        class Refusing:
-            Error = csv.Error
-
-            @staticmethod
-            def reader(*args, **kwargs):
-                raise csv.Error("field larger than field limit (131072)")
-
-        monkeypatch.setattr(tools, "csv", Refusing)  # only the copy step, not the engine
-        result = toolbox.preview("in/people.csv")
-        assert result["row_count"] == 4 and result["input"]["sampled"] is False
+    def test_a_cell_longer_than_the_csv_field_limit_still_copies_only_the_first_rows(
+        self, toolbox, root
+    ):
+        # Review finding 11: the copy used to fall back to 256 MiB of raw bytes here
+        rows = "".join(f"{i},n{i}\n" for i in range(2, 3000))
+        (root / "in" / "long.csv").write_text("id,text\n1," + "y" * 200_000 + "\n" + rows)
+        result = toolbox.preview("in/long.csv", rows=3, schema={"properties": COLUMNS})
+        assert result["input"]["sampled"] is True and result["row_count"] == 3
+        assert result["sample"]["rows_read"] < 20
 
     def test_the_copy_stops_at_its_size_limit(self, toolbox, root, monkeypatch):
-        monkeypatch.setattr(tools, "MAX_SAMPLE_COPY_CHARS", 60)
+        monkeypatch.setattr(staging, "MAX_SAMPLE_COPY_CHARS", 60)
         result = toolbox.preview("in/people.csv")
         assert result["input"]["sampled"] is True and 1 <= result["row_count"] < 4
         (root / "in" / "latin.csv").write_bytes(b"id,name\n" + b"1,Ren\xe9\n" * 20)
@@ -552,7 +578,7 @@ class TestPreview:
         assert "'bad.xlsx' is not a valid .xlsx (zip) file" in result["error"]["message"]
 
     def test_messages_name_the_input_not_the_copy(self):
-        staged = tools._Staged("in/people.csv", "csv", {"path": "data/people.csv"})
+        staged = staging.Staged("in/people.csv", "csv", {"path": "data/people.csv"}, 1)
         assert staged.clean("in/people.csv in .forklift-job-ab_1/validate-out/x") == (
             "data/people.csv in <temporary directory>/validate-out/x"
         )
@@ -663,14 +689,19 @@ class TestRunJob:
         _crafted_job(
             out,
             [
-                {"kind": "data", "path": "../keep.txt"},
-                {"kind": "data", "path": "old.parquet"},
-                {"kind": "metadata", "path": "gone.json"},
+                _listed(root / "keep.txt", "data", "../keep.txt"),
+                _listed(out / "old.parquet", "data"),
+                {"kind": "metadata", "path": "gone.json", "bytes": 1, "sha256": "0" * 64},
             ],
         )
-        toolbox.run_job("in/people.csv", "out", overwrite=True)
+        result = toolbox.run_job("in/people.csv", "out", overwrite=True)
         assert (root / "keep.txt").read_text() == "keep"
         assert not (out / "old.parquet").exists()
+        assert result["previous_run"]["replaced"] == ["out/old.parquet"]
+        assert {item["path"]: item["reason"] for item in result["previous_run"]["left_alone"]} == {
+            "keep.txt": "it is not a file directly in output_dir (a job writes only there)",
+            "out/gone.json": "it no longer exists",
+        }
 
     def test_overwrite_into_the_root_itself(self, toolbox, root):
         result = toolbox.run_job("in/people.csv", ".", overwrite=True, dry_run=True)
@@ -700,9 +731,18 @@ class TestRunJob:
         with pytest.raises(ToolInputError, match=r"job_id"):
             toolbox.run_job("in/people.csv", "out", job_id="no spaces")
 
-    def test_a_job_the_engine_refuses_writes_no_result(self, toolbox, root):
-        with pytest.raises(ToolInputError, match=r"(?s)The job was refused: .*unknown encoding"):
+    def test_a_job_the_engine_refuses_writes_no_result(self, toolbox, root, monkeypatch):
+        with pytest.raises(ToolInputError, match="input_options.encoding: unknown encoding 'n"):
             toolbox.run_job("in/people.csv", "out", input_options={"encoding": "nope"})
+        assert not (root / "out").exists()
+        refused = JobResult(
+            job_id="x",
+            status="failed",
+            error=JobError(code="SPEC_INVALID", message="input.format: nope", retryable=False),
+        )
+        monkeypatch.setattr(tools, "run_job", lambda spec, base_dir: refused)
+        with pytest.raises(ToolInputError, match="The job was refused: input.format: nope"):
+            toolbox.run_job("in/people.csv", "out")
         assert not (root / "out").exists()
 
     def test_a_directory_being_written_is_refused(self, toolbox, root):

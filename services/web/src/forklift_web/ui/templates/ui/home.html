@@ -55,7 +55,7 @@
 
   {% if can.jobs %}
     <h2>Your recent jobs</h2>
-    {% if running %}<p>{{ running|length }} of them {{ running|length|pluralize:"is,are" }} still queued or running.</p>{% endif %}
+    {% if running %}<p>{{ running|length }} of them {{ running|length|pluralize:"is,are" }} still queued, running or publishing.</p>{% endif %}
     {% include "ui/jobs/_rows.html" with rows=recent_jobs empty="You have not started any jobs yet." %}
     <p><a href="{% url 'ui:jobs' %}?mine=on">All your jobs</a></p>
   {% endif %}

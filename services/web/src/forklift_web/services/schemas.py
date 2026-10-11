@@ -3,6 +3,8 @@
 The gateway stores schema documents and checks only their shape and size: it never interprets
 them (no expressions, no regular expressions). Checking a schema against data is a
 ``validate_schema`` job on a worker (:func:`forklift_web.services.jobs.validate_schema`).
+:func:`review_document` lists, for the editor, what saving refuses and the shape mistakes the
+engine refuses when it loads a schema, each at its place in the document.
 """
 
 from __future__ import annotations
@@ -165,3 +167,157 @@ def create_version(actor: Actor, schema_id, *, document: dict, notes: str = "") 
             actor, "schema.version.create", schema, {"version": version.number, "sha256": digest}
         )
     return version
+
+
+# --------------------------------------------------------------------------- reviewing drafts
+
+DIALECT = "https://json-schema.org/draft/2020-12/schema"
+ID_PREFIX = "https://github.com/cornyhorse/forklift/schema-standards/"
+JSON_TYPES = ("string", "integer", "number", "boolean", "array", "object", "null")
+# Keys of x-calculatedColumns whose items add columns the other extensions may refer to
+CALCULATED = ("constants", "expressions", "calculated")
+
+
+def _problem(path: list, message: str, *, blocking: bool = False) -> dict:
+    return {"path": path, "message": message, "blocking": blocking}
+
+
+def review_document(document) -> list:
+    """The problems of a draft schema document, each with its ``path`` (keys and list indexes
+    from the root) and whether saving refuses it (``blocking``).
+
+    A document saving refuses gets that one problem. Otherwise the problems are the mistakes in
+    shape the engine refuses when it loads the schema (the JSON Schema keys it needs, column
+    types, bounds, and ``required`` and key columns that name no column), so that they show
+    while the schema is written rather than when a job fails. Like saving, this never runs a
+    regular expression or an expression from the document."""
+    try:
+        check_document(document)
+    except InvalidRequest as error:
+        return [_problem([], error.message, blocking=True)]
+    problems = _root_problems(document)
+    columns = document.get("properties")
+    if not isinstance(columns, dict):
+        message = 'The engine needs "properties": an object with one entry per column.'
+        return problems + [_problem(_place(document, "properties"), message)]
+    for name, definition in columns.items():
+        problems += _column_problems(name, definition)
+    problems += _name_list(document.get("required"), ["required"], set(columns), "required")
+    if "x-columnMapping" not in document:  # mapped names are output names: not checked here
+        problems += _key_problems(document, set(columns) | _calculated_names(document))
+    return problems
+
+
+def _root_problems(document: dict) -> list:
+    schema_id = document.get("$id")
+    needs = {
+        "$schema": (
+            document.get("$schema") == DIALECT,
+            f'The engine reads JSON Schema 2020-12: "$schema": "{DIALECT}".',
+        ),
+        "$id": (
+            isinstance(schema_id, str) and schema_id.startswith(ID_PREFIX),
+            f'The engine needs an "$id" under {ID_PREFIX}, such as {ID_PREFIX}people.json.',
+        ),
+        "title": (bool(document.get("title")), 'The engine needs a "title" for the schema.'),
+        "type": (
+            document.get("type") == "object",
+            'The engine needs "type": "object" at the top level.',
+        ),
+    }
+    return [_problem(_place(document, key), text) for key, (ok, text) in needs.items() if not ok]
+
+
+def _place(document: dict, key: str) -> list:
+    """The path of ``key``, or of the document when the key is missing."""
+    return [key] if key in document else []
+
+
+def _column_problems(name: str, definition) -> list:
+    where = ["properties", name]
+    if not isinstance(definition, dict):
+        return [
+            _problem(where, f'Column {name!r} must be an object, such as {{"type": "string"}}.')
+        ]
+    if "anyOf" in definition or "oneOf" in definition:
+        return []  # a union: the engine checks its branches
+    declared = definition.get("type")
+    if declared is None:
+        return [
+            _problem(where, f'Column {name!r} has no type; give one, such as "type": "string".')
+        ]
+    types = declared if isinstance(declared, list) else [declared]
+    wrong = [item for item in types if item not in JSON_TYPES]
+    if wrong:
+        message = (
+            f"Column {name!r}: {json.dumps(wrong[0])} is not a type; use string, integer, number, "
+            'boolean, array or object, or a list such as ["string", "null"] for a nullable column.'
+        )
+        return [_problem(where + ["type"], message)]
+    if not set(types) - {"null"}:
+        message = f'Column {name!r} needs a type besides null, such as ["string", "null"].'
+        return [_problem(where + ["type"], message)]
+    problems = []
+    if {"integer", "number"} & set(types):
+        problems += _bounds(where, definition, "minimum", "maximum", whole=False)
+    if "string" in types:
+        problems += _bounds(where, definition, "minLength", "maxLength", whole=True)
+    return problems
+
+
+def _bounds(where: list, definition: dict, low: str, high: str, *, whole: bool) -> list:
+    problems, values = [], {}
+    for key in (low, high):
+        value = definition.get(key)
+        if value is None:
+            continue
+        if (isinstance(value, int) and value >= 0) if whole else isinstance(value, (int, float)):
+            values[key] = value
+        else:
+            kind = "a whole number, 0 or more" if whole else "a number"
+            problems.append(_problem(where + [key], f"{key} must be {kind}."))
+    if len(values) == 2 and values[low] > values[high]:
+        message = f"{low} ({values[low]}) is larger than {high} ({values[high]})."
+        problems.append(_problem(where + [low], message))
+    return problems
+
+
+def _name_list(value, where: list, known: set, label: str) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return [_problem(where, f"{label} must be a list of column names.")]
+    problems = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            problems.append(_problem(where + [index], f"{label} lists column names (strings)."))
+        elif item not in known:
+            message = f"{label} names {item!r}, which is not a column of this schema."
+            problems.append(_problem(where + [index], message))
+    return problems
+
+
+def _calculated_names(document: dict) -> set:
+    section = document.get("x-calculatedColumns")
+    names = set()
+    for key in CALCULATED if isinstance(section, dict) else ():
+        items = section.get(key)
+        for item in items if isinstance(items, list) else ():
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                names.add(item["name"])
+    return names
+
+
+def _key_problems(document: dict, known: set) -> list:
+    problems = []
+    primary = document.get("x-primaryKey")
+    if isinstance(primary, dict):
+        where = ["x-primaryKey", "columns"]
+        problems += _name_list(primary.get("columns"), where, known, "x-primaryKey.columns")
+    unique = document.get("x-uniqueConstraints")
+    for index, constraint in enumerate(unique if isinstance(unique, list) else ()):
+        if isinstance(constraint, dict):
+            where = ["x-uniqueConstraints", index, "columns"]
+            label = f"x-uniqueConstraints[{index}].columns"
+            problems += _name_list(constraint.get("columns"), where, known, label)
+    return problems

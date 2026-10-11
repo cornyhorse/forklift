@@ -175,6 +175,19 @@ FORKLIFT_SECRETS_KEYS = env_list("FORKLIFT_SECRETS_KEYS")
 # copy packaged with forklift_web, else the repository's contracts/ directory.
 FORKLIFT_CONTRACTS_DIR = env_optional("FORKLIFT_CONTRACTS_DIR")
 
+# --------------------------------------------------------------------------- webhooks
+#
+# Webhooks are delivered only to https:// URLs whose host resolves to public addresses
+# (forklift_web.webhook_client). FORKLIFT_WEBHOOK_ALLOWED_HOSTS names hosts that may resolve to
+# any address (receivers on an internal network); FORKLIFT_WEBHOOK_ALLOW_HTTP also allows
+# http:// URLs. FORKLIFT_PUBLIC_URL (e.g. https://forklift.example.org) is where people reach
+# the gateway: payloads link to the API under it (with paths only when it is unset).
+FORKLIFT_WEBHOOK_ALLOWED_HOSTS = [
+    host.lower().rstrip(".") for host in env_list("FORKLIFT_WEBHOOK_ALLOWED_HOSTS")
+]
+FORKLIFT_WEBHOOK_ALLOW_HTTP = env_bool("FORKLIFT_WEBHOOK_ALLOW_HTTP", False)
+FORKLIFT_PUBLIC_URL = (env_optional("FORKLIFT_PUBLIC_URL") or "").rstrip("/")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

@@ -15,7 +15,9 @@
   <ul class="stats" aria-label="At a glance">
     <li><strong>{{ online|length }}</strong> worker{{ online|length|pluralize }} online</li>
     <li><strong>{{ running|length }}</strong> job{{ running|length|pluralize }} running</li>
+    <li><strong>{{ publishing|length }}</strong> publishing</li>
     <li><strong>{{ failed_today }}</strong> failed in the last 24 hours</li>
+    <li><strong>{{ sign_in_locks }}</strong> {% if sign_in_locks %}<a href="{% url 'ui:admin-audit' %}?action=account.sign_in_locked">sign-in lock{{ sign_in_locks|pluralize }}</a>{% else %}sign-in locks{% endif %} active</li>
   </ul>
 
   <div class="grid">
@@ -50,6 +52,12 @@
 
   <h2>Running jobs</h2>
   {% include "ui/jobs/_rows.html" with rows=running admin=True empty="Nothing is running." %}
+
+  {% if publishing %}
+    <h2>Publishing</h2>
+    <p class="muted">Runs that are done and wait for the publisher to copy them to their destination.</p>
+    {% include "ui/jobs/_rows.html" with rows=publishing admin=True empty="" %}
+  {% endif %}
 
   <h2>Recently failed jobs</h2>
   {% include "ui/jobs/_rows.html" with rows=failed admin=True empty="No job has failed." %}

@@ -1,0 +1,12 @@
+{% extends "ui/base.html" %}
+{% block title %}{% if editing %}Change a schedule of {{ dataset.name }}{% else %}Schedule {{ dataset.name }}{% endif %}{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Breadcrumbs"><ol><li><a href="{% url 'ui:datasets' %}">Datasets</a></li><li><a href="{% url 'ui:dataset' dataset_id=dataset.pk %}">{{ dataset.name }}</a></li><li>{% if editing %}Change the schedule <code>{{ editing.cron }}</code>{% else %}New schedule{% endif %}</li></ol></nav>
+  <h1 id="schedule-heading">{% if editing %}Change a schedule of {{ dataset.name }}{% else %}Schedule {{ dataset.name }}{% endif %}</h1>
+  {% if editing %}<p class="lead">A changed expression, time zone or a schedule enabled again counts from now: runs that were due before do not run.</p>{% endif %}
+  {% if schedule_form %}
+    {% include "ui/schedules/_form.html" with form=schedule_form %}
+  {% else %}
+    <p>This dataset reads uploaded files, so it cannot run on a schedule: each run needs a new file. A dataset that reads from an s3 or sql connection can.</p>
+  {% endif %}
+{% endblock %}

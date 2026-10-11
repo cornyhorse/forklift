@@ -20,9 +20,11 @@ FLAGS = {
     "validate": Action.SCHEMA_VALIDATE,
     "datasets": Action.DATASET_VIEW,
     "dataset_edit": Action.DATASET_EDIT,
+    "schedules": Action.SCHEDULE_VIEW,
     "run": Action.JOB_RUN,
     "jobs": Action.JOB_VIEW,
     "tokens": Action.TOKEN_VIEW,
+    "webhooks": Action.WEBHOOK_VIEW,
     "admin": Action.WORKER_VIEW,
     "admin_users": Action.USER_VIEW,
     "admin_tokens": Action.ANY_TOKEN_VIEW,
@@ -31,6 +33,7 @@ FLAGS = {
     "admin_retention": Action.RETENTION_VIEW,
     "admin_audit": Action.AUDIT_VIEW,
     "admin_settings": Action.SETTINGS_VIEW,
+    "admin_webhooks": Action.ANY_WEBHOOK_VIEW,
 }
 
 
@@ -44,17 +47,20 @@ SECTIONS = (
     ("admin-audit", ("admin", "audit")),
     ("admin-setting", ("admin", "settings")),
     ("admin-jobs", ("admin", "jobs")),
+    ("admin-webhook", ("admin", "webhooks")),
     ("admin", ("admin", "overview")),
     ("schema", ("schemas", "")),
     ("version", ("schemas", "")),
     ("job-validation", ("schemas", "")),
     ("dataset", ("datasets", "")),
+    ("schedule", ("schedules", "")),
     ("uploads", ("uploads", "")),
     ("upload-", ("uploads", "")),
     ("upload", ("upload", "")),
     ("job", ("jobs", "")),
     ("artifact", ("jobs", "")),
     ("token", ("account", "")),
+    ("webhook", ("webhooks", "")),
     ("password", ("account", "")),
 )
 

@@ -45,7 +45,8 @@ def test_lease_heartbeat_presign_input_url_complete(worker):
         {"attempt": 1, "files": [{"name": "data.parquet", "bytes": 4}]},
     )
     [upload] = signed.json()["uploads"]
-    assert set(upload) == {"name", "key", "url", "method", "headers"}
+    assert set(upload) >= {"name", "key", "url", "method", "headers", "expires_in"}
+    assert upload["upload_id"] is None and upload["parts"] == []  # a single PUT
     put_url(upload["url"], b"PAR1")
     artifact = {
         "kind": "data",

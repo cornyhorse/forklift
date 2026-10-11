@@ -27,6 +27,7 @@ CALLERS = ("anonymous", "viewer", "operator", "author", "admin")
 EVERYONE = "302 200 200 200 200"
 OPERATORS = "302 403 200 200 200"
 AUTHORS = "302 403 403 200 200"
+OWNER = "302 403 200 403 403"  # the operator's own object
 NEW_PASSWORD = "a much better passphrase 7"
 
 
@@ -93,11 +94,33 @@ def _validation_job(world: World) -> None:
     )
 
 
-BUILDERS = {"validation_job": _validation_job}
+def _generation_job(world: World) -> None:
+    world.extra["generation"] = make_job(
+        world.operator, world.upload, kind=JobKind.GENERATE_SCHEMA
+    )
+
+
+BUILDERS = {"validation_job": _validation_job, "generation_job": _generation_job}
 
 
 def schema_id(world: World) -> dict:
     return {"schema_id": world.version.schema_id}
+
+
+def webhook_id(world: World) -> dict:
+    return {"webhook_id": world.webhook().pk}
+
+
+def webhook_data(**fields) -> dict:
+    return {
+        "name": "ci",
+        "url": "https://hooks.example.org/in",
+        "events": ["job.failed"],
+        "scope": "own_jobs",
+        "dataset": "",
+        "kinds": ["run"],
+        **fields,
+    }
 
 
 ROWS = [
@@ -126,6 +149,30 @@ ROWS = [
         "token-revoke",
         "302 403 302 403 403",
         kwargs=lambda w: {"token_id": w.tokens["operator"].pk},
+    ),
+    # the signed-in user's webhooks (the world's belongs to the operator)
+    Row("GET", "webhooks", EVERYONE),
+    Row("POST", "webhooks", EVERYONE, data=lambda w, u: webhook_data()),
+    Row("GET", "webhook", OWNER, kwargs=webhook_id),
+    Row(
+        "POST",
+        "webhook",
+        "302 403 302 403 403",
+        kwargs=webhook_id,
+        data=lambda w, u: webhook_data(name="renamed", active="on"),
+    ),
+    Row("POST", "webhook-rotate", OWNER, kwargs=webhook_id),
+    Row("POST", "webhook-test", "302 403 302 403 403", kwargs=webhook_id),
+    Row("GET", "webhook-deliveries", OWNER, kwargs=webhook_id),
+    Row("POST", "webhook-delete", "302 403 302 403 403", kwargs=webhook_id),
+    Row(
+        "POST",
+        "webhook-redeliver",
+        "302 403 302 403 403",
+        kwargs=lambda w: {
+            **webhook_id(w),
+            "delivery_id": w.webhook().deliveries.get().pk,
+        },
     ),
     # schemas
     Row("GET", "schemas", EVERYONE),
@@ -170,6 +217,25 @@ ROWS = [
         kwargs=lambda w: {"job_id": w.extra["validation"].pk},
         needs="validation_job",
     ),
+    Row(
+        "POST",
+        "schema-check",
+        "302 403 403 200 200",
+        data=lambda w, u: {"document": json.dumps(SCHEMA_DOCUMENT)},
+    ),
+    Row(
+        "POST",
+        "schema-generate",
+        "302 403 302 302 302",
+        data=lambda w, u: {"generate-upload": own_upload(w, u), "generate-format": "csv"},
+    ),
+    Row(
+        "GET",
+        "job-generation",
+        EVERYONE,
+        kwargs=lambda w: {"job_id": w.extra["generation"].pk},
+        needs="generation_job",
+    ),
     # datasets
     Row("GET", "datasets", EVERYONE),
     Row("GET", "dataset-new", AUTHORS),
@@ -195,6 +261,43 @@ ROWS = [
         "302 403 302 302 302",
         kwargs=lambda w: {"dataset_id": w.dataset.pk},
         data=lambda w, u: {"upload": own_upload(w, u), "idempotency_key": "run-1"},
+    ),
+    # schedules
+    Row(
+        "GET",
+        "schedule-new",
+        AUTHORS,
+        kwargs=lambda w: {"dataset_id": w.schedule().dataset_id},
+    ),
+    Row(
+        "POST",
+        "schedule-new",
+        "302 403 403 302 302",
+        kwargs=lambda w: {"dataset_id": w.schedule().dataset_id},
+        data=lambda w, u: {"schedule-cron": "@daily", "schedule-timezone": "UTC"},
+    ),
+    Row("GET", "schedules", EVERYONE),
+    Row("GET", "schedule-preview", EVERYONE, query="?schedule-cron=0+2+*+*+*"),
+    Row("GET", "schedule-edit", AUTHORS, kwargs=lambda w: {"schedule_id": w.schedule().pk}),
+    Row(
+        "POST",
+        "schedule-edit",
+        "302 403 403 302 302",
+        kwargs=lambda w: {"schedule_id": w.schedule().pk},
+        data=lambda w, u: {"schedule-cron": "@daily", "schedule-timezone": "UTC"},
+    ),
+    Row(
+        "POST",
+        "schedule-enable",
+        "302 403 403 302 302",
+        kwargs=lambda w: {"schedule_id": w.schedule().pk},
+        data=lambda w, u: {"enabled": "false"},
+    ),
+    Row(
+        "POST",
+        "schedule-delete",
+        "302 403 403 302 302",
+        kwargs=lambda w: {"schedule_id": w.schedule().pk},
     ),
     # uploads, jobs and downloads
     Row("GET", "upload", OPERATORS),
@@ -261,6 +364,7 @@ ROWS = [
         kwargs=lambda w: {"user_id": w.viewer.pk},
         data=lambda w, u: {"password1": NEW_PASSWORD, "password2": NEW_PASSWORD},
     ),
+    Row("POST", "admin-user-unlock", admin_only(302), kwargs=lambda w: {"user_id": w.viewer.pk}),
     Row("GET", "admin-tokens", admin_only()),
     Row(
         "POST",
@@ -366,6 +470,8 @@ ROWS = [
         kwargs=lambda w: {"key": "lease_seconds"},
     ),
     Row("GET", "admin-jobs", admin_only()),
+    Row("GET", "admin-webhooks", admin_only()),
+    Row("POST", "admin-webhook-disable", admin_only(302), kwargs=webhook_id),
 ]
 
 CASES = [(row, caller) for row in ROWS for caller in CALLERS]

@@ -11,6 +11,7 @@ permission policy, does the work and writes the audit log; it raises the errors 
 ``connections``     s3 / localfs / sql connections with write-only secrets, connection tests
 ``schemas``         schemas and immutable versions
 ``datasets``        datasets (source, schema version, destination, classification)
+``schedules``       datasets that run on a timer (cron in a time zone), the dispatcher pass
 ``uploads``         presigned (multipart) uploads, completed by HEAD
 ``jobs``            enqueue with idempotency keys, validate_schema, events, cancel
 ``artifacts``       artifacts and audited presigned downloads

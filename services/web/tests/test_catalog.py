@@ -57,6 +57,156 @@ def test_schema_document_checks(author, admin_actor):
         schemas.create_schema(author, name="taken", document={})
 
 
+REVIEWED = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/cornyhorse/forklift/schema-standards/people.json",
+    "title": "People",
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer", "minimum": 1, "maximum": 9.5},
+        "name": {"type": ["string", "null"], "minLength": 0, "maxLength": 9},
+        "flag": {"type": "boolean", "minimum": "ignored: not a number column"},
+        "either": {"anyOf": [{"type": "string"}, {"type": "integer"}]},
+    },
+    "required": ["id"],
+    "x-primaryKey": {"columns": ["id", "load_date"]},
+    "x-uniqueConstraints": ["ignored: not an object", {"columns": ["name", "full_name"]}],
+    "x-calculatedColumns": {
+        "constants": [{"name": "load_date"}, "ignored"],
+        "expressions": [{"name": "full_name"}, {"name": 5}],
+        "calculated": "ignored: not a list",
+    },
+}
+
+
+def reviewed(**changes) -> list:
+    document = {**REVIEWED, **changes}
+    return [
+        (problem["path"], problem["message"], problem["blocking"])
+        for problem in schemas.review_document({k: v for k, v in document.items() if v != ...})
+    ]
+
+
+def test_a_draft_saving_refuses_has_that_one_problem(admin_actor):
+    assert schemas.review_document([1]) == [
+        {"path": [], "message": "A schema document must be a JSON object.", "blocking": True}
+    ]
+    installation.update(admin_actor, {"schema_max_bytes": 1024})
+    [(path, message, blocking)] = reviewed(description="x" * 2000)
+    assert (path, blocking) == ([], True) and "accepts at most 1024" in message
+
+
+def test_a_draft_the_engine_would_load_has_no_problems():
+    assert reviewed() == []
+    # Mapped names are output names, which the gateway does not work out: not checked
+    assert reviewed(**{"x-primaryKey": {"columns": ["Name"]}, "x-columnMapping": {}}) == []
+    assert reviewed(**{"x-primaryKey": ["not", "an", "object"], "x-uniqueConstraints": {}}) == []
+    no_calculated = {"x-calculatedColumns": "?", "x-primaryKey": ..., "x-uniqueConstraints": ...}
+    assert reviewed(**no_calculated) == []
+
+
+def test_the_review_names_the_keys_the_engine_needs():
+    missing = reviewed(
+        **{"$schema": ..., "$id": ..., "title": ..., "type": ..., "properties": ...}
+    )
+    assert [path for path, _, _ in missing] == [[], [], [], [], []]
+    assert [message for _, message, _ in missing] == [
+        'The engine reads JSON Schema 2020-12: "$schema": '
+        '"https://json-schema.org/draft/2020-12/schema".',
+        'The engine needs an "$id" under https://github.com/cornyhorse/forklift/schema-standards/'
+        ", such as https://github.com/cornyhorse/forklift/schema-standards/people.json.",
+        'The engine needs a "title" for the schema.',
+        'The engine needs "type": "object" at the top level.',
+        'The engine needs "properties": an object with one entry per column.',
+    ]
+    wrong = reviewed(
+        **{"$schema": "draft-07", "$id": 7, "title": "", "type": "array", "properties": []}
+    )
+    assert [path for path, _, blocking in wrong if not blocking] == [
+        ["$schema"],
+        ["$id"],
+        ["title"],
+        ["type"],
+        ["properties"],
+    ]
+    assert reviewed(**{"$id": "https://example.org/people.json"})[0][0] == ["$id"]
+
+
+NOT_A_TYPE = (
+    " is not a type; use string, integer, number, boolean, array or object, or a list such as "
+    '["string", "null"] for a nullable column.'
+)
+
+
+def test_the_review_checks_each_column_where_it_is():
+    columns = {
+        "text": "string",
+        "untyped": {"description": "no type"},
+        "typo": {"type": "strin"},
+        "odd": {"type": [{"type": "string"}]},
+        "nothing": {"type": ["null"]},
+        "low": {"type": "integer", "minimum": "1", "maximum": 5},
+        "upside": {"type": "number", "minimum": 5, "maximum": 1.5},
+        "lengths": {"type": "string", "minLength": -1, "maxLength": 2.0},
+        "short": {"type": "string", "minLength": 5, "maxLength": 2},
+    }
+    problems = reviewed(
+        properties=columns, required=[], **{"x-primaryKey": ..., "x-uniqueConstraints": ...}
+    )
+    assert [(path, message) for path, message, _ in problems] == [
+        (["properties", "text"], 'Column \'text\' must be an object, such as {"type": "string"}.'),
+        (
+            ["properties", "untyped"],
+            'Column \'untyped\' has no type; give one, such as "type": "string".',
+        ),
+        (["properties", "typo", "type"], "Column 'typo': \"strin\"" + NOT_A_TYPE),
+        (["properties", "odd", "type"], 'Column \'odd\': {"type": "string"}' + NOT_A_TYPE),
+        (
+            ["properties", "nothing", "type"],
+            'Column \'nothing\' needs a type besides null, such as ["string", "null"].',
+        ),
+        (["properties", "low", "minimum"], "minimum must be a number."),
+        (["properties", "upside", "minimum"], "minimum (5) is larger than maximum (1.5)."),
+        (["properties", "lengths", "minLength"], "minLength must be a whole number, 0 or more."),
+        (["properties", "lengths", "maxLength"], "maxLength must be a whole number, 0 or more."),
+        (["properties", "short", "minLength"], "minLength (5) is larger than maxLength (2)."),
+    ]
+    assert {blocking for _, _, blocking in problems} == {False}  # saving still takes it
+
+
+def test_the_review_checks_the_column_names_lists_refer_to():
+    assert reviewed(required="id") == [
+        (["required"], "required must be a list of column names.", False)
+    ]
+    assert reviewed(required=["id", 3, "nmae"]) == [
+        (["required", 1], "required lists column names (strings).", False),
+        (["required", 2], "required names 'nmae', which is not a column of this schema.", False),
+    ]
+    keys = reviewed(
+        **{
+            "x-primaryKey": {"columns": ["idd"]},
+            "x-uniqueConstraints": [{"columns": "name"}, {"columns": ["name", "nme"]}],
+        }
+    )
+    assert keys == [
+        (
+            ["x-primaryKey", "columns", 0],
+            "x-primaryKey.columns names 'idd', which is not a column of this schema.",
+            False,
+        ),
+        (
+            ["x-uniqueConstraints", 0, "columns"],
+            "x-uniqueConstraints[0].columns must be a list of column names.",
+            False,
+        ),
+        (
+            ["x-uniqueConstraints", 1, "columns", 1],
+            "x-uniqueConstraints[1].columns names 'nme', which is not a column of this schema.",
+            False,
+        ),
+    ]
+
+
 def test_rename_and_describe(author):
     schema = schemas.create_schema(author, name="a", document={})
     schemas.create_schema(author, name="b", document={})

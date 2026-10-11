@@ -887,6 +887,13 @@ results = forklift.import_csv(
 
 A CSV input can be a presigned URL for one object, read as a forward-only HTTP stream without a local copy: `{"type": "presigned_url", "url": "...", "size": 53687091200, "etag": "..."}`. Header detection reads the start in small range requests, a dropped connection resumes where it stopped, and the object must not change in between (`If-Match`). Only hosts passed as `allowed_url_hosts` (or `--allow-url-host`) are contacted, and redirects to other hosts are refused. Footer detection works on streamed inputs too.
 
+A URL that expires during a long job can be replaced: `run_job(..., refresh_input_url=callback)` calls `callback()` for a fresh presigned URL for the same object when the URL is about to expire (SigV4 URLs say when) or the store refused it (HTTP 403, or 400 `ExpiredToken` once temporary credentials have ended). The fresh URL must have the same scheme, host, port and path; without one the job fails with `PERMISSION_DENIED`.
+
+```python
+result = forklift.run_job(spec, base_dir="/scratch/job", allowed_url_hosts=["s3.example.org"],
+                          refresh_input_url=lambda: sign_again("uploads/big.csv"))
+```
+
 ### From the Command Line
 
 ```bash
@@ -894,3 +901,5 @@ forklift run-job spec.json --base-dir /data/jobs/sales --result result.json --pr
 ```
 
 The exit code is 0 when the job succeeded, 1 when it failed or was cancelled and 2 when the spec is invalid; the result is written to `--result` in every case. Logs go to stderr, and with `--progress-jsonl` stdout carries one JSON line per progress event. SIGTERM cancels the job at its next batch.
+
+With `--input-url-requests` the job asks for fresh URLs for a streamed input over its pipes: it writes `{"type": "input_url"}` on stdout and reads one line from stdin, `{"url": "..."}` or `{"error": "..."}`, within `--input-url-timeout` seconds (default 120). This is how the service's worker hands the engine fresh URLs; stdin is not read without the flag.

@@ -10,7 +10,13 @@
   the whole object;
 * only hosts in ``allowed_hosts`` are contacted, a redirect to another host is refused, and the
   URL (whose query string is a signature) never appears in messages or metadata:
-  :attr:`PresignedUrlSource.name` is the URL without its query string.
+  :attr:`PresignedUrlSource.name` is the URL without its query string;
+* with a ``refresh`` callable, a URL that is about to expire is replaced before the next request
+  (SigV4 URLs say when: ``X-Amz-Date`` plus ``X-Amz-Expires``), and a request the store refuses
+  with HTTP 403 (an expired or invalid signature), or with HTTP 400 ``ExpiredToken`` (the
+  temporary credentials the URL was signed with have ended), is sent once more with a fresh URL.
+  A fresh URL must name the same object (scheme, host, port and path); the ETag pin keeps
+  guaranteeing that the bytes are the same.
 
 Proxies configured in the environment (``HTTPS_PROXY``, ``NO_PROXY``) are honoured, so an
 allow-listing egress proxy works as the design describes.
@@ -20,20 +26,31 @@ from __future__ import annotations
 
 import http.client
 import io
+import logging
 import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, BinaryIO, Callable, Iterable, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, BinaryIO, Callable, Iterable, List, Optional, Tuple
 
 from ..engine.exceptions import INPUT_UNREADABLE, PERMISSION_DENIED, SPEC_INVALID
 from ..engine.input_source import InputSource
 
+logger = logging.getLogger(__name__)
+
 #: Bytes per range request while the header is detected
 HEAD_CHUNK_BYTES = 64 * 1024
+#: A URL is replaced this many seconds before it expires (or after half its lifetime, if sooner)
+REFRESH_MARGIN_SECONDS = 300.0
+#: Fresh URLs one input may ask for, before requests and after refusals together
+MAX_REFRESHES = 100
 
 _CONTENT_RANGE = re.compile(r"^bytes (\d+)-(\d+)/(\d+|\*)$")
+# S3's answer (HTTP 400) to a URL signed with temporary credentials that have ended
+_EXPIRED_TOKEN = re.compile(rb"<Code>\s*(ExpiredToken|TokenRefreshRequired)\s*</Code>")
+_ERROR_BODY_BYTES = 4096
 # Errors that mean "the connection is gone"; the read resumes from where it was
 _DROPPED = (OSError, http.client.HTTPException)
 
@@ -48,6 +65,45 @@ class RemoteInputError(Exception):
         super().__init__(message)
         self.error_code = code
         self.retryable = retryable
+
+
+class _NoFreshUrl(RemoteInputError):
+    """``refresh`` gave no URL; ``reason`` says why."""
+
+    def __init__(self, reason: str, retryable: bool = False):
+        super().__init__(
+            f"The input URL expired and a fresh one could not be obtained: {reason}",
+            PERMISSION_DENIED,
+            retryable,
+        )
+        self.reason = reason
+
+
+def url_expiry(url: str) -> Optional[Tuple[float, float]]:
+    """``(expires_at, lifetime)`` of a SigV4 presigned URL, in seconds (``expires_at`` since the
+    epoch), from its ``X-Amz-Date`` and ``X-Amz-Expires``; None when the URL does not say."""
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+    date, expires = query.get("X-Amz-Date", [""])[0], query.get("X-Amz-Expires", [""])[0]
+    try:
+        signed = datetime.strptime(date, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    if not expires.isdigit():
+        return None
+    return signed.timestamp() + int(expires), float(expires)
+
+
+def _url_refused(error: urllib.error.HTTPError) -> bool:
+    """HTTP 403, or S3's HTTP 400 ``ExpiredToken``: refusals that a fresh URL may get past."""
+    if error.code == 403:
+        return True
+    if error.code != 400:
+        return False
+    try:
+        body = error.read(_ERROR_BODY_BYTES)
+    except _DROPPED:
+        return False
+    return _EXPIRED_TOKEN.search(body) is not None
 
 
 def redact_url(url: str) -> str:
@@ -71,6 +127,11 @@ def _host_and_port(scheme: str, netloc: str) -> Tuple[str, int]:
     parts = urllib.parse.urlsplit(f"{scheme}://{netloc}")
     default = 443 if scheme == "https" else 80
     return (parts.hostname or "").lower(), parts.port or default
+
+
+def _object_of(parts: urllib.parse.SplitResult) -> Tuple[str, Tuple[str, int], str]:
+    """What names the object a URL opens: scheme, host and port, and path."""
+    return parts.scheme, _host_and_port(parts.scheme, parts.netloc), parts.path
 
 
 def check_url(url: str, allowed_hosts: Iterable[str]) -> urllib.parse.SplitResult:
@@ -142,6 +203,12 @@ class PresignedUrlSource(InputSource):
         sleep: Waits between retries (tests pass a function that does not wait)
         opener: ``urllib`` opener to use (tests); by default one that honours the proxy
             environment and refuses redirects to other hosts
+        refresh: Returns a fresh presigned URL for the same object; called when the URL is
+            about to expire or was refused (see the module docstring). None: never replaced
+        refresh_margin: Seconds before expiry from which the URL is replaced (at most half its
+            lifetime, so that a fresh URL is not replaced at once)
+        max_refreshes: Fresh URLs to ask for at most (at most one per request in any case)
+        clock: Seconds since the epoch, compared with the URL's expiry (tests replace it)
 
     Raises:
         RemoteInputError: The URL is not allowed (code ``SPEC_INVALID``)
@@ -159,9 +226,15 @@ class PresignedUrlSource(InputSource):
         retry_delay: float = 0.5,
         sleep: Callable[[float], None] = time.sleep,
         opener: Optional[urllib.request.OpenerDirector] = None,
+        refresh: Optional[Callable[[], str]] = None,
+        refresh_margin: float = REFRESH_MARGIN_SECONDS,
+        max_refreshes: int = MAX_REFRESHES,
+        clock: Callable[[], float] = time.time,
     ):
         parts = check_url(url, allowed_hosts)
         self._url = url
+        self._urls = [url]
+        self._object = _object_of(parts)
         self.host = parts.hostname
         self.name = redact_url(url)
         self.size = size
@@ -173,6 +246,11 @@ class PresignedUrlSource(InputSource):
         self._opener = opener or urllib.request.build_opener(
             _SameHostRedirects(parts.scheme, parts.netloc)
         )
+        self._refresh = refresh
+        self.refresh_margin = refresh_margin
+        self.max_refreshes = max_refreshes
+        self.refreshes = 0
+        self._clock = clock
 
     def __repr__(self) -> str:
         return f"PresignedUrlSource({self.name!r})"
@@ -197,19 +275,27 @@ class PresignedUrlSource(InputSource):
             after ``start`` (the object is shorter)
 
         Raises:
-            RemoteInputError: For a refused, missing, changed or unrangeable object
+            RemoteInputError: For a refused, missing, changed or unrangeable object, or a URL
+                that expired and could not be replaced
             OSError: The server could not be reached (the caller retries)
         """
         headers = {"Range": f"bytes={start}-{'' if end is None else end}"}
         headers["Accept-Encoding"] = "identity"
         if self.etag:
             headers["If-Match"] = self.etag
-        request = urllib.request.Request(self._url, headers=headers, method="GET")
-        try:
-            response = self._opener.open(request, timeout=self.timeout)
-        except urllib.error.HTTPError as error:
-            error.close()
-            return self._refused(error.code, start)
+        fresh = self._refresh_if_expiring()
+        while True:
+            request = urllib.request.Request(self._url, headers=headers, method="GET")
+            try:
+                response = self._opener.open(request, timeout=self.timeout)
+                break
+            except urllib.error.HTTPError as error:
+                url_refused = _url_refused(error)
+                error.close()
+                if not url_refused or self._refresh is None or fresh:
+                    return self._refused(error.code, start, url_refused, fresh)
+                self._use(self._fresh_url())
+                fresh = True  # at most one fresh URL per request
         status = response.status
         if status == 200 and start > 0:
             response.close()
@@ -221,7 +307,7 @@ class PresignedUrlSource(InputSource):
         self._learn(response, start)
         return response
 
-    def _refused(self, status: int, start: int) -> None:
+    def _refused(self, status: int, start: int, url_refused: bool, fresh: bool) -> None:
         if status == 416:
             # Nothing at or after ``start``: the end of the object (or an empty object)
             if self.size is None and start == 0:
@@ -232,10 +318,12 @@ class PresignedUrlSource(InputSource):
                 f"The input changed while it was being read (HTTP 412 from {self.host!r}: its "
                 "ETag no longer matches); run the job again on the new object"
             )
-        if status in (401, 403):
+        if status == 401 or url_refused:
+            again = " although it had just been refreshed" if fresh else ""
             raise RemoteInputError(
-                f"The object store at {self.host!r} refused the presigned URL (HTTP {status}); "
-                "it may have expired or have been signed for another object",
+                f"The object store at {self.host!r} refused the presigned URL (HTTP {status})"
+                f"{again}; it may have expired or have been signed for another object or with "
+                "credentials that have ended",
                 PERMISSION_DENIED,
             )
         if status == 404:
@@ -275,6 +363,63 @@ class PresignedUrlSource(InputSource):
 
     def wait_before_retry(self, attempt: int) -> None:
         self._sleep(self.retry_delay * (2 ** (attempt - 1)))
+
+    # ------------------------------------------------------------------ fresh URLs
+
+    def secrets(self) -> List[str]:
+        """Every URL this source was given, and their query strings: none may be shown."""
+        return [part for url in self._urls for part in (url, urllib.parse.urlsplit(url).query)]
+
+    def _refresh_if_expiring(self) -> bool:
+        """Replace the URL if it expires soon; True when it was replaced."""
+        if self._refresh is None or self.refreshes >= self.max_refreshes:
+            return False
+        expiry = url_expiry(self._url)
+        if expiry is None or self._clock() < expiry[0] - min(self.refresh_margin, expiry[1] / 2):
+            return False
+        try:
+            self._use(self._fresh_url())
+        except _NoFreshUrl as error:
+            # It has not expired yet (or the store will say so): go on with it
+            logger.warning(
+                "The input URL expires soon and a fresh one could not be obtained (%s); the "
+                "current one is used until the store refuses it",
+                error.reason,
+            )
+            return False
+        return True
+
+    def _fresh_url(self) -> str:
+        """A fresh URL from ``refresh``; _NoFreshUrl when there is none."""
+        if self.refreshes >= self.max_refreshes:
+            raise _NoFreshUrl(
+                f"the limit of {self.max_refreshes} fresh URLs for one input was reached"
+            )
+        self.refreshes += 1
+        try:
+            url = self._refresh()
+        except Exception as error:
+            reason = str(error) or type(error).__name__
+            raise _NoFreshUrl(reason, bool(getattr(error, "retryable", False))) from None
+        if not isinstance(url, str):
+            raise _NoFreshUrl(f"the refresh callback returned {type(url).__name__}, not a URL")
+        self._urls.append(url)
+        return url
+
+    def _use(self, url: str) -> None:
+        """Read from ``url`` from now on; it must name the same object as the job's URL."""
+        try:
+            parts = urllib.parse.urlsplit(url)
+            same = _object_of(parts) == self._object
+        except ValueError:  # a port that is not a number
+            same = False
+        if not same or parts.username is not None or parts.password is not None:
+            raise RemoteInputError(
+                f"The fresh input URL does not name the job's input ({self.name!r}): a fresh "
+                "URL must keep the scheme, host, port and path and carry no user information, "
+                "so it was not used"
+            )
+        self._url = url
 
 
 class _ResumingStream(io.RawIOBase):

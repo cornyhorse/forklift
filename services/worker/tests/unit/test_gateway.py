@@ -172,3 +172,76 @@ def test_presign_defaults(gateway, client):
     gateway.fail("presign", answer({"uploads": [upload]}))
     target = client.presign("j", 1, [{"name": "a", "bytes": 1}])["a"]
     assert target.method == "PUT" and target.headers == {}
+
+
+def _multipart(**overrides):
+    upload = {
+        "name": "a",
+        "key": "k",
+        "url": None,
+        "upload_id": "u-1",
+        "part_size": 4,
+        "part_count": 3,
+        "parts": [{"part_number": 1, "url": "http://store/k?partNumber=1"}],
+        "expires_in": 60,
+    }
+    upload.update(overrides)
+    return upload
+
+
+def test_presign_asks_for_multipart_uploads_and_reads_them(gateway, client):
+    gateway.fail("presign", answer({"uploads": [_multipart(), _upload(name="b", expires_in=30)]}))
+    targets = client.presign("j", 1, [{"name": "a", "bytes": 10}, {"name": "b", "bytes": 1}])
+    assert gateway.calls("presign")[0]["body"]["multipart"] is True
+    multipart = targets["a"]
+    assert (multipart.key, multipart.upload_id, multipart.part_size, multipart.part_count) == (
+        "k",
+        "u-1",
+        4,
+        3,
+    )
+    assert multipart.parts.urls == {1: "http://store/k?partNumber=1"}
+    assert multipart.parts.expires_in == 60.0
+    assert targets["b"].expires_in == 30.0 and targets["b"].received_at > 0
+
+
+@pytest.mark.parametrize(
+    "upload, phrase",
+    [
+        (_multipart(upload_id=""), "lacks name, key or upload_id"),
+        (_multipart(key=None), "lacks name, key or upload_id"),
+        (_multipart(part_size=0), "part_size or part_count is not positive"),
+        (_multipart(part_count=True), "part_size or part_count is not positive"),
+        (_multipart(parts={}), "parts is not a list"),
+        (_multipart(parts=["x"]), "a part lacks part_number or url"),
+        (_multipart(parts=[{"part_number": 0, "url": "u"}]), "a part lacks part_number or url"),
+        (_multipart(parts=[{"part_number": 1, "url": ""}]), "a part lacks part_number or url"),
+        (_multipart(expires_in=0), "expires_in is not a positive number"),
+        (_upload(expires_in="soon"), "expires_in is not a positive number"),
+    ],
+)
+def test_a_malformed_multipart_presign_reply(gateway, client, upload, phrase):
+    gateway.fail("presign", answer({"uploads": [upload]}))
+    with pytest.raises(GatewayRejected, match=phrase):
+        client.presign("j", 1, [{"name": "a", "bytes": 10}])
+
+
+def test_part_urls(gateway, client):
+    gateway.enqueue(job_id="j")
+    client.lease()
+    gateway.url_seconds = 120
+    parts = client.part_urls("j", 1, "data.parquet", "u-1", [2, 3])
+    assert gateway.calls("parts")[0]["body"] == {
+        "attempt": 1,
+        "name": "data.parquet",
+        "upload_id": "u-1",
+        "part_numbers": [2, 3],
+    }
+    assert sorted(parts.urls) == [2, 3] and parts.expires_in == 120.0
+    assert "partNumber=3&uploadId=u-1" in parts.urls[3]
+    gateway.fail("parts", answer({"parts": [{"part_number": 2, "url": "u"}]}))
+    with pytest.raises(GatewayRejected, match="no URL for part 3"):
+        client.part_urls("j", 1, "data.parquet", "u-1", [2, 3])
+    gateway.fail("parts", 409)
+    with pytest.raises(LeaseLost):
+        client.part_urls("j", 1, "data.parquet", "u-1", [2])

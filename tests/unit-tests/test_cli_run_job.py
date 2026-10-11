@@ -1,5 +1,5 @@
 """``forklift run-job``: exit codes, the result file, progress lines on stdout, logs on stderr,
-and SIGTERM cancelling the job."""
+input URL requests on stdout answered on stdin, and SIGTERM cancelling the job."""
 
 from __future__ import annotations
 
@@ -128,6 +128,31 @@ class TestRunJob:
         assert _main(job, "--allow-url-host", "store:9000", "--allow-url-host", "s2") == 0
         assert seen["allowed_url_hosts"] == ["store:9000", "s2"]
         assert seen["progress"] is None and seen["cancel"]() is False
+        assert seen["refresh_input_url"] is None  # stdin is left alone
+
+    def test_input_url_requests_are_asked_on_stdout_and_answered_on_stdin(
+        self, job, monkeypatch, capsys
+    ):
+        read_end, write_end = os.pipe()
+        os.write(write_end, b'{"url": "https://store/bucket/big.csv?X-Amz-Signature=s"}\n')
+        fresh = []
+
+        def fake(document, **kwargs):
+            fresh.append(kwargs["refresh_input_url"]())
+            return real_run_job(document, **kwargs)
+
+        monkeypatch.setattr(forklift.jobs, "run_job", fake)
+        with os.fdopen(read_end, "rb", buffering=0) as stdin:
+            monkeypatch.setattr("sys.stdin", stdin)
+            assert _main(job, "--input-url-requests", "--input-url-timeout", "5") == 0
+        os.close(write_end)
+        assert fresh == ["https://store/bucket/big.csv?X-Amz-Signature=s"]
+        assert capsys.readouterr().out.splitlines() == ['{"type":"input_url"}']
+
+    @pytest.mark.parametrize("value", ["0", "-1", "soon", "inf"])
+    def test_the_input_url_timeout_must_be_a_positive_number(self, job, value, capsys):
+        assert _main(job, "--input-url-timeout", value) == 2
+        assert f"{value!r} is not a positive number of seconds" in capsys.readouterr().err
 
     def test_sigterm_cancels_the_job(self, job, monkeypatch, capsys):
         before = signal.getsignal(signal.SIGTERM)

@@ -38,6 +38,7 @@ UPLOAD = "gateway:upload"
 OBJECT = "gateway:object"
 SQL = "gateway:sql"
 SQL_TABLE = "gateway:sql_table"
+STORE_INPUTS = (UPLOAD, OBJECT)  # rendered as presigned_url locations
 
 
 class SpecUnavailable(Exception):
@@ -156,6 +157,12 @@ def _input(location: dict, spec: dict, settings: dict, *, dry_run: bool) -> dict
         return {"type": "presigned_url", "url": url, "size": info.size, "etag": info.etag or None}
     connection = _connection(location["connection_id"])
     return {"type": "sql", "connection_string": _connection_string(connection, dry_run=dry_run)}
+
+
+def input_location(job: Job, settings: dict) -> dict:
+    """The job's input location as :func:`render` makes it, alone: for an input in a store, a
+    URL signed again, valid for as long as one signed at lease time."""
+    return _input(job.spec["input"]["location"], job.spec, settings, dry_run=False)
 
 
 def _output(location: dict, *, dry_run: bool) -> dict:

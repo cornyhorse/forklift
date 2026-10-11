@@ -26,6 +26,7 @@
             {% if can.uploads %}<li><a href="{% url 'ui:uploads' %}"{% if nav.main == "uploads" %} aria-current="page"{% endif %}>Files</a></li>{% endif %}
             {% if can.schemas %}<li><a href="{% url 'ui:schemas' %}"{% if nav.main == "schemas" %} aria-current="page"{% endif %}>Schemas</a></li>{% endif %}
             {% if can.datasets %}<li><a href="{% url 'ui:datasets' %}"{% if nav.main == "datasets" %} aria-current="page"{% endif %}>Datasets</a></li>{% endif %}
+            {% if can.schedules %}<li><a href="{% url 'ui:schedules' %}"{% if nav.main == "schedules" %} aria-current="page"{% endif %}>Schedules</a></li>{% endif %}
             {% if can.jobs %}<li><a href="{% url 'ui:jobs' %}"{% if nav.main == "jobs" %} aria-current="page"{% endif %}>Jobs</a></li>{% endif %}
             {% if can.admin %}<li><a href="{% url 'ui:admin' %}"{% if nav.main == "admin" %} aria-current="page"{% endif %}>Admin</a></li>{% endif %}
           </ul>
@@ -33,6 +34,7 @@
         <div class="account">
           <span>{{ user.username }} <span class="badge">{{ user.get_role_display }}</span></span>
           {% if can.tokens %}<a href="{% url 'ui:tokens' %}"{% if nav.main == "account" %} aria-current="page"{% endif %}>API tokens</a>{% endif %}
+          {% if can.webhooks %}<a href="{% url 'ui:webhooks' %}"{% if nav.main == "webhooks" %} aria-current="page"{% endif %}>Webhooks</a>{% endif %}
           {% if not user.is_service_account %}<a href="{% url 'ui:password' %}">Password</a>{% endif %}
           <form method="post" action="{% url 'forklift-logout' %}">
             {% csrf_token %}

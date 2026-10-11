@@ -70,7 +70,9 @@ def _key_name(filename: str) -> str:
     return _KEY_UNSAFE.sub("_", filename).strip("._") or "upload"
 
 
-def _part_size(size: int, settings: dict) -> int:
+def part_size(size: int, settings: dict) -> int:
+    """Bytes per part of a multipart upload of ``size`` bytes: at least multipart_part_bytes, as
+    much as stays within MAX_PARTS parts, in whole MiB."""
     part = max(settings["multipart_part_bytes"], math.ceil(size / MAX_PARTS))
     return math.ceil(part / installation.MIB) * installation.MIB
 
@@ -135,7 +137,7 @@ def create_upload(
     bucket = storage.store()
     ticket = UploadTicket(upload=upload, expires_at=upload.expires_at)
     if size > settings["multipart_threshold_bytes"]:
-        upload.part_size = _part_size(size, settings)
+        upload.part_size = part_size(size, settings)
         upload.multipart_upload_id = bucket.create_multipart(upload.key)
         upload.save()
         ticket.part_size = upload.part_size

@@ -1,5 +1,6 @@
-"""Health checks. The HTML user interface is forklift_web.ui; sign-in and sign-out are
-Django's views with the templates in ui/templates/registration."""
+"""Health checks. The HTML user interface is forklift_web.ui; sign-in (Django's view with the
+sign-in throttle, ui.views.account.SignInView) and sign-out (Django's) use the templates in
+ui/templates/registration."""
 
 from __future__ import annotations
 

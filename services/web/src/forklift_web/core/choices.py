@@ -67,12 +67,18 @@ class Lane(models.TextChoices):
 class JobStatus(models.TextChoices):
     QUEUED = "queued", "Queued"
     RUNNING = "running", "Running"
+    # The worker is done; the outputs are being copied to the dataset's s3 destination
+    # (services.publishing). Not terminal: the publisher ends it succeeded or failed.
+    PUBLISHING = "publishing", "Publishing"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
     CANCELLED = "cancelled", "Cancelled"
 
 
 TERMINAL_STATUSES = {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}
+# Still in progress (a run that is publishing is not done yet), and what a cancellation stops
+ACTIVE_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PUBLISHING}
+CANCELLABLE_STATUSES = {JobStatus.QUEUED, JobStatus.RUNNING}
 
 
 class EventType(models.TextChoices):
@@ -102,6 +108,13 @@ class UploadStatus(models.TextChoices):
     DELETED = "deleted", "Deleted"
 
 
+class SignInThrottleKind(models.TextChoices):
+    """What failed sign-ins are counted by: the normalised username, or the client address."""
+
+    USER = "user", "Username"
+    IP = "ip", "Client address"
+
+
 class RetentionScope(models.TextChoices):
     INSTALLATION = "installation", "Installation"
     CLASSIFICATION = "classification", "Classification"
@@ -128,3 +141,50 @@ ARTIFACT_RETENTION_KIND = {
     ArtifactKind.SCHEMA: RetentionKind.METADATA,
     ArtifactKind.REPORT: RetentionKind.METADATA,
 }
+
+
+class ScheduleOutcome(models.TextChoices):
+    """What the dispatcher did with a schedule's last slot."""
+
+    QUEUED = "queued", "Queued a run"
+    SKIPPED_OVERLAP = "skipped_overlap", "Skipped: the previous run had not finished"
+    MISSED = "missed", "Missed: too late to catch up"
+    FAILED_TO_ENQUEUE = "failed_to_enqueue", "Could not queue a run"
+
+
+class WebhookEvent(models.TextChoices):
+    """What a webhook delivery reports; ``webhook.test`` only answers a test request."""
+
+    JOB_SUCCEEDED = "job.succeeded", "Job succeeded"
+    JOB_FAILED = "job.failed", "Job failed"
+    JOB_CANCELLED = "job.cancelled", "Job cancelled"
+    TEST = "webhook.test", "Test"
+
+
+JOB_EVENTS = [WebhookEvent.JOB_SUCCEEDED, WebhookEvent.JOB_FAILED, WebhookEvent.JOB_CANCELLED]
+EVENT_OF_STATUS = {
+    JobStatus.SUCCEEDED: WebhookEvent.JOB_SUCCEEDED,
+    JobStatus.FAILED: WebhookEvent.JOB_FAILED,
+    JobStatus.CANCELLED: WebhookEvent.JOB_CANCELLED,
+}
+
+
+class WebhookScope(models.TextChoices):
+    """Which jobs a webhook hears about."""
+
+    DATASET = "dataset", "Every job of one dataset"
+    OWN_JOBS = "own_jobs", "Jobs I requested (also through my API tokens)"
+    ALL_JOBS = "all_jobs", "Every job (admins)"
+
+
+class WebhookDisabledReason(models.TextChoices):
+    OWNER = "owner", "Disabled by its owner"
+    ADMIN = "admin", "Disabled by an admin"
+    FAILURES = "failures", "Disabled after repeated failed deliveries"
+
+
+class DeliveryStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    DELIVERED = "delivered", "Delivered"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"

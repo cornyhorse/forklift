@@ -32,7 +32,15 @@ from forklift_web.core.choices import (
 from forklift_web.core.models import Dataset, Job, JobEvent
 from forklift_web.errors import Conflict, InvalidRequest, NotFound
 from forklift_web.policy import Action, Actor, check
-from forklift_web.services import audit, datasets, installation, schemas, specs, uploads
+from forklift_web.services import (
+    audit,
+    datasets,
+    installation,
+    schemas,
+    specs,
+    uploads,
+    webhooks,
+)
 
 INTERACTIVE_KINDS = {JobKind.PREVIEW, JobKind.VALIDATE_SCHEMA, JobKind.GENERATE_SCHEMA}
 NEEDS_SCHEMA = {JobKind.RUN, JobKind.VALIDATE_SCHEMA}
@@ -140,7 +148,7 @@ def _plan_dataset(actor: Actor, request: JobRequest) -> _Plan:
         location, size = {"type": specs.OBJECT, "connection_id": str(source.id), "key": key}, None
     output = None
     destination = dataset.destination_connection
-    # An s3 destination is published after a successful run (queue.complete); a table is
+    # An s3 destination is published after a successful run (services.publishing); a table is
     # written by the engine, so only runs carry it in their spec.
     if (
         request.kind == JobKind.RUN
@@ -245,10 +253,17 @@ def _check_input_size(plan: _Plan, limits: dict, settings: dict) -> None:
         )
 
 
-def create_job(actor: Actor, request: JobRequest, *, idempotency_key: str = "") -> tuple:
+def create_job(
+    actor: Actor,
+    request: JobRequest,
+    *,
+    idempotency_key: str = "",
+    schedule=None,
+    scheduled_for=None,
+) -> tuple:
     """Enqueue a job; returns (job, created). With an ``idempotency_key`` already used by this
     user for the same request, returns the existing job and False; for a different request,
-    raises Conflict."""
+    raises Conflict. ``schedule`` and ``scheduled_for`` (the slot) mark a scheduled run."""
     if request.kind not in JobKind.values:
         raise InvalidRequest(
             f"Unknown job kind {request.kind!r}; kinds: {', '.join(JobKind.values)}."
@@ -286,6 +301,8 @@ def create_job(actor: Actor, request: JobRequest, *, idempotency_key: str = "") 
         schema_version=plan.schema_version,
         requested_by=actor.user,
         requested_with_token=actor.token,
+        schedule=schedule,
+        scheduled_for=scheduled_for,
         idempotency_key=idempotency_key,
         request_fingerprint=fingerprint,
         max_attempts=settings["max_attempts"],
@@ -421,7 +438,8 @@ def list_events(actor: Actor, job_id, *, after: Optional[int] = None):
 
 def cancel_job(actor: Actor, job_id) -> Job:
     """Cancel a queued job at once; ask a running one to stop (its worker hears it on the next
-    heartbeat and reports the job cancelled)."""
+    heartbeat and reports the job cancelled). A publishing job cannot be cancelled: its run is
+    done, and publishing finishes or fails on its own."""
     check(actor, Action.JOB_CANCEL)
     with transaction.atomic():
         job = Job.objects.select_for_update().filter(pk=job_id).first()
@@ -430,6 +448,11 @@ def cancel_job(actor: Actor, job_id) -> Job:
         check(actor, Action.JOB_CANCEL, job)
         if job.status in TERMINAL_STATUSES:
             raise Conflict(f"Job {job.id} already finished ({job.status}).")
+        if job.status == JobStatus.PUBLISHING:
+            raise Conflict(
+                f"Job {job.id} has finished its run and is publishing its outputs to its "
+                "destination; publishing finishes or fails on its own, so it cannot be cancelled."
+            )
         now = timezone.now()
         if job.cancel_requested_at is None:
             job.cancel_requested_at = now
@@ -443,5 +466,7 @@ def cancel_job(actor: Actor, job_id) -> Job:
         else:
             _event(job, EventType.STATE, status=job.status, cancel_requested=True)
         job.save()
+        if job.status == JobStatus.CANCELLED:
+            webhooks.job_finished(job)
         audit.record(actor, "job.cancel", job, {"status": job.status})
     return job

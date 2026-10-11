@@ -1,0 +1,38 @@
+{% load forklift_ui %}
+{# A webhook's delivery log. While a test event waits for the dispatcher, HTMX polls this fragment every 2 s and swaps it; once the test was sent the fragment has no trigger, so polling stops, and the outcome is announced once (`testing` in the query says the page was waiting for it). #}
+<div id="webhook-log"{% if testing %} hx-get="{% url 'ui:webhook-deliveries' webhook_id=webhook.pk %}{% query testing=1 %}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if request.GET.testing and not testing and latest_test %}
+    <div id="webhook-announce" hx-swap-oob="innerHTML">{% if latest_test.status == "delivered" %}The test event was delivered: the receiver answered {{ latest_test.last_status_code }}.{% else %}The test event was not delivered. {{ latest_test.last_error }}{% endif %}</div>
+  {% endif %}
+  {% if testing %}<p class="muted">A test event is waiting for the dispatcher; this list updates by itself.</p>{% endif %}
+  <div class="table-wrap" tabindex="0" role="region" aria-labelledby="deliveries-heading">
+    <table>
+      <thead><tr><th scope="col">Created</th><th scope="col">Event</th><th scope="col">Job</th><th scope="col">Status</th><th scope="col">Attempts</th><th scope="col">Answer</th><th scope="col">Last error</th><th scope="col">Next attempt</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+      <tbody>
+        {% for delivery in deliveries %}
+          <tr>
+            <td>{{ delivery.created_at|date:"Y-m-d H:i:s" }}</td>
+            <td><code>{{ delivery.event }}</code></td>
+            <td>{% if delivery.job_id %}<a href="{% url 'ui:job' job_id=delivery.job_id %}">{{ delivery.job_id|stringformat:"s"|slice:":8" }}</a>{% else %}—{% endif %}</td>
+            <td><span class="badge {{ delivery.status }}">{{ delivery.get_status_display }}</span></td>
+            <td>{{ delivery.attempts }}</td>
+            <td>{{ delivery.last_status_code|default:"—" }}</td>
+            <td>{{ delivery.last_error|default:"—" }}</td>
+            <td>{% if delivery.status != "pending" %}—{% elif not delivery.job_id %}queued, the next pass{% elif webhook.backoff_until and webhook.backoff_until > delivery.next_attempt_at %}{{ webhook.backoff_until|date:"Y-m-d H:i:s" }} (backing off){% else %}{{ delivery.next_attempt_at|date:"Y-m-d H:i:s" }}{% endif %}</td>
+            <td>
+              {% if delivery.job_id and webhook.active %}
+                <form method="post" action="{% url 'ui:webhook-redeliver' webhook_id=webhook.pk delivery_id=delivery.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="secondary small">Redeliver<span class="visually-hidden"> the {{ delivery.event }} delivery of {{ delivery.created_at|date:"Y-m-d H:i:s" }}</span></button>
+                </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="9" class="empty">Nothing was sent yet. Send a test event to try the receiver.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "ui/_pagination.html" with page=deliveries %}
+</div>

@@ -1,0 +1,41 @@
+# For the webhook end-to-end test (test_webhooks.py): a receiver on the public network, which
+# the gateway (test events) and the dispatcher (job outcomes) reach as webhook-receiver:8000,
+# and which shows what it received on a published port. It has a private address, so the two
+# gateway processes allow its host and http:// for the test:
+#
+#   docker compose -f deploy/compose/docker-compose.yml -f deploy/compose/e2e/webhooks.yml \
+#     up -d --build --wait
+#   FORKLIFT_E2E_ENV_FILE=deploy/compose/.env FORKLIFT_E2E_RECEIVER_URL=http://localhost:18099 \
+#     python -m pytest deploy/compose/e2e/test_webhooks.py --no-cov
+#
+# Paths are relative to deploy/compose (the directory of the first file).
+services:
+  webhook-receiver:
+    image: ${FORKLIFT_PYTHON_IMAGE:-python:3.13-slim}
+    command: ["python", "/receiver/receiver.py"]
+    volumes: ["./e2e/receiver.py:/receiver/receiver.py:ro"]
+    ports: ["${FORKLIFT_E2E_RECEIVER_PORT:-18099}:8000"]
+    networks: [public]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  gateway:
+    environment:
+      FORKLIFT_WEBHOOK_ALLOWED_HOSTS: webhook-receiver
+      FORKLIFT_WEBHOOK_ALLOW_HTTP: "true"
+
+  dispatcher:
+    environment:
+      FORKLIFT_WEBHOOK_ALLOWED_HOSTS: webhook-receiver
+      FORKLIFT_WEBHOOK_ALLOW_HTTP: "true"
+    depends_on:
+      webhook-receiver: {condition: service_healthy}

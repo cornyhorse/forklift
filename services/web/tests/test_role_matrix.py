@@ -11,13 +11,16 @@ added without its row.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Callable, Optional
 
 import pytest
 from django.test import Client
+from django.utils import timezone
 from world import SCHEMA_DOCUMENT, World, api_token
 
 from forklift_web.api import api
+from forklift_web.core.models import SignInThrottle
 
 pytestmark = [pytest.mark.django_db, pytest.mark.matrix]
 
@@ -43,10 +46,22 @@ class Row:
 ADMIN_ONLY = "401 403 403 403 {} 403 403"
 READ_ALL = "401 200 200 200 200 403 403"
 JOBS_READ = "401 200 200 200 200 200 403"
+OWNER_ONLY = "401 403 200 403 403 403 403"  # the operator's own object
 
 
 def admin(code: int) -> str:
     return ADMIN_ONLY.format(code)
+
+
+def sign_in_lock(world: World) -> dict:
+    """A locked username, for the operation that clears it."""
+    lock = SignInThrottle.objects.create(
+        kind="user",
+        key=world.viewer.username,
+        failures=5,
+        locked_until=timezone.now() + timedelta(minutes=15),
+    )
+    return {"lock_id": lock.pk}
 
 
 ROWS = [
@@ -174,6 +189,41 @@ ROWS = [
         body=lambda w: {"upload_id": str(w.upload.id)},
         ids=lambda w: {"dataset_id": w.dataset.id},
     ),
+    # schedules
+    Row(
+        "GET",
+        "/datasets/{dataset_id}/schedules",
+        READ_ALL,
+        ids=lambda w: {"dataset_id": w.schedule().dataset_id},
+    ),
+    Row(
+        "POST",
+        "/datasets/{dataset_id}/schedules",
+        "401 403 403 201 201 403 403",
+        body=lambda w: {"cron": "0 2 * * *", "timezone": "Europe/Berlin"},
+        ids=lambda w: {"dataset_id": w.schedule().dataset_id},
+    ),
+    Row("GET", "/schedules", READ_ALL),
+    Row("POST", "/schedules/preview", READ_ALL, body=lambda w: {"cron": "@daily"}),
+    Row(
+        "GET",
+        "/schedules/{schedule_id}",
+        READ_ALL,
+        ids=lambda w: {"schedule_id": w.schedule().id},
+    ),
+    Row(
+        "PATCH",
+        "/schedules/{schedule_id}",
+        "401 403 403 200 200 403 403",
+        body=lambda w: {"enabled": False},
+        ids=lambda w: {"schedule_id": w.schedule().id},
+    ),
+    Row(
+        "DELETE",
+        "/schedules/{schedule_id}",
+        "401 403 403 204 204 403 403",
+        ids=lambda w: {"schedule_id": w.schedule().id},
+    ),
     # jobs and artifacts
     Row(
         "POST",
@@ -233,6 +283,59 @@ ROWS = [
         admin(200),
         ids=lambda w: {"connection_id": w.connection.id},
     ),
+    # webhooks (the operator owns the world's webhook; admins manage others' through /admin)
+    Row("GET", "/webhooks", READ_ALL),
+    Row(
+        "POST",
+        "/webhooks",
+        "401 201 201 201 201 403 403",
+        body=lambda w: {
+            "name": "ci",
+            "url": "https://hooks.example.org/in",
+            "events": ["job.failed"],
+        },
+    ),
+    Row("GET", "/webhooks/{webhook_id}", OWNER_ONLY, ids=lambda w: {"webhook_id": w.webhook().id}),
+    Row(
+        "PATCH",
+        "/webhooks/{webhook_id}",
+        OWNER_ONLY,
+        body=lambda w: {"name": "renamed"},
+        ids=lambda w: {"webhook_id": w.webhook().id},
+    ),
+    Row(
+        "DELETE",
+        "/webhooks/{webhook_id}",
+        "401 403 204 403 403 403 403",
+        ids=lambda w: {"webhook_id": w.webhook().id},
+    ),
+    Row(
+        "POST",
+        "/webhooks/{webhook_id}/rotate-secret",
+        OWNER_ONLY,
+        ids=lambda w: {"webhook_id": w.webhook().id},
+    ),
+    Row(
+        "POST",
+        "/webhooks/{webhook_id}/test",
+        "401 403 202 403 403 403 403",
+        ids=lambda w: {"webhook_id": w.webhook().id},
+    ),
+    Row(
+        "GET",
+        "/webhooks/{webhook_id}/deliveries",
+        OWNER_ONLY,
+        ids=lambda w: {"webhook_id": w.webhook().id},
+    ),
+    Row(
+        "POST",
+        "/webhooks/{webhook_id}/deliveries/{delivery_id}/redeliver",
+        OWNER_ONLY,
+        ids=lambda w: {
+            "webhook_id": w.webhook().id,
+            "delivery_id": w.webhook().deliveries.get().id,
+        },
+    ),
     # administration
     Row("GET", "/admin/roles", admin(200)),
     Row("GET", "/admin/users", admin(200)),
@@ -257,6 +360,8 @@ ROWS = [
         body=lambda w: {"password": "another correct horse"},
         ids=lambda w: {"user_id": w.viewer.id},
     ),
+    Row("GET", "/admin/sign-in-locks", admin(200)),
+    Row("DELETE", "/admin/sign-in-locks/{lock_id}", admin(204), ids=sign_in_lock),
     Row("GET", "/admin/tokens", admin(200)),
     Row(
         "POST",
@@ -313,6 +418,13 @@ ROWS = [
     Row("GET", "/admin/audit", admin(200)),
     Row("GET", "/admin/settings", admin(200)),
     Row("PATCH", "/admin/settings", admin(200), body=lambda w: {"lease_seconds": 30}),
+    Row("GET", "/admin/webhooks", admin(200)),
+    Row(
+        "POST",
+        "/admin/webhooks/{webhook_id}/disable",
+        admin(200),
+        ids=lambda w: {"webhook_id": w.webhook().id},
+    ),
 ]
 
 CASES = [(row, caller) for row in ROWS for caller in CALLERS]

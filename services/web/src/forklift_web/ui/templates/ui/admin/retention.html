@@ -23,6 +23,8 @@
         <li>{{ report.uploads }} upload{{ report.uploads|pluralize }}</li>
         <li>{{ report.artifacts }} job file{{ report.artifacts|pluralize }}</li>
         <li>{{ report.jobs }} job record{{ report.jobs|pluralize }}</li>
+        <li>{{ report.output_uploads }} unfinished job file upload{{ report.output_uploads|pluralize }}</li>
+        <li>{{ report.deliveries }} webhook deliver{{ report.deliveries|pluralize:"y,ies" }}</li>
       </ul>
       {% if report.errors %}<p>Errors:</p><ul>{% for error in report.errors %}<li>{{ error }}</li>{% endfor %}</ul>{% endif %}
     </section>

@@ -4,8 +4,7 @@
      store, and the gateway never reads them. The browser asks /api/v1/artifacts/{id}/download
      for a presigned GET (that call checks the raw-rows rules and is audited), fetches the JSON
      from the store and renders it here, always as text (never as HTML).
-   - The schema editor: live JSON checking, formatting, loading a generated schema, Ctrl+Enter
-     to validate against an upload, optional automatic validation.
+   - The schema editor has its own scripts (schema-editor.js and the files it names).
    - Copy buttons and confirmations for destructive forms.
 
    Everything is initialised on page load and again for content HTMX swaps in. */
@@ -46,18 +45,36 @@
     });
   }
 
-  function artifactJSON(downloadUrl) {
+  function artifactResponse(downloadUrl) {
     return apiJSON(downloadUrl).then(function (download) {
       return fetch(download.url, { credentials: "omit" }).then(function (response) {
         if (!response.ok) {
           throw new Error("The object store answered " + response.status + " for this file.");
         }
-        return response.json();
+        return response;
       });
     });
   }
 
-  window.Forklift = { apiJSON: apiJSON, artifactJSON: artifactJSON, csrfToken: csrfToken };
+  function artifactJSON(downloadUrl) {
+    return artifactResponse(downloadUrl).then(function (response) {
+      return response.json();
+    });
+  }
+
+  // The text itself, for JSON whose key order matters (JSON.parse puts "2024" before "id")
+  function artifactText(downloadUrl) {
+    return artifactResponse(downloadUrl).then(function (response) {
+      return response.text();
+    });
+  }
+
+  window.Forklift = {
+    apiJSON: apiJSON,
+    artifactJSON: artifactJSON,
+    artifactText: artifactText,
+    csrfToken: csrfToken,
+  };
 
   function element(tag, text, className) {
     var node = document.createElement(tag);
@@ -146,11 +163,14 @@
     body.appendChild(dl);
   }
 
-  function renderSchema(body, data) {
-    body.appendChild(element("pre", JSON.stringify(data, null, 2)));
+  // The text as the engine wrote it: parsing it would put integer-like column names first,
+  // and the order of a schema's properties names the columns of a file without a header row
+  function renderSchema(body, text) {
+    body.appendChild(element("pre", text));
   }
 
   var RENDERERS = { preview: renderPreview, report: renderReport, schema: renderSchema };
+  var AS_TEXT = { schema: true };
 
   function loadViewer(viewer) {
     if (viewer.dataset.state) return;
@@ -160,7 +180,7 @@
     var button = viewer.querySelector("[data-viewer-load]");
     if (button) button.hidden = true;
     status.textContent = "Loading from the store…";
-    artifactJSON(viewer.dataset.artifactView)
+    (AS_TEXT[viewer.dataset.kind] ? artifactText : artifactJSON)(viewer.dataset.artifactView)
       .then(function (data) {
         body.textContent = "";
         RENDERERS[viewer.dataset.kind](body, data);
@@ -185,105 +205,6 @@
       });
     }
     if (viewer.hasAttribute("data-autoload")) loadViewer(viewer);
-  }
-
-  // ------------------------------------------------------------------ the schema editor
-
-  function describeJSONError(error, text) {
-    var message = error.message;
-    var match = /position (\d+)/.exec(message);
-    if (match && !/line \d+/.test(message)) {
-      var before = text.slice(0, Number(match[1])).split("\n");
-      message += " (line " + before.length + ", column " + (before[before.length - 1].length + 1) + ")";
-    }
-    return "Not valid JSON yet: " + message;
-  }
-
-  function debounce(fn, wait) {
-    var timer = null;
-    return function () {
-      clearTimeout(timer);
-      timer = setTimeout(fn, wait);
-    };
-  }
-
-  function initEditor(textarea) {
-    if (textarea.dataset.ready) return;
-    textarea.dataset.ready = "1";
-    var status = document.getElementById(textarea.id + "-status");
-    var validate = document.getElementById("validate-button");
-    var auto = document.getElementById("auto-validate");
-    var valid = false;
-
-    function check() {
-      var text = textarea.value;
-      status.classList.remove("ok", "error");
-      if (!text.trim()) {
-        valid = false;
-        status.textContent = "Empty: type or paste a JSON object.";
-        return;
-      }
-      try {
-        var value = JSON.parse(text);
-        if (typeof value !== "object" || value === null || Array.isArray(value)) {
-          throw new Error("a schema document is a JSON object: {...}.");
-        }
-        var columns = value.properties && typeof value.properties === "object"
-          ? Object.keys(value.properties).length : 0;
-        valid = true;
-        status.textContent = "Valid JSON: " + columns + " column" + (columns === 1 ? "" : "s") +
-          " in “properties”.";
-        status.classList.add("ok");
-      } catch (error) {
-        valid = false;
-        status.textContent = describeJSONError(error, text);
-        status.classList.add("error");
-      }
-    }
-
-    var autoValidate = debounce(function () {
-      if (auto && auto.checked && valid && validate) validate.click();
-    }, 2500);
-
-    textarea.addEventListener("input", debounce(check, 150));
-    textarea.addEventListener("input", autoValidate);
-    textarea.addEventListener("keydown", function (event) {
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && validate) {
-        event.preventDefault();
-        validate.click();
-      }
-    });
-
-    var format = document.querySelector('[data-format-json="' + textarea.id + '"]');
-    if (format) {
-      format.hidden = false;
-      format.addEventListener("click", function () {
-        try {
-          textarea.value = JSON.stringify(JSON.parse(textarea.value), null, 2);
-        } catch (ignored) {
-          // check() explains what is wrong
-        }
-        check();
-        textarea.focus();
-      });
-    }
-
-    var source = textarea.dataset.loadArtifact;
-    if (source && !textarea.value.trim()) {
-      status.textContent = "Loading the generated schema…";
-      artifactJSON(source)
-        .then(function (data) {
-          textarea.value = JSON.stringify(data, null, 2);
-          check();
-          status.textContent = "Loaded the generated schema. " + status.textContent;
-        })
-        .catch(function (error) {
-          status.textContent = "The generated schema could not be loaded: " + error.message;
-          status.classList.add("error");
-        });
-    } else {
-      check();
-    }
   }
 
   // ------------------------------------------------------------------ copy and confirm
@@ -318,7 +239,6 @@
 
   function init(root) {
     root.querySelectorAll("[data-artifact-view]").forEach(initViewer);
-    root.querySelectorAll("textarea[data-json-editor]").forEach(initEditor);
     root.querySelectorAll("[data-copy]").forEach(function (button) {
       if (navigator.clipboard) button.hidden = false;
     });

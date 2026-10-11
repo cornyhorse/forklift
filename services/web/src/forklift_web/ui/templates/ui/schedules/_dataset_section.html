@@ -1,0 +1,11 @@
+{# The dataset page's schedules: the list, and the form to add one for those who may. #}
+<h2 id="schedules">Schedules</h2>
+{% if schedules or not can_edit_schedules %}
+  {% include "ui/schedules/_rows.html" with rows=schedules empty="This dataset runs only when someone runs it." %}
+{% endif %}
+{% if schedule_form %}
+  <h3 id="schedule-heading">Add a schedule</h3>
+  {% include "ui/schedules/_form.html" with form=schedule_form %}
+{% elif can_edit_schedules %}
+  <p>This dataset reads uploaded files, so it cannot run on a schedule: each run needs a new file. A dataset that reads from an s3 or sql connection can.</p>
+{% endif %}

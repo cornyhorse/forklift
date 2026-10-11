@@ -1,4 +1,5 @@
-"""Client for the gateway's internal API (``/internal/v1``): lease, heartbeat, presign, complete.
+"""Client for the gateway's internal API (``/internal/v1``): lease, heartbeat, presign, parts,
+complete, input-url.
 
 Every request carries ``Authorization: Bearer <worker token>``. The token file is read for each
 request, so a rotated token is picked up without a restart, and the token is never logged.
@@ -7,7 +8,8 @@ request, so a rotated token is picked up without a restart, and the token is nev
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import quote
@@ -60,6 +62,30 @@ class UploadTarget:
     url: str
     method: str
     headers: dict[str, str]
+    expires_in: float | None = None  # seconds the URL stays valid (None: the gateway did not say)
+    received_at: float = field(default_factory=time.monotonic)
+
+
+@dataclass(frozen=True)
+class PartUrls:
+    """Presigned URLs for parts of a multipart upload, by part number."""
+
+    urls: dict[int, str]
+    expires_in: float | None = None
+    received_at: float = field(default_factory=time.monotonic)
+
+
+@dataclass(frozen=True)
+class MultipartTarget:
+    """A multipart upload the gateway started for one artifact: every part but the last has
+    ``part_size`` bytes; ``parts`` are the URLs of the first ones (POST /parts gives more)."""
+
+    name: str
+    key: str
+    upload_id: str
+    part_size: int
+    part_count: int
+    parts: PartUrls
 
 
 def _malformed(what: str, problem: str) -> GatewayRejected:
@@ -75,6 +101,38 @@ def _number(value: Any) -> bool:
 
 def _integer(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _expires_in(document: dict[str, Any], what: str) -> float | None:
+    expires_in = document.get("expires_in")
+    if expires_in is not None and (not _number(expires_in) or expires_in <= 0):
+        raise _malformed(what, "expires_in is not a positive number")
+    return None if expires_in is None else float(expires_in)
+
+
+def _part_urls(document: dict[str, Any], what: str) -> PartUrls:
+    parts = document.get("parts")
+    if not isinstance(parts, list):
+        raise _malformed(what, "parts is not a list")
+    urls: dict[int, str] = {}
+    for part in parts:
+        number = part.get("part_number") if isinstance(part, dict) else None
+        url = part.get("url") if isinstance(part, dict) else None
+        if not _integer(number) or number < 1 or not isinstance(url, str) or not url:
+            raise _malformed(what, "a part lacks part_number or url")
+        urls[number] = url
+    return PartUrls(urls, _expires_in(document, what))
+
+
+def _multipart_target(upload: dict[str, Any]) -> MultipartTarget:
+    what = "a presign request"
+    name, key, upload_id = upload.get("name"), upload.get("key"), upload.get("upload_id")
+    if not all(isinstance(value, str) and value for value in (name, key, upload_id)):
+        raise _malformed(what, "a multipart upload lacks name, key or upload_id")
+    part_size, part_count = upload.get("part_size"), upload.get("part_count")
+    if not (_integer(part_size) and part_size > 0 and _integer(part_count) and part_count > 0):
+        raise _malformed(what, "a multipart upload's part_size or part_count is not positive")
+    return MultipartTarget(name, key, upload_id, part_size, part_count, _part_urls(upload, what))
 
 
 class GatewayClient:
@@ -212,20 +270,25 @@ class GatewayClient:
 
     def presign(
         self, job_id: str, attempt: int, files: Sequence[Mapping[str, Any]]
-    ) -> dict[str, UploadTarget]:
-        """Upload URLs for ``files`` ([{name, bytes}]), by name."""
+    ) -> dict[str, UploadTarget | MultipartTarget]:
+        """How to upload ``files`` ([{name, bytes}]), by name: a PUT URL, or (for large files)
+        a multipart upload."""
         response = self._post(
             self._job_path(job_id, "presign"),
-            {"attempt": attempt, "files": [dict(item) for item in files]},
+            {"attempt": attempt, "files": [dict(item) for item in files], "multipart": True},
             job_id=job_id,
         )
         uploads = self._json(response, "a presign request").get("uploads")
         if not isinstance(uploads, list):
             raise _malformed("a presign request", "uploads is not a list")
-        targets: dict[str, UploadTarget] = {}
+        targets: dict[str, UploadTarget | MultipartTarget] = {}
         for upload in uploads:
             if not isinstance(upload, dict):
                 raise _malformed("a presign request", "an upload is not a JSON object")
+            if upload.get("upload_id") is not None:
+                multipart = _multipart_target(upload)
+                targets[multipart.name] = multipart
+                continue
             name, key, url = upload.get("name"), upload.get("key"), upload.get("url")
             method = upload.get("method", "PUT")
             headers = upload.get("headers") or {}
@@ -237,13 +300,36 @@ class GatewayClient:
                 isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
             ):
                 raise _malformed("a presign request", "upload headers are not strings")
-            targets[name] = UploadTarget(name, key, url, method, dict(headers))
+            targets[name] = UploadTarget(
+                name, key, url, method, dict(headers), _expires_in(upload, "a presign request")
+            )
         missing = {str(item["name"]) for item in files} - set(targets)
         if missing:
             raise _malformed(
                 "a presign request", f"no upload URL for {', '.join(sorted(missing))}"
             )
         return targets
+
+    def part_urls(
+        self, job_id: str, attempt: int, name: str, upload_id: str, part_numbers: Sequence[int]
+    ) -> PartUrls:
+        """Fresh URLs for parts of the multipart upload of the artifact ``name``."""
+        response = self._post(
+            self._job_path(job_id, "parts"),
+            {
+                "attempt": attempt,
+                "name": name,
+                "upload_id": upload_id,
+                "part_numbers": list(part_numbers),
+            },
+            job_id=job_id,
+        )
+        what = "a part URL request"
+        parts = _part_urls(self._json(response, what), what)
+        missing = set(part_numbers) - set(parts.urls)
+        if missing:
+            raise _malformed(what, f"no URL for part {min(missing)}")
+        return parts
 
     def complete(
         self,
@@ -261,3 +347,16 @@ class GatewayClient:
             },
             job_id=job_id,
         )
+
+    def input_url(self, job_id: str, attempt: int) -> str:
+        """A fresh presigned URL for the job's streamed input (``POST /jobs/{id}/input-url``)."""
+        response = self._post(
+            self._job_path(job_id, "input-url"), {"attempt": attempt}, job_id=job_id
+        )
+        location = self._json(response, "an input-url request").get("location")
+        if not isinstance(location, dict) or location.get("type") != "presigned_url":
+            raise _malformed("an input-url request", "location is not a presigned_url location")
+        url = location.get("url")
+        if not isinstance(url, str) or not url:
+            raise _malformed("an input-url request", "the location has no url")
+        return url

@@ -8,12 +8,16 @@ is the service layer's, whose messages the views show next to the form.
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import timedelta
 
 from django import forms
+from django.contrib.auth import forms as auth_forms
 from django.utils import timezone
 
+from forklift_web.api.auth import actor_for_request
 from forklift_web.core.choices import (
+    JOB_EVENTS,
     Classification,
     InputFormat,
     JobKind,
@@ -22,7 +26,10 @@ from forklift_web.core.choices import (
     RetentionKind,
     Role,
     SqlDialect,
+    WebhookScope,
 )
+from forklift_web.errors import TooManyAttempts
+from forklift_web.services import sign_in
 from forklift_web.services.connections import DIALECTS, SECRET_FIELDS
 from forklift_web.services.datasets import TABLE_MODES
 
@@ -97,6 +104,51 @@ def expires_at(value: str):
 
 
 # --------------------------------------------------------------------------- accounts
+
+
+class ThrottledPasswordCheck:
+    """A form whose password check goes through the sign-in throttle (services.sign_in): the
+    attempt is counted, or refused while the username (or address) is locked, before the
+    password is looked at. ``refused`` is the refusal, for the view's 429."""
+
+    refused = None
+
+    def throttled(self, check_password, actor, username: str, *, by_address: bool):
+        try:
+            attempt = sign_in.reserve(actor, username, by_address=by_address)
+            try:
+                result = check_password()
+            except forms.ValidationError:
+                sign_in.failed(attempt)
+                raise
+        except TooManyAttempts as error:
+            self.refused = error
+            raise forms.ValidationError(error.message, code=error.code) from None
+        sign_in.succeeded(attempt)
+        return result
+
+
+class SignInForm(ThrottledPasswordCheck, auth_forms.AuthenticationForm):
+    """Django's sign-in form, throttled per username and per client address."""
+
+    def clean(self):
+        username = self.cleaned_data.get("username")
+        if username is None or "password" not in self.cleaned_data:
+            return super().clean()  # a field is missing: no password is checked
+        actor = actor_for_request(self.request)
+        return self.throttled(super().clean, actor, username, by_address=True)
+
+
+class PasswordChangeForm(ThrottledPasswordCheck, auth_forms.PasswordChangeForm):
+    """Django's form; a wrong old password counts against the username's sign-in limit."""
+
+    def __init__(self, user, *args, actor, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        self.actor = actor
+
+    def clean_old_password(self):
+        check = super().clean_old_password
+        return self.throttled(check, self.actor, self.user.username, by_address=False)
 
 
 class TokenForm(forms.Form):
@@ -266,6 +318,25 @@ class ValidateForm(forms.Form):
     def input_options(self) -> dict:
         delimiter = self.cleaned_data["delimiter"]
         return {"delimiter": delimiter} if delimiter else {}
+
+
+class DraftForm(forms.Form):
+    """A draft the editor asks the gateway about, read by the editor's own field (so that its
+    JSON is read exactly as saving reads it)."""
+
+    document = SchemaCreateForm.base_fields["document"]
+
+
+class GenerateForm(forms.Form):
+    """One of the author's uploads to generate a schema from (a generate_schema job)."""
+
+    prefix = "generate"
+    upload = forms.ChoiceField(label="Generate from")
+    format = forms.ChoiceField(choices=UPLOAD_FORMATS, initial=InputFormat.CSV)
+
+    def __init__(self, *args, uploads, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["upload"].choices = [(str(u.pk), f"{u.filename} ({u.pk})") for u in uploads]
 
 
 # --------------------------------------------------------------------------- datasets
@@ -768,3 +839,111 @@ class SettingForm(forms.Form):
             group, _, limit = name.partition("__")
             table.setdefault(group, {})[limit] = value
         return table
+
+
+# --------------------------------------------------------------------------- schedules
+
+
+class ScheduleForm(forms.Form):
+    """A new schedule; the cron expression and the time zone are checked by the service."""
+
+    cron = forms.CharField(
+        max_length=200,
+        label="When (cron expression)",
+        help_text="Five fields, minute hour day-of-month month day-of-week, or a macro such as "
+        "@daily. 30 2 * * * runs at 02:30 every day, 0 6 * * mon-fri at 06:00 on weekdays.",
+        widget=forms.TextInput(
+            attrs={"class": "code", "spellcheck": "false", "autocomplete": "off"}
+        ),
+    )
+    timezone = forms.CharField(
+        max_length=64,
+        initial="UTC",
+        label="Time zone",
+        help_text="An IANA name, such as Europe/Berlin: the times are wall-clock times there.",
+        widget=forms.TextInput(
+            attrs={"list": "time-zones", "spellcheck": "false", "autocomplete": "off"}
+        ),
+    )
+    enabled = forms.BooleanField(required=False, initial=True, label="Enabled: runs from now on")
+
+
+class ScheduleFilterForm(forms.Form):
+    enabled = forms.ChoiceField(
+        required=False,
+        label="Show",
+        choices=[("", "Every schedule"), ("true", "Enabled ones"), ("false", "Disabled ones")],
+    )
+
+
+# --------------------------------------------------------------------------- webhooks
+
+
+class WebhookForm(forms.Form):
+    """A webhook's settings; ``active`` only when editing one."""
+
+    name = forms.CharField(max_length=100, help_text="What it is for, e.g. 'pipeline alerts'.")
+    url = forms.CharField(
+        max_length=2048,
+        label="URL",
+        help_text="An https:// address that accepts POST requests and is reachable from the "
+        "internet.",
+        widget=forms.URLInput(attrs={"spellcheck": "false", "autocomplete": "off"}),
+    )
+    events = forms.MultipleChoiceField(
+        choices=[(event.value, event.label) for event in JOB_EVENTS],
+        initial=[event.value for event in JOB_EVENTS],
+        widget=forms.CheckboxSelectMultiple,
+    )
+    scope = forms.ChoiceField(label="Jobs", widget=forms.RadioSelect)
+    dataset = forms.ChoiceField(
+        required=False, help_text="For 'Every job of one dataset'.", label="Dataset"
+    )
+    kinds = forms.MultipleChoiceField(
+        choices=JobKind.choices,
+        initial=[JobKind.RUN.value],
+        label="Job kinds",
+        help_text="Previews and schema checks are usually watched in the UI; runs are what "
+        "pipelines wait for.",
+        widget=forms.CheckboxSelectMultiple,
+    )
+
+    def __init__(self, *args, datasets, all_jobs: bool, webhook=None, **kwargs):
+        if webhook is not None:
+            kwargs.setdefault("initial", self.initial_for(webhook))
+        super().__init__(*args, **kwargs)
+        self.fields["scope"].choices = [
+            (scope.value, scope.label)
+            for scope in WebhookScope
+            if all_jobs or scope != WebhookScope.ALL_JOBS
+        ]
+        self.fields["scope"].initial = WebhookScope.OWN_JOBS.value
+        self.fields["dataset"].choices = [("", "—")] + [
+            (str(dataset.pk), dataset.name) for dataset in datasets
+        ]
+        if webhook is not None:
+            self.fields["active"] = forms.BooleanField(
+                required=False, label="Active: deliveries are sent"
+            )
+
+    @staticmethod
+    def initial_for(webhook) -> dict:
+        return {
+            "name": webhook.name,
+            "url": webhook.url,
+            "events": webhook.events,
+            "scope": webhook.scope,
+            "dataset": str(webhook.dataset_id or ""),
+            "kinds": webhook.kinds,
+            "active": webhook.active,
+        }
+
+    def service_values(self) -> dict:
+        values = {
+            name: self.cleaned_data[name] for name in ("name", "url", "events", "scope", "kinds")
+        }
+        dataset = self.cleaned_data["dataset"]
+        values["dataset_id"] = uuid.UUID(dataset) if dataset else None
+        if "active" in self.fields:
+            values["active"] = self.cleaned_data["active"]
+        return values

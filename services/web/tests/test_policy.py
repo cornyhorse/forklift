@@ -107,10 +107,18 @@ def test_uploads_are_used_by_their_uploader_or_an_admin():
 
 
 def test_jobs_are_cancelled_by_their_requester_or_an_admin():
-    job = SimpleNamespace(id="j1", requested_by_id=1)
+    job = SimpleNamespace(id="j1", requested_by_id=1, scheduled_for=None)
     assert allowed(Actor.for_user(user(Role.OPERATOR, pk=1)), Action.JOB_CANCEL, job)
     assert allowed(Actor.for_user(user(Role.ADMIN, pk=2)), Action.JOB_CANCEL, job)
     assert not allowed(Actor.for_user(user(Role.OPERATOR, pk=3)), Action.JOB_CANCEL, job)
+
+
+def test_scheduled_runs_are_cancelled_by_those_who_manage_schedules():
+    job = SimpleNamespace(id="j2", requested_by_id=None, scheduled_for="2026-10-10T09:00:00Z")
+    assert allowed(Actor.for_user(user(Role.AUTHOR, pk=1)), Action.JOB_CANCEL, job)
+    assert allowed(Actor.for_user(user(Role.ADMIN, pk=2)), Action.JOB_CANCEL, job)
+    with pytest.raises(PermissionDenied, match="is a scheduled run; only those who manage"):
+        check(Actor.for_user(user(Role.OPERATOR, pk=3)), Action.JOB_CANCEL, job)
 
 
 def test_tokens_are_managed_by_their_owner():

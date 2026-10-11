@@ -34,10 +34,15 @@ from .gateway import (
     GatewayUnavailable,
     Lease,
     LeaseLost,
+    MultipartTarget,
+    PartUrls,
+    UploadTarget,
 )
+from .input_url import InputUrls
 from .isolation import Isolation
 from .redact import Redactor, secrets_of
 from .results import (
+    ArtifactFile,
     ResultInvalid,
     bounded,
     collect_artifacts,
@@ -52,7 +57,7 @@ from .settings import Settings
 from .spec import JobPlan, SpecRefused, format_bytes, plan_job
 from .staging import StagingError, stage_input
 from .transport import HttpClient
-from .uploads import UploadError, upload_artifact
+from .uploads import UploadError, parts_sha256, upload_artifact, upload_multipart, usable
 
 log = logs.logger("job")
 
@@ -316,6 +321,18 @@ class JobRunner:
         timeout = min(
             plan.max_seconds or self.settings.max_job_seconds, self.settings.max_job_seconds
         )
+        input_urls = None
+        if plan.stream_hosts:  # the engine may ask for a fresh URL while it streams the input
+            input_urls = InputUrls(
+                self.gateway,
+                lease,
+                control,
+                plan.stream_hosts,
+                redactor,
+                http_timeout=self.settings.http_timeout,
+                on_fatal=self.on_fatal,
+                context=context,
+            )
         run = self.engine.run(
             workdir,
             plan,
@@ -324,6 +341,7 @@ class JobRunner:
             update_progress=control.update_progress,
             redactor=redactor,
             context=context,
+            input_urls=input_urls,
         )
         log.info(
             "engine exited",
@@ -441,20 +459,7 @@ class JobRunner:
         if not files:
             return result, []
         try:
-            targets = retry(
-                lambda: self.gateway.presign(
-                    job_id, lease.attempt, [{"name": f.name, "bytes": f.bytes} for f in files]
-                ),
-                attempts=PRESIGN_ATTEMPTS,
-                retryable=lambda error: isinstance(error, GatewayUnavailable),
-                backoff=Backoff(0.5, 10.0),
-                wait=control.stopped.wait,
-            )
-        except LeaseLost as error:
-            raise _Abandon(str(error)) from None
-        except GatewayAuthError as error:
-            self.on_fatal(error)
-            raise _Abandon(str(error)) from None
+            entries = self._upload_files(lease, control, files)
         except GatewayRejected as error:
             return (
                 synthesized(
@@ -466,32 +471,19 @@ class JobRunner:
                 ),
                 [],
             )
-        except GatewayUnavailable as error:
-            raise _Abandon(f"the artifacts could not be presigned: {error}") from None
-        entries = []
+        except UploadError as error:
+            return (
+                synthesized(
+                    job_id,
+                    "failed",
+                    "INTERNAL",
+                    error.message,
+                    retryable=error.retryable,
+                    base=result,
+                ),
+                [],
+            )
         for item in files:
-            target = targets[item.name]
-            try:
-                upload_artifact(
-                    self.http,
-                    target,
-                    item,
-                    stopped=control.stopped.is_set,
-                    wait=control.stopped.wait,
-                )
-            except UploadError as error:
-                return (
-                    synthesized(
-                        job_id,
-                        "failed",
-                        "INTERNAL",
-                        error.message,
-                        retryable=error.retryable,
-                        base=result,
-                    ),
-                    [],
-                )
-            entries.append(item.entry(target.key))
             reported = result["artifacts"][item.index]
             reported["bytes"], reported["sha256"] = item.bytes, item.sha256
         log.info(
@@ -501,9 +493,91 @@ class JobRunner:
                 "artifacts": len(entries),
                 "bytes": sum(item.bytes for item in files),
                 "size": format_bytes(sum(item.bytes for item in files)),
+                "parts": sum(entry.get("part_count", 0) for entry in entries),
             },
         )
         return result, entries
+
+    def _ask_gateway(self, call: Callable[[], Any], control: JobControl) -> Any:
+        """``call()`` (presign or part URLs), retried while the gateway is unavailable; a lost
+        lease, a refused token or a gateway that stays down abandon the job, a refusal
+        (GatewayRejected) is the caller's to handle."""
+        try:
+            return retry(
+                call,
+                attempts=PRESIGN_ATTEMPTS,
+                retryable=lambda error: isinstance(error, GatewayUnavailable),
+                backoff=Backoff(0.5, 10.0),
+                wait=control.stopped.wait,
+            )
+        except LeaseLost as error:
+            raise _Abandon(str(error)) from None
+        except GatewayAuthError as error:
+            self.on_fatal(error)
+            raise _Abandon(str(error)) from None
+        except GatewayUnavailable as error:
+            raise _Abandon(f"the artifacts could not be presigned: {error}") from None
+
+    def _upload_files(
+        self, lease: Lease, control: JobControl, files: list[ArtifactFile]
+    ) -> list[dict[str, Any]]:
+        """Upload ``files`` in order, each with one PUT or in parts as presign answered; returns
+        the artifacts as complete reports them. A PUT URL that grew old while earlier files
+        went up is signed again first."""
+        job_id, attempt = lease.job_id, lease.attempt
+
+        def presign(items: list[ArtifactFile]) -> dict[str, UploadTarget | MultipartTarget]:
+            sizes = [{"name": item.name, "bytes": item.bytes} for item in items]
+            return self._ask_gateway(lambda: self.gateway.presign(job_id, attempt, sizes), control)
+
+        def part_urls(target: MultipartTarget) -> Callable[[list[int]], PartUrls]:
+            return lambda numbers: self._ask_gateway(
+                lambda: self.gateway.part_urls(
+                    job_id, attempt, target.name, target.upload_id, numbers
+                ),
+                control,
+            )
+
+        targets = presign(files)
+        entries, uploaded = [], 0
+        for item in files:
+            target = targets[item.name]
+            if isinstance(target, UploadTarget) and not usable(
+                target.received_at, target.expires_in, time.monotonic()
+            ):
+                target = presign([item])[item.name]
+            if isinstance(target, MultipartTarget):
+                parts = upload_multipart(
+                    self.http,
+                    target,
+                    item,
+                    fresh_urls=part_urls(target),
+                    stopped=control.stopped.is_set,
+                    wait=control.stopped.wait,
+                    on_progress=lambda done, before=uploaded: control.update_progress(
+                        {"bytes_uploaded": before + done}
+                    ),
+                )
+                entries.append(
+                    {
+                        **item.entry(target.key),
+                        "upload_id": target.upload_id,
+                        "part_count": len(parts),
+                        "parts_sha256": parts_sha256(part["etag"] for part in parts),
+                    }
+                )
+            else:
+                upload_artifact(
+                    self.http,
+                    target,
+                    item,
+                    stopped=control.stopped.is_set,
+                    wait=control.stopped.wait,
+                )
+                entries.append(item.entry(target.key))
+            uploaded += item.bytes
+            control.update_progress({"bytes_uploaded": uploaded})
+        return entries
 
     def _complete(
         self,

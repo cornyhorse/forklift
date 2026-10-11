@@ -1,0 +1,53 @@
+{% load tz %}{# A table of schedules; `rows` are schedules (with `badge`), `show_dataset` adds the dataset column. #}
+<div class="table-wrap" tabindex="0" role="region" aria-label="Schedules">
+  <table>
+    <thead>
+      <tr>
+        {% if show_dataset %}<th scope="col">Dataset</th>{% endif %}
+        <th scope="col">When</th>
+        <th scope="col">Next run</th>
+        <th scope="col">Last run</th>
+        {% if can_edit_schedules %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for schedule in rows %}
+        <tr>
+          {% if show_dataset %}<td><a href="{% url 'ui:dataset' dataset_id=schedule.dataset_id %}#schedules">{{ schedule.dataset.name }}</a></td>{% endif %}
+          <td><code>{{ schedule.cron }}</code> <span class="muted">({{ schedule.timezone }})</span></td>
+          <td>{% if schedule.next_run_at %}{{ schedule.next_run_at|timezone:schedule.timezone|date:"D Y-m-d H:i T" }}{% else %}<span class="badge unknown">Disabled</span>{% endif %}</td>
+          <td>
+            {% if schedule.last_outcome %}
+              {{ schedule.last_run_at|timezone:schedule.timezone|date:"Y-m-d H:i T" }}:
+              <span class="badge {{ schedule.badge }}">{{ schedule.get_last_outcome_display }}</span>
+              {% if schedule.last_outcome == "queued" and schedule.last_job_id %}<a href="{% url 'ui:job' job_id=schedule.last_job_id %}">job <code>{{ schedule.last_job_id|stringformat:"s"|slice:":8" }}</code></a>{% endif %}
+              {% if schedule.last_message %}<p class="help">{{ schedule.last_message }}</p>{% endif %}
+            {% else %}
+              <span class="muted">not yet</span>
+            {% endif %}
+          </td>
+          {% if can_edit_schedules %}
+            <td>
+              <div class="actions">
+                <a class="button secondary small" href="{% url 'ui:schedule-edit' schedule_id=schedule.pk %}">Change<span class="visually-hidden"> the schedule {{ schedule.cron }}</span></a>
+                <form method="post" action="{% url 'ui:schedule-enable' schedule_id=schedule.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}{% if not show_dataset %}#schedules{% endif %}">
+                  <input type="hidden" name="enabled" value="{% if schedule.enabled %}false{% else %}true{% endif %}">
+                  <button type="submit" class="secondary small">{% if schedule.enabled %}Disable{% else %}Enable{% endif %}<span class="visually-hidden"> the schedule {{ schedule.cron }}</span></button>
+                </form>
+                <form method="post" action="{% url 'ui:schedule-delete' schedule_id=schedule.pk %}" data-confirm="Delete the schedule {{ schedule.cron }} of {{ schedule.dataset.name }}?">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}{% if not show_dataset %}#schedules{% endif %}">
+                  <button type="submit" class="danger small">Delete<span class="visually-hidden"> the schedule {{ schedule.cron }}</span></button>
+                </form>
+              </div>
+            </td>
+          {% endif %}
+        </tr>
+      {% empty %}
+        <tr><td colspan="{% if show_dataset and can_edit_schedules %}5{% elif show_dataset or can_edit_schedules %}4{% else %}3{% endif %}" class="empty">{{ empty|default:"No schedules match." }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

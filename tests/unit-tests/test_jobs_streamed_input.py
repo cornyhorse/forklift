@@ -1,19 +1,29 @@
 """Streamed inputs (``presigned_url``) against a local HTTP server.
 
 The server supports Range requests, ETags and ``If-Match`` like an S3-compatible store, and can
-be told to drop connections part way through a response, ignore ranges, redirect or answer with
-an error status. The tests check that the stream resumes where it stopped, that header detection
-reads the start in small ranges, that only allowed hosts are contacted, and that a streamed CSV
-gives the same output as the same file staged locally.
+be told to drop connections part way through a response, ignore ranges, redirect, answer with
+an error status or refuse URLs that have expired. The tests check that the stream resumes where
+it stopped, that header detection reads the start in small ranges, that only allowed hosts are
+contacted, that an expiring or refused URL is replaced by a fresh one for the same object (also
+through ``forklift run-job --input-url-requests``), and that a streamed CSV gives the same output
+as the same file staged locally.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 import socket
+import subprocess
+import sys
 import threading
+import time
 import urllib.request
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, List, Optional, Set
 
 import pyarrow.parquet as pq
 import pytest
@@ -26,8 +36,10 @@ from forklift.jobs.http_input import (
     RemoteInputError,
     check_url,
     redact_url,
+    url_expiry,
 )
 
+SRC = Path(__file__).resolve().parents[2] / "src"
 ROWS = 20_000
 PEOPLE = ("id,name,age\n" + "".join(f"{i},name{i},{20 + i % 50}\n" for i in range(ROWS))).encode()
 SIGNATURE = "X-Amz-Signature=0123456789abcdef"
@@ -44,7 +56,11 @@ class Store:
         # forward stream) and for closed ones (header detection)
         self.drops: List[int] = []
         self.head_drops: List[int] = []
-        self.statuses: List[int] = []  # statuses for the next responses
+        self.statuses: List[Optional[int]] = []  # statuses for the next responses (None: serve)
+        self.error_body = b""  # the body of those statuses
+        self.slow_error_body = False  # the error body comes after a second
+        self.expired: Set[str] = set()  # query strings answered with 403, as S3 does
+        self.expire_on_drop = False  # a dropped request's query string expires
         self.ignore_range = False
         self.redirect_to = None
         self.lock = threading.Lock()
@@ -79,10 +95,14 @@ class _Handler(BaseHTTPRequestHandler):
                 }
             )
             status = store.statuses.pop(0) if store.statuses else None
+            if status is None and self.path.partition("?")[2] in store.expired:
+                status = 403
             drops = (
                 store.drops if self.headers.get("Range", "").endswith("-") else store.head_drops
             )
             drop = drops.pop(0) if drops else None
+            if drop is not None and store.expire_on_drop:
+                store.expired.add(self.path.partition("?")[2])
         if store.redirect_to and path == "/redirect":
             self.send_response(302)
             self.send_header("Location", store.redirect_to)
@@ -90,9 +110,14 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         if status is not None:
+            body = store.error_body if status != 403 else b"<Error><Code>AccessDenied</Code>"
             self.send_response(status)
-            self.send_header("Content-Length", "0")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
+            if store.slow_error_body:
+                self.wfile.flush()
+                time.sleep(1)
+            self.wfile.write(body)
             return
         if path not in store.objects:
             self.send_response(404)
@@ -149,10 +174,10 @@ def store():
     server.server_close()
 
 
-def _source(store, path="/bucket/people.csv", **kwargs):
+def _source(store, path="/bucket/people.csv", url=None, **kwargs):
     kwargs.setdefault("sleep", lambda seconds: None)
     kwargs.setdefault("allowed_hosts", [store.host])
-    return PresignedUrlSource(f"{store.base}{path}?{SIGNATURE}", **kwargs)
+    return PresignedUrlSource(url or f"{store.base}{path}?{SIGNATURE}", **kwargs)
 
 
 def _read(stream) -> bytes:
@@ -517,3 +542,384 @@ def test_proxy_settings_of_the_environment_are_used(monkeypatch, store):
     handlers = _source(store)._opener.handlers
     proxies = [h.proxies for h in handlers if isinstance(h, urllib.request.ProxyHandler)]
     assert [p.get("https") for p in proxies] == ["http://proxy.example:3128"]
+
+
+# --------------------------------------------------------------------------- fresh URLs
+
+NOW = 1_800_000_000.0
+
+
+def _signed(store, signed_at=NOW, expires=3600, signature="s1", path="/bucket/people.csv"):
+    """A URL shaped like a SigV4 presigned one (the test server does not check signatures)."""
+    date = datetime.fromtimestamp(signed_at, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    query = f"X-Amz-Date={date}&X-Amz-Expires={expires}&X-Amz-Signature={signature}"
+    return f"{store.base}{path}?{query}"
+
+
+def _fresh(store, signature="fresh", path="/bucket/people.csv"):
+    return f"{store.base}{path}?X-Amz-Signature={signature}"
+
+
+class Refresher:
+    """A refresh callback that hands out ``answers`` in turn (an exception in them is raised)."""
+
+    def __init__(self, *answers):
+        self.answers = list(answers)
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        answer = self.answers.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
+
+
+def _queries(store) -> List[str]:
+    return [r["query"].rpartition("X-Amz-Signature=")[2] for r in store.requests]
+
+
+class TestUrlExpiry:
+    def test_sigv4_urls_say_when_they_expire(self):
+        url = "https://s/b/k?X-Amz-Date=20261010T120000Z&X-Amz-Expires=600&X-Amz-Signature=x"
+        expires_at = datetime(2026, 10, 10, 12, 10, tzinfo=timezone.utc).timestamp()
+        assert url_expiry(url) == (expires_at, 600.0)
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "",
+            "X-Amz-Expires=600",
+            "X-Amz-Date=20261010T120000Z",
+            "X-Amz-Date=yesterday&X-Amz-Expires=600",
+            "X-Amz-Date=20261010T120000Z&X-Amz-Expires=-5",
+            "Expires=1700000000&Signature=x",
+        ],
+    )
+    def test_other_urls_do_not(self, query):
+        assert url_expiry(f"https://s/b/k?{query}") is None
+
+
+class TestFreshUrlBeforeARequest:
+    def test_a_url_about_to_expire_is_replaced_first(self, store):
+        refresh = Refresher(_signed(store, expires=3600, signature="fresh"))
+        old = _signed(store, signed_at=NOW - 3500, expires=3600)  # 100 s left
+        source = _source(store, url=old, refresh=refresh, clock=lambda: NOW)
+
+        assert _read(source.open()) == PEOPLE
+        assert refresh.calls == 1 and source.refreshes == 1
+        assert _queries(store) == ["fresh"]
+
+    def test_a_url_with_time_left_is_kept(self, store):
+        refresh = Refresher()
+        old = _signed(store, signed_at=NOW - 3000, expires=3600)  # 600 s left
+        source = _source(store, url=old, refresh=refresh, clock=lambda: NOW)
+        assert _read(source.open()) == PEOPLE
+        assert refresh.calls == 0 and _queries(store) == ["s1"]
+
+    def test_a_short_lived_url_is_replaced_after_half_its_lifetime(self, store):
+        now = [NOW]
+        refresh = Refresher(_signed(store, signed_at=NOW + 6, expires=10, signature="fresh"))
+        source = _source(
+            store, refresh=refresh, clock=lambda: now[0], url=_signed(store, expires=10)
+        )
+        head = source.open_head()
+        head.read(HEAD_CHUNK_BYTES)
+        now[0] += 6  # 4 of 10 seconds left: past half its lifetime
+        head.read(10)
+
+        assert refresh.calls == 1
+        assert _queries(store) == ["s1", "fresh"]
+
+    def test_without_a_refresh_callback_an_expiring_url_is_used_as_it_is(self, store):
+        source = _source(store, clock=lambda: NOW, url=_signed(store, signed_at=NOW - 3599))
+        assert _read(source.open()) == PEOPLE
+        assert _queries(store) == ["s1"]
+
+    def test_a_url_that_does_not_say_when_it_expires_is_kept(self, store):
+        refresh = Refresher()
+        assert _read(_source(store, refresh=refresh).open()) == PEOPLE
+        assert refresh.calls == 0
+
+    def test_a_refresh_that_fails_keeps_the_url(self, store, caplog):
+        refresh = Refresher(RuntimeError("the gateway is down"))
+        source = _source(
+            store, refresh=refresh, clock=lambda: NOW, url=_signed(store, signed_at=NOW - 3500)
+        )
+
+        with caplog.at_level(logging.WARNING, logger="forklift.jobs.http_input"):
+            assert _read(source.open()) == PEOPLE
+        assert "a fresh one could not be obtained (the gateway is down)" in caplog.text
+        assert _queries(store) == ["s1"]
+
+    def test_a_fresh_url_that_is_refused_too_is_not_replaced_again(self, store):
+        store.statuses = [403]
+        refresh = Refresher(_fresh(store), _fresh(store, "second"))
+        source = _source(
+            store, refresh=refresh, clock=lambda: NOW, url=_signed(store, signed_at=NOW - 3500)
+        )
+
+        with pytest.raises(RemoteInputError) as caught:
+            _read(source.open())
+        assert caught.value.error_code == PERMISSION_DENIED
+        assert "(HTTP 403) although it had just been refreshed" in str(caught.value)
+        assert refresh.calls == 1
+
+    def test_at_the_limit_an_expiring_url_is_used_as_it_is(self, store):
+        refresh = Refresher(_signed(store, signed_at=NOW - 3590, signature="fresh"))
+        source = _source(
+            store,
+            refresh=refresh,
+            clock=lambda: NOW,
+            max_refreshes=1,
+            url=_signed(store, signed_at=NOW - 3590),
+        )
+        head = source.open_head()
+        head.read(HEAD_CHUNK_BYTES)
+        head.read(10)
+
+        assert refresh.calls == 1
+        assert _queries(store) == ["fresh", "fresh"]
+
+
+class TestFreshUrlAfterARefusal:
+    def test_a_refused_request_is_sent_again_with_a_fresh_url(self, store):
+        store.statuses = [403]
+        refresh = Refresher(_fresh(store))
+        source = _source(store, refresh=refresh)
+
+        assert _read(source.open()) == PEOPLE
+        assert _queries(store) == ["0123456789abcdef", "fresh"]
+        assert [r["range"] for r in store.requests] == ["bytes=0-", "bytes=0-"]
+        assert source.name == f"{store.base}/bucket/people.csv"
+
+    def test_a_resume_after_the_url_expired_keeps_its_place_and_the_etag(self, store):
+        store.drops = [100_000]
+        store.expire_on_drop = True
+        refresh = Refresher(_fresh(store))
+        source = _source(store, refresh=refresh)
+
+        assert _read(source.open()) == PEOPLE
+        assert [(r["range"], r["if_match"]) for r in store.requests] == [
+            ("bytes=0-", ""),
+            ("bytes=100000-", '"v1"'),
+            ("bytes=100000-", '"v1"'),
+        ]
+        assert _queries(store)[1:] == ["0123456789abcdef", "fresh"]
+
+    def test_expired_temporary_credentials_get_a_fresh_url(self, store):
+        store.statuses = [400]
+        store.error_body = b"<Error><Code>ExpiredToken</Code><Message>expired</Message></Error>"
+        refresh = Refresher(_fresh(store))
+        assert _read(_source(store, refresh=refresh).open()) == PEOPLE
+        assert refresh.calls == 1
+
+    def test_without_a_refresh_callback_expired_credentials_are_permission_denied(self, store):
+        store.statuses = [400]
+        store.error_body = b"<Error><Code>ExpiredToken</Code></Error>"
+        with pytest.raises(RemoteInputError) as caught:
+            _read(_source(store).open())
+        assert caught.value.error_code == PERMISSION_DENIED
+        assert "refused the presigned URL (HTTP 400)" in str(caught.value)
+
+    @pytest.mark.parametrize("slow", [False, True])
+    def test_other_bad_requests_are_not_refreshed(self, store, slow):
+        store.statuses = [400]
+        store.error_body = b"<Error><Code>ExpiredToken</Code></Error>" if slow else b"<Error/>"
+        store.slow_error_body = slow  # the body is not waited for
+        refresh = Refresher()
+        with pytest.raises(RemoteInputError) as caught:
+            _read(_source(store, refresh=refresh, timeout=0.2).open())
+        assert str(caught.value) == "The object store at '127.0.0.1' answered HTTP 400"
+        assert refresh.calls == 0
+
+    def test_a_fresh_url_that_is_refused_too_fails_the_read(self, store):
+        store.statuses = [403, 403]
+        refresh = Refresher(_fresh(store), _fresh(store, "second"))
+        with pytest.raises(RemoteInputError) as caught:
+            _read(_source(store, refresh=refresh).open())
+        assert caught.value.error_code == PERMISSION_DENIED
+        assert "(HTTP 403) although it had just been refreshed" in str(caught.value)
+        assert refresh.calls == 1 and len(store.requests) == 2
+
+    @pytest.mark.parametrize(
+        "failure, message, retryable",
+        [
+            (RemoteInputError("the gateway is unreachable", retryable=True), None, True),
+            (TimeoutError(), "TimeoutError", False),
+            (5, "the refresh callback returned int, not a URL", False),
+        ],
+    )
+    def test_a_refresh_that_fails_fails_the_read(self, store, failure, message, retryable):
+        store.statuses = [403]
+        with pytest.raises(RemoteInputError) as caught:
+            _read(_source(store, refresh=Refresher(failure)).open())
+        reason = message or str(failure)
+        assert str(caught.value) == (
+            f"The input URL expired and a fresh one could not be obtained: {reason}"
+        )
+        assert caught.value.error_code == PERMISSION_DENIED
+        assert caught.value.retryable is retryable
+
+    def test_fresh_urls_are_bounded(self, store):
+        store.statuses = [403, None, 403]
+        refresh = Refresher(_fresh(store), _fresh(store, "second"))
+        head = _source(store, refresh=refresh, max_refreshes=1).open_head()
+        head.read(HEAD_CHUNK_BYTES)
+        with pytest.raises(RemoteInputError) as caught:
+            head.read(10)
+        assert "the limit of 1 fresh URLs for one input was reached" in str(caught.value)
+        assert refresh.calls == 1
+
+    @pytest.mark.parametrize(
+        "fresh",
+        [
+            "{base}/bucket/other.csv?sig=1",
+            "https://127.0.0.1:{port}/bucket/people.csv?sig=1",
+            "http://localhost:{port}/bucket/people.csv?sig=1",
+            "http://127.0.0.1:1/bucket/people.csv?sig=1",
+            "http://user:pw@127.0.0.1:{port}/bucket/people.csv?sig=1",
+            "http://127.0.0.1:port/bucket/people.csv?sig=1",
+            "not a url",
+        ],
+    )
+    def test_a_fresh_url_must_name_the_same_object(self, store, fresh):
+        port = store.base.rsplit(":", 1)[1]
+        store.statuses = [403]
+        refresh = Refresher(fresh.format(base=store.base, port=port))
+        with pytest.raises(RemoteInputError) as caught:
+            _read(_source(store, refresh=refresh).open())
+        assert "does not name the job's input" in str(caught.value)
+        assert caught.value.error_code == INPUT_UNREADABLE
+        assert "sig=1" not in str(caught.value) and "pw" not in str(caught.value)
+        assert len(store.requests) == 1  # nothing was asked of another object
+
+    def test_a_fresh_url_for_another_object_is_refused_before_a_request_too(self, store):
+        refresh = Refresher(_fresh(store, path="/bucket/other.csv"))
+        source = _source(
+            store, refresh=refresh, clock=lambda: NOW, url=_signed(store, signed_at=NOW - 3500)
+        )
+        with pytest.raises(RemoteInputError, match="does not name the job's input"):
+            _read(source.open())
+        assert store.requests == []
+
+    def test_fresh_urls_are_secrets(self, store):
+        store.statuses = [403]
+        source = _source(store, refresh=Refresher(_fresh(store)))
+        _read(source.open())
+        assert source.secrets() == [
+            f"{store.base}/bucket/people.csv?{SIGNATURE}",
+            SIGNATURE,
+            _fresh(store),
+            "X-Amz-Signature=fresh",
+        ]
+
+
+class TestRunJobWithFreshUrls:
+    def test_a_url_that_expires_mid_stream_is_replaced_and_the_output_is_the_same(
+        self, store, tmp_path
+    ):
+        streamed, staged = tmp_path / "streamed", tmp_path / "staged"
+        streamed.mkdir()
+        (staged / "in").mkdir(parents=True)
+        (staged / "in" / "people.csv").write_bytes(PEOPLE)
+        store.drops = [300_000]
+        store.expire_on_drop = True
+        refresh = Refresher(_fresh(store))
+
+        result = run_job(
+            _spec(store),
+            base_dir=streamed,
+            allowed_url_hosts=[store.host],
+            refresh_input_url=refresh,
+        )
+        local = _spec(store)
+        local["input"]["location"] = {"type": "file", "path": "in/people.csv"}
+        expected = run_job(local, base_dir=staged)
+
+        assert result.status == "succeeded", result.error
+        assert result.counts == expected.counts and result.counts["total_rows"] == ROWS
+        assert pq.read_table(streamed / "out" / "data.parquet").equals(
+            pq.read_table(staged / "out" / "data.parquet")
+        )
+        assert refresh.calls == 1 and _queries(store)[-1] == "fresh"
+        metadata = (streamed / "out" / "metadata.json").read_text()
+        assert "fresh" not in metadata and SIGNATURE not in metadata
+
+    def test_fresh_urls_never_reach_the_result(self, store, tmp_path):
+        store.expired = {SIGNATURE}
+        store.drops = [300_000]
+        store.expire_on_drop = True
+        fresh = _fresh(store, "freshsecret")
+        refresh = Refresher(fresh, RuntimeError(f"no URL after {fresh}"))
+
+        result = run_job(
+            _spec(store),
+            base_dir=tmp_path,
+            allowed_url_hosts=[store.host],
+            refresh_input_url=refresh,
+        )
+        assert result.error.code == PERMISSION_DENIED
+        assert "a fresh one could not be obtained: no URL after <redacted>" in result.error.message
+        assert "freshsecret" not in str(result.to_dict())
+
+    def test_refresh_input_url_must_be_callable(self, store, tmp_path):
+        with pytest.raises(TypeError, match="refresh_input_url must be callable, got str"):
+            run_job(_spec(store), base_dir=tmp_path, refresh_input_url="https://store/x")
+
+
+class TestRunJobCommand:
+    """``forklift run-job --input-url-requests`` in a process of its own; the test answers its
+    requests the way the worker's supervisor does."""
+
+    def _run(self, store, tmp_path, answer, *extra):
+        spec, result = tmp_path / "spec.json", tmp_path / "result.json"
+        spec.write_text(json.dumps(_spec(store)))
+        command = [sys.executable, "-m", "forklift", "run-job", str(spec), "--base-dir"]
+        command += [str(tmp_path), "--result", str(result), "--allow-url-host", store.host]
+        process = subprocess.Popen(
+            [*command, "--progress-jsonl", "--input-url-requests", *extra],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=dict(os.environ, PYTHONPATH=str(SRC)),
+        )
+        requests = []
+        for line in process.stdout:
+            message = json.loads(line)
+            if message.get("type") == "input_url":
+                requests.append(message)
+                if answer is not None:
+                    process.stdin.write(answer)
+                    process.stdin.flush()
+        process.stdin.close()
+        process.wait(timeout=120)
+        return process.returncode, requests, json.loads(result.read_text())
+
+    def test_an_answered_request_keeps_the_job_going(self, store, tmp_path):
+        store.expired = {SIGNATURE}
+        answer = json.dumps({"url": _fresh(store)}).encode() + b"\n"
+        code, requests, result = self._run(store, tmp_path, answer)
+
+        assert code == 0, result["error"]
+        assert requests == [{"type": "input_url"}]
+        assert result["counts"]["total_rows"] == ROWS
+        assert _queries(store)[-1] == "fresh"
+
+    @pytest.mark.parametrize(
+        "answer, extra, reason",
+        [
+            (b'{"error": "the lease of the job is lost"}\n', (), "the lease of the job is lost"),
+            (None, ("--input-url-timeout", "0.5"), "came on stdin within 0.5 seconds"),
+            (b"nonsense\n", (), 'the answer on stdin is not {"url": "..."} or {"error": "..."}'),
+        ],
+    )
+    def test_without_a_fresh_url_the_job_fails(self, store, tmp_path, answer, extra, reason):
+        store.expired = {SIGNATURE}
+        code, requests, result = self._run(store, tmp_path, answer, *extra)
+
+        assert code == 1 and len(requests) == 1
+        assert result["error"]["code"] == PERMISSION_DENIED
+        message = result["error"]["message"]
+        assert message.startswith("The input URL expired and a fresh one could not be obtained: ")
+        assert reason in message

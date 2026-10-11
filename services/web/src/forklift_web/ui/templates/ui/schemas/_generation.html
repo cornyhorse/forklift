@@ -1,0 +1,16 @@
+{# A schema generated for the editor: polls the generate_schema job until it finishes. #}
+<div{% if job.status == "queued" or job.status == "running" %} hx-get="{% url 'ui:job-generation' job_id=job.pk %}" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %} class="card">
+  {% if job.status == "queued" or job.status == "running" %}
+    <p>Generating… <span class="badge {{ job.status }}">{{ job.get_status_display }}</span></p>
+    <p class="muted">{% if job.status == "queued" %}Waiting for an interactive worker.{% else %}A worker is reading the file.{% endif %}</p>
+  {% elif job.status == "succeeded" and artifact %}
+    <p class="alert ok">A schema was generated from {{ job.upload.filename|default:"the file" }}.</p>
+    <div class="actions"><button type="button" class="secondary" data-use-generated="{% url 'api-v1:download_artifact' artifact_id=artifact.pk %}" hidden>Use it in the editor</button></div>
+    <p class="muted" data-generated-status></p>
+  {% elif job.status == "succeeded" %}
+    <p class="alert warn">The job finished, but its schema file is no longer kept (retention).</p>
+  {% else %}
+    <div class="alert error"><p><strong>No schema was generated{% if job.status == "cancelled" %} (the job was cancelled){% endif %}.</strong></p><p><code>{{ job.error_code }}</code>: {{ job.error_message }}</p></div>
+  {% endif %}
+  <p><a href="{% url 'ui:job' job_id=job.pk %}">The job's page</a></p>
+</div>

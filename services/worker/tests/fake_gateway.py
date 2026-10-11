@@ -1,9 +1,14 @@
 """An in-process fake of the gateway's internal API, with a minimal object store (tests only).
 
-``FakeGateway`` serves ``/internal/v1`` (leases, heartbeats, presign, complete) from memory, the
-way the brief specifies it, and under ``/store/`` an object store that its "presigned" URLs point
-at: GET returns an object with Content-Length and ETag, PUT stores a body and checks Content-MD5
-the way S3 does. ``fail(endpoint, ...)`` queues faults; every request is recorded.
+``FakeGateway`` serves ``/internal/v1`` (leases, heartbeats, presign, parts, complete) from
+memory, the way the brief specifies it, and under ``/store/`` an object store that its
+"presigned" URLs point at: GET returns an object with Content-Length and ETag, PUT stores a body
+and checks Content-MD5 the way S3 does. With ``multipart_threshold`` set, presign answers larger
+files with a multipart upload: parts are PUT to ``/store/<key>?partNumber=..&uploadId=..``
+(``expire_part_urls()`` makes the URLs signed so far answer 403, as expired ones do), and
+complete assembles the object once the parts' ETags give the reported ``parts_sha256``.
+``fail(endpoint, ...)`` queues faults (``part`` for part PUTs); every request is recorded.
+``input-url`` answers with ``fresh_input(job)``: the job's input URL, signed anew.
 """
 
 from __future__ import annotations
@@ -20,7 +25,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 SIGNATURE = "X-Amz-Signature=0123456789abcdef0123456789abcdef"
 CONTRACT = Path(__file__).resolve().parents[3] / "contracts" / "jobresult.schema.json"
@@ -51,6 +56,13 @@ class FakeGateway:
         self.contract_errors: list[str] = []  # completed results that break the JobResult schema
         self.cancel_when: Callable[[FakeJob, dict], bool] | None = None
         self.lost_when: Callable[[FakeJob, dict], bool] | None = None
+        self.multipart_threshold: int | None = None  # None: single PUTs only
+        self.part_size = 4
+        self.first_parts = 2  # part URLs in a presign answer
+        self.url_seconds: float | None = None  # expires_in in presign and parts answers
+        self.part_delay = 0.0  # seconds each part PUT takes
+        self.multipart: dict[str, dict[str, Any]] = {}  # upload id -> {"key", "parts"}
+        self.url_generation = 0
         self.changed = threading.Condition()
         self._ids = itertools.count(1)
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
@@ -94,6 +106,50 @@ class FakeGateway:
     def upload_target(self, key: str) -> tuple[str, dict[str, str]]:
         """The presigned PUT URL and headers for ``key`` (a real store overrides this)."""
         return f"{self.url}/store/{key}?{SIGNATURE}", {"Content-Type": "application/octet-stream"}
+
+    # Multipart uploads (a real store overrides these three)
+
+    def start_multipart(self, key: str) -> str:
+        upload_id = f"upload-{next(self._ids)}"
+        self.multipart[upload_id] = {"key": key, "parts": {}}
+        return upload_id
+
+    def part_url(self, key: str, upload_id: str, number: int) -> str:
+        return (
+            f"{self.url}/store/{key}?partNumber={number}&uploadId={upload_id}"
+            f"&generation={self.url_generation}&{SIGNATURE}"
+        )
+
+    def finish_multipart(self, key: str, upload_id: str, count: int, digest: str) -> str:
+        """Complete an upload whose parts 1 to ``count`` give ``digest`` (parts_sha256), as the
+        gateway checks it; returns what is wrong ("" if nothing)."""
+        held = self.multipart.get(upload_id, {}).get("parts", {})
+        bodies = [held.get(number) for number in range(1, count + 1)]
+        if None in bodies:
+            return "a part is missing"
+        etags = "".join(f"{hashlib.md5(body).hexdigest()}\n" for body in bodies)
+        if hashlib.sha256(etags.encode()).hexdigest() != digest:
+            return "the parts do not give the reported parts_sha256"
+        self.objects[key] = b"".join(bodies)
+        del self.multipart[upload_id]
+        return ""
+
+    def expire_part_urls(self) -> None:
+        self.url_generation += 1
+
+    def part_answer(self, key: str, upload_id: str, numbers) -> dict[str, Any]:
+        return {
+            "parts": [
+                {"part_number": n, "url": self.part_url(key, upload_id, n)} for n in numbers
+            ],
+            **({"expires_in": self.url_seconds} if self.url_seconds is not None else {}),
+        }
+
+    def fresh_input(self, job: FakeJob) -> dict[str, Any]:
+        """The location input-url answers with (a real store overrides this)."""
+        fresh = len(self.calls("input-url"))
+        location = job.spec["input"]["location"]
+        return {**location, "url": f"{location['url']}&fresh={fresh}"}
 
     def enqueue(
         self, spec: dict[str, Any] | None = None, *, attempt: int = 1, **fields
@@ -233,18 +289,38 @@ def _handler(gateway: FakeGateway):
             self._send(206, data[start : end + 1], {"ETag": etag, "Content-Range": content_range})
 
         def do_PUT(self) -> None:
-            key = urlsplit(self.path).path.removeprefix("/store/")
+            url = urlsplit(self.path)
+            key = url.path.removeprefix("/store/")
+            query = {name: values[0] for name, values in parse_qs(url.query).items()}
             body = self._body()
-            self._record("put", {"key": key, "bytes": len(body)})
-            if self._fault("put"):
+            endpoint = "part" if "uploadId" in query else "put"
+            self._record(
+                endpoint, {"key": key, "bytes": len(body), "part": query.get("partNumber")}
+            )
+            if endpoint == "part":
+                time.sleep(gateway.part_delay)
+            if self._fault(endpoint):
                 return
             expected = self.headers.get("Content-MD5")
             if expected and base64.b64encode(hashlib.md5(body).digest()).decode() != expected:
                 self._send(400, b"<Error><Code>BadDigest</Code></Error>")
                 return
-            gateway.objects[key] = body
-            self._send(200, b"", {"ETag": f'"{hashlib.md5(body).hexdigest()}"'})
+            if endpoint == "part":
+                self._put_part(key, query, body)
+            else:
+                gateway.objects[key] = body
+                self._send(200, b"", {"ETag": f'"{hashlib.md5(body).hexdigest()}"'})
             gateway.notify()
+
+        def _put_part(self, key: str, query: dict[str, str], body: bytes) -> None:
+            upload = gateway.multipart.get(query["uploadId"])
+            if int(query.get("generation", -1)) != gateway.url_generation:
+                self._send(403, b"<Error><Code>AccessDenied</Code></Error>")
+            elif upload is None or upload["key"] != key:
+                self._send(404, b"<Error><Code>NoSuchUpload</Code></Error>")
+            else:
+                upload["parts"][int(query["partNumber"])] = body
+                self._send(200, b"", {"ETag": f'"{hashlib.md5(body).hexdigest()}"'})
 
         # ------------------------------------------------------------------- internal API
 
@@ -313,25 +389,61 @@ def _handler(gateway: FakeGateway):
                     job.cancel = True
                 self._json(200, {"lease_seconds": gateway.lease_seconds, "cancel": job.cancel})
             elif endpoint == "presign":
-                uploads = []
-                for item in body["files"]:
-                    key = f"jobs/{job_id}/attempt-{job.attempt}/{item['name']}"
-                    url, headers = gateway.upload_target(key)
-                    uploads.append(
-                        {
-                            "name": item["name"],
-                            "key": key,
-                            "url": url,
-                            "method": "PUT",
-                            "headers": headers,
-                        }
-                    )
+                prefix = f"jobs/{job_id}/attempt-{job.attempt}/"
+                uploads = [
+                    self._presigned(prefix, item, body.get("multipart")) for item in body["files"]
+                ]
                 self._json(200, {"uploads": uploads})
+            elif endpoint == "parts":
+                key = f"jobs/{job_id}/attempt-{job.attempt}/{body['name']}"
+                self._json(200, gateway.part_answer(key, body["upload_id"], body["part_numbers"]))
             elif endpoint == "complete":
+                for artifact in body["artifacts"]:
+                    if artifact.get("upload_id"):
+                        problem = gateway.finish_multipart(
+                            artifact["key"],
+                            artifact["upload_id"],
+                            artifact["part_count"],
+                            artifact["parts_sha256"],
+                        )
+                        if problem:
+                            self._json(400, {"detail": problem})
+                            return
                 gateway.contract_errors += contract_errors(body["result"])
                 job.completed = body
                 self._json(200, {})
+            elif endpoint == "input-url":
+                self._json(200, {"location": gateway.fresh_input(job)})
             else:
                 self._json(404, {"detail": "no such endpoint"})
+
+        def _presigned(self, prefix: str, item: dict[str, Any], multipart) -> dict[str, Any]:
+            key = prefix + item["name"]
+            expires = {} if gateway.url_seconds is None else {"expires_in": gateway.url_seconds}
+            threshold = gateway.multipart_threshold
+            if not multipart or threshold is None or item["bytes"] <= threshold:
+                url, headers = gateway.upload_target(key)
+                return {
+                    "name": item["name"],
+                    "key": key,
+                    "url": url,
+                    "method": "PUT",
+                    "headers": headers,
+                    **expires,
+                }
+            upload_id = gateway.start_multipart(key)
+            count = -(-item["bytes"] // gateway.part_size)
+            first = range(1, min(count, gateway.first_parts) + 1)
+            return {
+                "name": item["name"],
+                "key": key,
+                "url": None,
+                "method": "PUT",
+                "headers": {},
+                "upload_id": upload_id,
+                "part_size": gateway.part_size,
+                "part_count": count,
+                **gateway.part_answer(key, upload_id, first),
+            }
 
     return Handler

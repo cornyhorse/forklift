@@ -31,7 +31,8 @@ need a newer Python (Django) and heavier dependencies that library users must no
 
 - Contract and engine changes land atomically with the service changes that need them.
 - `pip install forklift-etl` stays light; the service is `pip install forklift-web` or an image.
-- The existing publish workflow fires on every published release, so it must ignore tags that do
-  not start with `v` before the first non-engine release.
+- The engine's publish workflow runs on pushed tags that match `v*` (it used to run on every
+  published release and would have needed a guard), so the other packages' prefixed tags do not
+  start it.
 - Moving the engine into `packages/` later remains possible but is not needed; doing it now would
   churn every import path in the history and the release workflow for no gain.

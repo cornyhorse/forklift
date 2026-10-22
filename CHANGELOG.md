@@ -185,6 +185,12 @@ that can alter output** (marked **Breaking**); please read "Changed" before upgr
 - `output_max_bytes` goes up to 5 TiB and defaults to 1 TiB (it was at most, and by default,
   5 GiB).
 - `forklift-web` depends on `tzdata`, so slim images have time zone data.
+- Publishing to PyPI starts when a `vX.Y.Z` tag is pushed, not when a GitHub release is published:
+  the repository is moving to Gitea as the primary with GitHub as a push mirror, and a mirror
+  push carries tags but never creates a release. The tag must still equal the package version.
+  The workflow file and its `pypi` environment are unchanged, so the PyPI trusted publisher keeps
+  working. A release page can still be written by hand for the notes. See
+  `docs/guides/VERSION_RELEASE_PROCESS.md`.
 
 ### Added
 

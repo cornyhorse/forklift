@@ -1,7 +1,9 @@
 # Forklift Version Release Process
 
-This guide describes how to release a new version of Forklift: preparing the version, creating the
-GitHub release, and what the automated PyPI publish workflow checks before anything is uploaded.
+This guide describes how to release a new version of Forklift: preparing the version, pushing the
+version tag, and what the automated PyPI publish workflow checks before anything is uploaded.
+
+**Pushing a `vX.Y.Z` tag is what publishes to PyPI.** Creating a GitHub release does not.
 
 ## Prerequisites
 
@@ -46,7 +48,7 @@ Edit the version in **both** places so they never disagree:
 - `pyproject.toml`: `version = "0.1.4"`
 - `src/forklift/__init__.py`: `__version__ = "0.1.4"`
 
-The publish workflow fails if the release tag does not equal the version in `pyproject.toml`
+The publish workflow fails if the pushed tag does not equal the version in `pyproject.toml`
 (see [What the publish workflow checks](#what-the-publish-workflow-checks)).
 
 #### 2.2 Changelog
@@ -86,7 +88,7 @@ tar -tzf dist/forklift_etl-0.1.4.tar.gz      # source files, schema-standards/, 
 Also exercise the key functionality with real data and, if you can, the oldest and newest
 supported Python versions. CI runs the full suite on Python 3.12, 3.13 and 3.14.
 
-### 4. GitHub Release
+### 4. Tag the Release
 
 #### 4.1 Merge via pull request
 
@@ -107,7 +109,19 @@ git tag -a v0.1.4 -m "Release version 0.1.4"
 git push origin refs/tags/v0.1.4
 ```
 
-#### 4.3 Create the GitHub release
+**Pushing the tag is what triggers the PyPI publish workflow.** The repository is moving to Gitea
+as the primary copy, with GitHub as a push mirror, and a mirror push carries tags but never creates
+a GitHub release. So the workflow starts on the tag push (a `v*` tag) and not on a release event.
+It does not matter whether the tag is pushed to GitHub directly or arrives there through the
+mirror.
+
+GitHub starts no workflow when more than three tags arrive in one push, so push a release tag on
+its own.
+
+#### 4.3 Optional: write a GitHub release page
+
+A release page is only a place for the notes. Creating or publishing one does **not** publish to
+PyPI, and the publish workflow does not wait for it. To write one:
 
 1. Go to the repository on GitHub -> Releases -> "Draft a new release"
 2. Choose the tag `v0.1.4` (it already exists)
@@ -115,21 +129,21 @@ git push origin refs/tags/v0.1.4
 4. Paste the release notes from `CHANGELOG.md`
 5. Click "Publish release"
 
-**Publishing the release is what triggers the PyPI publish workflow.**
-
 ### 5. PyPI Release
 
 #### 5.1 Automated publish (preferred)
 
-`.github/workflows/publish.yaml` runs when a GitHub release is published and uploads to PyPI with
+`.github/workflows/publish.yaml` runs when a `v*` tag is pushed and uploads to PyPI with
 [trusted publishing](https://docs.pypi.org/trusted-publishers/) (no API token is stored in the
-repository). It stops before uploading anything if one of the checks below fails.
+repository). It stops before uploading anything if one of the checks below fails. The workflow that
+runs is the one in the tagged commit, so a tag pushed before this trigger was merged does not start
+it.
 
 ##### What the publish workflow checks
 
-1. **Tag equals version** - the release tag (a leading `v` is ignored) must equal
-   `project.version` in `pyproject.toml`, otherwise the workflow fails. Fix the version (or
-   re-tag) and publish the release again.
+1. **Tag equals version** - the pushed tag (a leading `v` is ignored) must equal
+   `project.version` in `pyproject.toml`, otherwise the workflow fails. Fix the version, then
+   delete the tag and push it again on the fixed commit.
 2. **Build and metadata** - `python -m build` builds the sdist and wheel and `twine check` verifies
    their metadata.
 3. **Install and test** - on Python 3.12, 3.13 and 3.14 the built wheel is installed with its extras,
@@ -210,8 +224,16 @@ git push origin --delete refs/heads/v0.1.4    # if the branch must go
 ### Publish workflow: "Release tag ... does not match the pyproject.toml version"
 
 The tag and `project.version` disagree. Either the version was not bumped before tagging or the
-tag has a typo. Delete the release and tag (or move the tag to the fixed commit), correct the
-version, and publish the release again.
+tag has a typo. Correct the version on `main`, delete the tag (`git push origin --delete
+refs/tags/v0.1.4`, and on the Gitea side too if it is the primary), and push it again on the fixed
+commit. Nothing was uploaded to PyPI: the check runs before the upload.
+
+### I published a GitHub release and nothing was uploaded
+
+A release no longer starts the publish workflow; the tag push does. If the tag was pushed, look at
+the workflow run for that tag under Actions. If the run is missing, the tag was pushed together with
+more than three others (GitHub starts no workflow then), or it was pushed before the workflow
+trigger was changed; delete the tag and push it again on its own.
 
 ### SSH instead of HTTPS authentication
 
@@ -233,12 +255,12 @@ Keep generated files out of version control, e.g. `bad_rows_*.json` in `.gitigno
 - [ ] `CHANGELOG.md` updated (`[Unreleased]` moved to the new version)
 - [ ] Local build checked: `python -m build` and `twine check dist/*`
 
-### GitHub Release
+### Tag
 - [ ] Pull request merged to `main`
 - [ ] Switched to `main` and pulled the latest
 - [ ] Tag created from `main`: `git tag -a v0.1.4 -m "Release version 0.1.4"`
-- [ ] Tag pushed: `git push origin refs/tags/v0.1.4`
-- [ ] GitHub release published with release notes (this starts the PyPI workflow)
+- [ ] Tag pushed: `git push origin refs/tags/v0.1.4` (this starts the PyPI workflow)
+- [ ] Optional: GitHub release page written with the notes (it does not start anything)
 
 ### PyPI
 - [ ] Publish workflow finished green (tag check, build, tests, upload)

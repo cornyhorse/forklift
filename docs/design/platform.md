@@ -628,9 +628,9 @@ docs/                                   one documentation tree for everything
 ```
 
 - The engine stays at the root ([ADR 0001](adr/0001-monorepo-layout.md)): no import or packaging
-  churn, and the existing release workflow keeps working. It does need one guard: it runs on every
-  published release and checks the tag against the engine's version, so it must skip tags that do
-  not start with `v`.
+  churn, and the existing release workflow keeps working. It runs when a tag matching `v*` is
+  pushed and checks the tag against the engine's version, so the other packages' prefixed tags
+  (`web-v*`, ...) never start it.
 - The engine keeps its wide support matrix (Python 3.8+, pyarrow 16 and newer). The services pin
   their own Python (3.12+, to confirm against the current Django LTS when work starts) and are
   tested in their own CI jobs, selected by path filters.

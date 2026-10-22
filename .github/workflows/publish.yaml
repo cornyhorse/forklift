@@ -1,8 +1,13 @@
 name: Publish to PyPI
 
+# Publishing starts when a version tag is pushed (`git push origin refs/tags/v0.1.5`), not when a
+# GitHub release is created. The repository is moving to Gitea as the primary with GitHub as a push
+# mirror, and a mirror push carries tags but never creates a release. A release page may still be
+# written by hand for the notes; it no longer triggers anything.
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+    - 'v*'
 
 # Least privilege: only the publish job below gets an OIDC token (trusted publishing).
 permissions:
@@ -22,11 +27,12 @@ jobs:
       with:
         python-version: '3.12'
 
-    # The release tag (a leading "v" is ignored) must be the version in pyproject.toml, so a
-    # release can never publish a package whose version differs from the tag it was cut from.
+    # The pushed tag (a leading "v" is ignored) must be the version in pyproject.toml, so a tag can
+    # never publish a package whose version differs from the tag it was cut from. The version is
+    # static in pyproject.toml (hatchling, no VCS versioning), so it is checked here.
     - name: Verify release tag matches the package version
       env:
-        TAG_NAME: ${{ github.event.release.tag_name }}
+        TAG_NAME: ${{ github.ref_name }}
       run: |
         python - <<'PY'
         import os
@@ -40,7 +46,7 @@ jobs:
         if version != expected:
             sys.exit(
                 f"Release tag {tag!r} does not match the pyproject.toml version {version!r}; "
-                "bump the version (or re-tag) and publish the release again."
+                "bump the version, then delete the tag and push it again on the fixed commit."
             )
         print(f"Release tag {tag!r} matches pyproject.toml version {version!r}")
         PY
@@ -112,7 +118,7 @@ jobs:
   publish-pypi:
     runs-on: ubuntu-latest
     needs: [build, test]
-    if: github.event_name == 'release' && github.event.action == 'published'
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     environment:
       name: pypi
       url: https://pypi.org/p/forklift-etl

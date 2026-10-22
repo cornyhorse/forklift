@@ -1374,8 +1374,21 @@ class TestWorkflows:
         assert "pytest tests/unit-tests" in script
         assert "tomllib" in script and "TAG_NAME" in script  # tag vs pyproject.toml version
         # the tag is passed through the environment, never interpolated into the script
-        assert "github.event.release.tag_name" in str(publish)
-        assert "${{ github.event.release.tag_name }}" not in script
+        assert "github.ref_name" in str(publish)
+        assert "${{ github.ref_name }}" not in script
+        assert "github.event.release" not in str(publish)
+
+    def test_publish_starts_on_a_pushed_version_tag_only(self, workflows):
+        publish = workflows["publish.yaml"]
+        # PyYAML reads the key `on` as the boolean True
+        triggers = publish.get("on", publish.get(True))
+        # a mirror push carries tags but never creates a release: tags are the only trigger
+        assert triggers == {"push": {"tags": ["v*"]}}
+        job = publish["jobs"]["publish-pypi"]
+        assert "github.ref_type == 'tag'" in job["if"]
+        assert "release" not in job["if"]
+        # the trusted publisher on PyPI is registered for this workflow file and environment
+        assert job["environment"]["name"] == "pypi"
 
     def test_publish_version_check_script(self, workflows):
         tomllib = pytest.importorskip("tomllib")

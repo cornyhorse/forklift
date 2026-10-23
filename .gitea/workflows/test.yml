@@ -1,0 +1,413 @@
+# Gitea Actions port of .github/workflows/test.yml (the full test suite on the Gitea runner, label ubuntu-latest).
+# What differs from the GitHub original:
+#   - The runner's jobs have no Docker daemon, so `docker compose` cannot start the test services. The `services` job and the `web` and
+#     `worker` jobs get RustFS, PostgreSQL, MySQL, SQL Server and Oracle as `services:` of the job instead (the same images and
+#     credentials as tests/integration-tests/services/compose.yaml), reached by their service names, with no `ports:` mapping. The tests'
+#     FORKLIFT_TEST_* / FORKLIFT_* variables point at those names.
+#   - NOT ported: the `platform-e2e` job (builds and runs the whole deploy/compose stack with docker compose) and the `docker build`
+#     steps of the `web` and `worker` jobs (they need a Docker daemon). They stay on GitHub.
+#   - NOT ported: the Codecov upload (it needs the CODECOV_TOKEN secret; there are no secrets on Gitea) and the
+#     `kernel.apparmor_restrict_unprivileged_userns` sysctl in the `worker` job (a job must not change the runner's kernel settings;
+#     the tests that need user namespaces or Landlock skip themselves when the kernel does not offer them).
+#   - The repository variables FORKLIFT_TEST_MSSQL_IMAGE / FORKLIFT_TEST_ORACLE_IMAGE and the image-cache registry login are dropped:
+#     the images are pulled by the runner's Docker.
+#   - pip's cache is kept through setup-python's `cache: pip` instead of a separate actions/cache step; the coverage report is uploaded
+#     with actions/upload-artifact v3 (the v4 artifact service refuses servers other than github.com).
+#   - Triggers: push to main, and pull requests into main and develop (feature branches are covered by their pull requests).
+# No secrets are used, so it is safe on pull_request (including forks).
+name: Test Suite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main, develop ]
+
+# Least privilege: the tests never need to write to the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13', '3.14']
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: |
+          pyproject.toml
+          requirements*.txt
+
+    - name: Install system libraries (unixODBC runtime for pyodbc)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends unixodbc
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[all,dev]"
+
+    # Every line and branch of src/forklift is covered; the run fails if that slips. The service
+    # tests (tests/integration-tests/services) skip here and run in the services job below.
+    - name: Run tests with coverage
+      run: |
+        python -m pytest tests/ --cov=src/forklift/ --cov-report=xml --cov-report=term-missing --cov-report=html --cov-fail-under=100 -v
+
+    - name: Upload coverage report
+      if: always() && matrix.python-version == '3.12'
+      uses: actions/upload-artifact@c6a3b2bd78b3985e4b2f15397fec357f0fd808de # v3.2.2-node20
+      with:
+        name: coverage-report
+        path: htmlcov/
+
+  # The declared lower bound of pyarrow must keep working (numpy<2 and pandas<2.3 are what that
+  # pyarrow release was built against).
+  minimum-versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.12'
+
+    - name: Install system libraries (unixODBC runtime for pyodbc)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends unixodbc
+
+    - name: Install dependencies at their minimum supported versions
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[all,dev]" "pyarrow==16.1.0" "numpy<2" "pandas<2.3"
+
+    - name: Run unit tests
+      run: python -m pytest tests/unit-tests -v
+
+  # The core install (no extras) must import: pandas, polars, openpyxl, pyodbc ... are optional,
+  # so nothing outside the declared runtime dependencies may be imported at import time.
+  core-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.13'
+
+    - name: Install the package without extras
+      run: |
+        python -m pip install --upgrade pip
+        pip install .
+
+    - name: Import the package from outside the source tree
+      working-directory: ${{ runner.temp }}
+      run: |
+        python -c "import forklift; print(f'Forklift version: {forklift.__version__}')"
+        python -c "from forklift import generate_schema_from_csv, import_csv, read_csv, run_job"
+        python -c "import forklift.jobs, forklift.outputs.sql"
+
+  # Integration tests against real services: RustFS (S3-compatible object store), PostgreSQL,
+  # MySQL, SQL Server and Oracle Database Free, here the job's own service containers (the
+  # same images as tests/integration-tests/services/compose.yaml). The tests run as logins and
+  # with credentials that have only the privileges each test grants them.
+  services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      rustfs:
+        image: rustfs/rustfs:1.0.1
+        env:
+          RUSTFS_ACCESS_KEY: forklift-test
+          RUSTFS_SECRET_KEY: forklift-test-secret
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: forklift_admin
+          POSTGRES_PASSWORD: forklift-admin-secret
+          POSTGRES_DB: forklift_test
+        options: >-
+          --health-cmd "pg_isready -U forklift_admin -d forklift_test"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: forklift-admin-secret
+          MYSQL_DATABASE: forklift_test
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pforklift-admin-secret"
+          --health-interval 2s --health-timeout 5s --health-retries 60
+      mssql:
+        # SQL Server 2022 Developer edition. The SA password must meet the server's complexity
+        # policy (upper and lower case, digits and symbols).
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Forklift-Admin-Secret-1
+          MSSQL_PID: Developer
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S 127.0.0.1 -U sa -P Forklift-Admin-Secret-1 -b -Q 'SELECT 1'"
+          --health-interval 3s --health-timeout 10s --health-retries 60 --health-start-period 10s
+      oracle:
+        # Oracle Database Free (gvenzl's image; the faststart variant ships a created database).
+        # The tests connect to the pluggable database FREEPDB1 as SYSTEM.
+        image: gvenzl/oracle-free:23-slim-faststart
+        env:
+          ORACLE_PASSWORD: forklift-admin-secret
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 5s --health-timeout 10s --health-retries 60 --health-start-period 10s
+    env:
+      # The tests' defaults are 127.0.0.1 and the compose file's offset ports; here the services are reached by name.
+      FORKLIFT_TEST_SERVICES: "1"
+      FORKLIFT_TEST_S3_ENDPOINT: http://rustfs:9000
+      FORKLIFT_TEST_PG_HOST: postgres
+      FORKLIFT_TEST_PG_PORT: "5432"
+      FORKLIFT_TEST_MYSQL_HOST: mysql
+      FORKLIFT_TEST_MYSQL_PORT: "3306"
+      FORKLIFT_TEST_MSSQL_HOST: mssql
+      FORKLIFT_TEST_MSSQL_PORT: "1433"
+      FORKLIFT_TEST_ORACLE_HOST: oracle
+      FORKLIFT_TEST_ORACLE_PORT: "1521"
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: '3.13'
+        cache: pip
+        cache-dependency-path: |
+          pyproject.toml
+          requirements*.txt
+
+    - name: Install ODBC drivers (PostgreSQL, MariaDB for MySQL, SQL Server, Oracle)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends unixodbc odbc-postgresql odbc-mariadb curl gnupg unzip libaio1t64
+        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo gpg --dearmor --yes -o /usr/share/keyrings/microsoft-prod.gpg
+        curl -fsSL "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/microsoft-prod.list > /dev/null
+        sudo apt-get update
+        sudo ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18
+        for part in basiclite odbc; do
+          curl -fsSL -o "/tmp/instantclient-$part.zip" "https://download.oracle.com/otn_software/linux/instantclient/instantclient-$part-linuxx64.zip"
+          sudo unzip -q -o "/tmp/instantclient-$part.zip" -d /opt/oracle
+        done
+        IC=$(ls -d /opt/oracle/instantclient_* | sort -V | tail -1)
+        # Ubuntu 24.04 renamed libaio.so.1; Instant Client links the old name
+        sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1
+        echo "$IC" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf > /dev/null
+        sudo ldconfig
+        printf '[Oracle %s ODBC driver]\nDescription = Oracle Instant Client ODBC driver\nDriver = %s\n' \
+          "$(basename "$IC" | cut -d_ -f2)" "$(ls "$IC"/libsqora.so.* | head -1)" > /tmp/oracle-odbc.ini
+        sudo odbcinst -i -d -f /tmp/oracle-odbc.ini
+        odbcinst -q -d
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[all,dev]"
+
+    # FORKLIFT_TEST_SERVICES=1 (job env) makes an unreachable service fail the tests instead of skipping them
+    - name: Run the service tests
+      run: python -m pytest tests/integration-tests/services --no-cov -v
+
+  # forklift-web, the gateway: its own package, Python and coverage gate. Role matrices over every
+  # endpoint and every page, queue concurrency, trust boundary (no engine, no pyarrow), the real
+  # two-port gunicorn, browser tests, and the check that contracts/openapi.json is current.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13']
+    defaults:
+      run:
+        working-directory: services/web
+    services:
+      rustfs:
+        image: rustfs/rustfs:1.0.1
+        env:
+          RUSTFS_ACCESS_KEY: forklift-test
+          RUSTFS_SECRET_KEY: forklift-test-secret
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: forklift_admin
+          POSTGRES_PASSWORD: forklift-admin-secret
+          POSTGRES_DB: forklift_test
+        options: >-
+          --health-cmd "pg_isready -U forklift_admin -d forklift_test"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      # The tests' defaults (tests/django_settings.py) are 127.0.0.1 and the compose file's offset ports.
+      FORKLIFT_DB_HOST: postgres
+      FORKLIFT_DB_PORT: "5432"
+      FORKLIFT_S3_ENDPOINT_URL: http://rustfs:9000
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install forklift-web and its test dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]" "black>=23.12" "isort>=5.13" "flake8>=6.0"
+
+    # The UI's browser tests (sign in, uploads through real presigned PUTs, admin flows)
+    - name: Install Chromium for Playwright
+      run: python -m playwright install --with-deps chromium
+
+    - name: Check formatting and lint
+      run: |
+        black --check --diff --line-length 99 src tests
+        isort --check-only --diff --profile black --line-length 99 src tests
+        flake8 src tests
+
+    # The schema editor's CodeMirror bundle and completion vocabulary are committed; rebuilding
+    # them from frontend/ (exact versions from package-lock.json) must give the same files.
+    - name: Set up Node.js
+      if: matrix.python-version == '3.13'
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: services/web/frontend/package-lock.json
+
+    - name: Check that the editor bundle is reproducible
+      if: matrix.python-version == '3.13'
+      working-directory: services/web/frontend
+      run: |
+        npm ci --no-audit --no-fund
+        npm run build
+        git status --porcelain --untracked-files=all -- ../src/forklift_web/ui/static/ui
+        git diff --exit-code -- ../src/forklift_web/ui/static/ui
+        test -z "$(git status --porcelain --untracked-files=all -- ../src/forklift_web/ui/static/ui)"
+
+    # The PostgreSQL service is created with the admin login; the tests use a login of their own.
+    - name: Create the tests' database login
+      run: |
+        python - <<'PY'
+        import psycopg
+
+        with psycopg.connect(
+            "host=postgres port=5432 dbname=forklift_test user=forklift_admin password=forklift-admin-secret",
+            autocommit=True,
+        ) as connection:
+            connection.execute("CREATE ROLE forklift_web_test LOGIN PASSWORD 'forklift-web-test-secret' CREATEDB")
+        PY
+
+    - name: Run the tests
+      run: python -m pytest -v --cov=forklift_web --cov-branch --cov-report=term-missing --cov-fail-under=100
+
+  # forklift-worker, the supervisor: unit tests (100% coverage) and integration tests with the real
+  # engine (Landlock and the no-network profile where the kernel offers them, RustFS presigned URLs,
+  # a SQL-lane job against PostgreSQL).
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13', '3.14']
+    services:
+      rustfs:
+        image: rustfs/rustfs:1.0.1
+        env:
+          RUSTFS_ACCESS_KEY: forklift-test
+          RUSTFS_SECRET_KEY: forklift-test-secret
+        options: >-
+          --health-cmd "curl -fsS http://127.0.0.1:9000/health"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: forklift_admin
+          POSTGRES_PASSWORD: forklift-admin-secret
+          POSTGRES_DB: forklift_test
+        options: >-
+          --health-cmd "pg_isready -U forklift_admin -d forklift_test"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      FORKLIFT_TEST_S3_ENDPOINT: http://rustfs:9000
+      FORKLIFT_TEST_PG_HOST: postgres
+      FORKLIFT_TEST_PG_PORT: "5432"
+
+    steps:
+    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install ODBC drivers (PostgreSQL, MariaDB for MySQL)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends unixodbc odbc-postgresql odbc-mariadb
+
+    - name: Install the engine and the worker
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[excel,sql]" -e "services/worker[dev]"
+
+    - name: Check formatting and lint
+      run: |
+        black --check --line-length 99 services/worker
+        isort --check-only --profile black --line-length 99 services/worker
+        flake8 --max-line-length=99 --extend-ignore=E203,W503 services/worker
+
+    - name: Unit tests (every line and branch of forklift_worker)
+      working-directory: services/worker
+      run: python -m pytest tests/unit -v --cov=forklift_worker --cov-branch --cov-report=term-missing --cov-fail-under=100
+
+    - name: Integration tests (real engine, RustFS presigned URLs, SQL lane)
+      working-directory: services/worker
+      env:
+        FORKLIFT_TEST_SERVICES: "1"
+      run: python -m pytest tests/integration -v

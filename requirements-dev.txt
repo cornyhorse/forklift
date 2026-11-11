@@ -24,7 +24,7 @@ moto[s3]>=5.0.0
 psutil>=5.9.0
 
 # Release tooling
-build>=1.2.0
+build>=1.6.1
 twine>=5.1.0
 
 # Optional: real-S3 test runs (tests/unit-tests/test_s3_streaming.py --no-s3-mock) read the
